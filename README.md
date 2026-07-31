@@ -64,6 +64,11 @@ python -m acquisition acquire         # convenience: all of the above in order
 Scope lives in `config/fetch.yaml` and `config/companies.yaml` — never in code.
 Rerunning `download` is safe and re-fetches nothing that is already valid.
 
+Package layout: `core/` shared infrastructure, `stages/` one package per pipeline stage,
+`contracts.py` the stage protocol, `context.py` the composition root, `pipeline.py` the
+ordering. A stage is replaceable by swapping it in `context.py`; the pipeline never depends
+on a concrete stage class.
+
 Tests: `pytest -m "not live"` runs offline; `pytest -m live` hits the real SEC API.
 
 Current corpus: 109 Opendoor filings, 2,019 artifacts, 739.6 MiB.

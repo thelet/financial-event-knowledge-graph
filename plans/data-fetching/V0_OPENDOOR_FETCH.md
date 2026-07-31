@@ -114,6 +114,41 @@ executive offer letters, `EX-4.7` description of securities, `EX-23.1` auditor c
 
 ---
 
+# 0. Package map
+
+Structure per
+[REFACTOR_STAGE_STRUCTURE.md](REFACTOR_STAGE_STRUCTURE.md).
+
+```text
+acquisition/
+├── cli.py          argparse, rendering, exit codes -- no ordering, no I/O of its own
+├── contracts.py    PipelineStage protocol: name + typed run(). The replaceability seam
+├── context.py      composition root -- the only place concrete stages are named
+├── pipeline.py     stage ordering and abort semantics, and nothing else
+├── core/           shared application infrastructure
+│   models identity config sec_client storage manifests runmeta
+├── utils/          generic stateless helpers only (jsonl)
+└── stages/         discover resolve download catalog verify report
+```
+
+Four things worth knowing:
+
+- **Each stage is replaceable behind the shared protocol.** A stage is any object with a
+  `name` and a `run(request) -> result`; no inheritance is required. `pipeline.py` depends
+  on that protocol and on each stage's public request/result types, never on a stage class.
+- **Concrete implementation selection happens in `context.py`.** Swapping
+  `SgmlResolveStage` for a different resolver means editing that one file. Every
+  collaborator can also be overridden, which is how tests inject fakes.
+- **`utils/` is for generic stateless helpers**, not application services. Storage,
+  configuration, manifests, and the SEC client are `core/`, deliberately.
+- **A stage never imports another stage.** Shared needs go to `core/` or `utils/`. This is
+  enforced by `tests/acquisition/test_structure.py`, not merely documented.
+
+Stage names match CLI commands exactly: `discover`, `resolve`, `download`, `build-catalog`,
+`verify`, `report`.
+
+---
+
 # 1. Scope
 
 **In:** Opendoor Technologies Inc., CIK `0001801169`, forms 10-K / 10-Q / 8-K / DEF 14A,
