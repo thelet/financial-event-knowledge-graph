@@ -54,6 +54,10 @@ silently dropped.
 
 ## `ParsedDocument`
 
+**Ephemeral and never persisted.** `ParsedDocument` lives in memory between the parse and
+normalize stages. The authoritative persisted outputs are the selection manifest,
+`NormalizedDocument`, passages, issue records, and the run manifest — nothing else.
+
 Canonical but still parser-shaped: an ordered block list, no section tree yet. The section
 tree is the normalizer's job (v1 plan §4.3), so a parser that cannot infer hierarchy is
 still usable.
@@ -80,8 +84,26 @@ tag_name               source element name
 fragment_sha256        sha256 of the source HTML fragment
 table                  ParsedTable, only when block_type == table
 image_count            images inside this block
-attributes             dict, parser-specific extras, never read downstream
+source_style           SourceStyle — the canonical subset of styling the
+                       normalizer needs; replaces an untyped parser dict, which
+                       would be a leak channel regardless of intent
 ```
+
+## `SourceStyle`
+
+The only styling that crosses the adapter boundary. Everything else a parser knows stays
+inside that parser's module or its diagnostic output.
+
+```text
+font_weight            normalized numeric weight, null if unknown
+font_size              normalized points, null if unknown
+text_align
+display
+source_element_id      element @id when present; rare in this corpus (median 1 per doc)
+```
+
+These five fields exist because heading inference needs them (v1 plan §1.1) and for no
+other reason. If a future parser cannot supply one, it is null — never a passthrough dict.
 
 `block_type` values chosen to match the v1 plan's required distinctions. `page_header` and
 `page_number` exist so boilerplate can be classified rather than deleted — the normalizer
@@ -90,19 +112,27 @@ drops them, but the parser records that they were seen.
 ## `ParsedTable`
 
 ```text
-rows                   list[list[str]], cell text
+rows                   list[list[str]] — AUTHORITATIVE cell text
 header_rows            int, leading rows judged to be headers
 n_rows, n_cols
 has_merged_cells       bool, colspan/rowspan seen
-markdown               normalized Markdown rendering
-plain_text             row-joined text
-table_kind             data | layout | unknown
+markdown               DERIVED rendering of rows
+plain_text             DERIVED row-joined rendering of rows
+table_kind             data | layout | mixed | unknown
+kind_confidence        0.0-1.0
 caption                text, may be null
 ```
 
-`table_kind` is a recorded heuristic, never a silent filter (v1 plan §6). Both kinds are
-persisted — EX-21.1 has 511 characters of text and 68 table rows, so dropping layout tables
-would empty it.
+**`rows` is the authoritative representation.** `markdown` and `plain_text` are pure
+deterministic functions of `rows`, stored for convenience. Verification recomputes both and
+compares them to the stored values, so the three can never drift apart (v1 plan §13).
+
+`table_kind` is a recorded heuristic, never a silent filter, and **never removes a table
+from normalized content**. `unknown` is the default whenever the heuristic is not confident;
+`mixed` is reserved for a table holding both a data-like region and prose-only regions at
+the same nesting level. `mixed` is provisional — if the spike never produces one, it should
+be dropped rather than kept for symmetry. Every kind is persisted: EX-21.1 has 511
+characters of text and 68 table rows, so discarding any class of table would empty it.
 
 ---
 
@@ -145,13 +175,19 @@ blocks[]               ContentBlock, document order, flat and authoritative
 # structured-data lane, linked not interpreted (v1 plan §10)
 related_xbrl_artifact_ids[]
 
-# provenance and determinism
+# derivation metadata — DETERMINISTIC ONLY
+# No run_id, no timestamp, no code_commit. Those change on every run or every
+# unrelated commit and would make byte-identical reruns impossible, which is
+# check 5 in the v1 plan. They live in NormalizationRun, which records the
+# document_ids it produced, so "which run made this?" stays answerable.
 selection_policy_version
 parser_name, parser_version
 normalizer_version
+config_hash            over the effective normalization config
 source_content_sha256  MUST equal the acquisition catalog sha256
 content_sha256         over normalized text, for duplicate detection
-run_id, normalized_at, code_commit, config_hash
+derivation_id          sha256 over the version tuple + config_hash + source hash;
+                       one value identifying exactly how this output was produced
 
 # quality
 flags[]                requires_image_processing | low_text_yield
@@ -176,6 +212,8 @@ heading_block_id       the block that produced this heading, null for synthetic 
 block_ids[]            blocks belonging to this section, document order
 char_count
 heading_path[]         ancestor titles, root first — the human-readable locator
+heading_source         styled_text | filing_label | synthetic_root
+heading_confidence     0.0-1.0; drives the hierarchy_uncertain document flag
 ```
 
 ## `ContentBlock`
@@ -213,10 +251,12 @@ table_index            position among tables, tables only
 
 ```text
 table_index
-rows, header_rows, n_rows, n_cols
+rows                   AUTHORITATIVE
+header_rows, n_rows, n_cols
 has_merged_cells
-markdown, plain_text
-table_kind             data | layout | unknown
+markdown, plain_text   DERIVED from rows; verification recomputes and compares
+table_kind             data | layout | mixed | unknown
+kind_confidence
 caption
 flags[]                wide_table | continuation_table
 ```
@@ -254,7 +294,7 @@ locators[]             SourceLocator per contributing block
 content_sha256
 passage_strategy_name, passage_strategy_version
 parser_name, parser_version, normalizer_version
-run_id
+derivation_id          same deterministic derivation identity as the document
 flags[]                short_passage | oversize_table_passage
 ```
 
@@ -282,6 +322,10 @@ passage_strategy_name, passage_strategy_version
 code_commit, python_version, platform, dependency_versions{}
 counts{}               selected, parsed, normalized, failed, skipped,
                        documents, sections, blocks, passages, tables
+produced_document_ids[]  every document this run wrote; the reverse index that
+                         lets documents stay free of run_id
+parser_mode            normal | fallback | comparison
+fallback_document_ids[]  documents produced by the fallback parser, with cause
 errors[]
 ```
 
@@ -317,18 +361,33 @@ text_yield_pct         normalized chars / source bytes
 
 ---
 
-# 6. Derived catalogs
+# 6. Authoritative versus derived
 
-Rebuilt from the per-document JSON files. Never appended to concurrently, never
-authoritative — the same rule acquisition follows.
+Not everything can be rebuilt from the per-document files, and pretending otherwise breaks
+the corpus. A selection record exists for artifacts that were **excluded** and therefore
+have no document; an issue record exists for artifacts whose parse **failed** and therefore
+have no document either.
 
-| File | Row | Purpose |
+## Authoritative — cannot be regenerated from anything else
+
+| Artifact | Path | Why authoritative |
 | --- | --- | --- |
-| `selection.jsonl` | one per **acquired** artifact | decision + reason code for all 2,019 |
-| `documents.jsonl` | one per normalized document | corpus-level querying |
-| `passages.jsonl` | one per passage | the extraction lane's primary input |
-| `issues.jsonl` | one per issue | failures and flags |
+| Selection manifest | `normalization_manifests/<run_id>-selection.json` | Immutable per run. Covers all 2,019 acquired artifacts including exclusions |
+| Normalized documents | `data/normalized/.../<document_id>.json` | The corpus itself |
+| Passages | `<document_id>.passages.jsonl` | Written with their document, finalized atomically |
+| Issue records | `normalization_runs/<run_id>-issues.jsonl` | Includes failures with no document |
+| Run manifest | `normalization_manifests/<run_id>.json` | Version tuple, counts, produced document_ids |
+
+## Derived — rebuilt, never appended to concurrently
+
+| File | Row | Rebuilt from |
+| --- | --- | --- |
+| `documents.jsonl` | one per normalized document | per-document JSON |
+| `passages.jsonl` | one per passage | per-document passages JSONL |
+| `selection.jsonl` | one per acquired artifact | selection manifests |
+| `issues.jsonl` | one per issue | per-run issue records |
+| reports | — | all of the above |
 
 `documents.jsonl` and `passages.jsonl` finally use the names acquisition deliberately
-reserved. Sort order is `(cik10, filing_date, accession, document_id)` and then sequence,
-so rebuilds are byte-identical.
+reserved. Sort order is `(cik10, filing_date, accession, document_id)` then sequence, and no
+derived catalog carries a run id or timestamp, so rebuilds are byte-identical.

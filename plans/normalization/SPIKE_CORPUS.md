@@ -111,19 +111,28 @@ HTML that carries no structural information at all.
 | 16 (EX-4.1) | Long governance prose with interleaved tables stays ordered |
 | 17 (EX-10.12) | Contract prose and dense tables both survive |
 | 18 (EX-3.1) | 323 tables do not fragment the document into unusable passages |
-| 19 (EX-31.1) | **Excluded** with reason `BOILERPLATE_CERTIFICATION` |
+| 19 (EX-31.1) | **Excluded at selection** with reason `BOILERPLATE_CERTIFICATION`. Never reaches the parser, so it is not required to normalize |
 
 ---
 
 # Running the spike
 
-Both parsers run over all nineteen so the protocol is proven to be a real seam and the
-outputs can be diffed:
+Both parsers run over the **18 selected** fixtures in `comparison` mode, so the parser
+protocol is proven to be a real seam and the outputs can be diffed. Fixture 19 is not
+parsed at all in normal operation — it is rejected at selection, which is exactly what it
+is there to demonstrate:
 
 ```bash
-python -m normalization spike --fixtures plans/normalization/spike_fixtures.txt
-python -m normalization spike --parser lxml --compare
+# selection first: 18 included, fixture 19 excluded as BOILERPLATE_CERTIFICATION
+python -m normalization select --fixtures plans/normalization/spike_fixtures.txt
+
+# both parsers over the 18 selected, outputs diffed
+python -m normalization spike --mode comparison
 ```
+
+A separate parser-level test may hand fixture 19 straight to a parser to confirm
+certifications do not crash it, but that is a parser test and sits outside the
+normalization pipeline.
 
 Output goes to `data/normalization_reports/<run_id>-review.md`, reviewed against the
 dimensions in V1 §15, with findings recorded in `normalization_review.jsonl`.

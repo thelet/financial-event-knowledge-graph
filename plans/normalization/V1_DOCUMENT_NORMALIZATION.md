@@ -266,8 +266,63 @@ class DocumentParser(Protocol):
     def parse(self, artifact: SelectedArtifact) -> ParsedDocument: ...
 ```
 
+## 4.5 Parser modes and fallback triggers
+
+Two parsers with a vague "fallback when it fails" rule would make output
+non-deterministic in a way nobody could reason about. Three explicit modes:
+
+| Mode | Behaviour |
+| --- | --- |
+| `normal` | Default parser only. The fallback runs **only** on a hard failure below |
+| `fallback` | Fallback parser only, for a named artifact set. Used to reproduce or compare |
+| `comparison` | Both parsers run over the same inputs; outputs are diffed and reported. Never used for the authoritative corpus |
+
+**Hard failure — the only conditions that trigger fallback in `normal` mode:**
+
+1. the parser raises;
+2. it returns zero blocks;
+3. it returns zero blocks carrying text;
+4. `source_content_sha256` does not match the acquisition catalog;
+5. canonical validation of its output fails;
+6. extracted text is below a configured fraction of the document's text (default 60%),
+   measured against a plain lxml extraction of the same bytes.
+
+**Weak hierarchy is not a hard failure.** A document that parses but yields a shallow or
+uncertain section tree gets the `hierarchy_uncertain` flag and a warning for review. It does
+**not** silently switch parsers — a parser swap driven by a soft quality signal would make
+the corpus a mixture nobody could explain.
+
+Every fallback is recorded: the document carries the parser that actually produced it, and
+the run manifest lists `fallback_document_ids` with the triggering condition.
+
 Deferred formats, reported explicitly rather than silently skipped: PDF (none in the
 corpus), plain text, images, XBRL XML.
+
+## 4.6 Defensive heading and section inference
+
+§1.1 means the section tree is *inferred*, and §17.2 names that as the central risk. The
+normalizer therefore treats inference as fallible by construction:
+
+- **Reject heading candidates inside data tables.** A styled cell in a financial table is
+  not a section heading. Candidates inside a table are demoted to normal blocks unless the
+  table is classified `layout` and the candidate is its only text.
+- **Prefer known filing labels over styling.** `Part I`, `Part II`, `Item 1`,
+  `Item 1A`, `Item 7`, `Risk Factors`, `Management's Discussion` and their siblings are
+  matched by pattern and take precedence over any font-weight signal. These are the real
+  semantic anchors in 10-K and 10-Q, and they are stable across every markup era in the
+  corpus. Recorded as `heading_source: filing_label`.
+- **Normalize impossible level jumps.** A level-1 heading followed by level-4 collapses to
+  level-2; depth never increases by more than one step.
+- **Record confidence per heading** (`heading_confidence`), derived from how many
+  independent signals agree — filing label, font weight, font size, position.
+- **Degrade honestly.** When confidence is low across a document, emit a flat structure
+  under a single synthetic root rather than an invented hierarchy, and flag
+  `hierarchy_uncertain`. A shallow true structure is more useful to extraction than a deep
+  false one.
+- **Always emit a synthetic root** so every block belongs to a section, including documents
+  with no detectable headings at all.
+- **Report** every document flagged `hierarchy_uncertain` in the corpus report and in the
+  manual-review artifact.
 
 ---
 
@@ -302,18 +357,35 @@ passage resolves to a live EDGAR URL without normalization storing one.
 
 Preservation and usability, not semantic interpretation. No metric extraction in v1.
 
-**Representation — all three, because each has a distinct consumer:**
+**One authoritative representation, two derived renderings.**
 
-1. **Structured**: `rows: list[list[str]]`, plus `header_rows`, `n_rows`, `n_cols`, and a
-   `merged_cells` note where `colspan`/`rowspan` appear.
-2. **Markdown**: a normalized rendering, for LLM extraction and human review.
-3. **Plain text**: row-joined, for text-yield accounting and search.
+1. **Structured rows** — `rows: list[list[str]]`, plus `header_rows`, `n_rows`, `n_cols`,
+   and a merged-cell note. **This is authoritative.**
+2. **Markdown** — a pure deterministic function of `rows`, for LLM extraction and review.
+3. **Plain text** — a pure deterministic function of `rows`, for text accounting.
 
-**Layout versus data tables.** DEF 14A carries 375 tables that are mostly page scaffolding.
-Classify with a recorded heuristic, never silently: a table is `layout` when it has ≤1 row,
-or exactly 1 column, or no cell containing a digit while cells are long prose. Record
-`table_kind: data | layout | unknown` and keep both — dropping layout tables discards
-content in the EX-21.1 case, where the only content *is* a table.
+Storing three representations without naming one authoritative invites silent drift.
+Verification therefore recomputes the Markdown and plain-text renderings from `rows` and
+compares them to the stored values (§13 check 16). A table passage references `table_id` and
+carries exactly one rendering as its text.
+
+**Layout versus data tables — conservative by default.** DEF 14A carries 375 tables that are
+mostly page scaffolding, but a legal or narrative table is not scaffolding merely because it
+holds no digits. Classification records `table_kind: data | layout | mixed | unknown` with a
+`kind_confidence`, and:
+
+- **`unknown` is the default whenever the heuristic is not confident.** Guessing is worse
+  than admitting uncertainty.
+- Classification **never removes a table** from normalized content, and never changes how
+  the table is stored. It is metadata for downstream consumers, nothing more.
+- `mixed` covers a table holding both a data-like region and prose-only regions at the same
+  level. It is provisional: if the spike never produces one, drop it.
+- The spike **must review classification explicitly** on EX-21.1 (fixture 15), both proxies
+  (13, 14), EX-10.12 (17) and EX-3.1 (18) — the four cases where a wrong call would do the
+  most damage.
+
+The EX-21.1 case is the reason for all of this caution: 511 characters of text and 68 table
+rows, so any rule that discards a class of table empties the document.
 
 Also planned: caption capture from the preceding title block; surrounding context via
 `heading_path`; inline-XBRL cell values kept as displayed text (not interpreted — §10);
@@ -338,8 +410,13 @@ flagged `wide_table` for review rather than reshaped.
 - Target **1,500 characters**, hard maximum **4,000**.
 - Merge consecutive short blocks within a section until the target is reached.
 - Split a single over-long block on sentence boundaries; never mid-word.
-- **No overlap.** Every character of narrative belongs to exactly one passage, so evidence
-  is unambiguous.
+- **No overlap, stated precisely.** *Every passage-eligible block is assigned to exactly
+  one passage, unless the versioned passage policy explicitly excludes it, and every
+  exclusion records a reason.* The stronger phrasing — "every character belongs to exactly
+  one passage" — is false and would fail its own verification: page headers, page numbers,
+  empty blocks and heading blocks are deliberately not passage content. Headings become
+  passage *metadata* via `heading_path`, not passage text. Exclusion reasons:
+  `PAGE_FURNITURE`, `EMPTY_BLOCK`, `HEADING_AS_METADATA`, `POLICY_EXCLUDED`.
 - Each passage carries `heading_path` as context without embedding it in the text.
 - **Tables become their own passage**, carrying the Markdown rendering and a link to the
   `TableBlock`. A financial table split across passages is unreadable.
@@ -389,14 +466,39 @@ rules:
     reason: BELOW_TEXT_FLOOR
 ```
 
+**EX-10.* needs more than a role match.** The EX-10 range covers everything from an
+executive offer letter to a credit agreement to a routine lease, and the role slug alone
+(`ex10-01`, `ex10-38`) says nothing about which. Rules for this range match on the SGML
+`description` and the filing's item codes as well:
+
+```yaml
+  - id: agreements-leadership
+    when: {role_prefix: ex10-, description_matches: ["offer letter", "employment",
+           "separation", "transition", "indemnif"]}
+    decision: include
+    reason: MATERIAL_AGREEMENT
+  - id: agreements-capital
+    when: {role_prefix: ex10-, items_any: ["1.01", "2.03", "3.02"]}
+    decision: include
+    reason: MATERIAL_AGREEMENT
+  - id: agreements-unclassified
+    when: {role_prefix: ex10-}
+    decision: needs_review
+    reason: NEEDS_REVIEW
+```
+
+An unclassified agreement becomes `NEEDS_REVIEW` rather than being quietly included or
+quietly dropped — the surface where an unfamiliar exhibit type is meant to appear.
+
 Every artifact gets an outcome with a **reason code** — nothing is silently dropped.
 Reason codes: `PRIMARY_NARRATIVE`, `EARNINGS_MATERIAL`, `MATERIAL_AGREEMENT`,
 `GOVERNANCE_DOCUMENT`, `STRUCTURED_EXHIBIT`, `BOILERPLATE_CERTIFICATION`,
 `NON_NARRATIVE_MEDIA`, `XBRL_LANE`, `ARCHIVAL_ONLY`, `BELOW_TEXT_FLOOR`,
 `NEEDS_REVIEW`.
 
-`NEEDS_REVIEW` covers artifacts matching no rule — they are excluded from processing but
-listed in the report, so an unfamiliar exhibit type surfaces instead of vanishing.
+`NEEDS_REVIEW` covers artifacts matching no rule, and unclassified EX-10 agreements. They
+are excluded from processing but listed in the report, so an unfamiliar exhibit type
+surfaces instead of vanishing.
 
 ---
 
@@ -445,20 +547,40 @@ config/
 └── normalization.yaml             # TRACKED — parser, passage strategy, thresholds
 
 normalization_manifests/           # TRACKED, immutable, one per run
-└── <run_id>.json
+├── <run_id>.json                  # AUTHORITATIVE run manifest
+└── <run_id>-selection.json        # AUTHORITATIVE selection outcome, all 2,019
 
 data/
 ├── normalized/sec/<cik10>/<form>/<date>_<accession>/
-│   ├── <document_id>.json         # AUTHORITATIVE: document + sections + blocks
-│   └── <document_id>.passages.jsonl
+│   ├── <document_id>.json         # AUTHORITATIVE document + sections + blocks
+│   └── <document_id>.passages.jsonl   # AUTHORITATIVE
+├── normalization_runs/
+│   ├── <run_id>.json              # run outcome
+│   └── <run_id>-issues.jsonl      # AUTHORITATIVE issues, incl. parse failures
 ├── normalization_catalog/         # DERIVED, rebuildable
 │   ├── documents.jsonl
 │   ├── passages.jsonl
-│   ├── selection.jsonl            # every artifact, decision, reason code
+│   ├── selection.jsonl
 │   └── issues.jsonl
-├── normalization_runs/<run_id>.json
 └── normalization_reports/<run_id>-corpus.md
 ```
+
+**Authoritative versus derived, corrected.** An earlier draft called every catalog derived
+and every per-document file authoritative. That does not hold: a selection record exists for
+artifacts that were **excluded** and therefore have no document, and an issue record exists
+for artifacts whose parse **failed** and therefore have no document either. Neither can be
+rebuilt from per-document files.
+
+| Authoritative | Derived |
+| --- | --- |
+| selection manifest (per run, immutable) | `selection.jsonl` |
+| normalized document JSON | `documents.jsonl` |
+| per-document passages JSONL | `passages.jsonl` |
+| per-run issues JSONL | `issues.jsonl` |
+| run manifest | corpus reports |
+
+The selection manifest is immutable per run, exactly like acquisition's filing manifest —
+the same pattern, for the same reason.
 
 **Format decision: one JSON per document, plus per-document passages JSONL, plus derived
 JSONL catalogs.** Rejected alternatives: Parquet (not inspectable by eye, and the schema is
@@ -498,17 +620,41 @@ passage_id   {document_id}#p{passage_sequence}
 | Parser version changes | block/passage IDs **may** change | outputs change; recorded in the run |
 | Normalizer version changes | section/block IDs may change | outputs change |
 | Passage strategy changes | passage IDs change; document/section/block IDs do **not** | only passages rebuild |
-| Source artifact changes | all IDs for that document change | document rebuilt |
+| **Source bytes change** | `document_id` is **stable**; block and passage IDs may change if structure changed | `source_content_sha256` changes, content rebuilt |
+
+The last row corrects an earlier draft that claimed a source change alters every ID. It does
+not: `document_id` derives from CIK, accession and original filename, none of which depend
+on content. That is the right behaviour — it is the same logical document, revised. The
+change is visible through `source_content_sha256`, and acquisition already treats a
+differing re-fetch as a new version of the same artifact.
 
 Because block sequence depends on the parser, IDs are only stable *within* a version set.
-Every output therefore records the full version tuple, and verification refuses to mix
-outputs produced under different tuples in one catalog:
+Every output therefore records the version tuple, and verification refuses to mix outputs
+produced under different tuples in one catalog.
+
+**Documents and passages carry deterministic fields only:**
 
 ```text
 selection_policy_version, parser_name, parser_version, normalizer_version,
-passage_strategy_version, config_hash, source_content_sha256,
-output_content_sha256, code_commit, run_id
+passage_strategy_name, passage_strategy_version, config_hash,
+source_content_sha256, content_sha256, derivation_id
 ```
+
+**`run_id`, timestamps and `code_commit` are deliberately absent from documents and
+passages.** They change on every run — or, for `code_commit`, on every unrelated commit —
+so including them would make byte-identical reruns impossible, contradicting check 5. They
+live in the run manifest, which records `produced_document_ids`, so "which run produced
+this document?" remains answerable by lookup rather than by embedding a volatile value in
+the corpus.
+
+This is not theoretical. In acquisition, `_filing.json` carries `run_id` and `fetched_at`,
+and those fields propagate into the catalog; a repair of three filings therefore changed the
+catalog bytes while the corpus was semantically unchanged, and verification did not notice.
+Normalization does not repeat that.
+
+`derivation_id` is a single hash over the version tuple, `config_hash` and
+`source_content_sha256` — one value that answers "was this produced the same way?" without
+a field-by-field comparison.
 
 The normalized corpus is fully rebuildable from the acquisition corpus. `data/normalized/`
 is gitignored; config and manifests are tracked.
@@ -533,7 +679,14 @@ Executable checks, non-zero exit on failure:
 12. Catalogs match the files on disk, both directions.
 13. Interrupted runs leave no finalized partial document.
 14. No graph, extraction, embedding, or LLM code exists in the package.
-15. All outputs in a catalog share one version tuple.
+15. All outputs in a catalog share one version tuple (`derivation_id` comparison).
+16. Table `markdown` and `plain_text` recompute from `rows` and match the stored values.
+17. Every passage-eligible block is in exactly one passage; every excluded block carries an
+    exclusion reason (§7).
+18. No authoritative document or passage contains `run_id`, a timestamp, or `code_commit` —
+    the fields that would break check 5.
+19. Every fallback-parsed document records its parser and triggering condition.
+20. Documents flagged `hierarchy_uncertain` are reported, not silently accepted.
 
 **Corpus report:** selected vs excluded with reason codes; documents by form and role;
 parser success rate by parser; section, block, passage and table counts; character
@@ -559,7 +712,8 @@ Each step ends green.
 11. Verification, corpus report.
 12. **Spike run over the 19 fixtures** ([SPIKE_CORPUS.md](SPIKE_CORPUS.md)) and manual
     review.
-13. Only after the spike passes §16: full run over the 294 selected artifacts.
+13. **Stop.** Implementation ends here. The full run over the 294 selected artifacts is a
+    separate decision, taken only after §16 passes and the review in §15 is read.
 
 ---
 
@@ -587,16 +741,24 @@ diffed directly.
 
 # 16. Acceptance criteria before the full run
 
-1. All 19 fixtures parse without error under the default parser.
+1. **The 18 selected fixtures** normalize without error under the default parser.
+   Fixture 19 (EX-31.1) is the negative control: it must be **excluded at selection** with
+   reason `BOILERPLATE_CERTIFICATION` and must never reach the parser. A separate
+   parser-only test may run it directly to confirm the parser handles certifications, but
+   that is a parser test, not part of normalization.
 2. Section hierarchy is judged correct for the 10-K, both 10-Qs, and both DEF 14As.
 3. EX-21.1 yields its 68 subsidiary rows as a structured table, not empty text.
 4. Hidden inline-XBRL content appears in **no** passage.
 5. No passage contains run-together tokens of the `ASSETSFor` kind (§1.7).
 6. Every fixture passage resolves to a source block, artifact, and live EDGAR URL.
-7. Both parsers run on all fixtures and the comparison is recorded.
-8. Re-running is byte-identical.
+7. Both parsers run over the 18 selected fixtures in `comparison` mode and the diff is
+   recorded.
+8. Re-running is byte-identical — which requires §12's exclusion of volatile fields.
 9. Manual review records no unresolved `missing_content` or `boilerplate_contamination`.
 10. Table markdown for the Q4-2025 EX-99.1 financial tables is judged readable.
+11. Table classification is explicitly reviewed on fixtures 13, 14, 15, 17, 18.
+12. No fixture triggers fallback in `normal` mode; any that does is investigated before the
+    full run.
 
 ---
 
@@ -632,15 +794,15 @@ visible, and passages can be rebuilt without re-parsing when only the strategy c
 | --- | --- | --- |
 | 1 | Which artifacts enter v1? | The 294 in §2: primaries, EX-99.x, material agreements, governance and structured exhibits. Certifications, consents, assets, XBRL, full submissions, index headers excluded |
 | 2 | First parser? | `sec-parser==0.58.1`, used for block segmentation and heading classification only |
-| 3 | Fallback parser? | Yes — `LxmlDocumentParser`, built in the same milestone, not deferred |
+| 3 | Fallback parser? | Yes — `LxmlDocumentParser`, built in the same milestone. Three modes (`normal`/`fallback`/`comparison`) with six explicit hard-failure triggers; weak hierarchy warns, never switches parsers (§4.5) |
 | 4 | Canonical model? | [NORMALIZED_MODELS.md](NORMALIZED_MODELS.md) |
-| 5 | Table representation? | Structured rows + Markdown + plain text, with `table_kind` |
+| 5 | Table representation? | Structured rows **authoritative**; Markdown and plain text derived and re-verified. `table_kind: data/layout/mixed/unknown`, defaulting to `unknown`, never removing a table |
 | 6 | Source locator? | Block sequence, tag, fragment hash, heading path, char range **within block**. No byte offsets |
-| 7 | Passage construction? | Section-aware, ~1,500 chars, no overlap, tables as their own passage |
+| 7 | Passage construction? | Section-aware, ~1,500 chars, no overlap, tables as their own passage. Invariant is per passage-eligible **block**, not per character (§7) |
 | 8 | Duplicate marking? | Content hashes recorded and checked; no dedup system (§1.4 shows none needed) |
 | 9 | Image-heavy exhibits? | Flag only. EX-99.2 is text-rich (§1.3), so no OCR in v1 |
 | 10 | Storage format? | One JSON per document + passages JSONL + derived JSONL catalogs |
-| 11 | Authoritative vs derived? | Per-document JSON authoritative; all catalogs derived |
+| 11 | Authoritative vs derived? | Authoritative: selection manifest, document JSON, passages JSONL, per-run issues, run manifest. Derived: all four aggregate catalogs and reports (§11) |
 | 12 | Complete normalized document? | Valid document JSON present in a finalized directory, all blocks present, source hash matching acquisition |
 | 13 | Atomic finalization? | Staging directory, document JSON written last, `os.replace()`, quarantine-then-rename repair |
 | 14 | Spike fixtures? | The 19 in [SPIKE_CORPUS.md](SPIKE_CORPUS.md) |
