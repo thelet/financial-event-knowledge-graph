@@ -136,6 +136,8 @@ def _document_row(document, path: Path, root: Path) -> dict[str, Any]:
         "flags": document.flags,
         "parser_name": document.parser_name,
         "parser_version": document.parser_version,
+        "parser_fallback_from": document.parser_fallback_from,
+        "parser_fallback_reason": document.parser_fallback_reason,
         "normalizer_version": document.normalizer_version,
         "derivation_id": document.derivation_id,
         "content_sha256": document.content_sha256,

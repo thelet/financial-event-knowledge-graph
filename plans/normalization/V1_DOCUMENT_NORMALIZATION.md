@@ -285,7 +285,36 @@ non-deterministic in a way nobody could reason about. Three explicit modes:
 4. `source_content_sha256` does not match the acquisition catalog;
 5. canonical validation of its output fails;
 6. extracted text is below a configured fraction of the document's text (default 60%),
-   measured against a plain lxml extraction of the same bytes.
+   measured against a plain lxml extraction of the same bytes;
+7. **`TABLE_CONTENT_LOSS`** — genuine table-related content loss, added after the spike.
+
+**The table-content-loss trigger requires all three conditions**, because a low detection
+ratio on its own is normal: SEC filings use tables for page layout constantly and that text
+usually survives as prose.
+
+```text
+source has >= 20 tables                    (min_source_tables)
+AND parser recognized <= 10% of them       (max_detected_ratio)
+AND sampled source-table cells are missing (probe_coverage < 0.60)
+    from the parsed output
+-> fall back to LxmlDocumentParser
+```
+
+Probes are the first cell of at least 18 characters from each table in document order —
+deterministic, because a random sample would make the fallback decision and therefore the
+corpus non-reproducible. Thresholds measured across the 18 spike fixtures:
+
+| Fixture | source tables | detected ratio | probe coverage | outcome |
+| --- | --- | --- | --- | --- |
+| EX-10.12 | 137 | 0.000 | **0.50** | **falls back** |
+| DEF 14A 2026 | 375 | 0.005 | 1.00 | no — content survives as prose |
+| EX-3.1 | 323 | 0.015 | 1.00 | no — content survives as prose |
+| FY2025 10-K | 83 | 0.807 | 0.38 | no — spared by the ratio condition |
+
+The selected parser, the parser it replaced, and the reason are recorded on the document
+(`parser_name`, `parser_fallback_from`, `parser_fallback_reason`), carried into
+`documents.jsonl`, and summarized in the corpus report. One authoritative parser output per
+document; outputs are never merged.
 
 **Weak hierarchy is not a hard failure.** A document that parses but yields a shallow or
 uncertain section tree gets the `hierarchy_uncertain` flag and a warning for review. It does

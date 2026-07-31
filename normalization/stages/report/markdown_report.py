@@ -93,6 +93,21 @@ def _corpus_report(request: ReportRequest) -> str:
     parser_counts = Counter(f"{d.parser_name} {d.parser_version}" for d in docs)
     out.append(_table(["Parser", "Documents"], [[k, str(v)] for k, v in sorted(parser_counts.items())]))
 
+    out += ["", "## Parser fallbacks", ""]
+    fell_back = [d for d in docs if d.parser_fallback_reason]
+    if fell_back:
+        out.append(_table(
+            ["Document", "Form", "Role", "From", "To", "Reason"],
+            [[truncate(d.original_filename, 34), d.form, d.artifact_role or "-",
+              d.parser_fallback_from or "-", d.parser_name, d.parser_fallback_reason or "-"]
+             for d in sorted(fell_back, key=lambda d: d.original_filename)],
+        ))
+        reasons = Counter(d.parser_fallback_reason for d in fell_back)
+        out += ["", _table(["Reason", "Documents"],
+                           [[str(k), str(v)] for k, v in sorted(reasons.items())])]
+    else:
+        out.append("None — every document was produced by the default parser.")
+
     out += ["", "## Table classification", ""]
     kinds: Counter = Counter()
     for d in docs:

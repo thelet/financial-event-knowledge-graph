@@ -21,11 +21,26 @@ class PathsConfig(BaseModel):
     acquisition_catalog: str = "data/catalog"
 
 
+class TableContentLossConfig(BaseModel):
+    """Thresholds for the table-content-loss fallback trigger.
+
+    Values chosen from measurement across the 18 spike fixtures; see
+    config/normalization.yaml for the numbers behind each one.
+    """
+
+    min_source_tables: int = 20
+    max_detected_ratio: float = 0.10
+    min_probe_coverage: float = 0.60
+    probe_count: int = 8
+    min_probe_length: int = 18
+
+
 class ParserConfig(BaseModel):
     default: str = "sec_html"
     fallback: str = "lxml"
     mode: str = "normal"
     min_source_coverage: float = 0.60
+    table_content_loss: TableContentLossConfig = Field(default_factory=TableContentLossConfig)
 
 
 class HeadingsConfig(BaseModel):

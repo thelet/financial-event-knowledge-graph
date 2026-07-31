@@ -277,6 +277,12 @@ class NormalizedDocument(BaseModel):
     content_sha256: str
     derivation_id: str
 
+    # Which parser produced this document and why, when it was not the default. Both are
+    # deterministic functions of the source and the configuration, so they do not break
+    # byte-identical reruns.
+    parser_fallback_from: str | None = None
+    parser_fallback_reason: str | None = None
+
     flags: list[str] = Field(default_factory=list)
     stats: ObjectStats = Field(default_factory=ObjectStats)
 

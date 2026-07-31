@@ -17,14 +17,17 @@ from .public import (
     TRIGGER_INVALID,
     TRIGGER_NO_BLOCKS,
     TRIGGER_SOURCE_HASH,
+    TRIGGER_TABLE_CONTENT_LOSS,
     DocumentParser,
     ParserError,
 )
 from .sec_html_parser import SecHtmlDocumentParser
+from .source_profile import SourceProfile, profile_source
 
 __all__ = [
     "DocumentParser", "ParserError", "LxmlDocumentParser", "SecHtmlDocumentParser",
     "MODES", "MODE_NORMAL", "MODE_FALLBACK", "MODE_COMPARISON", "FALLBACK_TRIGGERS",
     "TRIGGER_EXCEPTION", "TRIGGER_EMPTY", "TRIGGER_NO_BLOCKS", "TRIGGER_INVALID",
-    "TRIGGER_SOURCE_HASH", "TRIGGER_COVERAGE",
+    "TRIGGER_SOURCE_HASH", "TRIGGER_COVERAGE", "TRIGGER_TABLE_CONTENT_LOSS",
+    "SourceProfile", "profile_source",
 ]

@@ -14,6 +14,21 @@ parser:
   # of the same bytes (v1 plan section 4.5, condition 6).
   min_source_coverage: 0.60
 
+  # Hard-failure trigger: genuine table-related content loss. All three conditions must
+  # hold, because a low detection ratio on its own is normal -- SEC filings use tables for
+  # page layout and that content usually survives as prose.
+  #
+  # Measured on the spike fixtures: EX-10.12 (137 tables, ratio 0.000, coverage 0.50)
+  # trips it; DEF 14A 2026 (375 tables, ratio 0.005, coverage 1.00) and EX-3.1 (323
+  # tables, ratio 0.015, coverage 1.00) do not, because their content survives as prose.
+  # The FY2025 10-K has coverage 0.38 but ratio 0.807, so the ratio condition spares it.
+  table_content_loss:
+    min_source_tables: 20      # below this there is no "substantial table structure"
+    max_detected_ratio: 0.10   # parser recognized <=10% of the source tables
+    min_probe_coverage: 0.60   # below this, sampled table content is genuinely missing
+    probe_count: 8
+    min_probe_length: 18       # shorter cells match by accident
+
 headings:
   # Filing labels beat font-weight (v1 plan section 4.6). Matched case-insensitively
   # against the whole normalized block text.

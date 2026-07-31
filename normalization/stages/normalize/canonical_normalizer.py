@@ -42,7 +42,6 @@ from ...core.models import (
 )
 from ...core.runmeta import NORMALIZER_VERSION
 from ...core.storage import NormalizedDocumentStore
-from ..parse.html_text import plain_text_from_bytes
 from ..parse.public import (
     MODE_COMPARISON,
     MODE_FALLBACK,
@@ -50,9 +49,11 @@ from ..parse.public import (
     TRIGGER_EMPTY,
     TRIGGER_NO_BLOCKS,
     TRIGGER_SOURCE_HASH,
+    TRIGGER_TABLE_CONTENT_LOSS,
     DocumentParser,
     ParserError,
 )
+from ..parse.source_profile import SourceProfile, profile_source
 from ..passages.public import PassageStrategy
 from .public import NormalizeRequest, NormalizeResult
 
@@ -89,6 +90,8 @@ class DocumentNormalizer:
         source_sha256: str,
         passage_strategy_name: str,
         passage_strategy_version: str,
+        fallback_from: str | None = None,
+        fallback_reason: str | None = None,
     ) -> NormalizedDocument:
         doc_id = document_id_from_artifact_id(artifact.artifact_id)
 
@@ -149,6 +152,8 @@ class DocumentNormalizer:
             source_content_sha256=source_sha256,
             content_sha256=sha256_text(content_text),
             derivation_id=derivation,
+            parser_fallback_from=fallback_from,
+            parser_fallback_reason=fallback_reason,
             flags=flags,
             stats=_stats(blocks, sections, artifact.size_bytes),
         )
@@ -446,7 +451,13 @@ class CanonicalNormalizeStage:
                 f"source hash mismatch: catalog {artifact.source_sha256[:12]} vs disk {actual_sha[:12]}",
             )
 
-        reference_chars = len(plain_text_from_bytes(raw))
+        loss_cfg = self._config.normalization.parser.table_content_loss
+        profile = profile_source(
+            raw,
+            probe_count=loss_cfg.probe_count,
+            min_probe_length=loss_cfg.min_probe_length,
+        )
+        reference_chars = profile.text_chars
 
         if request.mode == MODE_COMPARISON:
             result.comparisons.append(self._compare(artifact, raw))
@@ -455,7 +466,7 @@ class CanonicalNormalizeStage:
         secondary = None if request.mode == MODE_FALLBACK else self._fallback
 
         parsed, used_fallback, trigger = self._parse_with_policy(
-            artifact, raw, primary, secondary, reference_chars
+            artifact, raw, primary, secondary, reference_chars, profile
         )
         if used_fallback:
             result.fallbacks.append(
@@ -478,6 +489,8 @@ class CanonicalNormalizeStage:
             source_sha256=actual_sha,
             passage_strategy_name=self._passages.name,
             passage_strategy_version=self._passages.version,
+            fallback_from=primary.name if used_fallback else None,
+            fallback_reason=trigger if used_fallback else None,
         )
         passages, excluded = self._passages.build(document)
         document.stats.passage_count = len(passages)
@@ -511,11 +524,12 @@ class CanonicalNormalizeStage:
         primary: DocumentParser,
         secondary: DocumentParser | None,
         reference_chars: int,
+        profile: SourceProfile,
     ) -> tuple[ParsedDocument, bool, str | None]:
         """Parse with `primary`, falling back only on an approved hard failure."""
         try:
             parsed = primary.parse(artifact, raw)
-            trigger = self._hard_failure(parsed, reference_chars)
+            trigger = self._hard_failure(parsed, reference_chars, profile)
             if trigger is None:
                 return parsed, False, None
         except ParserError as exc:
@@ -527,7 +541,9 @@ class CanonicalNormalizeStage:
             raise ParserError(trigger, f"{primary.name} failed and no fallback is configured")
         return secondary.parse(artifact, raw), True, trigger
 
-    def _hard_failure(self, parsed: ParsedDocument, reference_chars: int) -> str | None:
+    def _hard_failure(
+        self, parsed: ParsedDocument, reference_chars: int, profile: SourceProfile
+    ) -> str | None:
         if not parsed.blocks:
             return TRIGGER_EMPTY
         if not any(b.text for b in parsed.blocks):
@@ -535,7 +551,26 @@ class CanonicalNormalizeStage:
         threshold = self._config.normalization.parser.min_source_coverage
         if reference_chars and parsed.text_chars / reference_chars < threshold:
             return TRIGGER_COVERAGE
+        if self._table_content_lost(parsed, profile):
+            return TRIGGER_TABLE_CONTENT_LOSS
         return None
+
+    def _table_content_lost(self, parsed: ParsedDocument, profile: SourceProfile) -> bool:
+        """All three conditions, never any one alone.
+
+        A low detection ratio by itself is normal: SEC filings use tables for page layout
+        and that text usually survives as prose. Only when substantial table structure
+        exists, the parser recognized almost none of it, AND sampled cell content is
+        actually missing from the output is this content loss.
+        """
+        cfg = self._config.normalization.parser.table_content_loss
+        if profile.table_count < cfg.min_source_tables:
+            return False
+        parser_tables = sum(1 for b in parsed.blocks if b.table is not None)
+        if profile.detected_ratio(parser_tables) > cfg.max_detected_ratio:
+            return False
+        parsed_text = " ".join(b.text for b in parsed.blocks)
+        return profile.probe_coverage(parsed_text) < cfg.min_probe_coverage
 
     def _compare(self, artifact: SelectedArtifact, raw: bytes) -> ParserComparison:
         def measure(parser: DocumentParser):

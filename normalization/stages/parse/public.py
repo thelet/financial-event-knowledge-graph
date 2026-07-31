@@ -27,9 +27,15 @@ TRIGGER_NO_BLOCKS = "no_usable_blocks"
 TRIGGER_INVALID = "invalid_canonical_output"
 TRIGGER_SOURCE_HASH = "source_hash_mismatch"
 TRIGGER_COVERAGE = "source_coverage_below_threshold"
+# Substantial table structure exists, the parser recognized almost none of it, AND sampled
+# table content is missing from its output. All three are required: SEC filings use tables
+# for page layout constantly, so a low detection ratio alone means nothing as long as the
+# text inside those tables still reaches the document.
+TRIGGER_TABLE_CONTENT_LOSS = "TABLE_CONTENT_LOSS"
 FALLBACK_TRIGGERS = (
     TRIGGER_EXCEPTION, TRIGGER_EMPTY, TRIGGER_NO_BLOCKS,
     TRIGGER_INVALID, TRIGGER_SOURCE_HASH, TRIGGER_COVERAGE,
+    TRIGGER_TABLE_CONTENT_LOSS,
 )
 
 

@@ -70,7 +70,7 @@ class LxmlDocumentParser:
 
         blocks: list[ParsedBlock] = []
         warnings: list[str] = []
-        self._emit(root, blocks, set())
+        self._emit(root, blocks)
 
         blocks = [b for b in blocks if b.text or b.block_type == "table"]
         for index, block in enumerate(blocks):
@@ -91,11 +91,18 @@ class LxmlDocumentParser:
 
     # -- traversal ---------------------------------------------------------------------
 
-    def _emit(self, element: HtmlElement, blocks: list[ParsedBlock], seen: set[int]) -> None:
+    def _emit(self, element: HtmlElement, blocks: list[ParsedBlock]) -> None:
         """Depth-first, emitting the outermost block element that owns text.
 
         Emitting the outermost owner avoids the over-fragmentation a naive leaf walk
         produces on SEC markup, where a paragraph is often wrapped in several divs.
+
+        No visited-set is kept. An earlier version tracked emitted elements by `id()`,
+        which is not safe with lxml: element proxies are created on demand and destroyed,
+        and CPython reuses `id()` values, so a table could be skipped because its address
+        matched a long-dead proxy. That made output non-deterministic across runs. The set
+        was also unnecessary -- both emitting branches `continue` without descending, so
+        nothing inside an emitted element is ever visited twice.
         """
         for child in element:
             if not isinstance(child.tag, str):
@@ -103,22 +110,14 @@ class LxmlDocumentParser:
             tag = child.tag.lower()
 
             if tag == "table":
-                if id(child) in seen:
-                    continue
-                seen.add(id(child))
-                for nested in child.iter("table"):
-                    seen.add(id(nested))
                 blocks.append(self._table_block(child, len(blocks)))
                 continue
 
             if tag in _TEXT_BLOCKS and self._owns_text(child):
                 blocks.append(self._text_block(child, len(blocks)))
-                for nested in child.iter():
-                    if isinstance(nested.tag, str) and nested.tag.lower() == "table":
-                        seen.add(id(nested))
                 continue
 
-            self._emit(child, blocks, seen)
+            self._emit(child, blocks)
 
     def _owns_text(self, element: HtmlElement) -> bool:
         """True when this element holds text and no descendant block element does."""
