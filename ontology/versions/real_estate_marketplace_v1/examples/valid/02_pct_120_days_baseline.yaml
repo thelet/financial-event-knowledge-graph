@@ -1,0 +1,29 @@
+description: >-
+  The 120-day metric measured on Opendoor's own portfolio. `definition_raw` keeps the filed
+  wording; the ontology does not resolve which denominator was meant, so the observation
+  carries the wording it was read from and a low confidence in the normalization.
+claim:
+  claim_id: ex-valid-pct120-baseline
+  claim_kind: metric_observation
+  assertion_type: reported
+  metric_observation:
+    observation_id: obs-pct120-2022q4-baseline
+    metric_id: pct_homes_on_market_gt_120_days
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 25.0
+    unit: percent
+    instant_date: "2022-12-31"
+    population:
+      role: baseline
+      definition_raw: our portfolio
+      definition_normalized: opendoor_listed_homes
+      confidence: low
+    source_lane: normalized_table
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-23-000012-00417
+        document_id: doc-0001801169-23-000012-odt-20221231x10k
+        char_start: 1204
+        char_end: 1388

@@ -1,0 +1,24 @@
+description: >-
+  The disclosure act, separate from the values disclosed. The event requires all three
+  temporal fields; the numbers live in observations it points at.
+claim:
+  claim_id: ex-valid-earnings-release
+  claim_kind: event
+  assertion_type: reported
+  event:
+    event_id: evt-earnings-2023q4
+    event_type_id: earnings_release
+    occurred_on: "2024-02-15"
+    period_start: "2023-10-01"
+    period_end: "2023-12-31"
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2023q4
+        entity_type: fiscal_period
+    reported_metric_observation_ids: [obs-revenue-fy2023, obs-agp-fy2023]
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-24-000006"

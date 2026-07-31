@@ -1,0 +1,243 @@
+# Mappings from local concepts to external vocabularies.
+#
+# Every FIBO URI here was verified against the published ontology files in the research
+# phase (plans/ontology/research/fibo_candidate_mappings.jsonl). NOTHING is invented. Where
+# FIBO has no class, the mapping is recorded as `no_mapping` with a note - a stated absence
+# is a finding, and silently omitting it would look like the question was never asked.
+#
+# Metric mappings live inline in metrics.yaml, next to the metric they qualify. This file
+# covers entity, role, instrument and agreement concepts.
+
+mappings:
+
+  # ------------------------------------------------------------------ entities
+  - concept_id: company
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: Corporation
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/CorporateBodies/Corporation
+        source_module: BE/LegalEntities/CorporateBodies
+        verified: true
+        semantic_note: >-
+          "formal organization that is a legal entity (artificial person) distinct from its
+          owners". Superclass for private counterparties and EX-21.1 subsidiaries.
+
+  - concept_id: public_company
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: PubliclyHeldCompany
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/CorporateBodies/PubliclyHeldCompany
+        source_module: BE/LegalEntities/CorporateBodies
+        verified: true
+        semantic_note: '"corporation whose shares are traded and held publicly".'
+      - mapping_system: dei_metadata
+        mapping_type: related
+        external_label: dei:EntityRegistrantName
+        verified: true
+
+  - concept_id: subsidiary
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: broader
+        external_label: Corporation
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/CorporateBodies/Corporation
+        source_module: BE/LegalEntities/CorporateBodies
+        verified: true
+        semantic_note: >-
+          FIBO's Corporation is broader: it does not itself carry the control relationship
+          that makes an entity a subsidiary. That is modelled here by SUBSIDIARY_OF.
+
+  - concept_id: geographic_market
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: >-
+          No inspected FIBO module models a metropolitan operating market. FIBO FND has
+          geopolitical entities, which are political divisions rather than the MSA-like
+          buy/sell footprint the filings describe. Not force-mapped.
+
+  # ------------------------------------------------------------------ roles
+  - concept_id: lender
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: Lender
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Lender
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          "a party that extends credit or money to a borrower with the expectation of being
+          repaid". FIBO agrees this is a role, not an entity type.
+
+  - concept_id: borrower
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: Borrower
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          "party to a credit agreement that is obligated to repay the amount borrowed
+          (principal) with interest and other fees". Opendoor and its SPE subsidiaries.
+
+  - concept_id: partner
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: >-
+          No commercial-partnership role found in the inspected modules. FIBO BE Partnerships
+          models the legal partnership form, which is a different thing from a distribution
+          partnership between two corporations.
+
+  # ------------------------------------------------------------------ instruments
+  - concept_id: common_stock
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: CommonShare
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/CommonShare
+        source_module: SEC/Equities/EquityInstruments
+        verified: true
+
+  - concept_id: listed_security
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: ListedShare
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/ListedShare
+        source_module: SEC/Equities/EquityInstruments
+        verified: true
+        semantic_note: '"share that is listed on at least one platform".'
+
+  - concept_id: warrant
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: no_mapping
+        verified: true
+        source_module: SEC/Equities/EquityInstruments
+        semantic_note: >-
+          No Warrant class exists in SEC/Equities/EquityInstruments.rdf. OPENW/OPENZ and the
+          marketing warrants stay local. A URI was NOT invented for them.
+
+  - concept_id: convertible_note
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: >-
+          Not located in the modules inspected during research. Left unmapped rather than
+          guessed at from FBC/DebtAndEquities by name similarity.
+
+  - concept_id: collateral
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: Collateral
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Collateral
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          "something pledged as security to ensure fulfillment of an obligation". Homes in
+          inventory; drawdowns are made per-home.
+
+  # ------------------------------------------------------------------ agreements
+  - concept_id: credit_agreement
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: CreditAgreement
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/CreditAgreement
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+
+  - concept_id: credit_facility
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: CreditFacility
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/CreditFacility
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          "credit agreement that allows the borrower to periodically take out money over an
+          extended period of time rather than reapplying for a loan every time they need
+          funds". Matches the asset-backed revolving and term facilities exactly.
+
+  - concept_id: revolving_credit_facility
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: RevolvingLineOfCredit
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/RevolvingLineOfCredit
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          "credit facility that enables the borrower to withdraw funds, repay, and withdraw
+          again" - the "senior revolving credit facilities" of the non-GAAP definitions.
+
+  - concept_id: asset_backed_debt_facility
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: narrower
+        external_label: CreditFacility
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/CreditFacility
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          Narrower than FIBO CreditFacility: the per-home security arrangement is specific to
+          the iBuyer structure and is not part of the FIBO definition.
+
+  - concept_id: material_agreement
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: related
+        external_label: CreditAgreement
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/CreditAgreement
+        source_module: FBC/DebtAndEquities/Debt
+        verified: true
+        semantic_note: >-
+          Only the credit-agreement subset aligns. Partnership agreements and officer offer
+          letters filed as EX-10 would need FND/Arrangements, which was NOT inspected, so no
+          mapping is asserted for them.
+
+  # ------------------------------------------------------------------ macro only
+  # EconomicIndicator is scoped by FIBO to "economic activity ... in the context of a
+  # statistical area (region)". A company KPI is not that. The E_ECONOMIC_INDICATOR_ON_KPI
+  # constraint rejects this mapping on any metric whose category is not `macroeconomic`.
+  - concept_id: mortgage_rate
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: EconomicIndicator
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/EconomicIndicator
+        source_module: IND/EconomicIndicators/EconomicIndicators
+        verified: true
+
+  - concept_id: home_price_appreciation
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: exact
+        external_label: EconomicIndicator
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/EconomicIndicator
+        source_module: IND/EconomicIndicators/EconomicIndicators
+        verified: true
+
+  # The FIBO IND baseline/comparison shape is adopted as a LOCAL PATTERN (PopulationRole),
+  # not imported as a property. Recorded so the provenance of the design is not lost.
+  - concept_id: pct_homes_on_market_gt_120_days
+    external_mappings:
+      - mapping_system: fibo
+        mapping_type: pattern_only
+        external_label: hasComparisonPopulation
+        external_uri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/hasComparisonPopulation
+        source_module: IND/EconomicIndicators/EconomicIndicators
+        verified: true
+        semantic_note: >-
+          The baseline/comparison split is exactly the shape this metric needs - baseline is
+          Opendoor's portfolio, comparison is the MLS market adjusted for the buybox. Adopted
+          as PopulationRole. NOT an EconomicIndicator mapping: this is a company KPI.

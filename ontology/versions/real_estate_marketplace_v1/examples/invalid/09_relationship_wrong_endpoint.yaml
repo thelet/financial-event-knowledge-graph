@@ -1,0 +1,16 @@
+description: >-
+  A person as the borrower under a facility. BORROWS_UNDER admits companies and subsidiaries
+  only; an officer signing the agreement is not the obligor.
+expected_codes: [invalid_relationship_endpoint]
+claim:
+  claim_id: ex-invalid-endpoint
+  claim_kind: relationship
+  relationship:
+    relationship_id: BORROWS_UNDER
+    source_id: some_officer
+    source_type: person
+    target_id: facility_2022_senior_revolving
+    target_type: revolving_credit_facility
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-22-000094"

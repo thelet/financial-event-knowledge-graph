@@ -1,0 +1,85 @@
+# Evidence, claim and status types.
+#
+# These three categories describe how a claim is *carried and cited*, not what it says.
+# They are grouped in one file because none of them is large enough to justify its own, and
+# splitting them would be symmetry for its own sake.
+
+evidence_types:
+  - concept_id: normalized_passage
+    label: Normalized passage
+    description: A passage from the normalized corpus, addressed by passage id.
+    evidence_kind: normalized_passage
+    required_fields: [passage_id, document_id]
+
+  - concept_id: normalized_table
+    label: Normalized table
+    description: A table extracted during normalization, addressed by table id.
+    evidence_kind: normalized_table
+    required_fields: [table_id, document_id]
+
+  - concept_id: xbrl_fact
+    label: XBRL fact
+    description: >-
+      A tagged fact in an inline-XBRL document. The strongest evidence available - it
+      carries its own period, unit and context.
+    evidence_kind: xbrl_fact
+    required_fields: [xbrl_concept, accession]
+
+  - concept_id: filing_metadata
+    label: Filing metadata
+    description: Submission-level metadata - accession, form, filing date, items.
+    evidence_kind: filing_metadata
+    required_fields: [accession]
+
+  - concept_id: external_page
+    label: External page
+    description: >-
+      A page outside EDGAR, such as the company dashboard. Its channel's canonicality
+      decides whether it may support a historical claim.
+    evidence_kind: external_page
+    required_fields: [source_url, disclosure_channel_id]
+
+claim_types:
+  - concept_id: metric_observation_claim
+    label: Metric observation claim
+    description: A claim that a metric had a value for a subject over a period.
+    claim_kind: metric_observation
+    required_payload: [metric_id, subject_entity_id, value, unit, source_lane]
+
+  - concept_id: event_claim
+    label: Event claim
+    description: A claim that an event of a declared type occurred.
+    claim_kind: event
+    required_payload: [event_type_id]
+
+  - concept_id: relationship_claim
+    label: Relationship claim
+    description: A claim that two entities stand in a declared relationship.
+    claim_kind: relationship
+    required_payload: [relationship_id, source_id, target_id]
+
+status_types:
+  - concept_id: product_status
+    label: Product status
+    description: Lifecycle state of a product or feature.
+    states: [announced, live, paused, discontinued]
+    applies_to: [product, feature]
+
+  - concept_id: market_status
+    label: Market status
+    description: Whether the company is operating in a market.
+    states: [active, paused, exited]
+    applies_to: [geographic_market]
+
+  - concept_id: facility_status
+    label: Facility status
+    description: Lifecycle state of a debt facility.
+    states: [active, amended, matured, terminated]
+    applies_to: [credit_facility, revolving_credit_facility, asset_backed_debt_facility,
+                 term_debt_facility]
+
+  - concept_id: listing_status
+    label: Listing compliance status
+    description: Standing against an exchange's continued-listing standards.
+    states: [compliant, deficiency_notice, cure_period, regained_compliance, delisted]
+    applies_to: [public_company, listed_security]

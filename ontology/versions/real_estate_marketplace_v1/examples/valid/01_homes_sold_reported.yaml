@@ -1,0 +1,24 @@
+description: >-
+  A reported operating KPI from a normalized table. The plainest case: one metric, one
+  period, one table citation.
+claim:
+  claim_id: ex-valid-homes-sold
+  claim_kind: metric_observation
+  assertion_type: reported
+  confidence: 0.95
+  metric_observation:
+    observation_id: obs-homes-sold-2023q4
+    metric_id: homes_sold
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 2711
+    unit: homes
+    period_start: "2023-10-01"
+    period_end: "2023-12-31"
+    source_lane: normalized_table
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-24-000009-014
+        document_id: doc-0001801169-24-000009-odt-20231231x10k
+        accession: "0001801169-24-000009"

@@ -1,0 +1,18 @@
+description: >-
+  Corporate structure from EX-21.1. Temporal because the subsidiary list changes between
+  annual reports.
+claim:
+  claim_id: ex-valid-subsidiary-of
+  claim_kind: relationship
+  assertion_type: reported
+  relationship:
+    relationship_id: SUBSIDIARY_OF
+    source_id: opendoor_labs_inc
+    source_type: subsidiary
+    target_id: opendoor
+    target_type: public_company
+    valid_from: "2023-12-31"
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-24-000009-ex211-001
+        document_id: doc-0001801169-24-000009-ex211

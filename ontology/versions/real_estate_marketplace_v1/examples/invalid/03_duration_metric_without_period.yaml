@@ -1,0 +1,18 @@
+description: A duration metric with no period. The value measures nothing without one.
+expected_codes: [duration_metric_requires_period_start_and_end]
+claim:
+  claim_id: ex-invalid-no-period
+  claim_kind: metric_observation
+  metric_observation:
+    observation_id: obs-bad-no-period
+    metric_id: revenue
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 6946.0
+    unit: USD_millions
+    currency: USD
+    source_lane: xbrl
+    evidence:
+      - evidence_kind: xbrl_fact
+        xbrl_concept: us-gaap:Revenues
+        accession: "0001801169-24-000009"

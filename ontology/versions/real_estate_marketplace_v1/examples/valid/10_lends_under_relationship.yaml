@@ -1,0 +1,20 @@
+description: >-
+  The role played, scoped to the facility it is played in. Without `context_id` this would
+  assert that the counterparty is a lender in general - the entity/role collapse the
+  ontology exists to prevent.
+claim:
+  claim_id: ex-valid-lends-under
+  claim_kind: relationship
+  assertion_type: reported
+  relationship:
+    relationship_id: LENDS_UNDER
+    source_id: counterparty_bank
+    source_type: company
+    target_id: facility_2022_senior_revolving
+    target_type: revolving_credit_facility
+    context_id: facility_2022_senior_revolving
+    context_type: revolving_credit_facility
+    valid_from: "2022-08-01"
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-22-000094"

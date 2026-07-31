@@ -1,0 +1,20 @@
+description: >-
+  A share of a portfolio above 100 percent. Caught by the metric's own documented range
+  rather than a global rule, since some percentage metrics legitimately exceed 100.
+expected_codes: [percentage_outside_documented_range]
+claim:
+  claim_id: ex-invalid-pct-range
+  claim_kind: metric_observation
+  metric_observation:
+    observation_id: obs-bad-pct-range
+    metric_id: pct_homes_on_market_gt_120_days
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 145.0
+    unit: percent
+    instant_date: "2022-12-31"
+    source_lane: normalized_table
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-23-000012-021
+        document_id: doc-0001801169-23-000012-odt-20221231x10k

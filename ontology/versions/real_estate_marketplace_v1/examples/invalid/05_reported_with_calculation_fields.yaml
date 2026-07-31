@@ -1,0 +1,25 @@
+description: >-
+  Says it was read off a page, then supplies a formula and inputs. Reported and calculated
+  are different acts and must not be mixed - the two would become indistinguishable in the
+  graph.
+expected_codes: [reported_observation_must_not_carry_calculation_fields]
+claim:
+  claim_id: ex-invalid-reported-with-formula
+  claim_kind: metric_observation
+  metric_observation:
+    observation_id: obs-bad-reported-calc
+    metric_id: contribution_margin
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 4.2
+    unit: percent
+    period_start: "2023-01-01"
+    period_end: "2023-12-31"
+    source_lane: normalized_table
+    assertion_type: reported
+    formula_version_id: contribution_margin_v1
+    input_observation_ids: [obs-cp-fy2023, obs-revenue-fy2023]
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-24-000009-033
+        document_id: doc-0001801169-24-000009-odt-20231231x10k

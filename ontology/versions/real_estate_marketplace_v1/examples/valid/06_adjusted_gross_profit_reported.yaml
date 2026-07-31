@@ -1,0 +1,23 @@
+description: >-
+  A non-GAAP measure read from a reconciliation table. `forbidden_source_lanes` bars XBRL
+  for this metric: the research checked all 97 taxonomy files and found no tag for it.
+claim:
+  claim_id: ex-valid-agp-reported
+  claim_kind: metric_observation
+  assertion_type: reported
+  metric_observation:
+    observation_id: obs-agp-fy2023
+    metric_id: adjusted_gross_profit
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 425.0
+    unit: USD_millions
+    currency: USD
+    period_start: "2023-01-01"
+    period_end: "2023-12-31"
+    source_lane: normalized_table
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-24-000009-031
+        document_id: doc-0001801169-24-000009-odt-20231231x10k

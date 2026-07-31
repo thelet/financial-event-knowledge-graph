@@ -1,0 +1,22 @@
+description: >-
+  Cites the live company dashboard as the source for a filed period. The dashboard publishes
+  no as-of date, no archive and no methodology, and self-describes its figures as estimates.
+  It can point an extractor at a period worth checking; it cannot be the citation.
+expected_codes: [discovery_only_channel_cited_as_canonical_evidence]
+claim:
+  claim_id: ex-invalid-discovery-only
+  claim_kind: metric_observation
+  metric_observation:
+    observation_id: obs-bad-dashboard-evidence
+    metric_id: acquisition_contracts
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 1180
+    unit: contracts
+    period_start: "2026-01-05"
+    period_end: "2026-01-11"
+    source_lane: company_dashboard
+    evidence:
+      - evidence_kind: external_page
+        source_url: https://accountable.opendoor.com/
+        disclosure_channel_id: opendoor_accountable

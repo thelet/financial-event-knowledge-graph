@@ -1,0 +1,10 @@
+# Identity of this ontology version. Deterministic: no timestamps, run ids or commits.
+ontology_id: real_estate_marketplace_v1
+semantic_version: "1.0.0"
+schema_version: 1
+label: Real-estate marketplace financial-event ontology v1
+description: >-
+  First executable ontology for the Opendoor financial-event knowledge graph. Grounded in
+  the normalized SEC corpus (294 documents, 14,203 passages, 2020-2026) and the concept
+  research report. Provider-independent: no LLM, graph, embedding or database dependency.
+created_from_research_version: OPENDOOR_CONCEPT_AND_METRIC_RESEARCH.md@2026-08-01

@@ -1,0 +1,16 @@
+description: >-
+  A relationship the ontology never declared. An open predicate vocabulary is how a graph
+  ends up with SUPPLIES, SUPPLIER_OF and PROVIDES_TO all meaning one thing.
+expected_codes: [unknown_relationship_predicate]
+claim:
+  claim_id: ex-invalid-unknown-predicate
+  claim_kind: relationship
+  relationship:
+    relationship_id: DISRUPTS
+    source_id: opendoor
+    source_type: public_company
+    target_id: competitor_marketplace
+    target_type: public_company
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-22-000027-00981

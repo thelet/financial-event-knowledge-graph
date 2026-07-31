@@ -1,0 +1,109 @@
+# Surface forms that need more than the inline `aliases` on a concept.
+#
+# Concept-local aliases live on the concept. This file holds the two cases that cannot:
+#
+#  1. AMBIGUOUS forms that legitimately denote more than one concept. The registry returns
+#     all candidates and flags the alias; it never silently picks one. Picking one is how
+#     "homes purchased" and "homes under contract" get merged, which the research names as
+#     the single most damaging failure available to this ontology.
+#  2. Forms belonging to no single concept's vocabulary - entity and exhibit labels.
+
+aliases:
+
+  # ------------------------------------------------------------------ genuinely ambiguous
+  - alias: homes
+    concept_ids: [homes_sold, homes_purchased, housing_inventory_homes, homes_under_contract]
+    ambiguous: true
+    note: >-
+      Bare "homes" carries no period, no direction and no snapshot/flow distinction.
+      Resolvable only from the surrounding table header or sentence.
+
+  - alias: under contract
+    concept_ids: [homes_under_contract, homes_under_resale_contract]
+    ambiguous: true
+    note: >-
+      Buy side vs sell side. "in contract to purchase" is the buy side; "under contract for
+      sale" is inventory awaiting resale. The bare phrase does not say which.
+
+  - alias: contracts
+    concept_ids: [acquisition_contracts, homes_under_contract]
+    ambiguous: true
+    note: A period flow and a period-end snapshot. Never merge.
+
+  - alias: gross profit
+    concept_ids: [gaap_gross_profit, adjusted_gross_profit]
+    ambiguous: true
+    note: >-
+      Reconciliation tables place both under a shared "gross profit" heading. Only the
+      qualifier "Adjusted" separates them, and it is sometimes only in the row label.
+
+  - alias: gross margin
+    concept_ids: [gaap_gross_margin, adjusted_gross_margin]
+    ambiguous: true
+    note: Same qualifier problem as gross profit.
+
+  - alias: margin
+    concept_ids: [gaap_gross_margin, adjusted_gross_margin, contribution_margin,
+                  adjusted_ebitda_margin]
+    ambiguous: true
+    note: Four distinct measures share the word. Requires the full row label.
+
+  - alias: contribution
+    concept_ids: [contribution_profit, contribution_margin, contribution_profit_after_interest]
+    ambiguous: true
+    note: >-
+      A dollar measure, a percentage, and a third dollar measure net of interest. The unit
+      alone does not separate profit from profit-after-interest.
+
+  - alias: inventory
+    concept_ids: [inventory_balance, housing_inventory_homes]
+    ambiguous: true
+    note: >-
+      A dollar carrying value and a home count. Both are reported at period end, so the
+      period type does not disambiguate - only the unit does.
+
+  - alias: valuation adjustment
+    concept_ids: [inventory_valuation_adjustment]
+    ambiguous: false
+    note: >-
+      Unambiguous as a concept, but the FY2020-21 filings say "inventory impairment" for the
+      same line. Both forms map here; the formula version records which term was in use.
+
+  # ------------------------------------------------------------------ entity surface forms
+  - alias: opendoor
+    concept_ids: [public_company]
+    exact_source_label: Opendoor Technologies Inc.
+    note: Resolves to the entity type; the instance is `opendoor`.
+
+  - alias: opendoor technologies inc.
+    concept_ids: [public_company]
+    exact_source_label: Opendoor Technologies Inc.
+
+  - alias: the company
+    concept_ids: [public_company]
+    ambiguous: true
+    note: >-
+      In a filing this is the registrant, but in an exhibit it is often a counterparty. Not
+      resolvable without the containing document.
+
+  - alias: nasdaq
+    concept_ids: [stock_exchange]
+    exact_source_label: Nasdaq
+
+  # ------------------------------------------------------------------ exhibit labels
+  - alias: subsidiaries of the registrant
+    concept_ids: [subsidiary]
+    exact_source_label: Subsidiaries of the Registrant
+    note: EX-21.1 title. Marks the document as the subsidiary source, not a concept mention.
+
+  - alias: senior revolving credit facilities
+    concept_ids: [revolving_credit_facility]
+    exact_source_label: senior revolving credit facilities
+    note: The phrase used in the Contribution Profit After Interest definition.
+
+  - alias: asset-backed debt
+    concept_ids: [asset_backed_debt_facility]
+
+  - alias: rif
+    concept_ids: [workforce_reduction]
+    note: Reduction in force. Appears in Item 2.05 8-Ks.

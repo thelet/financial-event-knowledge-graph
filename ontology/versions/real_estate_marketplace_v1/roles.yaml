@@ -1,0 +1,76 @@
+# Contextual roles. A company PLAYS a role IN a context; it never *is* the role.
+# Modelling Lender as a company subtype would make it permanent and global, which the
+# corpus contradicts: Zillow appears as competitor and later as partner.
+role_types:
+  - concept_id: lender
+    label: Lender
+    description: Party that extends credit under a facility.
+    allowed_player_types: [company, public_company, subsidiary]
+    context_types: [credit_facility, revolving_credit_facility, asset_backed_debt_facility,
+                    term_debt_facility, credit_agreement]
+    context_required: true
+    time_bound: true
+    allowed_relationships: [LENDS_UNDER]
+
+  - concept_id: borrower
+    label: Borrower
+    description: Party obligated to repay amounts drawn under a facility.
+    allowed_player_types: [company, public_company, subsidiary]
+    context_types: [credit_facility, revolving_credit_facility, asset_backed_debt_facility,
+                    term_debt_facility, credit_agreement]
+    context_required: true
+    time_bound: true
+    allowed_relationships: [BORROWS_UNDER]
+
+  - concept_id: issuer
+    label: Issuer
+    description: Party that issues a financial instrument.
+    allowed_player_types: [company, public_company]
+    context_types: [common_stock, listed_security, warrant, convertible_note]
+    context_required: true
+    time_bound: false
+    allowed_relationships: [ISSUED]
+
+  - concept_id: collateral_provider
+    label: Collateral provider
+    description: Party pledging assets to secure an obligation.
+    allowed_player_types: [company, public_company, subsidiary]
+    context_types: [credit_facility, revolving_credit_facility, asset_backed_debt_facility]
+    context_required: true
+    time_bound: true
+    allowed_relationships: [SECURED_BY]
+
+  - concept_id: partner
+    label: Partner
+    description: >-
+      Counterparty in a commercial partnership. Time-bound by necessity - the same company
+      may be a competitor in one period and a partner in another.
+    allowed_player_types: [company, public_company]
+    context_types: [partnership_agreement]
+    context_required: false
+    time_bound: true
+    allowed_relationships: [PARTNERED_WITH]
+
+  - concept_id: acquirer
+    label: Acquirer
+    description: Party acquiring another entity or business.
+    allowed_player_types: [company, public_company]
+    context_types: [corporate_acquisition]
+    context_required: true
+    time_bound: true
+
+  - concept_id: acquisition_target
+    label: Acquisition target
+    description: Entity or business being acquired.
+    allowed_player_types: [company, public_company, subsidiary]
+    context_types: [corporate_acquisition]
+    context_required: true
+    time_bound: true
+
+  - concept_id: regulator_role
+    label: Regulator role
+    description: Body exercising regulatory authority in a specific matter.
+    allowed_player_types: [regulator]
+    context_types: [listing_compliance_event]
+    context_required: true
+    time_bound: true

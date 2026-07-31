@@ -1,0 +1,19 @@
+description: >-
+  A market entry with no market. Every participant the event type declares required must be
+  present, or the event says nothing usable.
+expected_codes: [event_participant_invalid]
+claim:
+  claim_id: ex-invalid-missing-participant
+  claim_kind: event
+  event:
+    event_id: evt-bad-market-entry
+    event_type_id: market_entry
+    occurred_on: "2021-05-12"
+    participants:
+      - role: operator
+        entity_id: opendoor
+        entity_type: public_company
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-21-000045-00112
+        document_id: doc-0001801169-21-000045-odt-20210331x10q

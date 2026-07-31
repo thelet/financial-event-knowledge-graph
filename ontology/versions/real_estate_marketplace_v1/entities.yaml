@@ -1,0 +1,129 @@
+# Stable entity types. Contextual roles live in roles.yaml and are NOT entity subtypes.
+entity_types:
+  - concept_id: company
+    label: Company
+    description: A legal entity that can own assets, enter agreements and be a counterparty.
+    identifying_properties: [legal_name]
+    optional_properties: [cik, lei, jurisdiction, wikidata_id]
+
+  - concept_id: public_company
+    label: Public company
+    description: A company whose shares are traded and held publicly.
+    is_a: company
+    optional_properties: [cik, tickers, exchange]
+
+  - concept_id: subsidiary
+    label: Subsidiary
+    description: A company controlled by another company. Sourced from EX-21.1 exhibits.
+    is_a: company
+    optional_properties: [jurisdiction, parent_company_id]
+
+  - concept_id: person
+    label: Person
+    description: A natural person, typically an officer or director.
+    identifying_properties: [full_name]
+    optional_properties: [wikidata_id]
+
+  - concept_id: geographic_market
+    label: Geographic market
+    description: >-
+      A metropolitan market Opendoor operates in. The corpus reports a market count far
+      more often than it names individual metros, so both a count metric and named
+      instances are needed.
+    identifying_properties: [name]
+    optional_properties: [state, metro_code, wikidata_id]
+
+  - concept_id: regulator
+    label: Regulator
+    description: A governmental or self-regulatory body with authority over the company.
+    optional_properties: [jurisdiction, wikidata_id]
+
+  - concept_id: stock_exchange
+    label: Stock exchange
+    description: A venue on which a security is listed.
+    optional_properties: [mic, wikidata_id]
+
+  - concept_id: product
+    label: Product
+    description: A customer-facing offering, e.g. a selling or buying product line.
+    optional_properties: [launched_on, status]
+
+  - concept_id: feature
+    label: Feature
+    description: A capability within a product, launched and tracked separately.
+    optional_properties: [launched_on, product_id]
+
+  - concept_id: disclosure_channel
+    label: Disclosure channel
+    description: >-
+      A medium through which the company discloses information. Carries canonicality so a
+      live dashboard is never mistaken for reproducible filed evidence.
+    identifying_properties: [name]
+    optional_properties: [publisher, url, channel_type, update_frequency, canonicality,
+                          historical_reproducibility]
+
+  - concept_id: resale_cohort
+    label: Resale cohort
+    description: >-
+      The set of homes sold in a given period. Required because Contribution Profit is
+      explicitly a cohort measure: it pulls in costs incurred in prior periods on homes
+      sold this period and excludes costs on unsold inventory.
+    optional_properties: [period_start, period_end]
+
+  - concept_id: fiscal_period
+    label: Fiscal period
+    description: A reporting period a metric observation is attributed to.
+    identifying_properties: [period_label]
+    optional_properties: [period_start, period_end, fiscal_year, fiscal_quarter]
+
+  - concept_id: management_objective
+    label: Management objective
+    description: >-
+      A company-declared accountability objective binding an objective to the metrics it is
+      tracked by. Present in earnings releases from Q3 2025 as the
+      "Management Objective | How You Can Hold Us Accountable | How We're Executing" table.
+    optional_properties: [objective_label, first_disclosed_on]
+
+# Named individuals. Instances, not types.
+instances:
+  - instance_id: opendoor
+    concept_id: public_company
+    label: Opendoor Technologies Inc.
+    properties: {cik: "0001801169", tickers: "OPEN,OPENL,OPENW,OPENZ", exchange: Nasdaq}
+
+  - instance_id: opendoor_accountable
+    concept_id: disclosure_channel
+    label: accountable.opendoor.com
+    properties:
+      publisher: Opendoor Technologies Inc.
+      url: https://accountable.opendoor.com/
+      channel_type: company_dashboard
+      update_frequency: weekly
+      canonicality: discovery_only
+      historical_reproducibility: >-
+        Poor. No as-of date, no archive, no methodology link, self-described as estimates.
+        Wayback holds 9 daily-collapsed snapshots between 2025-11-06 and 2026-07-26, some
+        HTTP 522, against a weekly series.
+    source_evidence:
+      - accession: "0001140361-26-017460"
+        form: DEF 14A
+        filing_date: "2026-04-28"
+        quote: >-
+          In November 2025, we also launched a dashboard at accountable.opendoor.com, where
+          stockholders are able to track in real time our weekly acquisition contract
+          performance and product, feature and partnership launches.
+
+  - instance_id: sec_edgar
+    concept_id: disclosure_channel
+    label: SEC EDGAR filings
+    properties:
+      publisher: U.S. Securities and Exchange Commission
+      channel_type: regulatory_filing
+      update_frequency: event_driven
+      canonicality: canonical
+      historical_reproducibility: Full. Filed documents are immutable and archived.
+
+  - instance_id: nasdaq
+    concept_id: stock_exchange
+    label: Nasdaq
+    properties: {mic: XNAS}

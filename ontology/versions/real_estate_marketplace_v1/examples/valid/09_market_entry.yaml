@@ -1,0 +1,22 @@
+description: A market-footprint event. Two participants, one date, one citation.
+claim:
+  claim_id: ex-valid-market-entry
+  claim_kind: event
+  assertion_type: reported
+  confidence: 0.8
+  event:
+    event_id: evt-market-entry-atlanta
+    event_type_id: market_entry
+    occurred_on: "2021-05-12"
+    participants:
+      - role: operator
+        entity_id: opendoor
+        entity_type: public_company
+      - role: market
+        entity_id: market_atlanta
+        entity_type: geographic_market
+    properties: {market_name: Atlanta}
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-21-000045-00112
+        document_id: doc-0001801169-21-000045-odt-20210331x10q

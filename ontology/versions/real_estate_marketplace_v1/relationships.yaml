@@ -1,0 +1,315 @@
+# Typed relationships.
+#
+# `inference_level` separates what a filing states (asserted), what follows mechanically
+# from other facts (derived), and what a model concluded (inferred). Collapsing the three
+# would make "Opendoor competes with Zillow" - stated in a risk factor - indistinguishable
+# from a similarity judgement.
+#
+# `evidence_required: true` on an asserted relationship means an instance without an
+# evidence anchor fails validation. That is the point of the layer.
+
+relationships:
+
+  # ------------------------------------------------------------------ corporate structure
+  - relationship_id: SUBSIDIARY_OF
+    concept_id: subsidiary_of
+    label: is a subsidiary of
+    description: Ownership of one entity by another. Sourced from EX-21.1.
+    allowed_source_types: [subsidiary, company]
+    allowed_target_types: [company, public_company]
+    temporal: true
+    transitive: true
+    inverse_relationship: HAS_SUBSIDIARY
+    inference_level: asserted
+
+  - relationship_id: HAS_SUBSIDIARY
+    concept_id: has_subsidiary
+    label: has subsidiary
+    description: Inverse of SUBSIDIARY_OF.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [subsidiary, company]
+    temporal: true
+    transitive: true
+    inverse_relationship: SUBSIDIARY_OF
+    inference_level: asserted
+
+  - relationship_id: ACQUIRED
+    concept_id: acquired
+    label: acquired
+    description: One entity acquired another.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [company, public_company, subsidiary]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: HOLDS_POSITION_AT
+    concept_id: holds_position_at
+    label: holds position at
+    description: A person holds an officer or director position at a company.
+    allowed_source_types: [person]
+    allowed_target_types: [company, public_company]
+    temporal: true
+    inference_level: asserted
+
+  # ------------------------------------------------------------------ market and product
+  - relationship_id: OPERATES_IN
+    concept_id: operates_in
+    label: operates in
+    description: A company operates in a geographic market.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [geographic_market]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: OFFERS
+    concept_id: offers
+    label: offers
+    description: A company offers a product.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [product]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: FEATURE_OF
+    concept_id: feature_of
+    label: is a feature of
+    description: A feature belongs to a product.
+    allowed_source_types: [feature]
+    allowed_target_types: [product]
+    inference_level: asserted
+
+  - relationship_id: AVAILABLE_IN
+    concept_id: available_in
+    label: is available in
+    description: A product or feature is available in a market.
+    allowed_source_types: [product, feature]
+    allowed_target_types: [geographic_market]
+    temporal: true
+    inference_level: asserted
+
+  # ------------------------------------------------------------------ capital structure
+  - relationship_id: BORROWS_UNDER
+    concept_id: borrows_under
+    label: borrows under
+    description: An entity is the borrower under a facility.
+    allowed_source_types: [company, public_company, subsidiary]
+    allowed_target_types: [credit_facility, revolving_credit_facility,
+                           asset_backed_debt_facility, term_debt_facility, credit_agreement]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: LENDS_UNDER
+    concept_id: lends_under
+    label: lends under
+    description: >-
+      An entity is a lender under a facility. The role is scoped to the facility - the same
+      counterparty may lend under one and not another.
+    allowed_source_types: [company, public_company, subsidiary]
+    allowed_target_types: [credit_facility, revolving_credit_facility,
+                           asset_backed_debt_facility, term_debt_facility, credit_agreement]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: SECURED_BY
+    concept_id: secured_by
+    label: is secured by
+    description: A facility is secured by pledged assets - for Opendoor, homes in inventory.
+    allowed_source_types: [credit_facility, revolving_credit_facility,
+                           asset_backed_debt_facility, term_debt_facility]
+    allowed_target_types: [collateral]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: GUARANTEED_BY
+    concept_id: guaranteed_by
+    label: is guaranteed by
+    description: An obligation is guaranteed by an entity other than the borrower.
+    allowed_source_types: [credit_facility, revolving_credit_facility,
+                           asset_backed_debt_facility, term_debt_facility, credit_agreement]
+    allowed_target_types: [company, public_company, subsidiary]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: ISSUED
+    concept_id: issued
+    label: issued
+    description: A company issued a financial instrument.
+    allowed_source_types: [public_company, company]
+    allowed_target_types: [financial_instrument, common_stock, warrant, convertible_note,
+                           listed_security]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: LISTED_ON
+    concept_id: listed_on
+    label: is listed on
+    description: A security trades on an exchange.
+    allowed_source_types: [listed_security, common_stock, warrant]
+    allowed_target_types: [stock_exchange]
+    temporal: true
+    inference_level: asserted
+
+  - relationship_id: PARTY_TO
+    concept_id: party_to
+    label: is a party to
+    description: >-
+      Generic agreement participation, for agreements whose specific roles are not stated.
+      Weaker than BORROWS_UNDER or LENDS_UNDER, and preferred over guessing which applies.
+    allowed_source_types: [company, public_company, subsidiary, person]
+    allowed_target_types: [agreement, credit_agreement, credit_facility,
+                           partnership_agreement, employment_agreement, material_agreement]
+    temporal: true
+    inference_level: asserted
+
+  # ------------------------------------------------------------------ counterparties
+  - relationship_id: COMPETES_WITH
+    concept_id: competes_with
+    label: competes with
+    description: >-
+      Competitive relationship as stated in a filing, typically a risk factor. Symmetric,
+      and time-bound because the corpus shows the same counterparty later as a partner.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [company, public_company]
+    temporal: true
+    symmetric: true
+    inference_level: asserted
+
+  - relationship_id: PARTNERED_WITH
+    concept_id: partnered_with
+    label: is partnered with
+    description: Commercial partnership between two companies.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [company, public_company]
+    temporal: true
+    symmetric: true
+    inference_level: asserted
+
+  - relationship_id: CUSTOMER_OF
+    concept_id: customer_of
+    label: is a customer of
+    description: One company buys goods or services from another.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [company, public_company]
+    temporal: true
+    inverse_relationship: SUPPLIER_TO
+    inference_level: asserted
+
+  - relationship_id: SUPPLIER_TO
+    concept_id: supplier_to
+    label: is a supplier to
+    description: Inverse of CUSTOMER_OF.
+    allowed_source_types: [company, public_company]
+    allowed_target_types: [company, public_company]
+    temporal: true
+    inverse_relationship: CUSTOMER_OF
+    inference_level: asserted
+
+  - relationship_id: REGULATED_BY
+    concept_id: regulated_by
+    label: is regulated by
+    description: A company falls under a regulator's authority.
+    allowed_source_types: [company, public_company, subsidiary]
+    allowed_target_types: [regulator, stock_exchange]
+    temporal: true
+    inference_level: asserted
+
+  # ------------------------------------------------------------------ metric wiring
+  - relationship_id: HAS_OBSERVATION
+    concept_id: has_observation
+    label: has observation
+    description: A metric definition has a measured observation.
+    allowed_source_types: [metric_definition]
+    allowed_target_types: [metric_observation]
+    inference_level: asserted
+
+  - relationship_id: OBSERVATION_OF_SUBJECT
+    concept_id: observation_of_subject
+    label: is an observation of
+    description: An observation measures a specific subject entity.
+    allowed_source_types: [metric_observation]
+    allowed_target_types: [company, public_company, geographic_market, credit_facility]
+    inference_level: asserted
+
+  - relationship_id: COMPUTED_FROM
+    concept_id: computed_from
+    label: is computed from
+    description: >-
+      A calculated observation's inputs. Present only on observations whose assertion_type
+      is `calculated`; a reported figure has no inputs and must not carry this.
+    allowed_source_types: [metric_observation]
+    allowed_target_types: [metric_observation]
+    evidence_required: false
+    inference_level: derived
+
+  - relationship_id: USES_FORMULA_VERSION
+    concept_id: uses_formula_version
+    label: uses formula version
+    description: Which dated formula produced a calculated observation.
+    allowed_source_types: [metric_observation]
+    allowed_target_types: [metric_formula]
+    evidence_required: false
+    inference_level: derived
+
+  - relationship_id: RECONCILES_TO
+    concept_id: reconciles_to
+    label: reconciles to
+    description: >-
+      A non-GAAP metric reconciles to a GAAP metric. NOT equivalence - the pair are
+      different measures and must stay separate concepts.
+    allowed_source_types: [metric_definition]
+    allowed_target_types: [metric_definition]
+    evidence_required: false
+    inference_level: asserted
+
+  - relationship_id: DISTINCT_FROM
+    concept_id: distinct_from
+    label: is distinct from
+    description: >-
+      Two metrics that must never be merged or aliased to one another. Carries the
+      research's most load-bearing finding into the graph itself.
+    allowed_source_types: [metric_definition]
+    allowed_target_types: [metric_definition]
+    symmetric: true
+    evidence_required: false
+    inference_level: asserted
+
+  # ------------------------------------------------------------------ evidence and events
+  - relationship_id: REPORTED_IN
+    concept_id: reported_in
+    label: is reported in
+    description: An observation or event was disclosed through a channel or document.
+    allowed_source_types: [metric_observation, event_type]
+    allowed_target_types: [disclosure_channel]
+    inference_level: asserted
+
+  - relationship_id: EVIDENCED_BY
+    concept_id: evidenced_by
+    label: is evidenced by
+    description: >-
+      The citation edge. Every asserted claim resolves to at least one of these; without it
+      the claim is unverifiable and validation rejects it.
+    allowed_source_types: [metric_observation, event_type, relationship_type]
+    allowed_target_types: [normalized_passage, normalized_table, xbrl_fact,
+                           filing_metadata, external_page]
+    inference_level: asserted
+
+  - relationship_id: PARTICIPATES_IN
+    concept_id: participates_in
+    label: participates in
+    description: An entity takes part in an event, in a named role.
+    allowed_source_types: [company, public_company, subsidiary, person, geographic_market,
+                           product, feature, regulator, stock_exchange, credit_facility]
+    allowed_target_types: [event_type]
+    inference_level: asserted
+
+  - relationship_id: SUPERSEDES
+    concept_id: supersedes
+    label: supersedes
+    description: >-
+      A restated or amended figure replaces an earlier one. The earlier observation is kept,
+      not overwritten - what was originally reported is itself a fact.
+    allowed_source_types: [metric_observation]
+    allowed_target_types: [metric_observation]
+    temporal: true
+    evidence_required: false
+    inference_level: derived

@@ -1,0 +1,27 @@
+description: >-
+  A capital-structure event with three participants. The lender is a company PLAYING the
+  lender role in this facility - it is not a Lender entity.
+claim:
+  claim_id: ex-valid-facility-established
+  claim_kind: event
+  assertion_type: reported
+  event:
+    event_id: evt-facility-2022-08
+    event_type_id: credit_facility_established
+    occurred_on: "2022-08-01"
+    participants:
+      - role: borrower
+        entity_id: opendoor
+        entity_type: public_company
+      - role: lender
+        entity_id: counterparty_bank
+        entity_type: company
+      - role: facility
+        entity_id: facility_2022_senior_revolving
+        entity_type: revolving_credit_facility
+    properties:
+      committed_capacity: "1000.0"
+      currency: USD
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-22-000094"

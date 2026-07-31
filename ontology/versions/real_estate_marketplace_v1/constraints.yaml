@@ -1,0 +1,71 @@
+# Parameters for the machine-checkable constraints.
+#
+# The CHECKS live in ontology/core/constraints.py; only their PARAMETERS live here, so a
+# policy change is a data edit rather than a code edit. A constraint with no parameters is
+# not listed - it is unconditional and always runs.
+
+# Metrics that must never be aliased, merged or substituted for one another. The loader
+# fails if any two members share a normalized alias, and the registry refuses to resolve an
+# alias to more than one member of the same group without flagging it ambiguous.
+mutually_distinct_groups:
+  - group_id: home_counts
+    concept_ids: [homes_sold, homes_purchased, homes_under_contract, acquisition_contracts,
+                  housing_inventory_homes]
+    rationale: >-
+      Five different questions about homes. Homes purchased is a closed-acquisition flow;
+      acquisition contracts is a signed-contract flow; homes under contract is a period-end
+      snapshot of unclosed purchases; homes sold is a resale flow; inventory is a period-end
+      count of unsold owned homes. Merging any pair produces a plausible, wrong time series.
+
+  - group_id: buy_side_vs_sell_side_contracts
+    concept_ids: [homes_under_contract, homes_under_resale_contract]
+    rationale: >-
+      Both are "under contract" at period end, but one is homes the company is buying and
+      the other is inventory it is selling.
+
+  - group_id: profit_measures
+    concept_ids: [gaap_gross_profit, adjusted_gross_profit, contribution_profit,
+                  contribution_profit_after_interest]
+    rationale: >-
+      A GAAP measure and three non-GAAP measures at increasing levels of deduction. Each
+      reconciles to the one above it; none equals it.
+
+  - group_id: margin_measures
+    concept_ids: [gaap_gross_margin, adjusted_gross_margin, contribution_margin,
+                  adjusted_ebitda_margin]
+    rationale: Four percentages over the same denominator with different numerators.
+
+# Only these metric categories may carry a FIBO EconomicIndicator mapping. FIBO defines
+# EconomicIndicator over "economic activity ... in the context of a statistical area
+# (region)"; a company operating KPI is not regional economic activity.
+economic_indicator:
+  external_labels: [EconomicIndicator]
+  external_uris:
+    - https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/EconomicIndicator
+  allowed_metric_categories: [macroeconomic]
+
+# Concept ids that are roles and must never appear as entity types. Named explicitly rather
+# than inferred from roles.yaml so that a role accidentally ALSO declared in entities.yaml is
+# caught even if the roles.yaml entry is later removed.
+role_concepts_forbidden_as_entity_types:
+  [lender, borrower, issuer, collateral_provider, partner, acquirer, acquisition_target,
+   regulator_role]
+
+# Channels whose canonicality bars them from supporting a historical claim about a filed
+# period. Discovery is fine; citation is not.
+evidence_canonicality:
+  discovery_only_channels: [opendoor_accountable]
+  rationale: >-
+    accountable.opendoor.com publishes no as-of date, no archive and no methodology, and
+    self-describes its figures as estimates. Wayback holds 9 daily-collapsed snapshots
+    against a weekly series, some HTTP 522. It can point an extractor at a period worth
+    checking; it cannot be the citation for what happened in that period.
+
+# Percentage metrics are checked against their own declared min/max. This is the fallback
+# when a metric declares neither.
+percentage_defaults:
+  min: -1000
+  max: 1000
+
+# Confidence, where present, is a probability.
+confidence_range: {min: 0.0, max: 1.0}

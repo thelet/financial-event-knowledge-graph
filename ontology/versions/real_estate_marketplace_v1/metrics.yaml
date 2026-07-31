@@ -1,0 +1,513 @@
+# Metric definitions.
+#
+# A definition is stable and reusable; a measured value is a MetricObservation elsewhere.
+# One node type per quarterly value would produce thousands of unrelatable nodes.
+#
+# Source-lane preferences encode a measured research finding: across 336 custom `open:`
+# XBRL elements in every 10-K and 10-Q FY2020-Q1 2026, there is NO tag for any operating
+# KPI or non-GAAP measure. Those are narrative/table sourced. GAAP amounts are in XBRL.
+
+metrics:
+
+  # ---------------------------------------------------------------- operating KPIs
+  - concept_id: homes_sold
+    label: Homes sold
+    description: Count of homes resold by the company during the period.
+    metric_category: operating
+    value_type: integer
+    unit: homes
+    period_type: duration
+    gaap_status: operating_kpi
+    subject_types: [company, public_company]
+    source_lane_preferences: [normalized_table, normalized_narrative]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["Homes Sold", "Total homes sold", "Number of homes sold", "Resale Closes"]
+    distinct_from: [homes_purchased, homes_under_contract, acquisition_contracts,
+                    housing_inventory_homes]
+    external_mappings:
+      - mapping_system: standard_us_gaap
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: No US-GAAP concept for a homes-sold count.
+      - mapping_system: opendoor_extension
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: >-
+          Zero hits for "HomesSold" across all 97 taxonomy files. The FY2020-21 custom tag
+          NumberOfHomeTransactionsCompleted is NOT this metric: its value is 80,000, a
+          cumulative-since-inception milestone, and it was discontinued after Q2 2021.
+    ambiguities:
+      - code: homes_sold_recognition_point
+        description: >-
+          No filing defines whether a home is counted at title transfer, closing, or
+          contract completion.
+        impact: medium
+
+  - concept_id: homes_purchased
+    label: Homes purchased
+    description: >-
+      Count of homes whose acquisition CLOSED during the period. Not contracts signed.
+    metric_category: operating
+    value_type: integer
+    unit: homes
+    period_type: duration
+    gaap_status: operating_kpi
+    source_lane_preferences: [normalized_table, normalized_narrative]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["Homes Purchased", "homes acquired", "home acquisition volumes"]
+    distinct_from: [homes_sold, homes_under_contract, acquisition_contracts,
+                    housing_inventory_homes]
+    external_mappings:
+      - mapping_system: opendoor_extension
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: Zero hits for "HomesPurchased" across all taxonomy files.
+
+  - concept_id: homes_under_contract
+    label: Homes under contract to purchase
+    description: >-
+      Count of homes under signed purchase contract but not yet closed, AT period end.
+      Reported with a companion aggregate purchase price.
+    metric_category: operating
+    value_type: integer
+    unit: homes
+    period_type: instant
+    gaap_status: operating_kpi
+    source_lane_preferences: [normalized_narrative, normalized_table]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["homes under contract", "in contract to purchase", "homes under contract to purchase"]
+    distinct_from: [homes_purchased, acquisition_contracts, homes_sold]
+    source_evidence:
+      - accession: "0001801169-21-000011"
+        form: 10-K
+        filing_date: "2021-03-04"
+        quote: >-
+          As of December 31, 2020, the Company was in contract to purchase 1,742 homes for
+          an aggregate purchase price of $466.4 million.
+
+  - concept_id: acquisition_contracts
+    label: Acquisition contracts
+    description: >-
+      Count of acquisition contracts signed DURING a period. Reported quarterly in filings
+      and weekly on the company dashboard. Distinct from homes_under_contract, which is a
+      period-end snapshot.
+    metric_category: operating
+    value_type: integer
+    unit: contracts
+    period_type: duration
+    gaap_status: operating_kpi
+    source_lane_preferences: [normalized_narrative, normalized_table]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["acquisition contracts", "weekly acquisition contracts"]
+    distinct_from: [homes_purchased, homes_under_contract, homes_sold]
+    ambiguities:
+      - code: acquisition_contracts_period_semantics
+        description: >-
+          Reported weekly on accountable.opendoor.com and quarterly in filings. Whether
+          these are the same definition at two frequencies, or two measures, is not stated.
+        impact: medium
+
+  - concept_id: housing_inventory_homes
+    label: Homes in inventory
+    description: Count of homes owned and unsold at period end.
+    metric_category: operating
+    value_type: integer
+    unit: homes
+    period_type: instant
+    gaap_status: operating_kpi
+    source_lane_preferences: [normalized_table]
+    aliases: ["Homes in Inventory", "homes in inventory (at period end)"]
+    distinct_from: [homes_purchased, homes_sold, homes_under_contract]
+
+  - concept_id: market_count
+    label: Number of markets
+    description: Count of metropolitan markets operated in, at a point in time.
+    metric_category: operating
+    value_type: integer
+    unit: markets
+    period_type: instant
+    gaap_status: operating_kpi
+    source_lane_preferences: [normalized_narrative, xbrl]
+    aliases: ["Total Markets", "markets"]
+    external_mappings:
+      - mapping_system: opendoor_extension
+        mapping_type: exact
+        external_label: NumberOfCurrentlyOperatedMarkets
+        verified: true
+        semantic_note: >-
+          Tagged only 2020-12-31 to 2021-06-30 then discontinued. XBRL is preferred where
+          the period is covered; narrative otherwise.
+
+  - concept_id: pct_homes_on_market_gt_120_days
+    label: Percentage of homes "on the market" for greater than 120 days (at period end)
+    description: >-
+      Share of homes listed longer than the threshold, measured from initial listing date,
+      at period end. Reported quarterly. Published as a percentage only; no count found.
+    metric_category: operating
+    value_type: percentage
+    unit: percent
+    period_type: instant
+    gaap_status: operating_kpi
+    comparison_operator: ">"
+    threshold_value: 120
+    threshold_unit: days
+    measurement_start: initial_listing_date
+    percentage_min: 0
+    percentage_max: 100
+    numerator_description: Homes on the market longer than 120 days from initial listing date.
+    denominator_description: >-
+      Ambiguous across document types. See population.raw_variants; each observation records
+      the wording used in its own source.
+    source_lane_preferences: [normalized_table, normalized_narrative]
+    forbidden_source_lanes: [xbrl]
+    aliases:
+      - 'Percentage of homes "on the market" for greater than 120 days (at period end)'
+      - "percentage of homes on the market for greater than 120 days"
+      - "homes had been listed on the market for more than 120 days"
+      - "% of Homes on the market for greater than 120 Days"
+      - "% of homes on the market over 120 Days"
+    population:
+      normalized: opendoor_listed_homes
+      raw_variants: ["our portfolio", "our homes", "our homes in inventory"]
+      confidence: low
+      comparison_population: >-
+        Broader market as observed on the MLS, adjusted for Opendoor's buybox.
+    ambiguities:
+      - code: pct_120_days_denominator
+        description: >-
+          Three denominator wordings across document types - "our portfolio" (10-K/10-Q
+          MD&A), "our homes" (shareholder letters), "our homes in inventory" (Q1 2023
+          letter). Whether listed-only or all owned homes form the denominator is not
+          stated identically. Not resolved.
+        impact: high
+    source_evidence:
+      - accession: "0001801169-22-000027"
+        form: 10-K
+        filing_date: "2022-02-24"
+        quote: >-
+          One such metric is our percentage of homes "on the market" for greater than 120
+          days (as measured from initial listing date).
+
+  # ---------------------------------------------------------------- GAAP financials
+  - concept_id: revenue
+    label: Revenue
+    description: GAAP revenue for the period.
+    metric_category: gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: gaap
+    source_lane_preferences: [xbrl, normalized_table]
+    aliases: ["Revenue", "Revenue (GAAP)", "Total Revenue"]
+    external_mappings:
+      - mapping_system: standard_us_gaap
+        mapping_type: exact
+        external_label: us-gaap:Revenues
+        verified: true
+
+  - concept_id: gaap_gross_profit
+    label: Gross profit (GAAP)
+    description: GAAP gross profit for the period.
+    metric_category: gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: gaap
+    source_lane_preferences: [xbrl, normalized_table]
+    aliases: ["Gross profit (GAAP)", "Gross profit"]
+    distinct_from: [adjusted_gross_profit, contribution_profit]
+    external_mappings:
+      - mapping_system: standard_us_gaap
+        mapping_type: exact
+        external_label: us-gaap:GrossProfit
+        verified: true
+
+  - concept_id: gaap_gross_margin
+    label: Gross Margin
+    description: GAAP gross profit as a percentage of revenue.
+    metric_category: gaap_financial
+    value_type: percentage
+    unit: percent
+    period_type: duration
+    gaap_status: gaap
+    percentage_min: -100
+    percentage_max: 100
+    source_lane_preferences: [normalized_table]
+    aliases: ["Gross Margin"]
+    distinct_from: [adjusted_gross_margin, contribution_margin]
+
+  - concept_id: cost_of_revenue
+    label: Cost of revenue
+    description: GAAP cost of revenue for the period.
+    metric_category: gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: gaap
+    source_lane_preferences: [xbrl]
+    external_mappings:
+      - mapping_system: standard_us_gaap
+        mapping_type: exact
+        external_label: us-gaap:CostOfRevenue
+        verified: true
+
+  - concept_id: inventory_balance
+    label: Inventory (at period end)
+    description: Carrying value of real-estate inventory at period end.
+    metric_category: gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: instant
+    gaap_status: gaap
+    source_lane_preferences: [xbrl, normalized_table]
+    aliases: ["Inventory (at period end)", "Inventory"]
+    external_mappings:
+      - mapping_system: standard_us_gaap
+        mapping_type: exact
+        external_label: us-gaap:InventoryRealEstate
+        verified: true
+
+  - concept_id: inventory_valuation_adjustment
+    label: Inventory valuation adjustment
+    description: >-
+      Adjustment to inventory carrying value. Feeds Adjusted Gross Profit. Called
+      "inventory impairment" in earlier filings - see formula versions.
+    metric_category: gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: gaap
+    source_lane_preferences: [xbrl, normalized_table]
+    aliases: ["Inventory valuation adjustment", "inventory impairment", "Valuation adjustments"]
+    external_mappings:
+      - mapping_system: opendoor_extension
+        mapping_type: exact
+        external_label: open:InventoryRealEstateValuationAdjustmentDecreaseIncrease
+        verified: true
+        semantic_note: Tagged 2022-03-31 through 2026-03-31, 15 filings.
+      - mapping_system: standard_us_gaap
+        mapping_type: related
+        external_label: us-gaap:InventoryAdjustments
+        verified: true
+
+  - concept_id: homes_under_resale_contract
+    label: Homes under contract for sale
+    description: >-
+      Inventory under contract for RESALE - the sell side. Not homes_under_contract, which
+      is the buy side.
+    metric_category: gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions, homes]
+    period_type: instant
+    gaap_status: gaap
+    source_lane_preferences: [xbrl]
+    distinct_from: [homes_under_contract]
+    external_mappings:
+      - mapping_system: opendoor_extension
+        mapping_type: exact
+        external_label: open:InventoryRealEstateInResaleContract
+        verified: true
+    ambiguities:
+      - code: resale_contract_unit
+        description: >-
+          Label "Under contract for sale", observed value 781. Whether a home count or
+          dollars in thousands is not determinable from the label alone; resolve from the
+          XBRL context ref before use.
+        impact: medium
+
+  # ---------------------------------------------------------------- non-GAAP
+  - concept_id: adjusted_gross_profit
+    label: Adjusted Gross Profit
+    description: >-
+      GAAP gross profit adjusted for inventory valuation effects. Formula changed over
+      time - see formulas.yaml.
+    metric_category: non_gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: non_gaap
+    reconciles_to: gaap_gross_profit
+    source_lane_preferences: [normalized_table]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["Adjusted Gross Profit", "Adjusted Gross Profit (Loss)"]
+    distinct_from: [gaap_gross_profit, contribution_profit, adjusted_gross_margin]
+    external_mappings:
+      - mapping_system: opendoor_extension
+        mapping_type: no_mapping
+        verified: true
+        semantic_note: Zero hits for "AdjustedGross" across all 97 taxonomy files.
+
+  - concept_id: adjusted_gross_margin
+    label: Adjusted Gross Margin
+    description: Adjusted Gross Profit as a percentage of revenue.
+    metric_category: non_gaap_financial
+    value_type: percentage
+    unit: percent
+    period_type: duration
+    gaap_status: non_gaap
+    percentage_min: -100
+    percentage_max: 100
+    source_lane_preferences: [normalized_table, calculated]
+    aliases: ["Adjusted Gross Margin"]
+    distinct_from: [gaap_gross_margin, contribution_margin, adjusted_gross_profit]
+
+  - concept_id: contribution_profit
+    label: Contribution Profit (Loss)
+    description: >-
+      Adjusted Gross Profit less holding and direct selling costs on homes sold in the
+      period. A cohort measure: it deliberately includes costs incurred in prior periods
+      on homes sold this period and excludes costs on unsold inventory.
+    metric_category: non_gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: non_gaap
+    reconciles_to: gaap_gross_profit
+    source_lane_preferences: [normalized_table]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["Contribution Profit", "Contribution Profit (Loss)"]
+    distinct_from: [contribution_margin, adjusted_gross_profit, gaap_gross_profit,
+                    contribution_profit_after_interest]
+    external_mappings:
+      - mapping_system: opendoor_extension
+        mapping_type: no_mapping
+        verified: true
+      - mapping_system: standard_us_gaap
+        mapping_type: related
+        external_label: us-gaap:GrossProfit
+        verified: true
+        semantic_note: >-
+          Reconciles TO gross profit; it is not equivalent to it. The relationship is
+          reconciles_to, never an equivalence mapping.
+
+  - concept_id: contribution_margin
+    label: Contribution Margin
+    description: Contribution Profit as a percentage of revenue.
+    metric_category: non_gaap_financial
+    value_type: percentage
+    unit: percent
+    period_type: duration
+    gaap_status: non_gaap
+    percentage_min: -100
+    percentage_max: 100
+    source_lane_preferences: [normalized_table, calculated]
+    aliases: ["Contribution Margin", "Contribution Margin (Loss)"]
+    distinct_from: [contribution_profit, adjusted_gross_margin, gaap_gross_margin]
+
+  - concept_id: contribution_profit_after_interest
+    label: Contribution Profit After Interest
+    description: >-
+      Contribution Profit less interest expense under senior revolving credit facilities
+      incurred on homes sold during the period, which may include interest recorded in
+      prior periods.
+    metric_category: non_gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: non_gaap
+    source_lane_preferences: [normalized_table]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["Contribution Profit After Interest"]
+    distinct_from: [contribution_profit]
+
+  - concept_id: adjusted_ebitda
+    label: Adjusted EBITDA
+    description: Non-GAAP earnings measure reconciled to net loss.
+    metric_category: non_gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: non_gaap
+    source_lane_preferences: [normalized_table]
+    forbidden_source_lanes: [xbrl]
+    aliases: ["Adjusted EBITDA"]
+
+  - concept_id: adjusted_ebitda_margin
+    label: Adjusted EBITDA Margin
+    description: Adjusted EBITDA as a percentage of revenue.
+    metric_category: non_gaap_financial
+    value_type: percentage
+    unit: percent
+    period_type: duration
+    gaap_status: non_gaap
+    percentage_min: -100
+    percentage_max: 100
+    source_lane_preferences: [normalized_table, calculated]
+    aliases: ["Adjusted EBITDA Margin"]
+
+  - concept_id: holding_costs
+    label: Holding costs
+    description: >-
+      Costs of holding homes in inventory. A Contribution Profit input, split into current
+      period and prior periods on homes sold this period.
+    metric_category: non_gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: non_gaap
+    source_lane_preferences: [normalized_table]
+    aliases: ["holding costs", "Holding costs"]
+
+  - concept_id: direct_selling_costs
+    label: Direct selling costs
+    description: Selling costs directly attributable to homes sold in the period.
+    metric_category: non_gaap_financial
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: duration
+    gaap_status: non_gaap
+    source_lane_preferences: [normalized_table]
+    aliases: ["direct selling costs", "Direct selling costs"]
+
+  # ---------------------------------------------------------------- capital structure
+  - concept_id: borrowing_capacity
+    label: Borrowing capacity
+    description: Committed and uncommitted capacity available under debt facilities.
+    metric_category: capital_structure
+    value_type: monetary
+    unit: USD_millions
+    allowed_units: [USD, USD_thousands, USD_millions]
+    period_type: instant
+    gaap_status: not_applicable
+    subject_types: [company, public_company, credit_facility]
+    source_lane_preferences: [normalized_table, normalized_narrative, xbrl]
+    aliases: ["borrowing capacity", "Borrowing capacity"]
+
+  # ---------------------------------------------------------------- macro indicators
+  # Only these may carry a FIBO EconomicIndicator mapping. FIBO scopes EconomicIndicator to
+  # economic activity in a statistical region, which a company KPI is not.
+  - concept_id: mortgage_rate
+    label: Mortgage rate
+    description: Prevailing mortgage interest rate, an external market driver.
+    metric_category: macroeconomic
+    value_type: percentage
+    unit: percent
+    period_type: instant
+    gaap_status: macro_indicator
+    subject_types: [geographic_market]
+    source_lane_preferences: [normalized_narrative]
+    aliases: ["mortgage rate", "mortgage rates"]
+
+  - concept_id: home_price_appreciation
+    label: Home price appreciation
+    description: Rate of change in home prices in a market.
+    metric_category: macroeconomic
+    value_type: percentage
+    unit: percent
+    period_type: duration
+    gaap_status: macro_indicator
+    subject_types: [geographic_market]
+    source_lane_preferences: [normalized_narrative]
+    aliases: ["home price appreciation", "HPA"]

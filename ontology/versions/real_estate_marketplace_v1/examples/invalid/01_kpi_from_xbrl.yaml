@@ -1,0 +1,22 @@
+description: >-
+  Claims an XBRL source for homes sold. The research checked all 97 taxonomy files and found
+  no such tag, so this is not weak evidence - it is a wrong claim about where the number
+  came from.
+expected_codes: [source_lane_not_allowed_for_metric]
+claim:
+  claim_id: ex-invalid-kpi-xbrl
+  claim_kind: metric_observation
+  metric_observation:
+    observation_id: obs-bad-homes-sold-lane
+    metric_id: homes_sold
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 2711
+    unit: homes
+    period_start: "2023-10-01"
+    period_end: "2023-12-31"
+    source_lane: xbrl
+    evidence:
+      - evidence_kind: xbrl_fact
+        xbrl_concept: open:HomesSold
+        accession: "0001801169-24-000009"

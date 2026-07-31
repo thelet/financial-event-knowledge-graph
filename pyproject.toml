@@ -11,6 +11,6 @@ dev = ["pytest>=8.0"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Makes `acquisition` and the shared test helpers importable under a bare `pytest` too.
-pythonpath = [".", "tests", "tests/normalization"]
+pythonpath = [".", "tests", "tests/normalization", "tests/ontology"]
 markers = ["live: touches the real SEC API (deselect with -m 'not live')"]
 addopts = "-q"

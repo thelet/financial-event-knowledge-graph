@@ -1,0 +1,24 @@
+description: >-
+  A GAAP amount from its tagged fact - the strongest evidence available, since the fact
+  carries its own period, unit and context.
+claim:
+  claim_id: ex-valid-revenue-xbrl
+  claim_kind: metric_observation
+  assertion_type: reported
+  metric_observation:
+    observation_id: obs-revenue-fy2023
+    metric_id: revenue
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 6946.0
+    unit: USD_millions
+    currency: USD
+    period_start: "2023-01-01"
+    period_end: "2023-12-31"
+    source_lane: xbrl
+    assertion_type: reported
+    evidence:
+      - evidence_kind: xbrl_fact
+        xbrl_concept: us-gaap:Revenues
+        accession: "0001801169-24-000009"
+        document_id: doc-0001801169-24-000009-odt-20231231x10k

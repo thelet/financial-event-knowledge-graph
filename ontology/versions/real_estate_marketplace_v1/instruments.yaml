@@ -1,0 +1,99 @@
+instrument_types:
+  - concept_id: financial_instrument
+    label: Financial instrument
+    description: Abstract parent for issued instruments.
+    issuer_types: [company, public_company]
+
+  - concept_id: common_stock
+    label: Common stock
+    description: Units of common equity ownership. Opendoor trades as OPEN.
+    is_a: financial_instrument
+    issuer_types: [public_company]
+    optional_properties: [ticker, shares_outstanding]
+
+  - concept_id: listed_security
+    label: Listed security
+    description: A security listed on at least one exchange.
+    is_a: financial_instrument
+    issuer_types: [public_company]
+    optional_properties: [ticker, exchange]
+
+  - concept_id: warrant
+    label: Warrant
+    description: >-
+      Right to purchase shares at a stated price. Opendoor lists warrant classes
+      (OPENW, OPENZ) and has issued marketing warrants.
+    is_a: financial_instrument
+    issuer_types: [public_company]
+    optional_properties: [exercise_price, expiration_date]
+
+  - concept_id: convertible_note
+    label: Convertible note
+    description: Debt convertible into equity under stated conditions.
+    is_a: financial_instrument
+    issuer_types: [public_company]
+    optional_properties: [principal_amount, coupon_rate, maturity_date, conversion_price]
+
+agreement_types:
+  - concept_id: agreement
+    label: Agreement
+    description: Abstract parent for contractual arrangements.
+
+  - concept_id: credit_agreement
+    label: Credit agreement
+    description: Agreement under which a debtor receives value and agrees to repay.
+    is_a: agreement
+    party_roles: [lender, borrower]
+
+  - concept_id: credit_facility
+    label: Credit facility
+    description: >-
+      Credit agreement allowing periodic drawdowns over an extended period rather than
+      reapplying each time funds are needed.
+    is_a: credit_agreement
+    party_roles: [lender, borrower, collateral_provider]
+    optional_properties: [committed_capacity, uncommitted_capacity, maturity_date,
+                          interest_rate, currency]
+
+  - concept_id: revolving_credit_facility
+    label: Revolving credit facility
+    description: Credit facility permitting withdraw, repay and withdraw again.
+    is_a: credit_facility
+    party_roles: [lender, borrower, collateral_provider]
+
+  - concept_id: term_debt_facility
+    label: Term debt facility
+    description: Facility with a fixed principal drawn and repaid on a schedule.
+    is_a: credit_facility
+    party_roles: [lender, borrower]
+
+  - concept_id: asset_backed_debt_facility
+    label: Asset-backed debt facility
+    description: >-
+      Facility secured by homes in inventory. Opendoor's senior revolving facilities are
+      secured per-home, with drawdowns made on a per-home basis.
+    is_a: credit_facility
+    party_roles: [lender, borrower, collateral_provider]
+
+  - concept_id: partnership_agreement
+    label: Partnership agreement
+    description: Commercial agreement establishing a distribution or referral partnership.
+    is_a: agreement
+    party_roles: [partner]
+
+  - concept_id: employment_agreement
+    label: Employment agreement
+    description: Offer letter or employment arrangement with an officer. EX-10.x exhibits.
+    is_a: agreement
+
+  - concept_id: material_agreement
+    label: Material agreement
+    description: >-
+      Agreement material enough to require disclosure. Parent for agreement types reported
+      under SEC Item 1.01.
+    is_a: agreement
+
+  - concept_id: collateral
+    label: Collateral
+    description: Assets pledged as security. For Opendoor, homes in inventory.
+    optional_properties: [asset_description, carrying_value]

@@ -1,0 +1,258 @@
+# Event types.
+#
+# `sec_item_codes` records which 8-K item a filing of this kind is usually reported under.
+# It is a WEAK LABEL for retrieval, not a classifier: the acquisition work measured that
+# item codes classify only 24 of 64 EX-10 artifacts. An extractor may use it to narrow a
+# search; it must never assert an event type from an item code alone.
+
+event_types:
+
+  # ------------------------------------------------------------------ market footprint
+  - concept_id: market_entry
+    label: Market entry
+    description: The company begins operating in a metropolitan market.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: market
+        entity_types: [geographic_market]
+    allowed_properties: [market_name, launch_scope]
+    allowed_relationships: [OPERATES_IN]
+    inference_restrictions: >-
+      A market appearing in a later market list than an earlier one is NOT evidence of an
+      entry event. Absence from an earlier list may be a disclosure change.
+
+  - concept_id: market_exit
+    label: Market exit
+    description: The company ceases operating in a metropolitan market.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: market
+        entity_types: [geographic_market]
+    allowed_properties: [market_name, reason]
+
+  - concept_id: operations_pause
+    label: Operations pause
+    description: >-
+      Temporary suspension of home buying, market-wide or company-wide. Opendoor paused
+      buying in March 2020.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: market
+        entity_types: [geographic_market]
+        required: false
+        cardinality: many
+    allowed_properties: [scope, reason, resumed_on]
+
+  # ------------------------------------------------------------------ product
+  - concept_id: product_launch
+    label: Product launch
+    description: A named product becomes available.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: product
+        entity_types: [product]
+    allowed_properties: [product_name, availability_scope]
+    allowed_relationships: [OFFERS]
+
+  - concept_id: feature_launch
+    label: Feature launch
+    description: A named feature of an existing product becomes available.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: feature
+        entity_types: [feature]
+    allowed_properties: [feature_name, parent_product]
+
+  - concept_id: product_discontinuation
+    label: Product discontinuation
+    description: A named product or feature is withdrawn.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: product
+        entity_types: [product, feature]
+    allowed_properties: [product_name, reason]
+
+  # ------------------------------------------------------------------ capital structure
+  - concept_id: credit_facility_established
+    label: Credit facility established
+    description: A new debt facility is entered into.
+    participants:
+      - role: borrower
+        entity_types: [company, public_company, subsidiary]
+      - role: lender
+        entity_types: [company, public_company]
+        required: false
+        cardinality: many
+      - role: facility
+        entity_types: [credit_facility, revolving_credit_facility,
+                       asset_backed_debt_facility, term_debt_facility]
+    allowed_properties: [committed_capacity, uncommitted_capacity, maturity_date,
+                         interest_rate, currency]
+    allowed_relationships: [BORROWS_UNDER, LENDS_UNDER, SECURED_BY]
+    allowed_metric_relationships: [borrowing_capacity]
+    sec_item_codes: ["1.01", "2.03"]
+
+  - concept_id: credit_facility_amended
+    label: Credit facility amended
+    description: >-
+      Terms of an existing facility change - capacity, maturity or pricing. A separate type
+      from establishment because a capacity change is not a new facility.
+    participants:
+      - role: borrower
+        entity_types: [company, public_company, subsidiary]
+      - role: facility
+        entity_types: [credit_facility, revolving_credit_facility,
+                       asset_backed_debt_facility, term_debt_facility]
+    allowed_properties: [amended_terms, prior_capacity, new_capacity, new_maturity_date]
+    allowed_metric_relationships: [borrowing_capacity]
+    sec_item_codes: ["1.01", "2.03"]
+
+  - concept_id: credit_facility_terminated
+    label: Credit facility terminated
+    description: A facility is repaid in full and closed, or otherwise terminated.
+    participants:
+      - role: borrower
+        entity_types: [company, public_company, subsidiary]
+      - role: facility
+        entity_types: [credit_facility, revolving_credit_facility,
+                       asset_backed_debt_facility, term_debt_facility]
+    allowed_properties: [reason]
+    sec_item_codes: ["1.02"]
+
+  - concept_id: securities_issuance
+    label: Securities issuance
+    description: The company issues equity, warrants or convertible notes.
+    participants:
+      - role: issuer
+        entity_types: [public_company]
+      - role: instrument
+        entity_types: [common_stock, warrant, convertible_note, listed_security]
+    allowed_properties: [gross_proceeds, instrument_count, price_per_unit, currency]
+    allowed_relationships: [ISSUED]
+    sec_item_codes: ["3.02", "8.01"]
+
+  - concept_id: share_repurchase
+    label: Share repurchase
+    description: Authorization or execution of a buyback of the company's own shares.
+    participants:
+      - role: issuer
+        entity_types: [public_company]
+    allowed_properties: [authorized_amount, repurchased_amount, currency]
+    sec_item_codes: ["8.01"]
+
+  # ------------------------------------------------------------------ corporate
+  - concept_id: corporate_acquisition
+    label: Corporate acquisition
+    description: The company acquires another entity or business.
+    participants:
+      - role: acquirer
+        entity_types: [company, public_company]
+      - role: acquisition_target
+        entity_types: [company, public_company, subsidiary]
+    allowed_properties: [consideration, currency, closed_on]
+    allowed_relationships: [ACQUIRED]
+    sec_item_codes: ["2.01"]
+
+  - concept_id: partnership_announcement
+    label: Partnership announcement
+    description: A commercial partnership is announced or entered into.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+      - role: partner
+        entity_types: [company, public_company]
+    allowed_properties: [scope, term]
+    allowed_relationships: [PARTNERED_WITH]
+    sec_item_codes: ["1.01", "8.01"]
+    inference_restrictions: >-
+      A partnership does not end silently. Absence of mentions in later filings is not a
+      termination event.
+
+  - concept_id: workforce_reduction
+    label: Workforce reduction
+    description: A reduction in force or restructuring affecting headcount.
+    participants:
+      - role: operator
+        entity_types: [company, public_company]
+    allowed_properties: [headcount_reduced, percentage_of_workforce, charge_amount,
+                         currency, reason]
+    sec_item_codes: ["2.05"]
+
+  - concept_id: executive_change
+    label: Executive change
+    description: >-
+      Appointment, departure or role change of an officer or director. One type with a
+      `change_kind` property rather than three near-identical types.
+    participants:
+      - role: employer
+        entity_types: [company, public_company]
+      - role: officer
+        entity_types: [person]
+    allowed_properties: [change_kind, position, effective_date]
+    allowed_relationships: [HOLDS_POSITION_AT]
+    sec_item_codes: ["5.02"]
+
+  # ------------------------------------------------------------------ disclosure
+  - concept_id: earnings_release
+    label: Earnings release
+    description: >-
+      Publication of results for a fiscal period. The event that most metric observations
+      hang off: the observation carries the value, the event carries the disclosure act.
+    participants:
+      - role: reporter
+        entity_types: [company, public_company]
+      - role: period
+        entity_types: [fiscal_period]
+    required_temporal_fields: [occurred_on, period_start, period_end]
+    allowed_properties: [fiscal_year, fiscal_quarter]
+    allowed_metric_relationships: [revenue, gaap_gross_profit, adjusted_gross_profit,
+                                   contribution_profit, contribution_margin, adjusted_ebitda,
+                                   homes_sold, homes_purchased, housing_inventory_homes]
+    allowed_relationships: [REPORTED_IN]
+    sec_item_codes: ["2.02"]
+
+  - concept_id: guidance_issuance
+    label: Guidance issuance
+    description: >-
+      Forward-looking targets for a future period. Kept apart from earnings_release so a
+      guided figure is never mistaken for a reported one.
+    participants:
+      - role: reporter
+        entity_types: [company, public_company]
+      - role: period
+        entity_types: [fiscal_period]
+    allowed_properties: [guided_metric, low_value, high_value, unit, currency]
+    sec_item_codes: ["2.02", "7.01"]
+    inference_restrictions: >-
+      A guided value is not an observation of the metric. If recorded as an observation at
+      all it must carry assertion_type other than `reported` and a future period.
+
+  - concept_id: listing_compliance_event
+    label: Listing compliance event
+    description: >-
+      Exchange notice regarding continued listing standards, or regaining compliance.
+      Opendoor received a Nasdaq minimum-bid-price notice.
+    participants:
+      - role: issuer
+        entity_types: [public_company]
+      - role: regulator_role
+        entity_types: [stock_exchange, regulator]
+    allowed_properties: [notice_kind, standard, cure_period_end, resolved_on]
+    sec_item_codes: ["3.01"]
+
+  - concept_id: reverse_stock_split
+    label: Reverse stock split
+    description: >-
+      Consolidation of outstanding shares. Recorded as its own type because it rebases every
+      per-share figure, so observations either side of it are not directly comparable.
+    participants:
+      - role: issuer
+        entity_types: [public_company]
+    allowed_properties: [ratio, effective_date]
+    sec_item_codes: ["5.03", "8.01"]

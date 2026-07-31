@@ -1,0 +1,26 @@
+description: >-
+  The same definition measured on the comparison population - the MLS market adjusted for
+  Opendoor's buybox. Two observations of one definition, not one observation with a
+  footnote. The FIBO IND baseline/comparison shape, adopted locally.
+claim:
+  claim_id: ex-valid-pct120-comparison
+  claim_kind: metric_observation
+  assertion_type: reported
+  metric_observation:
+    observation_id: obs-pct120-2022q4-comparison
+    metric_id: pct_homes_on_market_gt_120_days
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 32.0
+    unit: percent
+    instant_date: "2022-12-31"
+    population:
+      role: comparison
+      definition_raw: the broader market as observed on the MLS, adjusted for our buybox
+      confidence: low
+    source_lane: normalized_narrative
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-23-000012-00418
+        document_id: doc-0001801169-23-000012-odt-20221231x10k

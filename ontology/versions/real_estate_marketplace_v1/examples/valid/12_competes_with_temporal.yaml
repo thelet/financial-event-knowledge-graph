@@ -1,0 +1,21 @@
+description: >-
+  A time-bound competitive relationship. Bounded on purpose: the corpus shows the same
+  counterparty later in a partnership, and an unbounded edge would make both true forever.
+claim:
+  claim_id: ex-valid-competes-with
+  claim_kind: relationship
+  assertion_type: reported
+  confidence: 0.7
+  relationship:
+    relationship_id: COMPETES_WITH
+    source_id: opendoor
+    source_type: public_company
+    target_id: competitor_marketplace
+    target_type: public_company
+    valid_from: "2021-01-01"
+    valid_to: "2024-12-31"
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-22-000027-00981
+        document_id: doc-0001801169-22-000027-odt-20211231x10k

@@ -1,0 +1,157 @@
+# Metric formula versions.
+#
+# Dated on purpose. Adjusted Gross Profit is computed differently in FY2020 filings than in
+# FY2023 filings, and a single timeless formula would silently make a 2020 value and a 2023
+# value look comparable. Resolution is by OBSERVATION DATE, not by filing date: a 2024 10-K
+# restating FY2021 still needs the FY2021 formula for the FY2021 column.
+
+formula_versions:
+
+  - concept_id: adjusted_gross_profit_v1
+    label: Adjusted Gross Profit (FY2020-FY2021 terminology)
+    metric_id: adjusted_gross_profit
+    version: "1"
+    valid_from: "2020-01-01"
+    valid_to: "2021-12-31"
+    expression: >-
+      gaap_gross_profit + inventory_impairment + restructuring_adjustment
+    component_metrics: [gaap_gross_profit, inventory_valuation_adjustment]
+    adjustment_components:
+      - label: Inventory impairment
+        metric_id: inventory_valuation_adjustment
+        operation: add
+        included: true
+        note: >-
+          Filed under the term "inventory impairment". Same underlying line as the later
+          "inventory valuation adjustment"; the terminology map records the rename.
+      - label: Restructuring adjustment
+        operation: add
+        included: true
+        note: >-
+          Present in FY2020-FY2021 reconciliations following the 2020 workforce reduction,
+          absent afterwards. This is why v1 and v2 are separate versions.
+    terminology:
+      inventory_impairment: inventory valuation adjustment
+    description: >-
+      GAAP gross profit adjusted for inventory impairment and restructuring, as reconciled
+      in FY2020 and FY2021 filings.
+    source_evidence:
+      - accession: "0001801169-21-000011"
+        form: 10-K
+        filing_date: "2021-03-04"
+
+  - concept_id: adjusted_gross_profit_v2
+    label: Adjusted Gross Profit (FY2022 onward terminology)
+    metric_id: adjusted_gross_profit
+    version: "2"
+    valid_from: "2022-01-01"
+    expression: >-
+      gaap_gross_profit + inventory_valuation_adjustment
+    component_metrics: [gaap_gross_profit, inventory_valuation_adjustment]
+    adjustment_components:
+      - label: Inventory valuation adjustment
+        metric_id: inventory_valuation_adjustment
+        operation: add
+        included: true
+      - label: Restructuring adjustment
+        operation: add
+        included: false
+        note: >-
+          Explicitly recorded as EXCLUDED rather than omitted. Omission would be
+          indistinguishable from an incomplete transcription of the reconciliation table.
+    terminology:
+      inventory_valuation_adjustment: inventory valuation adjustment
+    description: >-
+      GAAP gross profit adjusted for the inventory valuation adjustment. The restructuring
+      line no longer appears.
+
+  - concept_id: contribution_profit_v1
+    label: Contribution Profit (Loss)
+    metric_id: contribution_profit
+    version: "1"
+    valid_from: "2020-01-01"
+    expression: >-
+      adjusted_gross_profit - direct_selling_costs
+      - holding_costs_current_period_on_homes_sold
+      - holding_costs_prior_periods_on_homes_sold
+    component_metrics: [adjusted_gross_profit, direct_selling_costs, holding_costs]
+    adjustment_components:
+      - label: Direct selling costs
+        metric_id: direct_selling_costs
+        operation: subtract
+        included: true
+      - label: Holding costs incurred in the current period on homes sold in the period
+        metric_id: holding_costs
+        operation: subtract
+        included: true
+      - label: Holding costs incurred in prior periods on homes sold in the period
+        metric_id: holding_costs
+        operation: subtract
+        included: true
+        note: >-
+          The cohort term. Costs from earlier periods attach to the period of sale, so a
+          Contribution Profit value is NOT a slice of any single period's expenses.
+      - label: Holding costs on unsold inventory
+        metric_id: holding_costs
+        operation: subtract
+        included: false
+        note: Excluded by definition - those costs attach to the period the home is sold.
+    description: >-
+      Adjusted Gross Profit less holding and direct selling costs attributable to homes
+      sold during the period.
+
+  - concept_id: contribution_margin_v1
+    label: Contribution Margin
+    metric_id: contribution_margin
+    version: "1"
+    valid_from: "2020-01-01"
+    expression: contribution_profit / revenue
+    component_metrics: [contribution_profit, revenue]
+    description: Contribution Profit as a percentage of revenue.
+
+  - concept_id: contribution_profit_after_interest_v1
+    label: Contribution Profit After Interest
+    metric_id: contribution_profit_after_interest
+    version: "1"
+    valid_from: "2020-01-01"
+    expression: contribution_profit - senior_revolving_facility_interest_on_homes_sold
+    component_metrics: [contribution_profit]
+    adjustment_components:
+      - label: Interest expense under senior revolving credit facilities on homes sold
+        operation: subtract
+        included: true
+        note: >-
+          May include interest recorded in prior periods, for the same cohort reason as
+          holding costs.
+      - label: Interest on other debt facilities
+        operation: subtract
+        included: false
+        note: Scoped to senior revolving credit facilities only.
+    description: Contribution Profit less senior revolving facility interest on homes sold.
+
+  - concept_id: adjusted_gross_margin_v1
+    label: Adjusted Gross Margin
+    metric_id: adjusted_gross_margin
+    version: "1"
+    valid_from: "2020-01-01"
+    expression: adjusted_gross_profit / revenue
+    component_metrics: [adjusted_gross_profit, revenue]
+    description: Adjusted Gross Profit as a percentage of revenue.
+
+  - concept_id: adjusted_ebitda_margin_v1
+    label: Adjusted EBITDA Margin
+    metric_id: adjusted_ebitda_margin
+    version: "1"
+    valid_from: "2020-01-01"
+    expression: adjusted_ebitda / revenue
+    component_metrics: [adjusted_ebitda, revenue]
+    description: Adjusted EBITDA as a percentage of revenue.
+
+  - concept_id: gaap_gross_margin_v1
+    label: Gross Margin
+    metric_id: gaap_gross_margin
+    version: "1"
+    valid_from: "2020-01-01"
+    expression: gaap_gross_profit / revenue
+    component_metrics: [gaap_gross_profit, revenue]
+    description: GAAP gross profit as a percentage of revenue.
