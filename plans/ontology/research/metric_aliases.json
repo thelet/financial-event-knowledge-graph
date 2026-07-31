@@ -1,0 +1,99 @@
+{
+  "PctHomesOnMarketGreaterThan120Days": {
+    "canonical_label": "Percentage of homes \"on the market\" for greater than 120 days (at period end)",
+    "aliases": [
+      "percentage of homes \"on the market\" for greater than 120 days",
+      "homes had been listed on the market for more than 120 days",
+      "homes were listed on the market for more than 120 days",
+      "homes in inventory had been listed on the market for more than 120 days",
+      "% of Homes on the market for greater than 120 Days",
+      "% of homes on the market over 120 Days"
+    ],
+    "measured_from": "initial listing date",
+    "operator": ">",
+    "threshold_days": 120,
+    "unit": "percent",
+    "period_type": "instant (at period end)",
+    "denominator_wording_variants": [
+      "our portfolio",
+      "our homes",
+      "our homes in inventory"
+    ],
+    "comparison_population": "broader market as observed on the MLS, adjusted for our buybox",
+    "false_positive_hazard": "charter/bylaw notice windows use 'not less than 90 days nor more than 120 days'"
+  },
+  "HomesSold": {
+    "canonical_label": "Homes sold",
+    "aliases": [
+      "Homes Sold",
+      "Total homes sold",
+      "Number of homes sold",
+      "Resale Closes"
+    ],
+    "unit": "homes",
+    "period_type": "duration"
+  },
+  "HomesPurchased": {
+    "canonical_label": "Homes purchased",
+    "aliases": [
+      "Homes Purchased",
+      "homes acquired",
+      "home acquisition volumes"
+    ],
+    "unit": "homes",
+    "period_type": "duration",
+    "not_the_same_as": [
+      "acquisition contracts",
+      "homes under contract",
+      "offers"
+    ]
+  },
+  "HomesUnderContract": {
+    "canonical_label": "Homes under contract to purchase",
+    "aliases": [
+      "in contract to purchase N homes",
+      "homes under contract",
+      "acquisition contracts",
+      "weekly acquisition contracts"
+    ],
+    "unit": "homes",
+    "period_type": "instant",
+    "companion_measure": "aggregate purchase price (USD)"
+  },
+  "ContributionProfit": {
+    "canonical_label": "Contribution Profit (Loss)",
+    "unit": "USD",
+    "period_type": "duration",
+    "gaap": false,
+    "formula": "Adjusted Gross Profit (Loss) - holding costs incurred in current period - holding costs incurred in prior periods - direct selling costs (all on homes sold during the current period)"
+  },
+  "ContributionMargin": {
+    "canonical_label": "Contribution Margin",
+    "unit": "percent",
+    "period_type": "duration",
+    "gaap": false,
+    "formula": "Contribution Profit (Loss) / Revenue"
+  },
+  "AdjustedGrossProfit": {
+    "canonical_label": "Adjusted Gross Profit",
+    "unit": "USD",
+    "period_type": "duration",
+    "gaap": false,
+    "formula_2021": "GAAP gross profit + inventory impairment current period - inventory impairment prior periods + restructuring in cost of revenue",
+    "formula_2025": "GAAP gross profit + inventory valuation adjustment current period - inventory valuation adjustment prior periods",
+    "definition_drift": "'inventory impairment' relabelled 'inventory valuation adjustment'; restructuring adjustment no longer present"
+  },
+  "AdjustedGrossMargin": {
+    "canonical_label": "Adjusted Gross Margin",
+    "unit": "percent",
+    "period_type": "duration",
+    "gaap": false,
+    "formula": "Adjusted Gross Profit / Revenue"
+  },
+  "ContributionProfitAfterInterest": {
+    "canonical_label": "Contribution Profit After Interest",
+    "unit": "USD",
+    "gaap": false,
+    "formula": "Contribution Profit - interest expense under senior revolving credit facilities incurred on homes sold during the period (may include interest recorded in prior periods)"
+  }
+}
