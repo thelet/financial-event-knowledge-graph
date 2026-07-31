@@ -23,6 +23,11 @@ from .models import FilingMetadata
 FILING_METADATA_NAME = "_filing.json"
 SOURCE_SUBDIR = "source"
 
+# Derived catalog filenames. Here rather than in the catalog stage because verify and
+# report also address these files, and stages must not import one another.
+FILINGS_CATALOG = "filings.jsonl"
+ARTIFACTS_CATALOG = "artifacts.jsonl"
+
 
 class FilingIntegrityError(RuntimeError):
     pass

@@ -13,13 +13,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .core.models import FilingMetadata
-from .core.storage import LocalRawArtifactStore
-
-FILINGS_CATALOG = "filings.jsonl"
-ARTIFACTS_CATALOG = "artifacts.jsonl"
+from .core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG, LocalRawArtifactStore
+from .utils.jsonl import write_jsonl
 
 
 @dataclass
@@ -86,8 +84,8 @@ class CatalogBuilder:
         filing_rows, duplicate_filings = _dedupe(filing_rows, "filing_id")
         artifact_rows, duplicate_artifacts = _dedupe(artifact_rows, "artifact_id")
 
-        filings_path = _write_jsonl(self._catalog_root / FILINGS_CATALOG, filing_rows)
-        artifacts_path = _write_jsonl(self._catalog_root / ARTIFACTS_CATALOG, artifact_rows)
+        filings_path = write_jsonl(self._catalog_root / FILINGS_CATALOG, filing_rows)
+        artifacts_path = write_jsonl(self._catalog_root / ARTIFACTS_CATALOG, artifact_rows)
 
         return CatalogResult(
             filings_path=filings_path,
@@ -187,22 +185,6 @@ def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]],
     return unique, duplicates
 
 
-def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> Path:
-    """Atomic write. sort_keys makes output byte-identical for identical input."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    staging = path.with_suffix(path.suffix + ".tmp")
-    with staging.open("w", encoding="utf-8", newline="\n") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n")
-    staging.replace(path)
-    return path
-
-
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a catalog, raising on the first malformed line."""
-    rows: list[dict[str, Any]] = []
-    if not Path(path).is_file():
-        return rows
     with Path(path).open("r", encoding="utf-8") as handle:
         for number, line in enumerate(handle, start=1):
             stripped = line.strip()

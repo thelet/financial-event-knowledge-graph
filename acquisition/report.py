@@ -11,8 +11,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .catalog import ARTIFACTS_CATALOG, FILINGS_CATALOG, read_jsonl
 from .core.models import ArtifactManifest
+from .core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG
+from .utils.jsonl import read_jsonl
 
 ITEM_RESULTS_OF_OPERATIONS = "2.02"
 

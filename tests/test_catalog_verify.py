@@ -6,12 +6,9 @@ import json
 
 import pytest
 
-from acquisition.catalog import (
-    ARTIFACTS_CATALOG,
-    FILINGS_CATALOG,
-    CatalogBuilder,
-    read_jsonl,
-)
+from acquisition.catalog import CatalogBuilder
+from acquisition.core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG
+from acquisition.utils.jsonl import read_jsonl
 from acquisition.core.manifests import ManifestRepository
 from acquisition.core.models import ArtifactManifest, FilingManifest
 from acquisition.core.runmeta import build_run_metadata
