@@ -179,6 +179,74 @@ def test_stage_internals_are_reachable_only_through_the_package():
         )
 
 
+def test_every_stage_has_a_public_module():
+    for stage in sorted(STAGE_NAMES):
+        assert (PACKAGE / "stages" / stage / "public.py").is_file(), stage
+
+
+@pytest.mark.parametrize("stage", sorted(STAGE_NAMES))
+def test_public_never_imports_its_own_implementation(stage):
+    """The contract must not depend on the implementation; the reverse is the rule."""
+    public = PACKAGE / "stages" / stage / "public.py"
+    for target in _absolute_internal_imports(public):
+        assert not target.startswith(f"acquisition.stages.{stage}."), (
+            f"{stage}/public.py imports {target}"
+        )
+
+
+@pytest.mark.parametrize("stage", sorted(STAGE_NAMES))
+def test_public_carries_no_infrastructure_dependency(stage):
+    """public.py may reference canonical models, never HTTP, storage, or manifests."""
+    public = PACKAGE / "stages" / stage / "public.py"
+    forbidden = {
+        "acquisition.core.sec_client",
+        "acquisition.core.storage",
+        "acquisition.core.manifests",
+        "acquisition.core.config",
+        "acquisition.core.runmeta",
+    }
+    assert not (forbidden & _absolute_internal_imports(public)), stage
+
+
+@pytest.mark.parametrize("stage", sorted(STAGE_NAMES))
+def test_public_declares_a_stage_protocol(stage):
+    import importlib
+
+    module = importlib.import_module(f"acquisition.stages.{stage}.public")
+    protocols = [
+        name
+        for name in dir(module)
+        if name.endswith("Stage") and getattr(module, name).__module__ == module.__name__
+    ]
+    assert protocols, f"{stage}/public.py declares no stage protocol"
+
+
+@pytest.mark.parametrize("stage", sorted(STAGE_NAMES))
+def test_implementation_satisfies_its_own_stage_protocol(stage):
+    """The concrete class and the protocol are both reachable from the package."""
+    import importlib
+
+    package = importlib.import_module(f"acquisition.stages.{stage}")
+    exported = set(package.__all__)
+    protocol_names = [
+        n for n in exported if n.endswith("Stage") and not _is_concrete(package, n)
+    ]
+    concrete_names = [n for n in exported if n.endswith("Stage") and _is_concrete(package, n)]
+    assert protocol_names, f"{stage} exports no protocol"
+    assert concrete_names, f"{stage} exports no concrete implementation"
+    for protocol in protocol_names:
+        for concrete in concrete_names:
+            cls = getattr(package, concrete)
+            assert isinstance(cls.__new__(cls), getattr(package, protocol))
+
+
+def _is_concrete(package, name: str) -> bool:
+    import inspect
+
+    obj = getattr(package, name)
+    return inspect.isclass(obj) and not getattr(obj, "_is_protocol", False)
+
+
 def test_resolve_keeps_its_parser_private():
     """sgml is an implementation detail of resolve and is not part of its surface."""
     import acquisition.stages.resolve as resolve

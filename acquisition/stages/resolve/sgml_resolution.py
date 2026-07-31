@@ -1,14 +1,14 @@
-"""RESOLVE: expand each filing into the exact set of artifacts to download.
+"""SGML-header implementation of the RESOLVE stage.
 
-Types come from the SGML header in <accession>-index-headers.html, which is authoritative.
-index.json contributes expected sizes only -- its `type` field is an icon reference
-(v0 plan sections 13.1-13.2).
+Types come from `<accession>-index-headers.html`, which is authoritative. index.json
+contributes expected sizes only -- its `type` field is an icon reference (v0 plan 13.1-13.2).
 
-The header lists SEC-generated rendering output (R*.htm, FilingSummary.xml,
-MetaLinks.json, report.css, Show.js, -xbrl.zip, *_htm.xml) alongside filer-submitted
-documents, marked with DESCRIPTION "IDEA: ...". These are derived from the filing rather
-than part of it and are excluded unless include.render_artifacts is enabled (v0 plan
-section 13.7).
+The header lists SEC-generated rendering output alongside filer-submitted documents, marked
+with DESCRIPTION "IDEA: ..."; those are excluded unless include.render_artifacts is enabled
+(v0 plan 13.7).
+
+The header parser itself lives in `sgml.py` -- a distinct enough concern to separate, and
+private to this stage either way.
 """
 
 from __future__ import annotations
@@ -16,9 +16,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 from ...core import identity
 from ...core.config import AppConfig, IncludeConfig
@@ -32,18 +30,20 @@ from ...core.models import (
 )
 from ...core.runmeta import build_run_metadata, utc_now_iso, write_run_record
 from ...core.sec_client import SecClient
+from .public import (
+    ANOMALY_CASE_COLLISION,
+    ANOMALY_HEADER_NOT_IN_INDEX,
+    ANOMALY_MULTIPLE_PRIMARY,
+    ANOMALY_NO_PRIMARY,
+    ANOMALY_PARSE_FAILED,
+    ANOMALY_UNRECOGNIZED_TYPE,
+    ResolveRequest,
+    ResolveResult,
+)
 from .sgml import ParsedHeader, SgmlParseError, parse_index_headers
 
+
 SOURCE_SUBDIR = "source"
-
-ANOMALY_UNRECOGNIZED_TYPE = "unrecognized_type"
-ANOMALY_NO_PRIMARY = "no_primary_document"
-ANOMALY_MULTIPLE_PRIMARY = "multiple_primary_documents"
-ANOMALY_HEADER_NOT_IN_INDEX = "header_document_missing_from_index"
-ANOMALY_INDEX_NOT_IN_HEADER = "index_file_not_in_header"
-ANOMALY_CASE_COLLISION = "case_insensitive_filename_collision"
-ANOMALY_PARSE_FAILED = "header_parse_failed"
-
 
 class ArtifactResolver:
     """Resolves the artifact set for filings using authoritative SEC metadata."""
@@ -213,7 +213,6 @@ class ArtifactResolver:
             anomalies.extend(filing_anomalies)
         return artifacts, anomalies
 
-
 def _make_artifact(
     *,
     filing: FilingRecord,
@@ -245,7 +244,6 @@ def _make_artifact(
         expected_size=expected_size,
         low_processing_priority=low_priority,
     )
-
 
 def _cross_check(
     filing: FilingRecord,
@@ -286,82 +284,6 @@ def _cross_check(
             anomalies.append(anomaly(ANOMALY_CASE_COLLISION, f"{lowered}: {names}"))
 
     return anomalies
-
-
-def summarize(
-    artifacts: list[ArtifactRecord], anomalies: list[ResolutionAnomaly]
-) -> str:
-    if not artifacts:
-        return "No artifacts resolved."
-
-    by_kind: dict[str, int] = defaultdict(int)
-    bytes_by_kind: dict[str, int] = defaultdict(int)
-    for artifact in artifacts:
-        by_kind[artifact.artifact_kind] += 1
-        bytes_by_kind[artifact.artifact_kind] += artifact.expected_size or 0
-
-    lines = [
-        f"{'KIND':<18} {'COUNT':>7} {'EXPECTED MiB':>14}",
-        f"{'-' * 18} {'-' * 7} {'-' * 14}",
-    ]
-    for kind in sorted(by_kind):
-        lines.append(
-            f"{kind:<18} {by_kind[kind]:>7} {bytes_by_kind[kind] / 1_048_576:>14.1f}"
-        )
-    total = sum(bytes_by_kind.values())
-    lines.extend(
-        [
-            f"{'-' * 18} {'-' * 7} {'-' * 14}",
-            f"{'TOTAL':<18} {len(artifacts):>7} {total / 1_048_576:>14.1f}",
-        ]
-    )
-
-    if anomalies:
-        counts: dict[str, int] = defaultdict(int)
-        for item in anomalies:
-            counts[item.kind] += 1
-        lines.append("")
-        lines.append(f"Anomalies flagged for review ({len(anomalies)}):")
-        for kind in sorted(counts):
-            lines.append(f"  {kind:<38} {counts[kind]:>5}")
-    else:
-        lines.append("")
-        lines.append("No anomalies.")
-
-    return "\n".join(lines)
-
-
-# --------------------------------------------------------------------------------------
-# Public stage
-# --------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ResolveRequest:
-    cik: str | None = None
-    filings_run_id: str | None = None
-    limit: int | None = None
-    progress: Callable[[int, int, FilingRecord], None] | None = None
-
-
-@dataclass(frozen=True)
-class ResolveResult:
-    run_id: str
-    filings_run_id: str
-    manifest_path: Path
-    artifacts: list[ArtifactRecord]
-    anomalies: list[ResolutionAnomaly]
-    requests_made: int
-    filing_count: int
-
-    @property
-    def artifact_count(self) -> int:
-        return len(self.artifacts)
-
-    @property
-    def ok(self) -> bool:
-        return bool(self.artifacts)
-
 
 class SgmlResolveStage:
     """Resolves artifacts from EDGAR's authoritative SGML header."""

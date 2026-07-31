@@ -8,12 +8,15 @@ import pytest
 
 from acquisition.core import identity
 from acquisition.core.config import IncludeConfig
-from acquisition.stages.discover.stage import FilingDiscoverer, summarize
-from acquisition.stages.resolve.stage import (
+# Contract and formatting come from the package surface; the concrete implementations
+# are imported directly because these are unit tests of those implementations.
+from acquisition.stages.discover import summarize
+from acquisition.stages.discover.sec_discovery import FilingDiscoverer
+from acquisition.stages.resolve import (
     ANOMALY_CASE_COLLISION,
     ANOMALY_UNRECOGNIZED_TYPE,
-    ArtifactResolver,
 )
+from acquisition.stages.resolve.sgml_resolution import ArtifactResolver
 from acquisition.stages.resolve.sgml import parse_index_headers
 
 from conftest import FakeSecClient, make_filing_record

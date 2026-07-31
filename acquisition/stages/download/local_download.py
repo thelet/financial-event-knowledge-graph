@@ -1,15 +1,14 @@
-"""DOWNLOAD: fetch artifacts and finalize filings atomically.
+"""Local-filesystem implementation of the DOWNLOAD stage.
 
-Consumes a resolved artifact manifest. Per filing: stage, download, hash, write metadata,
-finalize. Writes nothing to the global catalogs -- those are rebuilt separately from
-per-filing metadata (v0 plan section 9).
+Per filing: stage into a temporary directory, download every expected artifact, hash it,
+write `_filing.json` last, then finalize atomically. Writes nothing to the global catalogs --
+those are rebuilt separately from per-filing metadata (v0 plan section 9).
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -31,49 +30,16 @@ from ...core.runmeta import (
 )
 from ...core.sec_client import SecClient
 from ...core.storage import LocalRawArtifactStore
-
-STATUS_DOWNLOADED = "downloaded"
-STATUS_SKIPPED = "skipped"
-STATUS_REPAIRED = "repaired"
-STATUS_FAILED = "failed"
-
-
-@dataclass
-class FilingOutcome:
-    filing_id: str
-    accession: str
-    status: str
-    artifact_count: int = 0
-    bytes_downloaded: int = 0
-    reason: str | None = None
-
-
-@dataclass
-class DownloadSummary:
-    outcomes: list[FilingOutcome] = field(default_factory=list)
-
-    def count(self, status: str) -> int:
-        return sum(1 for o in self.outcomes if o.status == status)
-
-    @property
-    def bytes_downloaded(self) -> int:
-        return sum(o.bytes_downloaded for o in self.outcomes)
-
-    @property
-    def failures(self) -> list[FilingOutcome]:
-        return [o for o in self.outcomes if o.status == STATUS_FAILED]
-
-    def render(self) -> str:
-        lines = [
-            f"Downloaded : {self.count(STATUS_DOWNLOADED)}",
-            f"Repaired   : {self.count(STATUS_REPAIRED)}",
-            f"Skipped    : {self.count(STATUS_SKIPPED)}  (already valid and complete)",
-            f"Failed     : {self.count(STATUS_FAILED)}",
-            f"Bytes      : {self.bytes_downloaded / 1_048_576:.1f} MiB",
-        ]
-        for failure in self.failures:
-            lines.append(f"  FAILED {failure.accession}: {failure.reason}")
-        return "\n".join(lines)
+from .public import (
+    STATUS_DOWNLOADED,
+    STATUS_FAILED,
+    STATUS_REPAIRED,
+    STATUS_SKIPPED,
+    DownloadRequest,
+    DownloadResult,
+    DownloadSummary,
+    FilingOutcome,
+)
 
 
 class ArtifactDownloader:
@@ -263,39 +229,6 @@ class ArtifactDownloader:
         if expected_ids != actual_ids:
             return False
         return not self._store.verify_filing_contents(filing.filing_dir, metadata)
-
-
-# --------------------------------------------------------------------------------------
-# Public stage
-# --------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DownloadRequest:
-    cik: str | None = None
-    artifacts_run_id: str | None = None
-    limit: int | None = None
-    force: bool = False
-    progress: Callable[[int, int, FilingOutcome], None] | None = None
-
-
-@dataclass(frozen=True)
-class DownloadResult:
-    run_id: str
-    artifacts_run_id: str
-    summary: DownloadSummary
-    requests_made: int
-    filing_count: int
-    artifact_count: int
-
-    @property
-    def bytes_downloaded(self) -> int:
-        return self.summary.bytes_downloaded
-
-    @property
-    def ok(self) -> bool:
-        return not self.summary.failures
-
 
 class LocalDownloadStage:
     """Downloads artifacts and finalizes filings atomically into local storage."""

@@ -1,15 +1,15 @@
-"""DISCOVER: build the filing-level manifest.
+"""SEC implementation of the DISCOVER stage.
 
-Reads the SEC submissions API and produces the list of filings that *should* exist. Fetches
-no filing artifacts (v0 plan section 4).
+Reads data.sec.gov/submissions/, follows continuation files, filters by form and date, and
+converts the API's parallel-array encoding into canonical filing records. Fetches no filing
+artifacts.
+
+Everything provider-specific is confined here, behind `public.DiscoverStage`.
 """
 
 from __future__ import annotations
 
 import json
-from collections import Counter
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Iterable
 
 from ...core import identity
@@ -18,9 +18,10 @@ from ...core.manifests import ManifestRepository
 from ...core.models import FilingManifest, FilingRecord, RunRecord
 from ...core.runmeta import build_run_metadata, utc_now_iso, write_run_record
 from ...core.sec_client import SecClient
+from .public import DiscoverRequest, DiscoverResult
+
 
 SUBMISSIONS_BASE = identity.SEC_SUBMISSIONS
-
 
 class FilingDiscoverer:
     """Discovers filings for one issuer from data.sec.gov/submissions/."""
@@ -80,7 +81,6 @@ class FilingDiscoverer:
         result = self._client.get_bytes(url)
         return json.loads(result.content)
 
-
 def _rows_from_block(block: dict[str, Any]) -> list[dict[str, Any]]:
     """Transpose the parallel-array encoding used by the submissions API."""
     if not block:
@@ -90,7 +90,6 @@ def _rows_from_block(block: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     length = min(len(block[k]) for k in keys)
     return [{k: block[k][i] for k in keys} for i in range(length)]
-
 
 def _form_matcher(forms: Iterable[str], include_amendments: bool):
     wanted = {f.strip().upper() for f in forms}
@@ -104,7 +103,6 @@ def _form_matcher(forms: Iterable[str], include_amendments: bool):
         return False
 
     return matches
-
 
 def _to_record(
     row: dict[str, Any],
@@ -156,69 +154,6 @@ def _to_record(
             company.cik, accession, identity.index_headers_filename(accession)
         ),
     )
-
-
-def summarize(records: list[FilingRecord]) -> str:
-    """Human-readable summary printed before a manifest is written."""
-    if not records:
-        return "No filings matched the configured scope."
-
-    by_form = Counter(r.form for r in records)
-    lines = [
-        f"{'FORM':<12} {'COUNT':>6}  {'EARLIEST':<12} {'LATEST':<12}",
-        f"{'-' * 12} {'-' * 6}  {'-' * 12} {'-' * 12}",
-    ]
-    for form in sorted(by_form):
-        dates = [r.filing_date for r in records if r.form == form]
-        lines.append(f"{form:<12} {by_form[form]:>6}  {min(dates):<12} {max(dates):<12}")
-
-    total_bytes = sum(r.size_reported or 0 for r in records)
-    all_dates = [r.filing_date for r in records]
-    lines.extend(
-        [
-            f"{'-' * 12} {'-' * 6}  {'-' * 12} {'-' * 12}",
-            f"{'TOTAL':<12} {len(records):>6}  {min(all_dates):<12} {max(all_dates):<12}",
-            "",
-            f"Amendments:            {sum(1 for r in records if r.is_amendment)}",
-            f"With 8-K item codes:   {sum(1 for r in records if r.items)}",
-            f"Reported size (SEC):   {total_bytes / 1_048_576:.1f} MiB",
-        ]
-    )
-    return "\n".join(lines)
-
-
-# --------------------------------------------------------------------------------------
-# Public stage
-# --------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DiscoverRequest:
-    cik: str | None = None
-    include_amendments: bool = True
-
-
-@dataclass(frozen=True)
-class DiscoverResult:
-    run_id: str
-    manifest_path: Path
-    filings: list[FilingRecord]
-    requests_made: int
-    company_name: str
-    company_cik10: str
-    date_from: str
-    date_to: str
-    config_hash: str
-    manifest_hash: str
-
-    @property
-    def filing_count(self) -> int:
-        return len(self.filings)
-
-    @property
-    def ok(self) -> bool:
-        return bool(self.filings)
-
 
 class SecDiscoverStage:
     """Discovers filings from the SEC submissions API and writes a filing manifest."""

@@ -1,17 +1,16 @@
-"""BUILD_CATALOG: rebuild global indexes from per-filing metadata.
+"""JSONL implementation of the BUILD_CATALOG stage.
 
-Per-filing _filing.json is the source of truth; filings.jsonl and artifacts.jsonl are
-derived indexes (v0 plan section 9). Nothing appends to them during concurrent downloads,
-and they are never consulted to decide what to download.
+Per-filing `_filing.json` is the source of truth; the catalogs are derived indexes rebuilt
+from it. Nothing appends to them during concurrent downloads, and they are never consulted
+to decide what to download.
 
-`documents.jsonl` and `passages.jsonl` are deliberately not produced here -- those names
-are reserved for the parsing and normalization phases.
+The row builders live here rather than in `public.py` because the row shape belongs to this
+JSONL representation -- a database-backed catalog would shape rows differently.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,39 +18,7 @@ from ...core.config import AppConfig
 from ...core.models import FilingMetadata
 from ...core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG, LocalRawArtifactStore
 from ...utils.jsonl import write_jsonl
-
-
-@dataclass
-class CatalogResult:
-    filings_path: Path
-    artifacts_path: Path
-    filing_count: int
-    artifact_count: int
-    duplicate_filing_ids: list[str] = field(default_factory=list)
-    duplicate_artifact_ids: list[str] = field(default_factory=list)
-    unreadable: list[str] = field(default_factory=list)
-
-    @property
-    def ok(self) -> bool:
-        return not (
-            self.duplicate_filing_ids or self.duplicate_artifact_ids or self.unreadable
-        )
-
-    def render(self) -> str:
-        lines = [
-            f"Filings   : {self.filing_count:>6}  -> {self.filings_path}",
-            f"Artifacts : {self.artifact_count:>6}  -> {self.artifacts_path}",
-        ]
-        if self.duplicate_filing_ids:
-            lines.append(f"DUPLICATE filing ids: {len(self.duplicate_filing_ids)}")
-            lines.extend(f"  {i}" for i in self.duplicate_filing_ids[:10])
-        if self.duplicate_artifact_ids:
-            lines.append(f"DUPLICATE artifact ids: {len(self.duplicate_artifact_ids)}")
-            lines.extend(f"  {i}" for i in self.duplicate_artifact_ids[:10])
-        if self.unreadable:
-            lines.append(f"UNREADABLE filing metadata: {len(self.unreadable)}")
-            lines.extend(f"  {p}" for p in self.unreadable[:10])
-        return "\n".join(lines)
+from .public import CatalogRequest, CatalogResult
 
 
 class CatalogBuilder:
@@ -111,7 +78,6 @@ class CatalogBuilder:
             loaded.append((metadata, relative))
         return loaded, unreadable
 
-
 def _filing_row(metadata: FilingMetadata, filing_dir: str) -> dict[str, Any]:
     return {
         "filing_id": metadata.filing_id,
@@ -136,7 +102,6 @@ def _filing_row(metadata: FilingMetadata, filing_dir: str) -> dict[str, Any]:
         "run_id": metadata.run_id,
         "fetched_at": metadata.fetched_at,
     }
-
 
 def _artifact_rows(metadata: FilingMetadata, filing_dir: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -170,7 +135,6 @@ def _artifact_rows(metadata: FilingMetadata, filing_dir: str) -> list[dict[str, 
         )
     return rows
 
-
 def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]], list[str]]:
     """Drop duplicates by canonical identity, reporting rather than silently collapsing."""
     seen: set[str] = set()
@@ -184,28 +148,6 @@ def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]],
         seen.add(identifier)
         unique.append(row)
     return unique, duplicates
-
-
-    with Path(path).open("r", encoding="utf-8") as handle:
-        for number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                rows.append(json.loads(stripped))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"{path}:{number}: malformed JSONL: {exc}") from exc
-    return rows
-
-
-# --------------------------------------------------------------------------------------
-# Public stage
-# --------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CatalogRequest:
-    """No inputs: the catalog is always rebuilt from whatever is finalized on disk."""
 
 
 class JsonlCatalogStage:

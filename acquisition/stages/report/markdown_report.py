@@ -1,14 +1,15 @@
-"""Corpus report.
+"""Markdown implementation of the REPORT stage.
 
 Observations about the acquired corpus, for human review. Deliberately *not* acceptance
 criteria: an Item 2.02 filing without an EX-99.1 is a pattern worth looking at, not a
 pipeline defect (v0 plan section 12).
+
+There is no separate `summary.py` here because this entire module is the formatting.
 """
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,10 @@ from ...core.manifests import ManifestRepository
 from ...core.models import ArtifactManifest
 from ...core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG
 from ...utils.jsonl import read_jsonl
+from .public import ReportRequest, ReportResult
+
 
 ITEM_RESULTS_OF_OPERATIONS = "2.02"
-
 
 def build_corpus_report(
     catalog_root: Path, artifact_manifest: ArtifactManifest | None = None
@@ -49,12 +51,10 @@ def build_corpus_report(
     ]
     return "\n".join(sections)
 
-
 def _table(headers: list[str], rows: list[list[str]]) -> str:
     lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
     lines.extend("| " + " | ".join(row) + " |" for row in rows)
     return "\n".join(lines)
-
 
 def _section_forms_by_year(filings: list[dict[str, Any]]) -> str:
     counts: dict[tuple[str, str], int] = Counter(
@@ -79,7 +79,6 @@ def _section_forms_by_year(filings: list[dict[str, Any]]) -> str:
     rows.append(totals)
     return "## Filings by form and year\n\n" + _table(["Form", *years, "Total"], rows) + "\n"
 
-
 def _section_artifact_kinds(artifacts: list[dict[str, Any]]) -> str:
     counts = Counter(a["artifact_kind"] for a in artifacts)
     sizes: dict[str, int] = defaultdict(int)
@@ -98,7 +97,6 @@ def _section_artifact_kinds(artifacts: list[dict[str, Any]]) -> str:
     )
     return "## Artifact kinds\n\n" + _table(["Kind", "Count", "MiB"], rows) + "\n"
 
-
 def _section_exhibit_roles(artifacts: list[dict[str, Any]]) -> str:
     counts = Counter(
         a["role"] for a in artifacts if a["artifact_kind"] == "exhibit" and a["role"]
@@ -109,7 +107,6 @@ def _section_exhibit_roles(artifacts: list[dict[str, Any]]) -> str:
         [role, str(count)] for role, count in sorted(counts.items(), key=lambda kv: -kv[1])
     ]
     return "## Exhibit roles\n\n" + _table(["Role", "Count"], rows[:30]) + "\n"
-
 
 def _section_item_202(
     filings: list[dict[str, Any]], by_filing: dict[str, list[dict[str, Any]]]
@@ -142,7 +139,6 @@ def _section_item_202(
         + _table(["Filed", "Accession", "Items", "Exhibit roles"], rows)
         + "\n"
     )
-
 
 def _section_flags(
     filings: list[dict[str, Any]],
@@ -217,7 +213,6 @@ def _section_flags(
         lines.append("")
     return "\n".join(lines)
 
-
 def _section_largest(artifacts: list[dict[str, Any]]) -> str:
     largest = sorted(artifacts, key=lambda a: -a["size_bytes"])[:15]
     rows = [
@@ -235,27 +230,6 @@ def _section_largest(artifacts: list[dict[str, Any]]) -> str:
         + _table(["MiB", "Kind", "Type", "Filename", "Filed"], rows)
         + "\n"
     )
-
-
-# --------------------------------------------------------------------------------------
-# Public stage
-# --------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ReportRequest:
-    artifacts_run_id: str | None = None
-
-
-@dataclass(frozen=True)
-class ReportResult:
-    path: Path
-    text: str
-
-    @property
-    def ok(self) -> bool:
-        return True
-
 
 class MarkdownReportStage:
     """Renders the corpus report from the catalogs."""

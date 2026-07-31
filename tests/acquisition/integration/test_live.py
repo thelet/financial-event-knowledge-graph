@@ -15,10 +15,10 @@ from __future__ import annotations
 import pytest
 
 from acquisition.core import identity
-from acquisition.stages.catalog.stage import CatalogBuilder
-from acquisition.stages.discover.stage import FilingDiscoverer
-from acquisition.stages.download.stage import ArtifactDownloader
-from acquisition.stages.resolve.stage import ArtifactResolver
+from acquisition.stages.catalog.jsonl_catalog import CatalogBuilder
+from acquisition.stages.discover.sec_discovery import FilingDiscoverer
+from acquisition.stages.download.local_download import ArtifactDownloader
+from acquisition.stages.resolve.sgml_resolution import ArtifactResolver
 from acquisition.core.sec_client import SecClient
 from acquisition.core.storage import LocalRawArtifactStore
 

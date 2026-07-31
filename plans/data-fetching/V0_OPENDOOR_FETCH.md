@@ -128,8 +128,23 @@ acquisition/
 ├── core/           shared application infrastructure
 │   models identity config sec_client storage manifests runmeta
 ├── utils/          generic stateless helpers only (jsonl)
-└── stages/         discover resolve download catalog verify report
+└── stages/
+    ├── discover/   public.py  sec_discovery.py  summary.py
+    ├── resolve/    public.py  sgml_resolution.py  sgml.py  summary.py
+    ├── download/   public.py  local_download.py
+    ├── catalog/    public.py  jsonl_catalog.py
+    ├── verify/     public.py  corpus_verification.py
+    └── report/     public.py  markdown_report.py
 ```
+
+Inside a stage: `public.py` holds the request, the result, and a stage protocol, and imports
+no HTTP, storage, manifest, or configuration module. The implementation file is named for
+what it is, so the provider is visible from the filename. A third file appears only where a
+substantial specialized concern exists -- `summary.py` where formatting is a free function
+over stage data, `sgml.py` because parsing the SEC header format is its own problem. Where a
+result type renders itself (`DownloadSummary`, `CatalogResult`, `VerificationReport`) that
+method stays with the type: splitting a class from its own display would be fragmentation,
+not separation.
 
 Four things worth knowing:
 

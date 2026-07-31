@@ -11,12 +11,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .contracts import PipelineStage
-from .stages.catalog import CatalogRequest, CatalogResult
-from .stages.discover import DiscoverRequest, DiscoverResult
-from .stages.download import DownloadRequest, DownloadResult
-from .stages.report import ReportRequest, ReportResult
-from .stages.resolve import ResolveRequest, ResolveResult
-from .stages.verify import VerifyRequest, VerifyResult
+from .stages.catalog import CatalogRequest, CatalogResult, CatalogStage
+from .stages.discover import DiscoverRequest, DiscoverResult, DiscoverStage
+from .stages.download import DownloadRequest, DownloadResult, DownloadStage
+from .stages.report import ReportRequest, ReportResult, ReportStage
+from .stages.resolve import ResolveRequest, ResolveResult, ResolveStage
+from .stages.verify import VerifyRequest, VerifyResult, VerifyStage
 
 # Stages run before report. Report runs afterwards and is not gated on its own success,
 # matching the original `acquire` command exactly.
@@ -57,12 +57,12 @@ class AcquisitionPipeline:
 
     def __init__(
         self,
-        discover: PipelineStage[DiscoverRequest, DiscoverResult],
-        resolve: PipelineStage[ResolveRequest, ResolveResult],
-        download: PipelineStage[DownloadRequest, DownloadResult],
-        catalog: PipelineStage[CatalogRequest, CatalogResult],
-        verify: PipelineStage[VerifyRequest, VerifyResult],
-        report: PipelineStage[ReportRequest, ReportResult],
+        discover: DiscoverStage,
+        resolve: ResolveStage,
+        download: DownloadStage,
+        catalog: CatalogStage,
+        verify: VerifyStage,
+        report: ReportStage,
     ) -> None:
         self._discover = discover
         self._resolve = resolve

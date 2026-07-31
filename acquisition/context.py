@@ -11,18 +11,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contracts import PipelineStage
 from .core.config import AppConfig, load_config
 from .core.manifests import ManifestRepository
 from .core.sec_client import SecClient
 from .core.storage import LocalRawArtifactStore
 from .pipeline import AcquisitionPipeline
-from .stages.catalog import JsonlCatalogStage
-from .stages.discover import SecDiscoverStage
-from .stages.download import LocalDownloadStage
-from .stages.report import MarkdownReportStage
-from .stages.resolve import SgmlResolveStage
-from .stages.verify import CorpusVerifyStage
+from .stages.catalog import CatalogStage, JsonlCatalogStage
+from .stages.discover import DiscoverStage, SecDiscoverStage
+from .stages.download import DownloadStage, LocalDownloadStage
+from .stages.report import MarkdownReportStage, ReportStage
+from .stages.resolve import ResolveStage, SgmlResolveStage
+from .stages.verify import CorpusVerifyStage, VerifyStage
 
 
 @dataclass
@@ -38,12 +37,12 @@ class AcquisitionContext:
     client: SecClient
     store: LocalRawArtifactStore
     manifests: ManifestRepository
-    discover: PipelineStage
-    resolve: PipelineStage
-    download: PipelineStage
-    catalog: PipelineStage
-    verify: PipelineStage
-    report: PipelineStage
+    discover: DiscoverStage
+    resolve: ResolveStage
+    download: DownloadStage
+    catalog: CatalogStage
+    verify: VerifyStage
+    report: ReportStage
     pipeline: AcquisitionPipeline
 
     def close(self) -> None:
@@ -63,12 +62,12 @@ def build_acquisition_context(
     client: SecClient | None = None,
     store: LocalRawArtifactStore | None = None,
     manifests: ManifestRepository | None = None,
-    discover: PipelineStage | None = None,
-    resolve: PipelineStage | None = None,
-    download: PipelineStage | None = None,
-    catalog: PipelineStage | None = None,
-    verify: PipelineStage | None = None,
-    report: PipelineStage | None = None,
+    discover: DiscoverStage | None = None,
+    resolve: ResolveStage | None = None,
+    download: DownloadStage | None = None,
+    catalog: CatalogStage | None = None,
+    verify: VerifyStage | None = None,
+    report: ReportStage | None = None,
 ) -> AcquisitionContext:
     """Build the runtime context, constructing the current implementations by default.
 

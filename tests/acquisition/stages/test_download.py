@@ -6,13 +6,13 @@ import json
 
 import pytest
 
-from acquisition.stages.download.stage import (
+from acquisition.stages.download import (
     STATUS_DOWNLOADED,
     STATUS_FAILED,
     STATUS_REPAIRED,
     STATUS_SKIPPED,
-    ArtifactDownloader,
 )
+from acquisition.stages.download.local_download import ArtifactDownloader
 from acquisition.core.storage import (
     FILING_METADATA_NAME,
     FilingIntegrityError,
