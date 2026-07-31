@@ -77,7 +77,7 @@ data/raw/sec/0001801169/8-K/2026-02-19_0001801169-26-000009/
 | --- | --- | --- |
 | 10-K | 6 | FY2020–FY2025; primary ~2.9 MB plus ~10 exhibits and XBRL |
 | 10-Q | 19 | |
-| 8-K | 75 | 24 carry Item 2.02 |
+| 8-K | 75 | 23 carry Item 2.02; 22 of those have an EX-99.1 |
 | 8-K/A | 2 | amendments, preserved as filed (§11) |
 | DEF 14A | 7 | |
 | **Total** | **109** | |
