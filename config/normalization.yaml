@@ -1,0 +1,50 @@
+# Normalization configuration. Any change alters config_hash and therefore derivation_id.
+version: v1
+
+paths:
+  data_root: data
+  manifests_root: normalization_manifests
+  acquisition_catalog: data/catalog
+
+parser:
+  default: sec_html          # sec_html | lxml
+  fallback: lxml
+  mode: normal               # normal | fallback | comparison
+  # Hard-failure trigger: parsed text below this fraction of a plain lxml extraction
+  # of the same bytes (v1 plan section 4.5, condition 6).
+  min_source_coverage: 0.60
+
+headings:
+  # Filing labels beat font-weight (v1 plan section 4.6). Matched case-insensitively
+  # against the whole normalized block text.
+  filing_label_patterns:
+    - '^part\s+[ivx]+\b'
+    - '^item\s+\d+[a-z]?\b'
+    - '^risk\s+factors$'
+    - "^management'?s\\s+discussion"
+    - '^signatures?$'
+  min_font_weight: 600
+  max_heading_chars: 200
+  # Below this mean confidence the document degrades to a flat synthetic root.
+  min_mean_confidence: 0.35
+
+tables:
+  wide_table_columns: 12
+  # Layout classification requires ALL of these to hold; anything else is `unknown`.
+  layout_max_rows: 1
+  layout_max_cols: 1
+
+passages:
+  target_chars: 1500
+  max_chars: 4000
+  min_chars: 200
+  # Block types that never become passage content.
+  excluded_block_types: [page_header, page_number, heading, image]
+
+selection:
+  policy_file: config/selection_policy.yaml
+  min_text_chars: 400        # below this AND no tables -> BELOW_TEXT_FLOOR
+
+image_heavy:
+  min_text_chars: 500
+  min_chars_per_image: 200

@@ -107,7 +107,7 @@ HTML that carries no structural information at all.
 | 10, 11 (EX-99.2) | Full narrative recovered; images flagged, not treated as content loss |
 | 12 (EX-99.3) | Image-heavy heuristic behaves sensibly near its boundary |
 | 13, 14 (DEF 14A) | Layout tables classified as layout without discarding data tables |
-| 15 (EX-21.1) | **68 subsidiary rows survive as a structured table.** The single sharpest test |
+| 15 (EX-21.1) | **Every subsidiary survives as a structured table.** *Corrected during implementation:* the document has 68 `<tr>` but only **4 subsidiaries** — the rest are spacer rows. The criterion is that all 4 survive, not that 68 rows do. Still the sharpest test, because flattening the table empties the document |
 | 16 (EX-4.1) | Long governance prose with interleaved tables stays ordered |
 | 17 (EX-10.12) | Contract prose and dense tables both survive |
 | 18 (EX-3.1) | 323 tables do not fragment the document into unusable passages |

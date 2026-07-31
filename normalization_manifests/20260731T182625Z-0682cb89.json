@@ -1,0 +1,51 @@
+{
+  "run_id": "20260731T182625Z-0682cb89",
+  "stage": "pipeline",
+  "created_at": "2026-07-31T18:26:30+00:00",
+  "finished_at": "2026-07-31T18:26:30+00:00",
+  "config_hash": "0682cb89a83be6fb5c945ac0a0957d4b2c483fc1ed5e2037f2a41ddd5463df09",
+  "selection_policy_version": "v1",
+  "parser_name": "sec_html",
+  "parser_version": "0.58.1",
+  "normalizer_version": "1.0.0",
+  "passage_strategy_name": "section_aware",
+  "passage_strategy_version": "1.0.0",
+  "parser_mode": "normal",
+  "code_commit": "18cb0f9239ad21699a45232529bd166e102baf6b",
+  "python_version": "3.13.11",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "dependency_versions": {
+    "lxml": "5.4.0",
+    "sec-parser": "0.58.1",
+    "pydantic": "2.13.4",
+    "pyyaml": "6.0.3",
+    "pytest": "8.4.2"
+  },
+  "counts": {
+    "documents": 18,
+    "issues": 1,
+    "errors": 0
+  },
+  "produced_document_ids": [
+    "norm:0001801169:0001104659-20-054449:tm2017926d1_ex10-12.htm",
+    "norm:0001801169:0001104659-20-054449:tm2017926d1_ex3-1.htm",
+    "norm:0001801169:0001104659-20-121496:tm2029660-1_10q.htm",
+    "norm:0001801169:0001104659-21-010984:tm215021d1_8k.htm",
+    "norm:0001801169:0001104659-21-057984:tm2112233-1_def14a.htm",
+    "norm:0001801169:0001140361-25-019770:ef20049190_8k.htm",
+    "norm:0001801169:0001140361-25-035480:ef20055829_8k.htm",
+    "norm:0001801169:0001140361-25-042984:ef20059583_ex4-1.htm",
+    "norm:0001801169:0001140361-26-017460:ny20064714x1_def14a.htm",
+    "norm:0001801169:0001801169-25-000016:exhibit9924q24opendoorsh.htm",
+    "norm:0001801169:0001801169-25-000090:q32025formxex991earningsre.htm",
+    "norm:0001801169:0001801169-25-000092:open-20250930.htm",
+    "norm:0001801169:0001801169-26-000009:exhibit992-q42025form8xk.htm",
+    "norm:0001801169:0001801169-26-000009:exhibit993-4q25opendoors.htm",
+    "norm:0001801169:0001801169-26-000009:open-20260219.htm",
+    "norm:0001801169:0001801169-26-000009:q42025formxex991earningsre.htm",
+    "norm:0001801169:0001801169-26-000010:a2025ex211xlistofsubsidiar.htm",
+    "norm:0001801169:0001801169-26-000010:open-20251231.htm"
+  ],
+  "fallback_document_ids": [],
+  "errors": []
+}

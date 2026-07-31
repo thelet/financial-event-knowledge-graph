@@ -496,9 +496,25 @@ Reason codes: `PRIMARY_NARRATIVE`, `EARNINGS_MATERIAL`, `MATERIAL_AGREEMENT`,
 `NON_NARRATIVE_MEDIA`, `XBRL_LANE`, `ARCHIVAL_ONLY`, `BELOW_TEXT_FLOOR`,
 `NEEDS_REVIEW`.
 
-`NEEDS_REVIEW` covers artifacts matching no rule, and unclassified EX-10 agreements. They
-are excluded from processing but listed in the report, so an unfamiliar exhibit type
-surfaces instead of vanishing.
+`NEEDS_REVIEW` covers artifacts matching no rule, and unclassified EX-10 agreements.
+
+**Correction, made during implementation *(measured 2026-07-31)*.** An earlier draft said
+`NEEDS_REVIEW` artifacts were "excluded from processing but listed in the report". Two
+measurements against the real corpus overturned that:
+
+- **SEC exhibit descriptions carry no information.** Every one of them is the exhibit
+  number — `"EXHIBIT 10.12"`, `"ex-10.1"`. Zero informative descriptions across all
+  exhibits in the corpus. The `description_matches` rule above can therefore never fire on
+  this issuer's filings.
+- **Item codes classify only 24 of 64 EX-10 artifacts.** Forty carry no usable item signal;
+  fixture 17's filing, a material agreement, has items `8.01, 9.01`.
+
+Excluding them from processing would silently drop 40 material contracts — exactly the
+documents an event graph wants. So `NEEDS_REVIEW` now means **normalize and flag**: the
+artifact is processed, its document carries the `needs_review` flag, and it is listed first
+in the corpus report. Only `exclude` prevents processing.
+
+Processed corpus is therefore 234 `include` + 60 `needs_review` = **294**, matching §2.
 
 ---
 
@@ -747,7 +763,8 @@ diffed directly.
    parser-only test may run it directly to confirm the parser handles certifications, but
    that is a parser test, not part of normalization.
 2. Section hierarchy is judged correct for the 10-K, both 10-Qs, and both DEF 14As.
-3. EX-21.1 yields its 68 subsidiary rows as a structured table, not empty text.
+3. EX-21.1 yields every subsidiary as structured table rows, not empty text. *(Corrected:
+   the document has 68 `<tr>` but only 4 subsidiaries; the rest are spacer rows.)*
 4. Hidden inline-XBRL content appears in **no** passage.
 5. No passage contains run-together tokens of the `ASSETSFor` kind (§1.7).
 6. Every fixture passage resolves to a source block, artifact, and live EDGAR URL.

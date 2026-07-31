@@ -1,0 +1,77 @@
+# Versioned artifact-selection policy (v1 plan section 8).
+#
+# Rules are evaluated in order; the first match wins. Every acquired artifact receives
+# exactly one decision and one reason code -- nothing is silently discarded.
+#
+# Matching uses acquisition-catalog metadata only. Filenames are never used.
+version: v1
+
+default:
+  decision: exclude
+  reason: NEEDS_REVIEW
+
+rules:
+  # -- structural exclusions: not narrative text at all --------------------------------
+  - id: non-narrative-kind
+    when: {artifact_kind_in: [asset, xbrl, full_submission, index_header, render_artifact]}
+    decision: exclude
+    reason: NON_NARRATIVE_MEDIA
+
+  - id: non-html
+    when: {media_type_not: text/html}
+    decision: exclude
+    reason: NON_NARRATIVE_MEDIA
+
+  # -- boilerplate: real documents, no analytical content ------------------------------
+  - id: certifications-and-consents
+    when: {role_in: [ex31-01, ex31-02, ex32-01, ex32-02, ex23-01]}
+    decision: exclude
+    reason: BOILERPLATE_CERTIFICATION
+
+  # -- primary narrative ---------------------------------------------------------------
+  - id: primary-narrative
+    when: {artifact_kind: primary}
+    decision: include
+    reason: PRIMARY_NARRATIVE
+
+  # -- earnings material ---------------------------------------------------------------
+  - id: earnings-and-letters
+    when: {role_in: [ex99-01, ex99-02, ex99-03]}
+    decision: include
+    reason: EARNINGS_MATERIAL
+
+  # -- EX-10.* needs description and filing context, not just the role slug -------------
+  - id: agreements-leadership
+    when:
+      role_prefix: ex10-
+      description_matches: [offer letter, employment, separation, transition,
+                            indemnif, severance, retention, award, incentive, plan]
+    decision: include
+    reason: MATERIAL_AGREEMENT
+
+  - id: agreements-capital
+    when: {role_prefix: ex10-, items_any: ["1.01", "2.03", "3.02"]}
+    decision: include
+    reason: MATERIAL_AGREEMENT
+
+  - id: agreements-unclassified
+    when: {role_prefix: ex10-}
+    decision: needs_review
+    reason: NEEDS_REVIEW
+
+  # -- governance and structured exhibits ----------------------------------------------
+  - id: governance-exhibits
+    when: {role_prefix_any: [ex3-, ex4-, ex19-]}
+    decision: include
+    reason: GOVERNANCE_DOCUMENT
+
+  - id: subsidiary-list
+    when: {role_prefix: ex21-}
+    decision: include
+    reason: STRUCTURED_EXHIBIT
+
+  # -- remaining exhibits are reviewed, never silently kept or dropped ------------------
+  - id: other-exhibits
+    when: {artifact_kind: exhibit}
+    decision: needs_review
+    reason: NEEDS_REVIEW
