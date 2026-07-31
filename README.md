@@ -1,0 +1,37 @@
+# Financial Event Knowledge Graph
+
+A prototype that turns financial documents — annual and quarterly reports, current-event
+filings, earnings-call transcripts, press releases, and shareholder letters — into an
+explorable knowledge graph of companies, products, technologies, executives, financial
+metrics, and business events, where every extracted fact links back to the exact passage
+that supports it.
+
+**Status:** planning. No implementation code yet — this repository currently holds the
+product direction, architecture, and component-selection documents.
+
+## Documents
+
+| Document | Contents |
+| --- | --- |
+| [docs/01_PRODUCT_DIRECTION_AND_ARCHITECTURE.md](docs/01_PRODUCT_DIRECTION_AND_ARCHITECTURE.md) | Purpose, design principles, pipelines, canonical document and graph models, interfaces, configuration, phased implementation sequence, success criteria. |
+| [docs/02_COMPONENT_OPTIONS.md](docs/02_COMPONENT_OPTIONS.md) | Candidate tools and projects per interface — acquisition, parsing, extraction references, graph engines, graph repositories, visualization, models, embeddings, retrieval — with advantages, limitations, and fit. |
+| [docs/03_TARGET_COMBINATIONS.md](docs/03_TARGET_COMBINATIONS.md) | Two concrete prototype combinations (simple modular vs. temporal graph framework), their milestones and tradeoffs, and the recommended route. |
+
+## Core idea in one picture
+
+```text
+Documents → acquisition → canonical normalized passages → extraction
+    → entity resolution → graph mutations → graph repository
+        → visual exploration (later: Q&A and investor posts)
+```
+
+## Architectural rule
+
+Every concrete tool is an experiment behind a project-owned interface. The durable assets
+are the normalized corpus, the canonical models, the ontology versions, the evidence links,
+and the component contracts — not any particular provider, framework, or database.
+
+## Next step
+
+Phase 1 of the implementation sequence: define the interfaces, canonical models,
+configuration format, and run manifests.

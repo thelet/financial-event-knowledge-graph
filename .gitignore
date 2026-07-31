@@ -1,0 +1,41 @@
+# Pipeline artifacts — regenerable from stored normalized documents
+data/
+!data/.gitkeep
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+.next/
+.vite/
+coverage/
+
+# Graph backends and local databases
+*.db
+*.sqlite
+*.sqlite3
+neo4j_data/
+falkordb_data/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
