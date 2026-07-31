@@ -132,11 +132,14 @@ class AppConfig(BaseModel):
 
     @property
     def acquisition_catalog_root(self) -> Path:
-        return self.root / self.normalization.paths.acquisition_catalog
+        """Acquisition inputs. Absolute paths are honoured so normalization outputs can be
+        redirected to a scratch root while still reading the real acquired corpus."""
+        configured = Path(self.normalization.paths.acquisition_catalog)
+        return configured if configured.is_absolute() else self.root / configured
 
     @property
     def acquisition_raw_root(self) -> Path:
-        return self.data_root / "raw"
+        return self.acquisition_catalog_root.parent / "raw"
 
     @property
     def normalized_root(self) -> Path:

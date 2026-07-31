@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 from ...core.config import AppConfig, SelectionRule
 from ...core.manifests import ManifestRepository
-from ...core.models import SelectedArtifact, SelectionManifest
+from ...core.models import NormalizationIssue, SelectedArtifact, SelectionManifest
 from ...core.runmeta import utc_now_iso
 from ...utils.jsonl import read_jsonl
 from .public import BELOW_TEXT_FLOOR, SelectRequest, SelectResult
@@ -70,7 +70,12 @@ class CatalogSelectStage:
             )
             manifest_path = self._manifests.write_selection_manifest(manifest)
 
-        return SelectResult(artifacts=artifacts, manifest_path=manifest_path, counts=counts)
+        return SelectResult(
+            artifacts=artifacts,
+            manifest_path=manifest_path,
+            counts=counts,
+            issues=_selection_issues(request.run_id, artifacts),
+        )
 
     # -- policy ------------------------------------------------------------------------
 
@@ -206,6 +211,27 @@ def _xbrl_index(rows: Iterable[dict[str, Any]]) -> dict[str, list[str]]:
     for ids in index.values():
         ids.sort()
     return index
+
+
+def _selection_issues(run_id: str, artifacts: list[SelectedArtifact]) -> list[NormalizationIssue]:
+    """One issue per artifact no rule positively classified.
+
+    Owned here rather than by the normalize stage so the finding survives even when the
+    artifact later fails to parse.
+    """
+    return [
+        NormalizationIssue(
+            issue_id=f"{run_id}:{a.artifact_id}:needs_review",
+            run_id=run_id,
+            artifact_id=a.artifact_id,
+            severity="warning",
+            code="NEEDS_REVIEW",
+            detail=f"{a.original_filename}: matched no classifying rule "
+                   f"(role={a.role}, form={a.form})",
+        )
+        for a in artifacts
+        if a.decision == "needs_review"
+    ]
 
 
 def _counts(artifacts: list[SelectedArtifact]) -> dict[str, int]:

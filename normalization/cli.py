@@ -33,7 +33,6 @@ from .stages.report import ReportRequest
 from .stages.select import SelectRequest
 from .stages.select.catalog_selection import render_summary as render_selection
 from .stages.verify import VerifyRequest
-from .utils.jsonl import write_jsonl
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -99,11 +98,11 @@ def _write_run(context: NormalizationContext, run_id: str, mode: str, result) ->
         fallback_document_ids=getattr(normalize, "fallbacks", []),
         errors=[i.detail for i in issues if i.severity == "error"],
     )
+    # Deliberately does NOT write the issue file. The write-issues stage owns it, and it
+    # must happen before the catalog stage; persisting it here would repeat the ordering
+    # bug this comment exists to prevent. The run manifest is not read by any stage, so
+    # writing it after the pipeline is safe.
     context.config.runs_root.mkdir(parents=True, exist_ok=True)
-    write_jsonl(
-        context.config.runs_root / f"{run_id}-issues.jsonl",
-        [i.model_dump(mode="json") for i in issues],
-    )
     return context.manifests.write_run_manifest(run)
 
 
@@ -155,6 +154,8 @@ def cmd_pipeline(args: argparse.Namespace, *, fixtures: str | None, mode: str) -
               f"errors: {len(n.failed)}  fallbacks: {len(n.fallbacks)}")
         for issue in n.failed[:10]:
             print(f"  ERROR {issue.artifact_id.split(':')[-1]}: {issue.detail}")
+    if result.issues:
+        print(f"issues written: {result.issues.issue_count} -> {result.issues.path}")
     if result.catalog:
         print(result.catalog.render())
     if result.verify:

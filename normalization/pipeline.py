@@ -10,12 +10,17 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .stages.catalog import CatalogRequest, CatalogResult, CatalogStage
+from .stages.issues import IssueLogRequest, IssueLogResult, IssueLogStage
 from .stages.normalize import NormalizeRequest, NormalizeResult, NormalizeStage
 from .stages.report import ReportRequest, ReportResult, ReportStage
 from .stages.select import SelectRequest, SelectResult, SelectStage
 from .stages.verify import VerifyRequest, VerifyResult, VerifyStage
 
-STAGE_ORDER = ("select", "normalize", "build-catalog", "verify", "report")
+# Authoritative outputs are complete before anything derived is built:
+#   documents/passages (normalize) -> issues (write-issues) -> catalogs -> verify -> report
+# The issue file must precede the catalog stage, which rebuilds the aggregate issue
+# catalog from it. Writing it afterwards left a fresh run with an empty aggregate.
+STAGE_ORDER = ("select", "normalize", "write-issues", "build-catalog", "verify", "report")
 
 
 @dataclass(frozen=True)
@@ -34,6 +39,7 @@ class NormalizationRequest:
 class NormalizationResult:
     select: SelectResult | None = None
     normalize: NormalizeResult | None = None
+    issues: IssueLogResult | None = None
     catalog: CatalogResult | None = None
     verify: VerifyResult | None = None
     report: ReportResult | None = None
@@ -46,25 +52,30 @@ class NormalizationResult:
 
 
 class NormalizationPipeline:
-    """select -> normalize -> build-catalog -> verify -> report."""
+    """select -> normalize -> write-issues -> build-catalog -> verify -> report."""
 
     def __init__(
         self,
         select: SelectStage,
         normalize: NormalizeStage,
+        issues: IssueLogStage,
         catalog: CatalogStage,
         verify: VerifyStage,
         report: ReportStage,
     ) -> None:
         self._select = select
         self._normalize = normalize
+        self._issues = issues
         self._catalog = catalog
         self._verify = verify
         self._report = report
 
     @property
     def stages(self) -> tuple:
-        return (self._select, self._normalize, self._catalog, self._verify, self._report)
+        return (
+            self._select, self._normalize, self._issues,
+            self._catalog, self._verify, self._report,
+        )
 
     def run(self, request: NormalizationRequest) -> NormalizationResult:
         result = NormalizationResult()
@@ -97,6 +108,18 @@ class NormalizationPipeline:
             ),
         )
         if not result.normalize.ok:
+            return result
+
+        # Every authoritative input must exist before anything derived is built. Issues
+        # come from every stage that produced them, not only from normalize.
+        result.issues = step(
+            self._issues,
+            IssueLogRequest(
+                run_id=request.run_id,
+                issues=[*result.select.issues, *result.normalize.issues],
+            ),
+        )
+        if not result.issues.ok:
             return result
 
         result.catalog = step(self._catalog, CatalogRequest(run_id=request.run_id))

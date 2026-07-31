@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from ...core.models import SelectedArtifact
+from ...core.models import NormalizationIssue, SelectedArtifact
 
 # Reason codes. Every artifact receives exactly one.
 PRIMARY_NARRATIVE = "PRIMARY_NARRATIVE"
@@ -46,6 +46,9 @@ class SelectResult:
     artifacts: list[SelectedArtifact] = field(default_factory=list)
     manifest_path: Path | None = None
     counts: dict[str, int] = field(default_factory=dict)
+    # Selection is an issue producer in its own right: an artifact no rule classified is a
+    # finding regardless of whether it later normalizes.
+    issues: list[NormalizationIssue] = field(default_factory=list)
 
     @property
     def included(self) -> list[SelectedArtifact]:

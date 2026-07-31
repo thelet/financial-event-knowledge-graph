@@ -27,6 +27,8 @@ class FakeResult:
         self.documents = []
         self.issues = []
         self.comparisons = []
+        self.issue_count = 0
+        self.path = None
 
 
 class FakeStage:
@@ -45,7 +47,8 @@ class FakeStage:
 def _pipeline(log, failing=None):
     stages = {n: FakeStage(n, log, ok=(n != failing)) for n in STAGE_ORDER}
     return NormalizationPipeline(
-        select=stages["select"], normalize=stages["normalize"], catalog=stages["build-catalog"],
+        select=stages["select"], normalize=stages["normalize"],
+        issues=stages["write-issues"], catalog=stages["build-catalog"],
         verify=stages["verify"], report=stages["report"],
     ), stages
 

@@ -14,6 +14,7 @@ from .core.manifests import ManifestRepository
 from .core.storage import LocalNormalizedStore
 from .pipeline import NormalizationPipeline
 from .stages.catalog import CatalogStage, JsonlCatalogStage
+from .stages.issues import IssueLogStage, RunIssueLogStage
 from .stages.normalize import CanonicalNormalizeStage, NormalizeStage
 from .stages.parse import DocumentParser, LxmlDocumentParser, SecHtmlDocumentParser
 from .stages.passages import PassageStrategy, SectionAwarePassageStrategy
@@ -34,6 +35,7 @@ class NormalizationContext:
     passage_strategy: PassageStrategy
     select: SelectStage
     normalize: NormalizeStage
+    issues: IssueLogStage
     catalog: CatalogStage
     verify: VerifyStage
     report: ReportStage
@@ -68,6 +70,7 @@ def build_normalization_context(
     passage_strategy: PassageStrategy | None = None,
     select: SelectStage | None = None,
     normalize: NormalizeStage | None = None,
+    issues: IssueLogStage | None = None,
     catalog: CatalogStage | None = None,
     verify: VerifyStage | None = None,
     report: ReportStage | None = None,
@@ -91,6 +94,7 @@ def build_normalization_context(
     normalize = normalize or CanonicalNormalizeStage(
         config, default_parser, fallback_parser, passage_strategy, store
     )
+    issues = issues or RunIssueLogStage(config)
     catalog = catalog or JsonlCatalogStage(config, store, manifests)
     verify = verify or CorpusVerifyStage(config, store, manifests)
     report = report or MarkdownReportStage(config, store)
@@ -99,6 +103,9 @@ def build_normalization_context(
         config=config, store=store, manifests=manifests,
         default_parser=default_parser, fallback_parser=fallback_parser,
         passage_strategy=passage_strategy,
-        select=select, normalize=normalize, catalog=catalog, verify=verify, report=report,
-        pipeline=NormalizationPipeline(select, normalize, catalog, verify, report),
+        select=select, normalize=normalize, issues=issues, catalog=catalog,
+        verify=verify, report=report,
+        pipeline=NormalizationPipeline(
+            select, normalize, issues, catalog, verify, report
+        ),
     )

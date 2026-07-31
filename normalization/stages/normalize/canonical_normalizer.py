@@ -498,11 +498,12 @@ class CanonicalNormalizeStage:
         self._store.finalize(document, passages)
         result.documents.append(document)
 
+        # `needs_review` is deliberately absent: the select stage owns that finding, so it
+        # is recorded even for artifacts that never reach the parser.
         for flag, code in (
             ("hierarchy_uncertain", "HIERARCHY_UNCERTAIN"),
             ("requires_image_processing", "IMAGE_HEAVY"),
             ("low_text_yield", "LOW_TEXT_YIELD"),
-            ("needs_review", "NEEDS_REVIEW"),
         ):
             if flag in document.flags:
                 result.issues.append(

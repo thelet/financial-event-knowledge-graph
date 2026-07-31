@@ -823,14 +823,6 @@ Only the spike's 18 fixtures were checked before; both affected documents were o
 This is the value of running verification over the whole corpus rather than trusting a
 sample.
 
-**`issues.jsonl` is built before the run writes its issue file.** BUILD_CATALOG runs inside
-the pipeline; the CLI writes `<run_id>-issues.jsonl` after the pipeline returns. The
-aggregate issue catalog is therefore empty on the first pass and correct after any
-subsequent `build-catalog`. Not a data-loss bug — issues are authoritative in the per-run
-file and appear in verification output and the corpus report — but the pipeline should
-write issues before the catalog stage. Left as-is to avoid changing behaviour after the
-configuration freeze; worth fixing before the next corpus.
-
 # 17. Risks
 
 **17.1 sec-parser staleness.** No release since 2024-06-09, no 10-K parser. Mitigated by
