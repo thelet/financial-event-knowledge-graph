@@ -16,6 +16,16 @@ product direction, architecture, and component-selection documents.
 | [docs/01_PRODUCT_DIRECTION_AND_ARCHITECTURE.md](docs/01_PRODUCT_DIRECTION_AND_ARCHITECTURE.md) | Purpose, design principles, pipelines, canonical document and graph models, interfaces, configuration, phased implementation sequence, success criteria. |
 | [docs/02_COMPONENT_OPTIONS.md](docs/02_COMPONENT_OPTIONS.md) | Candidate tools and projects per interface — acquisition, parsing, extraction references, graph engines, graph repositories, visualization, models, embeddings, retrieval — with advantages, limitations, and fit. |
 | [docs/03_TARGET_COMBINATIONS.md](docs/03_TARGET_COMBINATIONS.md) | Two concrete prototype combinations (simple modular vs. temporal graph framework), their milestones and tradeoffs, and the recommended route. |
+| [docs/04_DATA_ACQUISITION.md](docs/04_DATA_ACQUISITION.md) | Acquisition design for the first anchor company (Opendoor): sources, wave model, tool selection, storage layout, and first-milestone scope. |
+
+## Anchor company
+
+The first corpus is **Opendoor Technologies Inc.** (CIK `0001801169`, Nasdaq: OPEN) — 665
+filings covering 2020-01-31 → 2026-07-29. See
+[docs/04_DATA_ACQUISITION.md](docs/04_DATA_ACQUISITION.md).
+
+Note that docs 01 and 03 still carry a semiconductor-shaped example ontology from before the
+anchor was chosen. Doc 04 §7 records the required revision to `real_estate_marketplace_v1`.
 
 ## Core idea in one picture
 
