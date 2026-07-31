@@ -11,283 +11,191 @@ Each stage is independently runnable:
     python -m acquisition acquire      # convenience: all of the above in order
 
 `acquire` is a convenience only; the individual stages remain the contract.
+
+This module parses arguments, builds requests, calls one stage or the pipeline, renders
+output, and maps results to exit codes. It performs no SEC calls, no storage operations, no
+catalog or verification logic, and owns no stage ordering.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
-from .catalog import CatalogBuilder
-from .core.config import AppConfig, load_config
-from .discovery import FilingDiscoverer
-from .discovery import summarize as summarize_filings
-from .download import ArtifactDownloader
-from .core.manifests import ManifestRepository
-from .core.models import ArtifactManifest, FilingManifest, RunRecord
-from .report import build_corpus_report
-from .resolution import ArtifactResolver
-from .resolution import summarize as summarize_artifacts
-from .core.runmeta import build_run_metadata, utc_now_iso
-from .core.sec_client import SecClient
-from .core.storage import LocalRawArtifactStore
-from .verify import CorpusVerifier
+from .context import AcquisitionContext, build_acquisition_context
+from .pipeline import AcquisitionRequest
+from .stages.catalog import CatalogRequest
+from .stages.discover import DiscoverRequest
+from .stages.discover import summarize as summarize_filings
+from .stages.download import DownloadRequest
+from .stages.report import ReportRequest
+from .stages.resolve import ResolveRequest
+from .stages.resolve import summarize as summarize_artifacts
+from .stages.verify import VerifyRequest
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 
 
 # --------------------------------------------------------------------------------------
-# Wiring
+# Rendering
 # --------------------------------------------------------------------------------------
-
-
-def _context(args: argparse.Namespace) -> tuple[AppConfig, ManifestRepository, LocalRawArtifactStore]:
-    config = load_config(Path(args.root) if args.root else None)
-    manifests = ManifestRepository(config.manifests_root)
-    store = LocalRawArtifactStore(config.raw_root, config.tmp_root)
-    return config, manifests, store
-
-
-def _client(config: AppConfig) -> SecClient:
-    return SecClient(config.fetch.http)
 
 
 def _banner(title: str) -> None:
     print(f"\n{'=' * 72}\n{title}\n{'=' * 72}")
 
 
-def _write_run_record(config: AppConfig, record: RunRecord) -> Path:
-    config.runs_root.mkdir(parents=True, exist_ok=True)
-    path = config.runs_root / f"{record.run.run_id}-{record.run.stage}.json"
-    path.write_text(
-        json.dumps(record.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8"
+def _resolve_progress(done: int, total: int, _filing) -> None:
+    if done % 10 == 0 or done == total:
+        print(f"  resolved {done}/{total}", flush=True)
+
+
+def _download_progress(done: int, total: int, outcome) -> None:
+    if done % 5 == 0 or done == total or outcome.status == "failed":
+        print(f"  {done}/{total}  {outcome.accession}  {outcome.status}", flush=True)
+
+
+def _render_discover(result) -> None:
+    print(summarize_filings(result.filings))
+    print(f"\nManifest written (immutable): {result.manifest_path}")
+    print(
+        f"config_hash={result.config_hash[:16]}  "
+        f"manifest_hash={result.manifest_hash[:16]}"
     )
-    return path
+
+
+def _render_resolve(result) -> None:
+    print()
+    print(summarize_artifacts(result.artifacts, result.anomalies))
+    print(f"\nManifest written (immutable): {result.manifest_path}")
+
+
+def _render_download(result) -> None:
+    print()
+    print(result.summary.render())
+    print(f"Requests made: {result.requests_made}")
+
+
+def _context(args: argparse.Namespace) -> AcquisitionContext:
+    return build_acquisition_context(Path(args.root) if args.root else None)
 
 
 # --------------------------------------------------------------------------------------
-# Stages
+# Commands
 # --------------------------------------------------------------------------------------
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
-    config, manifests, _ = _context(args)
-    company = config.company(args.cik)
-    config_hash = config.config_hash()
-    run = build_run_metadata("discover", config_hash, root=config.root)
-
-    _banner(f"DISCOVER  {company.name}  CIK {company.cik10}  run {run.run_id}")
-    date_to = config.fetch.effective_date_to()
-    print(
-        f"Forms: {', '.join(config.fetch.forms)}   "
-        f"Dates: {config.fetch.date_from} .. {date_to}   "
-        f"Amendments: {'included' if args.include_amendments else 'excluded'}\n"
-    )
-
-    with _client(config) as client:
-        discoverer = FilingDiscoverer(client)
-        filings = discoverer.discover(
-            company,
-            forms=config.fetch.forms,
-            date_from=config.fetch.date_from,
-            date_to=date_to,
-            include_amendments=args.include_amendments,
+    with _context(args) as context:
+        company = context.config.company(args.cik)
+        _banner(f"DISCOVER  {company.name}  CIK {company.cik10}")
+        print(
+            f"Forms: {', '.join(context.config.fetch.forms)}   "
+            f"Dates: {context.config.fetch.date_from} .. "
+            f"{context.config.fetch.effective_date_to()}   "
+            f"Amendments: {'included' if args.include_amendments else 'excluded'}\n"
         )
-        requests_made = client.request_count
-
-    print(summarize_filings(filings))
-
-    manifest = FilingManifest(
-        run=run,
-        company_cik10=company.cik10,
-        forms=list(config.fetch.forms),
-        date_from=config.fetch.date_from,
-        date_to=date_to,
-        filings=filings,
-    )
-    path = manifests.write_filing_manifest(manifest)
-    print(f"\nManifest written (immutable): {path}")
-    print(f"config_hash={config_hash[:16]}  manifest_hash={manifest.manifest_hash[:16]}")
-
-    _write_run_record(
-        config,
-        RunRecord(
-            run=run,
-            started_at=run.created_at,
-            finished_at=utc_now_iso(),
-            config_snapshot={"forms": config.fetch.forms, "date_from": config.fetch.date_from},
-            counts={"filings": len(filings)},
-            requests_made=requests_made,
-        ),
-    )
-    return EXIT_OK if filings else EXIT_FAILED
+        result = context.discover.run(
+            DiscoverRequest(cik=args.cik, include_amendments=args.include_amendments)
+        )
+        _render_discover(result)
+        return EXIT_OK if result.ok else EXIT_FAILED
 
 
 def cmd_resolve(args: argparse.Namespace) -> int:
-    config, manifests, _ = _context(args)
-    company = config.company(args.cik)
-    run_id = args.filings_run_id or manifests.latest_filing_run_id()
-    filing_manifest = manifests.read_filing_manifest(run_id)
-
-    config_hash = config.config_hash()
-    run = build_run_metadata("resolve", config_hash, root=config.root)
-
-    _banner(f"RESOLVE  from filing manifest {run_id}  run {run.run_id}")
-    filings = filing_manifest.filings
-    if args.limit:
-        filings = filings[: args.limit]
-    print(f"Resolving artifacts for {len(filings)} filing(s)...\n")
-
-    def progress(done: int, total: int, _filing) -> None:
-        if done % 10 == 0 or done == total:
-            print(f"  resolved {done}/{total}", flush=True)
-
-    with _client(config) as client:
-        resolver = ArtifactResolver(client, config.fetch.include)
-        artifacts, anomalies = resolver.resolve_all(
-            filings,
-            company.cik,
-            max_workers=config.fetch.http.max_concurrency,
-            progress=progress,
+    with _context(args) as context:
+        _banner("RESOLVE")
+        result = context.resolve.run(
+            ResolveRequest(
+                cik=args.cik,
+                filings_run_id=args.filings_run_id,
+                limit=args.limit,
+                progress=_resolve_progress,
+            )
         )
-        requests_made = client.request_count
-
-    print()
-    print(summarize_artifacts(artifacts, anomalies))
-
-    manifest = ArtifactManifest(
-        run=run,
-        filings_run_id=run_id,
-        company_cik10=company.cik10,
-        artifacts=artifacts,
-        anomalies=anomalies,
-    )
-    path = manifests.write_artifact_manifest(manifest)
-    print(f"\nManifest written (immutable): {path}")
-
-    _write_run_record(
-        config,
-        RunRecord(
-            run=run,
-            started_at=run.created_at,
-            finished_at=utc_now_iso(),
-            counts={"artifacts": len(artifacts), "anomalies": len(anomalies)},
-            requests_made=requests_made,
-        ),
-    )
-    return EXIT_OK if artifacts else EXIT_FAILED
+        print(f"Resolved artifacts for {result.filing_count} filing(s).")
+        _render_resolve(result)
+        return EXIT_OK if result.ok else EXIT_FAILED
 
 
 def cmd_download(args: argparse.Namespace) -> int:
-    config, manifests, store = _context(args)
-    company = config.company(args.cik)
-    artifacts_run_id = args.artifacts_run_id or manifests.latest_artifact_run_id()
-    artifact_manifest = manifests.read_artifact_manifest(artifacts_run_id)
-    filing_manifest = manifests.read_filing_manifest(artifact_manifest.filings_run_id)
-
-    run = build_run_metadata("download", config.config_hash(), root=config.root)
-    _banner(f"DOWNLOAD  from artifact manifest {artifacts_run_id}  run {run.run_id}")
-
-    filings = filing_manifest.filings
-    if args.limit:
-        filings = filings[: args.limit]
-    wanted = {f.filing_id for f in filings}
-    artifacts = [a for a in artifact_manifest.artifacts if a.filing_id in wanted]
-    print(f"{len(filings)} filing(s), {len(artifacts)} artifact(s)\n")
-
-    def progress(done: int, total: int, outcome) -> None:
-        if done % 5 == 0 or done == total or outcome.status == "failed":
-            print(f"  {done}/{total}  {outcome.accession}  {outcome.status}", flush=True)
-
-    with _client(config) as client:
-        downloader = ArtifactDownloader(client, store, company, run_id=run.run_id)
-        summary = downloader.download_all(
-            filings,
-            artifacts,
-            max_workers=config.fetch.http.max_concurrency,
-            force=args.force,
-            progress=progress,
+    with _context(args) as context:
+        _banner("DOWNLOAD")
+        result = context.download.run(
+            DownloadRequest(
+                cik=args.cik,
+                artifacts_run_id=args.artifacts_run_id,
+                limit=args.limit,
+                force=args.force,
+                progress=_download_progress,
+            )
         )
-        requests_made = client.request_count
-
-    print()
-    print(summary.render())
-    print(f"Requests made: {requests_made}")
-
-    _write_run_record(
-        config,
-        RunRecord(
-            run=run,
-            started_at=run.created_at,
-            finished_at=utc_now_iso(),
-            counts={
-                "downloaded": summary.count("downloaded"),
-                "repaired": summary.count("repaired"),
-                "skipped": summary.count("skipped"),
-                "failed": summary.count("failed"),
-            },
-            bytes_downloaded=summary.bytes_downloaded,
-            requests_made=requests_made,
-            errors=[f"{o.accession}: {o.reason}" for o in summary.failures],
-        ),
-    )
-    return EXIT_FAILED if summary.failures else EXIT_OK
+        print(f"{result.filing_count} filing(s), {result.artifact_count} artifact(s)")
+        _render_download(result)
+        return EXIT_OK if result.ok else EXIT_FAILED
 
 
 def cmd_build_catalog(args: argparse.Namespace) -> int:
-    config, _, store = _context(args)
-    _banner("BUILD_CATALOG")
-    result = CatalogBuilder(store, config.catalog_root).build()
-    print(result.render())
-    return EXIT_OK if result.ok else EXIT_FAILED
+    with _context(args) as context:
+        _banner("BUILD_CATALOG")
+        result = context.catalog.run(CatalogRequest())
+        print(result.render())
+        return EXIT_OK if result.ok else EXIT_FAILED
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    config, manifests, store = _context(args)
-    artifacts_run_id = args.artifacts_run_id or manifests.latest_artifact_run_id()
-    artifact_manifest = manifests.read_artifact_manifest(artifacts_run_id)
-    filings_run_id = args.filings_run_id or artifact_manifest.filings_run_id
-    filing_manifest = manifests.read_filing_manifest(filings_run_id)
-
-    _banner(f"VERIFY  filings={filings_run_id}  artifacts={artifacts_run_id}")
-    verifier = CorpusVerifier(store, config.catalog_root, check_hashes=not args.skip_hashes)
-    report = verifier.verify(filing_manifest, artifact_manifest)
-    print(report.render())
-    return EXIT_OK if report.ok else EXIT_FAILED
+    with _context(args) as context:
+        result = context.verify.run(
+            VerifyRequest(
+                filings_run_id=args.filings_run_id,
+                artifacts_run_id=args.artifacts_run_id,
+                check_hashes=not args.skip_hashes,
+            )
+        )
+        _banner(
+            f"VERIFY  filings={result.filings_run_id}  artifacts={result.artifacts_run_id}"
+        )
+        print(result.report.render())
+        return EXIT_OK if result.ok else EXIT_FAILED
 
 
 def cmd_report(args: argparse.Namespace) -> int:
-    config, manifests, _ = _context(args)
-    artifact_manifest = None
-    try:
-        run_id = args.artifacts_run_id or manifests.latest_artifact_run_id()
-        artifact_manifest = manifests.read_artifact_manifest(run_id)
-    except FileNotFoundError:
-        run_id = "no-manifest"
-
-    _banner("CORPUS REPORT")
-    text = build_corpus_report(config.catalog_root, artifact_manifest)
-    config.reports_root.mkdir(parents=True, exist_ok=True)
-    path = config.reports_root / f"{run_id}-corpus.md"
-    path.write_text(text + "\n", encoding="utf-8")
-    print(text)
-    print(f"\nWritten to {path}")
-    return EXIT_OK
+    with _context(args) as context:
+        _banner("CORPUS REPORT")
+        result = context.report.run(ReportRequest(artifacts_run_id=args.artifacts_run_id))
+        print(result.text)
+        print(f"\nWritten to {result.path}")
+        return EXIT_OK if result.ok else EXIT_FAILED
 
 
 def cmd_acquire(args: argparse.Namespace) -> int:
-    for stage in (cmd_discover, cmd_resolve, cmd_download, cmd_build_catalog, cmd_verify):
-        code = stage(args)
-        if code != EXIT_OK:
-            print(f"\nStopping: {stage.__name__} returned {code}", file=sys.stderr)
-            return code
-        # Later stages default to the manifests the earlier ones just wrote.
-        args.filings_run_id = None
-        args.artifacts_run_id = None
-    return cmd_report(args)
+    """Delegates the entire flow to the pipeline. No ordering lives here."""
+    with _context(args) as context:
+        renderers = {
+            "discover": _render_discover,
+            "resolve": _render_resolve,
+            "download": _render_download,
+            "build-catalog": lambda r: print(r.render()),
+            "verify": lambda r: print(r.report.render()),
+            "report": lambda r: print(f"Report written to {r.path}"),
+        }
+        result = context.pipeline.run(
+            AcquisitionRequest(
+                cik=args.cik,
+                include_amendments=args.include_amendments,
+                limit=args.limit,
+                resolve_progress=_resolve_progress,
+                download_progress=_download_progress,
+                on_stage_start=lambda name: _banner(name.upper()),
+                on_stage_finish=lambda name, outcome: renderers[name](outcome),
+            )
+        )
+        if not result.ok:
+            print(f"\nStopping: stage '{result.failed_stage}' failed", file=sys.stderr)
+            return EXIT_FAILED
+        return EXIT_OK
 
 
 # --------------------------------------------------------------------------------------
@@ -306,13 +214,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add(name: str, handler, help_text: str) -> argparse.ArgumentParser:
         sub = subparsers.add_parser(name, help=help_text)
-        sub.set_defaults(handler=handler, filings_run_id=None, artifacts_run_id=None,
-                         force=False, limit=None, skip_hashes=False, include_amendments=True)
+        sub.set_defaults(
+            handler=handler,
+            filings_run_id=None,
+            artifacts_run_id=None,
+            force=False,
+            limit=None,
+            skip_hashes=False,
+            include_amendments=True,
+        )
         return sub
 
     discover = add("discover", cmd_discover, "Build the filing manifest")
     discover.add_argument(
-        "--no-amendments", dest="include_amendments", action="store_false",
+        "--no-amendments",
+        dest="include_amendments",
+        action="store_false",
         help="Exclude /A amendments of configured forms",
     )
 

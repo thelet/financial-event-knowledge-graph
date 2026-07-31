@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from .models import RunMetadata
+from .models import RunMetadata, RunRecord
 
 FETCHER_VERSION = "0.1.0"
 
@@ -75,3 +75,16 @@ def build_run_metadata(
         fetcher_version=FETCHER_VERSION,
         dependency_versions=dependency_versions(),
     )
+
+
+def write_run_record(runs_root: Path, record: RunRecord) -> Path:
+    """Persist a stage's run record. Owned by core so every stage can record provenance."""
+    import json
+
+    runs_root = Path(runs_root)
+    runs_root.mkdir(parents=True, exist_ok=True)
+    path = runs_root / f"{record.run.run_id}-{record.run.stage}.json"
+    path.write_text(
+        json.dumps(record.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8"
+    )
+    return path

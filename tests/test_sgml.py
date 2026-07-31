@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from acquisition.sgml import SgmlParseError, parse_index_headers
+from acquisition.stages.resolve.sgml import SgmlParseError, parse_index_headers
 
 
 @pytest.fixture

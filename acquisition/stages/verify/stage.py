@@ -10,14 +10,16 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .core.models import ArtifactManifest, FilingManifest
-from .core.storage import (
+from ...core.config import AppConfig
+from ...core.manifests import ManifestRepository
+from ...core.models import ArtifactManifest, FilingManifest
+from ...core.storage import (
     ARTIFACTS_CATALOG,
     FILING_METADATA_NAME,
     FILINGS_CATALOG,
     LocalRawArtifactStore,
 )
-from .utils.jsonl import read_jsonl
+from ...utils.jsonl import read_jsonl
 
 SEVERITY_ERROR = "ERROR"
 SEVERITY_WARNING = "WARNING"
@@ -315,3 +317,60 @@ class CorpusVerifier:
             report.add(
                 SEVERITY_WARNING, f"resolution_{kind}", f"{count} filing(s) flagged at resolve"
             )
+
+
+# --------------------------------------------------------------------------------------
+# Public stage
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class VerifyRequest:
+    filings_run_id: str | None = None
+    artifacts_run_id: str | None = None
+    check_hashes: bool = True
+
+
+@dataclass(frozen=True)
+class VerifyResult:
+    report: VerificationReport
+    filings_run_id: str
+    artifacts_run_id: str
+
+    @property
+    def ok(self) -> bool:
+        return self.report.ok
+
+
+class CorpusVerifyStage:
+    """Cross-checks manifests, filesystem, per-filing metadata, and catalogs."""
+
+    name = "verify"
+
+    def __init__(
+        self,
+        config: AppConfig,
+        store: LocalRawArtifactStore,
+        manifests: ManifestRepository,
+    ) -> None:
+        self._config = config
+        self._store = store
+        self._manifests = manifests
+
+    def run(self, request: VerifyRequest) -> VerifyResult:
+        artifacts_run_id = (
+            request.artifacts_run_id or self._manifests.latest_artifact_run_id()
+        )
+        artifact_manifest = self._manifests.read_artifact_manifest(artifacts_run_id)
+        filings_run_id = request.filings_run_id or artifact_manifest.filings_run_id
+        filing_manifest = self._manifests.read_filing_manifest(filings_run_id)
+
+        report = CorpusVerifier(
+            self._store, self._config.catalog_root, check_hashes=request.check_hashes
+        ).verify(filing_manifest, artifact_manifest)
+
+        return VerifyResult(
+            report=report,
+            filings_run_id=filings_run_id,
+            artifacts_run_id=artifacts_run_id,
+        )

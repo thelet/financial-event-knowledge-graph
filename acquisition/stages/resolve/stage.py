@@ -16,12 +16,22 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterable
 
-from .core import identity
-from .core.config import IncludeConfig
-from .core.models import ArtifactRecord, FilingRecord, ResolutionAnomaly
-from .core.sec_client import SecClient
+from ...core import identity
+from ...core.config import AppConfig, IncludeConfig
+from ...core.manifests import ManifestRepository
+from ...core.models import (
+    ArtifactManifest,
+    ArtifactRecord,
+    FilingRecord,
+    ResolutionAnomaly,
+    RunRecord,
+)
+from ...core.runmeta import build_run_metadata, utc_now_iso, write_run_record
+from ...core.sec_client import SecClient
 from .sgml import ParsedHeader, SgmlParseError, parse_index_headers
 
 SOURCE_SUBDIR = "source"
@@ -319,3 +329,99 @@ def summarize(
         lines.append("No anomalies.")
 
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------------------
+# Public stage
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ResolveRequest:
+    cik: str | None = None
+    filings_run_id: str | None = None
+    limit: int | None = None
+    progress: Callable[[int, int, FilingRecord], None] | None = None
+
+
+@dataclass(frozen=True)
+class ResolveResult:
+    run_id: str
+    filings_run_id: str
+    manifest_path: Path
+    artifacts: list[ArtifactRecord]
+    anomalies: list[ResolutionAnomaly]
+    requests_made: int
+    filing_count: int
+
+    @property
+    def artifact_count(self) -> int:
+        return len(self.artifacts)
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.artifacts)
+
+
+class SgmlResolveStage:
+    """Resolves artifacts from EDGAR's authoritative SGML header."""
+
+    name = "resolve"
+
+    def __init__(
+        self, config: AppConfig, client: SecClient, manifests: ManifestRepository
+    ) -> None:
+        self._config = config
+        self._client = client
+        self._manifests = manifests
+
+    def run(self, request: ResolveRequest) -> ResolveResult:
+        config = self._config
+        company = config.company(request.cik)
+        filings_run_id = request.filings_run_id or self._manifests.latest_filing_run_id()
+        filing_manifest = self._manifests.read_filing_manifest(filings_run_id)
+
+        run = build_run_metadata("resolve", config.config_hash(), root=config.root)
+        filings = filing_manifest.filings
+        if request.limit:
+            filings = filings[: request.limit]
+
+        before = self._client.request_count
+        artifacts, anomalies = ArtifactResolver(
+            self._client, config.fetch.include
+        ).resolve_all(
+            filings,
+            company.cik,
+            max_workers=config.fetch.http.max_concurrency,
+            progress=request.progress,
+        )
+        requests_made = self._client.request_count - before
+
+        manifest = ArtifactManifest(
+            run=run,
+            filings_run_id=filings_run_id,
+            company_cik10=company.cik10,
+            artifacts=artifacts,
+            anomalies=anomalies,
+        )
+        path = self._manifests.write_artifact_manifest(manifest)
+
+        write_run_record(
+            config.runs_root,
+            RunRecord(
+                run=run,
+                started_at=run.created_at,
+                finished_at=utc_now_iso(),
+                counts={"artifacts": len(artifacts), "anomalies": len(anomalies)},
+                requests_made=requests_made,
+            ),
+        )
+        return ResolveResult(
+            run_id=run.run_id,
+            filings_run_id=filings_run_id,
+            manifest_path=path,
+            artifacts=artifacts,
+            anomalies=anomalies,
+            requests_made=requests_made,
+            filing_count=len(filings),
+        )

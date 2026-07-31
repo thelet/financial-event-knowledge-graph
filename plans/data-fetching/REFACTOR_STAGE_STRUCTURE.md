@@ -119,10 +119,29 @@ Recorded before any change, at commit `96b2274`, tag `checkpoint-flat-acquisitio
 | Filings | **109** |
 | Artifacts | **2,019** |
 | `data/raw` | **746 MB** |
-| `filings.jsonl` md5 | `ff7004227447d710970357e443f83cb0` |
-| `artifacts.jsonl` md5 | `5efd26657876390067ebf3b76fd847ac` |
+| `filings.jsonl` md5 (as found) | `ff7004227447d710970357e443f83cb0` |
+| `artifacts.jsonl` md5 (as found) | `5efd26657876390067ebf3b76fd847ac` |
+| `filings.jsonl` md5 (**rebuilt**) | `d867bc74a95ecd0210cfd78f45b2f45f` |
+| `artifacts.jsonl` md5 (**rebuilt**) | `851485c3e4ba4aff2ec1051e680ff84d` |
 
 Every one of these must be identical at the end.
+
+**The as-found catalog was stale**, discovered while validating this refactor. The
+delete/restore and corrupt/repair checks run at the end of v0 rewrote three `_filing.json`
+files with fresh `run_id`, `fetched_at`, and `downloaded_at` values, and the catalog was
+never rebuilt afterwards. Those fields are catalog columns, so a rebuild legitimately
+changes the bytes.
+
+Byte-compatibility was therefore proven directly rather than by md5 comparison against the
+stale file: the pre-refactor code was checked out into a git worktree and pointed at the
+same `data/` via `--root`. Old and new code produce **byte-identical** catalogs. The
+rebuilt md5s above are the correct baseline.
+
+**Finding, out of scope for this refactor:** `verify` did not detect the stale catalog. It
+compares artifact-ID sets between disk and catalog, which were unchanged, but not row
+contents. A catalog that is stale in its `run_id`/`fetched_at` columns currently passes
+verification. Worth closing later; changing verification semantics inside a
+structure-only refactor would violate this plan's own compatibility rule.
 
 ---
 

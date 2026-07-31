@@ -15,9 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .core.models import FilingMetadata
-from .core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG, LocalRawArtifactStore
-from .utils.jsonl import write_jsonl
+from ...core.config import AppConfig
+from ...core.models import FilingMetadata
+from ...core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG, LocalRawArtifactStore
+from ...utils.jsonl import write_jsonl
 
 
 @dataclass
@@ -195,3 +196,26 @@ def _dedupe(rows: list[dict[str, Any]], key: str) -> tuple[list[dict[str, Any]],
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{path}:{number}: malformed JSONL: {exc}") from exc
     return rows
+
+
+# --------------------------------------------------------------------------------------
+# Public stage
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CatalogRequest:
+    """No inputs: the catalog is always rebuilt from whatever is finalized on disk."""
+
+
+class JsonlCatalogStage:
+    """Rebuilds the derived JSONL catalogs from per-filing metadata."""
+
+    name = "build-catalog"
+
+    def __init__(self, config: AppConfig, store: LocalRawArtifactStore) -> None:
+        self._config = config
+        self._store = store
+
+    def run(self, request: CatalogRequest) -> CatalogResult:
+        return CatalogBuilder(self._store, self._config.catalog_root).build()

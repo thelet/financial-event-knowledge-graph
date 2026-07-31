@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from acquisition.download import (
+from acquisition.stages.download.stage import (
     STATUS_DOWNLOADED,
     STATUS_FAILED,
     STATUS_REPAIRED,

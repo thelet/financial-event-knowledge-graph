@@ -8,13 +8,13 @@ import pytest
 
 from acquisition.core import identity
 from acquisition.core.config import IncludeConfig
-from acquisition.discovery import FilingDiscoverer, summarize
-from acquisition.resolution import (
+from acquisition.stages.discover.stage import FilingDiscoverer, summarize
+from acquisition.stages.resolve.stage import (
     ANOMALY_CASE_COLLISION,
     ANOMALY_UNRECOGNIZED_TYPE,
     ArtifactResolver,
 )
-from acquisition.sgml import parse_index_headers
+from acquisition.stages.resolve.sgml import parse_index_headers
 
 from conftest import FakeSecClient, make_filing_record
 

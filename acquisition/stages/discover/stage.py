@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable
 
-from .core import identity
-from .core.config import CompanyConfig
-from .core.models import FilingRecord
-from .core.sec_client import SecClient
+from ...core import identity
+from ...core.config import AppConfig, CompanyConfig
+from ...core.manifests import ManifestRepository
+from ...core.models import FilingManifest, FilingRecord, RunRecord
+from ...core.runmeta import build_run_metadata, utc_now_iso, write_run_record
+from ...core.sec_client import SecClient
 
 SUBMISSIONS_BASE = identity.SEC_SUBMISSIONS
 
@@ -181,3 +185,103 @@ def summarize(records: list[FilingRecord]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------------------
+# Public stage
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DiscoverRequest:
+    cik: str | None = None
+    include_amendments: bool = True
+
+
+@dataclass(frozen=True)
+class DiscoverResult:
+    run_id: str
+    manifest_path: Path
+    filings: list[FilingRecord]
+    requests_made: int
+    company_name: str
+    company_cik10: str
+    date_from: str
+    date_to: str
+    config_hash: str
+    manifest_hash: str
+
+    @property
+    def filing_count(self) -> int:
+        return len(self.filings)
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.filings)
+
+
+class SecDiscoverStage:
+    """Discovers filings from the SEC submissions API and writes a filing manifest."""
+
+    name = "discover"
+
+    def __init__(
+        self, config: AppConfig, client: SecClient, manifests: ManifestRepository
+    ) -> None:
+        self._config = config
+        self._client = client
+        self._manifests = manifests
+
+    def run(self, request: DiscoverRequest) -> DiscoverResult:
+        config = self._config
+        company = config.company(request.cik)
+        config_hash = config.config_hash()
+        run = build_run_metadata("discover", config_hash, root=config.root)
+        date_to = config.fetch.effective_date_to()
+
+        before = self._client.request_count
+        filings = FilingDiscoverer(self._client).discover(
+            company,
+            forms=config.fetch.forms,
+            date_from=config.fetch.date_from,
+            date_to=date_to,
+            include_amendments=request.include_amendments,
+        )
+        requests_made = self._client.request_count - before
+
+        manifest = FilingManifest(
+            run=run,
+            company_cik10=company.cik10,
+            forms=list(config.fetch.forms),
+            date_from=config.fetch.date_from,
+            date_to=date_to,
+            filings=filings,
+        )
+        path = self._manifests.write_filing_manifest(manifest)
+
+        write_run_record(
+            config.runs_root,
+            RunRecord(
+                run=run,
+                started_at=run.created_at,
+                finished_at=utc_now_iso(),
+                config_snapshot={
+                    "forms": config.fetch.forms,
+                    "date_from": config.fetch.date_from,
+                },
+                counts={"filings": len(filings)},
+                requests_made=requests_made,
+            ),
+        )
+        return DiscoverResult(
+            run_id=run.run_id,
+            manifest_path=path,
+            filings=filings,
+            requests_made=requests_made,
+            company_name=company.name,
+            company_cik10=company.cik10,
+            date_from=config.fetch.date_from,
+            date_to=date_to,
+            config_hash=config_hash,
+            manifest_hash=manifest.manifest_hash or "",
+        )

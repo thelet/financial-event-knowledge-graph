@@ -8,12 +8,15 @@ pipeline defect (v0 plan section 12).
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .core.models import ArtifactManifest
-from .core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG
-from .utils.jsonl import read_jsonl
+from ...core.config import AppConfig
+from ...core.manifests import ManifestRepository
+from ...core.models import ArtifactManifest
+from ...core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG
+from ...utils.jsonl import read_jsonl
 
 ITEM_RESULTS_OF_OPERATIONS = "2.02"
 
@@ -232,3 +235,47 @@ def _section_largest(artifacts: list[dict[str, Any]]) -> str:
         + _table(["MiB", "Kind", "Type", "Filename", "Filed"], rows)
         + "\n"
     )
+
+
+# --------------------------------------------------------------------------------------
+# Public stage
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReportRequest:
+    artifacts_run_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ReportResult:
+    path: Path
+    text: str
+
+    @property
+    def ok(self) -> bool:
+        return True
+
+
+class MarkdownReportStage:
+    """Renders the corpus report from the catalogs."""
+
+    name = "report"
+
+    def __init__(self, config: AppConfig, manifests: ManifestRepository) -> None:
+        self._config = config
+        self._manifests = manifests
+
+    def run(self, request: ReportRequest) -> ReportResult:
+        artifact_manifest = None
+        try:
+            run_id = request.artifacts_run_id or self._manifests.latest_artifact_run_id()
+            artifact_manifest = self._manifests.read_artifact_manifest(run_id)
+        except FileNotFoundError:
+            run_id = "no-manifest"
+
+        text = build_corpus_report(self._config.catalog_root, artifact_manifest)
+        self._config.reports_root.mkdir(parents=True, exist_ok=True)
+        path = self._config.reports_root / f"{run_id}-corpus.md"
+        path.write_text(text + "\n", encoding="utf-8")
+        return ReportResult(path=path, text=text)

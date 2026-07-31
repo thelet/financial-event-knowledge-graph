@@ -6,14 +6,14 @@ import json
 
 import pytest
 
-from acquisition.catalog import CatalogBuilder
+from acquisition.stages.catalog.stage import CatalogBuilder
 from acquisition.core.storage import ARTIFACTS_CATALOG, FILINGS_CATALOG
 from acquisition.utils.jsonl import read_jsonl
 from acquisition.core.manifests import ManifestRepository
 from acquisition.core.models import ArtifactManifest, FilingManifest
 from acquisition.core.runmeta import build_run_metadata
 from acquisition.core.storage import FILING_METADATA_NAME, LocalRawArtifactStore
-from acquisition.verify import CorpusVerifier
+from acquisition.stages.verify.stage import CorpusVerifier
 
 from conftest import make_artifact_record, make_filing_record, write_finalized_filing
 

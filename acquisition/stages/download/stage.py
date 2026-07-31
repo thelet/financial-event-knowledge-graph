@@ -13,11 +13,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .core.config import CompanyConfig
-from .core.models import ArtifactRecord, FilingMetadata, FilingRecord, StoredArtifact
-from .core.runmeta import FETCHER_VERSION, dependency_versions, utc_now_iso
-from .core.sec_client import SecClient
-from .core.storage import LocalRawArtifactStore
+from ...core.config import AppConfig, CompanyConfig
+from ...core.manifests import ManifestRepository
+from ...core.models import (
+    ArtifactRecord,
+    FilingMetadata,
+    FilingRecord,
+    RunRecord,
+    StoredArtifact,
+)
+from ...core.runmeta import (
+    FETCHER_VERSION,
+    build_run_metadata,
+    dependency_versions,
+    utc_now_iso,
+    write_run_record,
+)
+from ...core.sec_client import SecClient
+from ...core.storage import LocalRawArtifactStore
 
 STATUS_DOWNLOADED = "downloaded"
 STATUS_SKIPPED = "skipped"
@@ -250,3 +263,109 @@ class ArtifactDownloader:
         if expected_ids != actual_ids:
             return False
         return not self._store.verify_filing_contents(filing.filing_dir, metadata)
+
+
+# --------------------------------------------------------------------------------------
+# Public stage
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DownloadRequest:
+    cik: str | None = None
+    artifacts_run_id: str | None = None
+    limit: int | None = None
+    force: bool = False
+    progress: Callable[[int, int, FilingOutcome], None] | None = None
+
+
+@dataclass(frozen=True)
+class DownloadResult:
+    run_id: str
+    artifacts_run_id: str
+    summary: DownloadSummary
+    requests_made: int
+    filing_count: int
+    artifact_count: int
+
+    @property
+    def bytes_downloaded(self) -> int:
+        return self.summary.bytes_downloaded
+
+    @property
+    def ok(self) -> bool:
+        return not self.summary.failures
+
+
+class LocalDownloadStage:
+    """Downloads artifacts and finalizes filings atomically into local storage."""
+
+    name = "download"
+
+    def __init__(
+        self,
+        config: AppConfig,
+        client: SecClient,
+        store: LocalRawArtifactStore,
+        manifests: ManifestRepository,
+    ) -> None:
+        self._config = config
+        self._client = client
+        self._store = store
+        self._manifests = manifests
+
+    def run(self, request: DownloadRequest) -> DownloadResult:
+        config = self._config
+        company = config.company(request.cik)
+        artifacts_run_id = (
+            request.artifacts_run_id or self._manifests.latest_artifact_run_id()
+        )
+        artifact_manifest = self._manifests.read_artifact_manifest(artifacts_run_id)
+        filing_manifest = self._manifests.read_filing_manifest(
+            artifact_manifest.filings_run_id
+        )
+
+        run = build_run_metadata("download", config.config_hash(), root=config.root)
+        filings = filing_manifest.filings
+        if request.limit:
+            filings = filings[: request.limit]
+        wanted = {f.filing_id for f in filings}
+        artifacts = [a for a in artifact_manifest.artifacts if a.filing_id in wanted]
+
+        before = self._client.request_count
+        summary = ArtifactDownloader(
+            self._client, self._store, company, run_id=run.run_id
+        ).download_all(
+            filings,
+            artifacts,
+            max_workers=config.fetch.http.max_concurrency,
+            force=request.force,
+            progress=request.progress,
+        )
+        requests_made = self._client.request_count - before
+
+        write_run_record(
+            config.runs_root,
+            RunRecord(
+                run=run,
+                started_at=run.created_at,
+                finished_at=utc_now_iso(),
+                counts={
+                    "downloaded": summary.count(STATUS_DOWNLOADED),
+                    "repaired": summary.count(STATUS_REPAIRED),
+                    "skipped": summary.count(STATUS_SKIPPED),
+                    "failed": summary.count(STATUS_FAILED),
+                },
+                bytes_downloaded=summary.bytes_downloaded,
+                requests_made=requests_made,
+                errors=[f"{o.accession}: {o.reason}" for o in summary.failures],
+            ),
+        )
+        return DownloadResult(
+            run_id=run.run_id,
+            artifacts_run_id=artifacts_run_id,
+            summary=summary,
+            requests_made=requests_made,
+            filing_count=len(filings),
+            artifact_count=len(artifacts),
+        )
