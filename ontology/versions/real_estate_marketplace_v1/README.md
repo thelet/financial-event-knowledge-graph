@@ -31,11 +31,20 @@ and `normalization/` has one.
 
 ## Files
 
-YAML is authoritative. Adding a metric is a YAML edit; Python implements schemas, loading,
-validation and access, never a second copy of the ontology (enforced by
-`tests/ontology/test_package_structure.py`).
+```text
+real_estate_marketplace_v1/
+├── public.py        the only entry point outside callers use
+├── loader.py        YAML -> typed models
+├── definitions/     the ontology itself, 12 YAML files
+└── examples/        24 claim fixtures, all executed by tests
+```
 
-| File | Holds |
+Declarative data and code live in separate directories on purpose: the YAML *is* the
+ontology, the Python merely reads it, and a test fails if either leaks into the other's
+directory. Adding a metric is a `definitions/` edit; Python never holds a second copy
+(enforced by `tests/ontology/test_package_structure.py`).
+
+| `definitions/` file | Holds |
 | --- | --- |
 | `ontology.yaml` | identity, semantic version, research provenance |
 | `entities.yaml` | 13 entity types + 4 named instances |
@@ -49,7 +58,9 @@ validation and access, never a second copy of the ontology (enforced by
 | `external_mappings.yaml` | FIBO mappings for non-metric concepts |
 | `aliases.yaml` | surface forms that need cross-concept handling |
 | `constraints.yaml` | parameters for the machine-checkable constraints |
-| `examples/` | 12 valid + 12 invalid claim fixtures, all executed by tests |
+
+Fixtures live in `examples/`, not in `definitions/` — a claim is data *about* the ontology,
+not part of it.
 
 Metric mappings live inline in `metrics.yaml`, next to the metric they qualify.
 `external_mappings.yaml` covers everything else, so a FIBO review happens in one file.

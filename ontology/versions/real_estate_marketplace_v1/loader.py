@@ -46,7 +46,10 @@ from ...core.models import (
 )
 from ...core.values import Canonicality
 
-DEFINITION_DIR = Path(__file__).resolve().parent
+#: The version package keeps declarative data and code in separate directories, so the
+#: YAML that IS the ontology is never mixed in with the Python that merely reads it.
+VERSION_DIR = Path(__file__).resolve().parent
+DEFINITION_DIR = VERSION_DIR / "definitions"
 
 #: file -> section key -> model. Drives loading entirely; there is no per-section code.
 _SECTIONS: tuple[tuple[str, str, type[ConceptDefinition]], ...] = (

@@ -10,14 +10,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...contracts import OntologyDefinitions
-from .loader import DEFINITION_DIR, YamlDefinitionLoader
+from .loader import DEFINITION_DIR, VERSION_DIR, YamlDefinitionLoader
 
 ONTOLOGY_ID = "real_estate_marketplace_v1"
 
 #: Example claim fixtures shipped with this version.
-EXAMPLES_DIR = DEFINITION_DIR / "examples"
+EXAMPLES_DIR = VERSION_DIR / "examples"
 
-__all__ = ["ONTOLOGY_ID", "DEFINITION_DIR", "EXAMPLES_DIR", "load_definitions"]
+__all__ = ["ONTOLOGY_ID", "VERSION_DIR", "DEFINITION_DIR", "EXAMPLES_DIR",
+           "load_definitions"]
 
 
 def load_definitions(directory: Path | None = None) -> OntologyDefinitions:

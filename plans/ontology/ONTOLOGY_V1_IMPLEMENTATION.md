@@ -48,18 +48,19 @@ ontology/
         ├── __init__.py
         ├── public.py     the one public entry point for this version
         ├── loader.py     YAML -> typed models -> resolved snapshot
-        ├── ontology.yaml       identity, semantic version, research provenance
-        ├── entities.yaml       entity types + instances (markets, channels)
-        ├── roles.yaml          contextual roles
-        ├── instruments.yaml    instruments and agreements
-        ├── metrics.yaml        metric definitions
-        ├── formulas.yaml       metric formula versions
-        ├── events.yaml         event types
-        ├── relationships.yaml  typed relationships
-        ├── constraints.yaml    declarative constraint parameters
-        ├── external_mappings.yaml  FIBO + XBRL + US-GAAP
-        ├── aliases.yaml        alias -> concept, with ambiguity
         ├── README.md
+        ├── definitions/  the ontology itself — code never sits beside it
+        │   ├── ontology.yaml       identity, semantic version, research provenance
+        │   ├── entities.yaml       entity types + instances (markets, channels)
+        │   ├── roles.yaml          contextual roles
+        │   ├── instruments.yaml    instruments and agreements
+        │   ├── metrics.yaml        metric definitions
+        │   ├── formulas.yaml       metric formula versions
+        │   ├── events.yaml         event types
+        │   ├── relationships.yaml  typed relationships
+        │   ├── constraints.yaml    declarative constraint parameters
+        │   ├── external_mappings.yaml  FIBO + XBRL + US-GAAP
+        │   └── aliases.yaml        alias -> concept, with ambiguity
         └── examples/
             ├── valid/*.yaml     12 fixtures
             └── invalid/*.yaml   10 rejection fixtures
@@ -167,16 +168,22 @@ ontology/                             2,734 lines of Python
 │   ├── models.py                     21 definition models + 7 runtime models
 │   └── constraints.py                22 checks, parameterized from constraints.yaml
 └── versions/real_estate_marketplace_v1/    2,581 lines of YAML
-    ├── public.py                     ONTOLOGY_ID, DEFINITION_DIR, EXAMPLES_DIR, load_definitions
+    ├── public.py                     ONTOLOGY_ID, VERSION_DIR, DEFINITION_DIR,
+    │                                 EXAMPLES_DIR, load_definitions
     ├── loader.py                     YAML -> typed models, table-driven
     ├── README.md
-    ├── 12 YAML files                 claims.yaml ADDED; see §11
+    ├── definitions/                  12 YAML files; claims.yaml ADDED, see §11
     └── examples/valid (12), examples/invalid (12)
 ```
 
 **Added `examples.py`.** Fixtures needed a reader, and a fixture is a claim — claims are
 version-independent, so it belongs to the library rather than to the version package. The
 version package supplies only the directory.
+
+**Declarative data sits in `definitions/`, separate from the Python.** The YAML *is* the
+ontology; `loader.py` and `public.py` merely read it. A structural test fails if a
+definition file appears beside the code or a `.py` appears in `definitions/`. Fixtures stay
+in `examples/` — a claim is data *about* the ontology, not part of it.
 
 **Added `claims.yaml`.** §2 listed eleven concept categories but only ten files. Evidence,
 claim and status types had no home. One file for all three, rather than three files of a

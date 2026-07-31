@@ -127,8 +127,15 @@ def test_implementations_satisfy_the_declared_protocols(ontology):
     assert isinstance(YamlDefinitionLoader(), OntologyLoader)
 
 
-def test_yaml_is_where_the_concepts_live():
-    version_dir = PACKAGE / "versions" / "real_estate_marketplace_v1"
-    yaml_bytes = sum(p.stat().st_size for p in version_dir.glob("*.yaml"))
+def test_yaml_is_where_the_concepts_live(definition_dir):
+    version_dir = definition_dir.parent
+    yaml_bytes = sum(p.stat().st_size for p in definition_dir.glob("*.yaml"))
     python_bytes = sum(p.stat().st_size for p in version_dir.glob("*.py"))
     assert yaml_bytes > python_bytes * 3, "definitions have started migrating into Python"
+
+
+def test_declarative_data_and_code_stay_in_separate_directories(definition_dir):
+    """The YAML that IS the ontology never sits next to the Python that merely reads it."""
+    version_dir = definition_dir.parent
+    assert not list(version_dir.glob("*.yaml")), "a definition file escaped definitions/"
+    assert not list(definition_dir.glob("*.py")), "code appeared in definitions/"
