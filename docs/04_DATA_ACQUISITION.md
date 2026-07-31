@@ -259,11 +259,16 @@ schema is a reasonable model for the catalog in §8.
 
 ### The adapter-boundary risk
 
-edgartools is good enough that the temptation will be to let its `Filing` and `Company`
-objects flow downstream into extraction. That is exactly how a proof-of-concept choice
-becomes the permanent architecture — the failure mode 02 §9 is written to prevent. Those
-objects must terminate at the adapter boundary and be converted to `NormalizedDocument` and
-`Passage`. Nothing outside `adapters/` should import from `edgar` or `sec_parser`.
+Dropping edgartools removes one leakage risk but not the general one. The temptation is to
+let provider-shaped data — SEC submissions-JSON field names, SGML `TYPE` strings, sec-parser
+element classes — flow downstream into extraction. That is how a proof-of-concept choice
+becomes the permanent architecture, the failure mode 02 §9 exists to prevent.
+
+v0 draws the line deliberately: acquisition owns SEC-shaped concepts (accession, item codes,
+exhibit types) and stores them faithfully, but produces no `NormalizedDocument` or `Passage`
+at all. Those are the parsing phase's output, and the conversion from SEC-shaped metadata to
+canonical models happens there, in one place. Nothing outside the acquisition package should
+read `_filing.json` field names directly; the catalog is the interface.
 
 ---
 
@@ -359,8 +364,8 @@ normalized document are three different things.
 ## 9. Access etiquette and licensing
 
 - SEC requires a declared User-Agent containing a contact email, and requests no more than
-  ~10 requests/second. Exceeding it results in IP-level blocking. edgartools handles this
-  when identity is configured.
+  ~10 requests/second. Exceeding it results in IP-level blocking. v0 configures 5 req/s
+  with concurrency 4 and honors `Retry-After`.
 - EDGAR content is public domain. IR-site content is not — respect `robots.txt` and terms.
 - **Transcripts are deferred** (§11). Scraping Motley Fool or Seeking Alpha is against those
   sites' terms; founding the corpus on it is a poor basis for an asset 03 designates as
@@ -382,13 +387,15 @@ normalized document are three different things.
 - **W1:** not yet — derived after the first graph build (§4).
 - **Form 4s (290):** deferred. Structured XML, no LLM needed — a cheap Executive-layer
   population later.
-- **Transcripts:** deferred; check EX-99.2 for shareholder letters first (§11).
+- **Transcripts:** deferred. EX-99.2 shareholder letters arrive via EDGAR (§11.2), so no
+  separate transcript source is needed to reach a first graph.
 
 ### Acceptance criteria
 
-1. `documents.jsonl` contains one row per fetched document with a stable, deterministic ID.
-2. Every 8-K carries its SEC item codes through to the normalized document.
-3. Every 8-K exhibit is a separate document, not a discarded attachment.
+1. `artifacts.jsonl` contains one row per fetched file with a stable, deterministic ID, and
+   `filings.jsonl` one row per accession. Both are derived from per-filing metadata.
+2. Every 8-K carries its SEC item codes through acquisition and into the normalized document.
+3. Every 8-K exhibit is a separate artifact, not a discarded attachment.
 4. Every passage carries `document_id`, `section_id`, `section_title`, and character offsets
    sufficient to quote it back exactly.
 5. Re-running the pipeline over the same manifest produces byte-identical normalized output.
