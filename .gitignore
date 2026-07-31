@@ -1,6 +1,6 @@
-# Pipeline artifacts — regenerable from stored normalized documents
+# Downloaded bytes, derived catalogs, run outputs and staging.
+# Regenerable from config/ + manifests/, which ARE tracked.
 data/
-!data/.gitkeep
 
 # Secrets and local configuration
 .env

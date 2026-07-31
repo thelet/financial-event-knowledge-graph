@@ -76,11 +76,17 @@ metadata and carried through parsing into the normalized document
 (`sec_items: ["2.02", "7.01", "9.01"]`). They are lost if the pipeline treats an 8-K as
 undifferentiated HTML.
 
-**Consequence for the project:** this is a labelled evaluation set for event-type
+**Consequence for the project:** this is a source of **weak labels** for event-type
 classification at zero annotation cost. 01 §12 and 03 name "evaluation datasets" as a
-durable asset; this supplies one before any model runs. Eighteen Item 5.02 filings give a
-precision/recall measurement for LeadershipChange extraction against an authoritative
-label.
+durable asset; this contributes toward one before any model runs.
+
+The limit must be stated precisely, because it is easy to overclaim. Item codes are
+authoritative *filing-level* metadata: an Item 5.02 filing does report a director or officer
+change. They are **not** passage-level event labels — one filing may report several events,
+an item code says nothing about which passage carries the event, and a filing may discuss
+events beyond the ones its codes name. They are therefore a strong prior and a review
+signal, not a scoring key. Acquisition retains them faithfully; how far they can be trusted
+as labels is a question for the extraction phase to answer, not to assume.
 
 The 8-K exhibits carry the substance: **EX-99.1** is typically the earnings press release,
 **EX-99.2** typically the shareholder letter or investor presentation. Exhibits must be
@@ -212,8 +218,8 @@ Evaluated 2026-07-31. All three are MIT-licensed.
 
 | Interface | Tool | Notes |
 | --- | --- | --- |
-| `DocumentSource` | **edgartools** (5.44.0, released 2026-07-29) | Actively maintained; CIK resolution, filing search, attachments, XBRL |
-| `DocumentFetcher` | edgartools; **httpx** + **tenacity** for non-EDGAR | Handles SEC User-Agent and rate limiting |
+| `DocumentSource` | **httpx** + SEC REST APIs — *see note* | `data.sec.gov/submissions/` for discovery; `<accession>-index-headers.html` for attachments |
+| `DocumentFetcher` | **httpx** with a hand-rolled rate limiter and retry policy | SEC User-Agent, 5 req/s, `Retry-After` honored |
 | `RawDocumentStore` | Local filesystem | Nothing else warranted at this size |
 | `DocumentParser` — 10-K/10-Q | **sec-parser** (0.58.1, released 2024-06-09) | Semantic tree + Part/Item section detection |
 | `DocumentParser` — 8-K + EX-99.x | **trafilatura** or **selectolax** | Short flat press releases; a semantic tree buys nothing |
@@ -221,6 +227,14 @@ Evaluated 2026-07-31. All three are MIT-licensed.
 | `DocumentNormalizer` | Custom, **pydantic** | Ours by design — no library should own the canonical format |
 | `NormalizedDocumentStore` | JSONL now, Parquet later | Diffable and greppable matters more than columnar speed while the schema is unstable |
 | Catalog / index | **DuckDB** over the JSONL | Query the corpus without loading it; zero setup |
+
+**Note on edgartools.** It was the planned `DocumentSource` and `DocumentFetcher`, on the
+grounds that exhibit types are unavailable without it. That premise proved false: EDGAR's
+`<accession>-index-headers.html` carries the authoritative SGML header with `TYPE`,
+`SEQUENCE`, `FILENAME`, and `DESCRIPTION` per document in ~11 KB *(verified 2026-07-31)*.
+Acquisition therefore needs no filing library at all. edgartools remains a reasonable
+choice for XBRL *interpretation* in a later phase — v0 stores XBRL files without reading
+them. See the v0 plan §13 for the full set of API findings.
 
 **sec-parser caveats.** It is tuned for 10-Q, secondarily 10-K, and thin on 8-K — which is
 awkward here, since 8-Ks are the event spine. Hence the split above: it handles the 25
@@ -291,39 +305,54 @@ corpus becomes reproducible from a version-controlled artifact.
 
 ### Layout
 
+The authoritative layout is specified in
+[plans/data-fetching/V0_OPENDOOR_FETCH.md](../plans/data-fetching/V0_OPENDOOR_FETCH.md) §7,
+which supersedes any sketch here. In outline:
+
 ```text
-data/                          # gitignored — reproducible from the manifest
-  catalog/
-    companies.json             # wave assignment, CIK, tickers, aliases
-    manifests/<run_id>.json    # discovery output: what should exist
-    documents.jsonl            # what does exist: one row per fetched document
-    runs/<run_id>.json         # run provenance
-  raw/
-    sec/<cik>/<accession>/<original_filename>
-    ir/<company_id>/<yyyy-mm-dd>/<slug>.<ext>
-  parsed/<document_id>.json
+config/                        # TRACKED — companies.yaml, fetch.yaml
+manifests/                     # TRACKED — immutable, one file per run
+  filings/<run_id>.json
+  artifacts/<run_id>.json
+data/                          # gitignored in full — regenerable
+  raw/sec/<cik10>/<form>/<date>_<accession>/
+    _filing.json               # per-filing metadata; the source of truth
+    source/<original-edgar-filename>
+  catalog/                     # DERIVED — rebuilt from _filing.json
+    filings.jsonl              # one row per accession
+    artifacts.jsonl            # one row per downloaded file
+  runs/<run_id>.json
+  parsed/                      # later phases
   normalized/
     documents/<document_id>.json
     passages/<document_id>.jsonl
 ```
 
+`documents.jsonl` and `passages.jsonl` are reserved for the parsing and normalization
+phases and are deliberately not used by acquisition — a filing, a downloaded file, and a
+normalized document are three different things.
+
 ### Rules
 
-- **Raw is immutable and mirrors the source's own paths.** An accession number in the path
-  means any artifact traces back to a real EDGAR URL by inspection. A re-fetch that differs
-  becomes a new version; nothing is overwritten.
-- **Deterministic document IDs** derived from `(source, external_id, part)` — e.g. a UUID5
-  over `sec:0001801169-26-000010:ex99-1`. Never random. This is what makes success
-  criterion 01 §12.10 — rebuilding the full graph from stored normalized documents — produce
-  identical node IDs.
-- **SHA-256 of raw bytes in the catalog.** Detects silent edits on IR pages, makes
-  re-fetches idempotent.
+- **Raw is immutable and byte-exact.** Files are stored under `source/` with the exact
+  filenames EDGAR served. A re-fetch that differs becomes a new version; nothing is
+  overwritten in place.
+- **Canonical identity is `source + CIK + accession`.** Filing `sec:{cik10}:{accession}`,
+  artifact `sec:{cik10}:{accession}:{original_filename}`. Ticker is a display value, never
+  an identifier — an issuer may hold several at once and they change.
+- **Per-filing metadata is authoritative; global catalogs are derived.** `_filing.json` is
+  written atomically per filing; `filings.jsonl` and `artifacts.jsonl` are rebuilt from it
+  and are never the source of download state.
+- **SHA-256 of raw bytes on every artifact.** Detects silent change and makes re-fetches
+  idempotent.
 - **`fetched_at` on everything.** Filings are immutable once filed; web pages are not.
   Without it, a corrected document is indistinguishable from a corrupted one.
-- **XBRL in a separate lane** from narrative text. Opendoor's key operating metrics (homes
-  purchased, homes sold, inventory) are likely custom XBRL extension tags *(unverified)*.
-  No language model should be asked to read a number that is already tagged.
-- **`data/` is gitignored.** The manifest is version-controlled; the gigabytes are not.
+- **XBRL in a separate lane** from narrative text — stored, not interpreted. Opendoor's key
+  operating metrics (homes purchased, homes sold, inventory) are likely custom XBRL
+  extension tags *(unverified)*. No language model should be asked to read a number that is
+  already tagged.
+- **`data/` is gitignored in full.** Configuration, schemas, and immutable manifests are
+  version-controlled; downloaded bytes and derived catalogs are not.
 
 ---
 
@@ -374,8 +403,12 @@ data/                          # gitignored — reproducible from the manifest
    development sandbox on 2026-07-31 (host blocked, not a site outage). Needs verification:
    are shareholder letters published there, in what format, and is there a stable URL
    pattern or RSS feed?
-2. **Are shareholder letters already EX-99.2 exhibits?** If yes, EDGAR supplies them free
-   and the IR adapter can be skipped entirely for v1. Check before building anything.
+2. ~~**Are shareholder letters already EX-99.2 exhibits?**~~ **Closed 2026-07-31 — yes.**
+   Earnings 8-Ks carry EX-99.1 (earnings release, ~500 KB), EX-99.2 (shareholder letter,
+   ~43 KB plus 13 images), and EX-99.3 (supplemental) *(verified on Q3 and Q4 2025)*. EDGAR
+   supplies them, so **no IR-site adapter is needed**. Caveat: EX-99.2's substance appears to
+   be largely rendered as images, so its text yield is likely low — a parsing-phase concern,
+   recorded in the v0 plan.
 3. **Custom XBRL tags** — does Opendoor tag homes purchased/sold and inventory units as
    extension elements? Determines how much operating data bypasses the LLM entirely.
 4. **The 2025-09-19 Item 5.02** is presumed to be the CEO transition *(unverified)*. It is a

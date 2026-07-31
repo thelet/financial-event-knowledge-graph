@@ -1,12 +1,16 @@
 # v0 — Opendoor Filing Acquisition
 
-**Status:** plan only, not implemented.
-**Scope:** fetch Opendoor Technologies filings and their exhibits from SEC EDGAR into a
-local `data/` tree with machine-usable structure and metadata. Nothing else.
+**Scope:** acquire and organize the raw Opendoor Wave 0 corpus from SEC EDGAR. Nothing else.
 
 Implements Wave 0 of [docs/04_DATA_ACQUISITION.md](../../docs/04_DATA_ACQUISITION.md).
 
-Facts marked *(verified)* were confirmed against EDGAR on 2026-07-31.
+**Explicitly out of scope:** parsing, normalization, passages, canonical document models,
+OCR, transcripts, knowledge extraction, ontology, embeddings, graph construction,
+retrieval, visualization. v0 downloads bytes and records what they are. Nothing in this
+plan may interpret document content.
+
+Facts marked *(verified)* were confirmed against the live SEC API on 2026-07-31; the
+supporting observations are recorded in §13.
 
 ---
 
@@ -16,280 +20,519 @@ Facts marked *(verified)* were confirmed against EDGAR on 2026-07-31.
 
 | Purpose | Tool | Notes |
 | --- | --- | --- |
-| Filing discovery | **edgartools** `5.44.0` (MIT) | Filing history, form/date filters, accession metadata |
-| Exhibit type resolution | **edgartools** attachment API | **Required** — exhibit types are *not* in `index.json` (§6.3) |
-| Download | **edgartools**, `httpx` fallback | Handles SEC User-Agent and rate limiting |
-| Retry / backoff | **tenacity** | 429 and 5xx only |
-| Metadata models | **pydantic** v2 | `_filing.json` and catalog row schemas |
-| Catalog queries | **DuckDB** over JSONL | Optional in v0; JSONL is queryable without it |
-| Config | **PyYAML** | One `fetch.yaml`, no hardcoded scope |
+| HTTP | **httpx** `0.28.1` | Single client, configured rate limit and User-Agent |
+| Models / validation | **pydantic** `2.13.4` | Manifests, filing metadata, catalog rows |
+| Config | **PyYAML** `6.0.3` | `config/companies.yaml`, `config/fetch.yaml` |
+| Tests | **pytest** `8.4.2` | Unit, fixture, filesystem, and one live test |
+| Retry / rate limit | **stdlib** (hand-rolled) | ~40 lines with an injectable clock — see §13.6 |
+| Everything else | **stdlib** | `hashlib`, `json`, `pathlib`, `html.parser`, `argparse` |
 
-Not used in v0: `sec-parser`, `trafilatura`, `pymupdf4llm` (parsing is v1); Tavily, any
+**edgartools is not used.** The plan previously required it for exhibit-type resolution on
+the grounds that `index.json` lacks types. That premise was wrong: EDGAR publishes
+`<accession>-index-headers.html`, an ~11 KB file carrying the authoritative SGML header
+with `TYPE`, `SEQUENCE`, `FILENAME`, and `DESCRIPTION` for every submitted document
+*(verified)*. With that, the whole acquisition needs one HTTP client and no framework.
+Rationale and the full set of API findings are in §13.
+
+Also unused in v0: `sec-parser`, `trafilatura`, `pymupdf4llm`, `duckdb`, `tenacity`, any
 transcript source, any IR-site crawler.
 
 ## Folder structure
 
 ```text
-data/                                             # gitignored except manifests
-├── catalog/
-│   ├── companies.json                            # wave assignment, CIK, tickers, aliases
-│   ├── manifests/
-│   │   └── <run_id>.json                         # discovery output — VERSION CONTROLLED
-│   ├── documents.jsonl                           # one row per downloaded file
-│   └── runs/
-│       └── <run_id>.json                         # run provenance and outcome
-└── raw/
-    └── sec/
-        └── OPEN/                                 # ticker
-            ├── 10-K/
-            │   └── 2026-02-19_0001801169-26-000010/
-            │       ├── _filing.json              # metadata + document role map
-            │       ├── primary__open-20251231.htm
-            │       ├── ex21-01__a2025ex211xlistofsubsidiar.htm
-            │       ├── ex10-38__a2025ex1038opendoorxofferl.htm
-            │       ├── xbrl__open-20251231_htm.xml
-            │       └── assets/
-            │           └── open-20251231_g1.jpg
-            ├── 10-Q/
-            ├── 8-K/
-            │   └── 2026-02-19_0001801169-26-000009/
-            │       ├── _filing.json
-            │       ├── primary__open-20260219.htm
-            │       ├── ex99-01__q42025formxex991earningsre.htm
-            │       ├── ex99-02__exhibit992-q42025form8xk.htm
-            │       ├── ex99-03__exhibit993-4q25opendoors.htm
-            │       └── assets/
-            │           ├── exhibit992-q42025form8xk001.jpg
-            │           └── … (13 files)
-            └── DEF-14A/
+config/                                   # TRACKED
+├── companies.yaml                        # issuer scope: CIK, aliases, wave
+└── fetch.yaml                            # forms, date range, rate limits, paths
+
+manifests/                                # TRACKED — immutable, one file per run
+├── filings/<run_id>.json                 # DISCOVER output
+└── artifacts/<run_id>.json               # RESOLVE output
+
+data/                                     # GITIGNORED in full — regenerable
+├── raw/sec/<cik10>/<form>/<date>_<accession>/
+│   ├── _filing.json                      # per-filing metadata; the source of truth
+│   └── source/                           # exact EDGAR bytes, exact EDGAR filenames
+│       ├── open-20260219.htm
+│       ├── q42025formxex991earningsre.htm
+│       ├── exhibit992-q42025form8xk001.jpg
+│       ├── 0001801169-26-000009.txt
+│       └── 0001801169-26-000009-index-headers.html
+├── catalog/                              # DERIVED — rebuildable, never authoritative
+│   ├── filings.jsonl                     # one row per filing/accession
+│   └── artifacts.jsonl                   # one row per downloaded file
+├── runs/<run_id>.json                    # run provenance and outcome
+├── reports/<run_id>-corpus.md            # corpus report (§12)
+└── tmp/                                  # staging for atomic finalization; never read
 ```
 
-Three properties this is designed for:
+Concrete example:
 
-- **Chronologically sortable** — `sorted(glob("data/raw/sec/OPEN/8-K/*/"))` is in filing-date
-  order, because the directory name is `<filing_date>_<accession>`.
-- **Role-addressable across filings** — `glob("data/raw/sec/OPEN/8-K/*/ex99-01__*.htm")`
-  returns every earnings release in one expression. This is why filenames carry a role prefix.
-- **Traceable** — the accession is in the path and the original EDGAR filename survives after
-  the `__`, so the source URL is reconstructable from the path alone.
+```text
+data/raw/sec/0001801169/8-K/2026-02-19_0001801169-26-000009/
+```
 
 ## Documents we will receive *(verified counts)*
 
-| Form | Filings | Per filing | Notes |
-| --- | --- | --- | --- |
-| **10-K** | 6 | Primary ~2.9 MB + ~10 exhibits + XBRL | FY2020–FY2025 |
-| **10-Q** | 19 | Primary + certifications + XBRL | |
-| **8-K** | 75 | Body + 0–3 EX-99.x + images | 23 carry Item 2.02 |
-| **DEF 14A** | 7 | Primary | Executives, comp, board |
-| Total | **107 filings** | | ~350–500 files, est. **150–250 MB** |
-
-**Earnings 8-K structure is consistent** *(verified on Q3 and Q4 2025)*:
-
-| Exhibit | Size | Content |
+| Form | Filings | Notes |
 | --- | --- | --- |
-| Primary (`open-<date>.htm`) | ~35 KB | 8-K body, item codes |
-| **EX-99.1** | **~500 KB** | Earnings press release — **the text-rich, high-value document** |
-| EX-99.2 | ~43 KB + 13 JPG | Shareholder letter — **mostly images; low text yield (unverified)** |
-| EX-99.3 | ~5 KB + 5 JPG | Supplemental — minimal text |
+| 10-K | 6 | FY2020–FY2025; primary ~2.9 MB plus ~10 exhibits and XBRL |
+| 10-Q | 19 | |
+| 8-K | 75 | 23 carry Item 2.02 |
+| DEF 14A | 7 | |
+| **Total** | **107** | |
 
-**10-K exhibits worth naming** *(verified on FY2025)*: `EX-21.1` list of subsidiaries (a free
-structured entity list), `EX-10.38`–`EX-10.41` executive offer letters (~235 KB each, directly
-relevant to the 2025 leadership churn), `EX-4.7` description of securities (explains the
-OPENL/OPENW/OPENZ classes), `EX-23.1` auditor consent. Certifications `EX-31.x`/`EX-32.x` are
-boilerplate — fetched, but flagged `low_value: true` so parsing can skip them.
+Estimated **~2,500–3,500 artifacts**, **~350–550 MB**. The range is wide because storing the
+full-submission `.txt` (§5) roughly doubles on-disk bytes; the actual figures are reported
+after the run rather than asserted here.
 
-**Closed by this investigation:** doc 04 open question #2. Shareholder-letter content is filed
-as EX-99.2/99.3, so **no IR-site adapter is needed for v0**.
+Earnings 8-K exhibit structure, consistent across Q3 and Q4 2025 *(verified)*: primary 8-K
+body ~35 KB; **EX-99.1** earnings release ~500 KB; **EX-99.2** shareholder letter ~43 KB
+plus 13 JPGs; **EX-99.3** supplemental ~5 KB plus 5 JPGs.
+
+10-K exhibits of note *(verified, FY2025)*: `EX-21.1` subsidiaries, `EX-10.38`–`EX-10.41`
+executive offer letters, `EX-4.7` description of securities, `EX-23.1` auditor consent.
+`EX-31.x`/`EX-32.x` certifications are boilerplate — downloaded and cataloged, flagged
+`low_processing_priority`.
 
 ---
 
 # 1. Scope
 
-**In:** Opendoor (CIK `0001801169`) 10-K, 10-Q, 8-K, DEF 14A — full history 2020-01-31 →
-present, including all exhibits, images, and raw XBRL files.
+**In:** Opendoor Technologies Inc., CIK `0001801169`, forms 10-K / 10-Q / 8-K / DEF 14A,
+full history from 2020-01-31, including every exhibit, image, XBRL file, and the
+full-submission text file.
 
-**Out of v0:** parsing, normalization, passages, canonical models, W1 peer companies, IR
-sites, transcripts, XBRL *interpretation* (files are stored, not read), Form 3/4/5, SC 13D/G,
-S-1/S-4/424B, DEFA14A.
+**Out of v0, excluded by configuration rather than by code:** Form 3/4/5, SC 13D/G,
+S-1/S-4/424B, DEFA14A, and every W1 peer company. Adding any of them must be a
+`config/fetch.yaml` edit and nothing more.
 
-Out-of-scope forms are excluded by config, not by code — adding `"4"` to `fetch.yaml` must be
-sufficient to acquire them later.
+# 2. Canonical identity
 
-# 2. Pipeline
+Ticker is **not** an identifier. It changes, and an issuer may carry several at once —
+Opendoor currently lists four *(verified: OPEN, OPENL, OPENW, OPENZ)*.
 
-Two phases with a reviewable artifact between them (doc 04 §8).
+| Identity | Form | Notes |
+| --- | --- | --- |
+| Filing | `sec:{cik10}:{accession_dashed}` | e.g. `sec:0001801169:0001801169-26-000009` |
+| Artifact | `sec:{cik10}:{accession_dashed}:{original_filename}` | Filename is unique within a filing directory |
+
+`cik10` is the zero-padded 10-digit CIK. Ticker appears only as a display value in
+`config/companies.yaml`, in filing metadata, and in catalog rows.
+
+Artifact identity keys on the original filename rather than on `SEQUENCE`, because the
+full-submission `.txt` and the index-header file are not part of the SGML `DOCUMENT` list
+and therefore have no sequence number.
+
+The design must tolerate: multiple tickers per issuer; ticker changes; missing
+`reportDate`; amendments; forms containing `/` or spaces; and artifacts with no
+recognizable exhibit role.
+
+# 3. Data model
 
 ```text
-Phase 1 — DISCOVER      ~1 request. Writes data/catalog/manifests/<run_id>.json
-          └── lists every filing that WILL be fetched, with form, date,
-              accession, item codes, size — before anything is downloaded
-
-        [ human reviews: counts by form, date coverage, total bytes ]
-
-Phase 2 — DOWNLOAD      Consumes the manifest. Resumable, idempotent.
-          └── per filing: resolve exhibit roles → fetch files →
-              hash → write _filing.json → append to documents.jsonl
-
-Phase 3 — VERIFY        Reads only what is on disk. Reports gaps and
-          └── mismatches against the manifest. Exit non-zero on failure.
+Filing  (one accession)
+  ├── artifact  kind=primary            the filing's own document
+  ├── artifact  kind=exhibit            EX-99.1, EX-21.1, EX-10.38, …
+  ├── artifact  kind=xbrl               EX-101.*, inline XBRL, .xsd
+  ├── artifact  kind=asset              GRAPHIC and other binaries
+  ├── artifact  kind=full_submission    <accession>.txt
+  └── artifact  kind=index_header       <accession>-index-headers.html
 ```
 
-Each phase is a separate entry point. Phase 2 is re-runnable at any time: a filing directory
-containing a complete `_filing.json` whose hashes match is skipped.
+`artifact_kind` and `role` are separate concepts and both are recorded:
 
-# 3. Naming rules
+```text
+artifact_kind: exhibit
+role:          ex99-01
+exhibit_type:  EX-99.1
+```
 
-These must be implemented as one shared function each, not inline string formatting.
+`role` is a normalized slug, `exhibit_type` is EDGAR's raw `TYPE` string. `role` is `null`
+for assets and for anything whose type does not normalize cleanly — an unrecognized type is
+recorded verbatim and reported, never silently dropped (§4 RESOLVE).
 
-**Filing directory:** `<filing_date>_<accession_with_dashes>`
-e.g. `2026-02-19_0001801169-26-000009`
-Date first for sort order; accession for uniqueness and URL reconstruction.
+# 4. Pipeline stages
 
-**Form directory:** the form name, sanitized — `/` → `-`, space → `-`.
-`DEF 14A` → `DEF-14A`, `8-K/A` → `8-K-A`, `10-K/A` → `10-K-A`.
-Sanitization is mandatory: unsanitized form names create paths or collide.
+Five independently runnable stages. `acquire` runs them in order but is only a convenience.
 
-**File:** `<role>__<original_edgar_filename>`
+```text
+DISCOVER ──► manifests/filings/<run_id>.json          (immutable)
+RESOLVE  ──► manifests/artifacts/<run_id>.json        (immutable)
+DOWNLOAD ──► data/raw/... + _filing.json              (atomic per filing)
+BUILD_CATALOG ──► data/catalog/*.jsonl                (derived, atomic)
+VERIFY   ──► report + exit code
+```
 
-| Role prefix | Applies to |
+### DISCOVER
+
+Reads `config/`. Fetches `data.sec.gov/submissions/CIK{cik10}.json`, following the
+`filings.files[]` continuation array when an issuer has more than 1,000 filings. Filters by
+form and date from config. Preserves accession, form, filing date, report date, acceptance
+datetime, item codes, XBRL flags, file number, act, film number, primary document, and
+reported size. Prints a summary table by form before writing. **Downloads no filing
+artifacts.** Writes an immutable filing manifest.
+
+### RESOLVE
+
+For each filing in a named filing manifest, fetches `<accession>-index-headers.html` and
+parses the SGML `DOCUMENT` blocks into the expected artifact set, then appends the
+full-submission and index-header artifacts. Records per artifact: accession, artifact kind,
+role, exhibit type, original filename, source URL, expected size, description, media type,
+sequence, and `low_processing_priority`.
+
+Expected sizes come from the filing's `index.json` directory listing, which carries `size`
+and `last-modified` per file but **not** usable types (§13.1). Types come only from the SGML
+header.
+
+Explicitly reports: unrecognized `TYPE` values, documents present in the header but absent
+from `index.json` (or the reverse), and case-folded filename collisions (§16.4). Writes an
+immutable artifact manifest referencing the filing manifest's `run_id`.
+
+### DOWNLOAD
+
+Consumes a named artifact manifest. Per filing: stage into a temporary directory, download
+every expected artifact, validate, hash, write `_filing.json`, then finalize atomically
+(§6). Skips filings that are already valid and complete; repairs those that are not.
+Writes nothing to the global catalogs.
+
+### BUILD_CATALOG
+
+Rebuilds `filings.jsonl` and `artifacts.jsonl` from finalized `_filing.json` files only
+(§9). Never consulted to decide what to download.
+
+### VERIFY
+
+Cross-checks filing manifest, artifact manifest, filesystem, per-filing metadata, hashes,
+and generated catalogs (§15). Prints a human-readable report and exits non-zero on any
+failure.
+
+# 5. The full submission file
+
+The `<accession>.txt` complete submission **is stored**. It duplicates content and roughly
+doubles on-disk size, but the corpus is small and it provides authoritative SGML headers,
+attachment sequence and type information, a fallback if library or API behavior changes,
+and a single-file archival representation of the filing.
+
+```text
+artifact_kind: full_submission
+low_processing_priority: true
+```
+
+It is not parsed in v0. The `<accession>-index-headers.html` file is likewise stored
+(`artifact_kind: index_header`), since it is the evidence behind every role assignment.
+
+# 6. Atomic filing completion
+
+A partially downloaded filing must be unambiguously incomplete. Presence of a filing
+directory means nothing; presence of a **valid `_filing.json` inside a finalized directory**
+means everything.
+
+```text
+1. Create data/tmp/<run_id>/<accession>/
+2. Download every expected artifact into it
+3. Validate HTTP status and byte length
+4. Compute SHA-256 and size for each
+5. Write _filing.json  (last file written into the temp directory)
+6. os.replace() the temp directory onto the final path
+```
+
+`_filing.json` is written last inside the staging directory, and the directory rename is a
+single atomic operation on the same filesystem — `data/tmp/` and `data/raw/` share one root
+for exactly this reason. An interrupted run leaves debris only under `data/tmp/`, which is
+never read by any stage and is safe to delete at any time.
+
+**Repair path.** If a final directory exists but is invalid, it is moved to
+`data/tmp/<run_id>/quarantine/` first, the new directory is renamed into place, and the
+quarantine is removed only after the rename succeeds. No destructive delete precedes a
+successful replacement.
+
+**Skip conditions.** A finalized filing is skipped on rerun only when all four hold:
+
+1. `_filing.json` exists and validates against the schema;
+2. every artifact it records exists on disk;
+3. every recorded SHA-256 matches the bytes on disk;
+4. its artifact set matches the resolved artifact manifest.
+
+Any failure triggers a full re-download of that filing. Partial in-place patching is not
+attempted — it is the state most likely to produce a corpus that looks complete and is not.
+
+# 7. Storage layout and source fidelity
+
+**Decision: exact source mirroring.** Original EDGAR filenames are preserved byte-for-byte
+under a `source/` directory. The previous plan's role-prefixed naming scheme
+(`ex99-01__q42025formxex991earningsre.htm`) is **withdrawn**.
+
+The tradeoff it was resolving is real: EDGAR filenames are inconsistent, and the same
+exhibit type appears as `q42025formxex991earningsre.htm` in one filing and
+`exhibit992-q42025form8xk.htm` in another *(verified)*, so filenames cannot be used to find
+an earnings release. But the fix was aimed at the wrong layer. Enriching filenames makes
+globs the de-facto query API, which quietly couples every downstream consumer to a storage
+convention and creates a second, subtly different name for every file.
+
+The correct answer is that **the catalog is the query API**. `artifacts.jsonl` supports
+"every EX-99.1 from an Item 2.02 8-K, chronologically" directly, and it stays correct if the
+storage layout ever changes. Globs remain usable for ad-hoc inspection but are not a
+contract.
+
+Consequently:
+
+- File bytes and filenames under `source/` are exactly what EDGAR served.
+- `_filing.json` records role, kind, exhibit type, sequence, and source URL per artifact.
+- No downstream identity depends on a stored path — identity is §2, and `stored_path` is
+  derived data that a consumer may recompute but must not key on.
+
+Directory naming, which is ours and carries no source-fidelity claim:
+
+| Component | Rule |
 | --- | --- |
-| `primary__` | The filing's primary document |
-| `ex99-01__`, `ex21-01__`, `ex10-38__` | Exhibits — normalized, zero-padded, lowercased |
-| `xbrl__` | `_htm.xml`, `_cal.xml`, `_def.xml`, `_lab.xml`, `_pre.xml` |
-| `full__` | The `<accession>.txt` complete submission |
-| (none) | Images and binaries → `assets/`, original name unchanged |
+| Issuer | `cik10`, zero-padded — `0001801169` |
+| Form | sanitized: `/` → `-`, whitespace → `-`, uppercased. `DEF 14A` → `DEF-14A`, `8-K/A` → `8-K-A` |
+| Filing | `<filing_date>_<accession_dashed>` — date first for chronological sort, accession for uniqueness |
 
-Exhibit role normalization: `EX-99.1` → `ex99-01`, `EX-10.38` → `ex10-38`, `EX-4.7` → `ex4-07`.
-Zero-padding the minor number keeps lexical and numeric order identical.
+Form sanitization is mandatory; an unsanitized `8-K/A` silently creates a nested directory.
 
-**Why a role prefix rather than a pure EDGAR mirror.** Original filenames are inconsistent and
-unparseable — the same exhibit type appears as `q42025formxex991earningsre.htm` in one filing
-and `exhibit992-q42025form8xk.htm` in another *(verified)*. Without a prefix, every consumer
-must load `_filing.json` to find the earnings release. With it, a glob suffices. The original
-name is fully preserved after the `__`, so nothing is lost. **This is a deliberate deviation
-from doc 04 §8's "raw mirrors the source's own paths"** — the bytes are untouched, only the
-container name is enriched, and `_filing.json` records the original name explicitly.
+# 8. Metadata schemas
 
-**Document ID:** `sec-OPEN-8K-20260219-0001801169-26-000009-ex99-01`
-
-Deterministic, derived from `(source, ticker, form, date, accession, role)`. Chosen over a
-UUID5 because these IDs will appear in graph nodes and evidence panels, and doc 01 §2 values
-debuggability. Same inputs always produce the same ID, satisfying doc 01 §12.10.
-
-# 4. Metadata
-
-## `_filing.json` (one per filing directory)
-
-Source: EDGAR submissions JSON + edgartools attachment resolution.
+## `_filing.json` — authoritative, one per finalized filing
 
 ```text
-cik, company_name, ticker
+schema_version
+filing_id, source, cik, cik10, company_name, tickers[]
 accession, accession_nodash
-form, form_sanitized
+form, form_sanitized, is_amendment, amends_accession
 filing_date, report_date, acceptance_datetime
-items[]                     # 8-K item codes — REQUIRED, doc 04 §2
+items[]                      # 8-K item codes — always retained
 file_number, act, film_number
-is_xbrl, is_inline_xbrl, is_amendment
-size_reported               # from submissions JSON, for verification
-source_index_url
-fetched_at, fetcher_version, edgartools_version
-documents[]:
-    role                    # primary | ex99-01 | xbrl | full | asset
-    exhibit_type            # "EX-99.1" as reported by EDGAR, or null
-    description             # EDGAR's description field, or null
-    original_filename
-    stored_path             # relative to the filing directory
-    size_bytes
-    sha256
-    source_url
-    low_value               # true for EX-31.x / EX-32.x certifications
+is_xbrl, is_inline_xbrl, size_reported
+source_index_url, source_index_headers_url
+run_id, fetched_at, fetcher_version, tool_versions{}
+artifacts[]:
+    artifact_id, artifact_kind, role, exhibit_type, description
+    original_filename, stored_path, sequence
+    media_type, file_extension
+    size_bytes, sha256
+    source_url, http_status, etag, last_modified
+    download_attempts, downloaded_at, verification_status
+    low_processing_priority
 ```
 
-## `documents.jsonl` (one row per downloaded file)
+## `filings.jsonl` — derived, one row per accession
 
-Flat projection for querying: `document_id`, `cik`, `ticker`, `form`, `filing_date`,
-`report_date`, `accession`, `items`, `role`, `exhibit_type`, `stored_path`, `size_bytes`,
-`sha256`, `source_url`, `fetched_at`, `low_value`.
+`filing_id`, `source`, `cik10`, `company_name`, `tickers`, `accession`, `form`,
+`form_sanitized`, `filing_date`, `report_date`, `acceptance_datetime`, `items`,
+`is_amendment`, `amends_accession`, `is_xbrl`, `is_inline_xbrl`, `artifact_count`,
+`total_bytes`, `filing_dir`, `run_id`, `fetched_at`.
 
-Answers "give me every EX-99.1 from an Item 2.02 8-K, chronologically" without touching 107
-`_filing.json` files.
+## `artifacts.jsonl` — derived, one row per downloaded file
 
-## `manifests/<run_id>.json`
+`artifact_id`, `filing_id`, `cik10`, `accession`, `form`, `filing_date`, `items`,
+`artifact_kind`, `role`, `exhibit_type`, `description`, `sequence`, `original_filename`,
+`stored_path`, `media_type`, `file_extension`, `size_bytes`, `sha256`, `source_url`,
+`http_status`, `downloaded_at`, `verification_status`, `low_processing_priority`.
 
-The corpus specification: run parameters (CIK, forms, date range, config hash) plus the full
-expected filing list with accession, form, date, item codes, reported size. This is the
-version-controlled artifact — the corpus is reproducible from it.
+Images and binaries **are** included. They may be excluded from text-oriented byte
+summaries, but they are downloaded artifacts and are cataloged and verified like any other.
 
-# 5. Implementation steps
+## Manifests
+
+Filing manifest: run metadata (§10) plus the full expected filing list.
+Artifact manifest: run metadata, the originating `filings_run_id`, and the full expected
+artifact list with the fields named in §4 RESOLVE.
+
+## `runs/<run_id>.json`
+
+Stage, start and end time, configuration snapshot, counts attempted/succeeded/skipped/
+failed, bytes downloaded, request count, and any errors.
+
+# 9. Catalogs are derived artifacts
+
+Nothing appends to a global JSONL file during concurrent downloads. Each finalized filing
+owns its `_filing.json`; the catalogs are rebuilt from those.
+
+The catalog builder must:
+
+1. read every finalized `_filing.json` under the raw root;
+2. sort deterministically — filings by `(cik10, filing_date, accession)`, artifacts by
+   `(cik10, filing_date, accession, sequence_or_none, original_filename)`;
+3. deduplicate by canonical identity (§2), reporting any duplicate rather than silently
+   collapsing it;
+4. write to a temporary file in the destination directory;
+5. `os.replace()` it onto the final path.
+
+Byte-identical output for identical inputs is an acceptance criterion (§15.5). Catalogs are
+never consulted to decide what to download — the filesystem and the manifests hold that
+state.
+
+# 10. Manifests are immutable
+
+A manifest is written once and never modified. Writing to an existing manifest path is an
+error, not an overwrite.
+
+- Every DISCOVER run creates a new `run_id`.
+- DOWNLOAD may reuse an existing manifest by `run_id`; the default is the most recent.
+- Changed configuration produces a different `config_hash` and therefore a new manifest.
+
+Recorded in every manifest and run record:
+
+```text
+run_id, stage, created_at
+config_hash, manifest_hash
+code_commit, python_version, platform
+fetcher_version, dependency_versions{}
+```
+
+`run_id` is `<utc_compact_timestamp>-<config_hash[:8]>`, e.g. `20260731T140233Z-a1b2c3d4`.
+`config_hash` is SHA-256 over the canonicalized effective config; `manifest_hash` is
+SHA-256 over the manifest body with the hash field excluded.
+
+# 11. Amendments
+
+Amended filings are preserved exactly as received. `is_amendment` is set when the form ends
+in `/A`. `amends_accession` is populated **only** when it can be determined reliably; when
+it cannot, it is `null`. Nothing is overwritten, deleted, or merged, and no supersession
+decision is made — that belongs to the graph's temporal layer (doc 04 §11.5) and must not be
+pre-empted here.
+
+# 12. Corpus report, not corpus invariants
+
+The previous plan asserted that 23 Item 2.02 filings must yield exactly 23 EX-99.1
+exhibits. That is a corpus observation, not a law, and hard-coding it makes an unrelated
+filing pattern look like a pipeline defect.
+
+Replaced by:
+
+- **Hard requirement:** every artifact in the resolved artifact manifest is present and
+  correct. This is exact and corpus-independent.
+- **Corpus report** (`data/reports/<run_id>-corpus.md`): filings by form and year, Item 2.02
+  filings against their resolved exhibit roles, artifact-kind distribution, filings with no
+  exhibits, unrecognized types, and size distribution.
+- **Flagged for review, not failed:** an Item 2.02 filing with no EX-99.x, or an
+  unrecognized exhibit type.
+
+SEC item codes are authoritative filing-level metadata and useful weak labels. They are not
+passage-level event labels, and doc 04 §2's framing is narrowed accordingly.
+
+# 13. External API findings
+
+Verified 2026-07-31 against the live SEC API. These corrected the plan's earlier
+assumptions.
+
+**13.1 — `index.json` carries no usable types.** Its per-item `type` field returns an icon
+reference (`text.gif`, `image2.gif`), not `EX-99.1`. Item keys are exactly
+`last-modified`, `name`, `type`, `size`. It is useful for expected sizes and modification
+times, and for nothing else.
+
+**13.2 — `<accession>-index-headers.html` is the authoritative source.** ~11 KB,
+HTML-escaped SGML inside `<PRE>`, with a `DOCUMENT` block per submitted document carrying
+`TYPE`, `SEQUENCE`, `FILENAME`, `DESCRIPTION`. This replaces edgartools entirely.
+
+**13.3 — `.hdr.sgml` is not a substitute.** It returns HTTP 200 but contains **zero**
+`DOCUMENT` blocks — issuer and filing header metadata only.
+
+**13.4 — `DESCRIPTION` is inconsistent and must not drive classification.** The same
+exhibit appears as `EX-99.1` in a 2026 filing and `EXHIBIT 99.1` in a 2020 one; primary
+documents appear as `8-K` and `FORM 8-K`. Classification uses `TYPE` only; `DESCRIPTION` is
+stored verbatim as metadata.
+
+**13.5 — The accession prefix is the filing agent, not the issuer.** Opendoor's 2020
+filings carry accession prefix `0001104659` (a filing agent) while the archive path uses the
+issuer CIK `1801169`. CIK must come from configuration and from the submissions API, never
+from parsing an accession.
+
+**13.6 — No retry library.** Retry policy is hand-rolled: exponential backoff with jitter,
+honoring `Retry-After`; retry on 429, 500, 502, 503, 504, and transport errors only; never
+retry other 4xx. Chosen over tenacity because the policy is small, the clock must be
+injectable for deterministic tests, and it removes a dependency. tenacity `9.1.4` is
+installed but unused.
+
+**13.7 — Header-based resolution excludes SEC-generated render artifacts for free.**
+`R*.htm`, `FilingSummary.xml`, `MetaLinks.json`, `report.css`, `Show.js`, and
+`<accession>-xbrl.zip` appear in `index.json` but not in the SGML `DOCUMENT` list. Resolving
+from the header therefore yields exactly the filer-submitted set, with no exclusion rules to
+maintain.
+
+**13.8 — SEC access requirements.** A `User-Agent` naming the application and a contact
+email is mandatory; the request ceiling is ~10/s. v0 configures 5 req/s and concurrency 4.
+Estimated total: 1 discovery request, 107 resolve requests, and ~2,500–3,500 download
+requests — roughly 10–15 minutes at the configured rate. Being slow is free; being blocked
+is not.
+
+# 14. Implementation steps
 
 Ordered so each step is independently verifiable.
 
-1. **Fix `.gitignore`.** It currently ignores all of `data/`, contradicting doc 04 §8's
-   "the manifest is version-controlled." Add a negation for `data/catalog/manifests/`.
-2. **`fetch.yaml`** — cik, ticker, forms list, date range, output root, rate limit, User-Agent
-   identity. No scope value hardcoded anywhere else.
-3. **Naming module** — the four functions from §3, pure and unit-tested against the verified
-   real filenames in this document. Write these tests first; they are cheap and they are what
-   makes the tree automatable.
-4. **Discovery** — submissions JSON → filtered filing list → manifest. Prints a summary table
-   by form with counts, date range, and total reported bytes. No downloads.
-5. **Exhibit role resolution** — for one filing, produce the role map. **Verify against the
-   three filings in the SUMMARY before proceeding**; this is where `index.json`'s `type` field
-   will mislead (§6.3).
-6. **Download** — one filing end to end (use `0001801169-26-000009`, the Q4 2025 earnings 8-K,
-   which exercises primary + 3 exhibits + 18 images). Then the full run.
-7. **Catalog writers** — `_filing.json`, `documents.jsonl`, `runs/<run_id>.json`.
-8. **Verify command** — §7 acceptance criteria as an executable check.
+1. `config/companies.yaml`, `config/fetch.yaml`, and `.gitignore` for `data/`.
+2. Identity and naming module — pure functions, unit-tested against the real filenames in
+   this document.
+3. Pydantic models for manifests, filing metadata, and catalog rows.
+4. `SecClient` — rate limiting, retry, User-Agent, injectable clock.
+5. DISCOVER against the live submissions API; review the summary against §SUMMARY counts.
+6. SGML header parser plus artifact classification, tested against saved fixtures **before**
+   any bulk run.
+7. RESOLVE for the three representative filings in §17, then the full corpus.
+8. `LocalRawArtifactStore` — staging, atomic finalization, inspection.
+9. DOWNLOAD for one filing (`0001801169-26-000009`: primary + 3 exhibits + 18 images +
+   XBRL), then the full run.
+10. BUILD_CATALOG.
+11. VERIFY.
+12. Corpus report.
 
-# 6. Risks and gotchas
+# 15. Acceptance criteria
 
-**6.1 — SEC rate limits.** ~10 req/s and a User-Agent with a contact email are mandatory;
-exceeding it means IP-level blocking. ~107 filings × ~5 files plus images ≈ 500 requests. Cap
-concurrency at 5 and set a deliberate delay. There is no deadline here — being slow is free,
-being blocked is not.
+1. Every filing in the filing manifest is finalized.
+2. Every artifact in the artifact manifest is present on disk.
+3. Every stored artifact's recorded SHA-256 matches its bytes.
+4. Every finalized filing has a schema-valid `_filing.json`.
+5. Catalogs rebuild deterministically — byte-identical across repeated runs on unchanged
+   inputs.
+6. Rerunning DOWNLOAD issues no unnecessary network requests.
+7. Deleting one finalized filing directory and rerunning restores it byte-identically.
+8. An interrupted download never appears complete; debris is confined to `data/tmp/`.
+9. All 8-K item codes are retained in `_filing.json` and in `filings.jsonl`.
+10. Original filenames and source URLs are preserved for every artifact.
+11. Primary documents, exhibits, XBRL files, image assets, full submissions, and index
+    headers all appear in `artifacts.jsonl`.
+12. VERIFY exits non-zero on missing, corrupted, duplicated, or unexpected artifacts.
+13. A configuration change produces a different `config_hash` and a new immutable manifest;
+    an existing manifest path is never overwritten.
+14. No parsing, normalization, OCR, transcript, extraction, or graph code exists in the
+    acquisition package.
 
-**6.2 — Images are most of the bytes.** The Q4 2025 earnings 8-K carries 18 JPGs totalling
-~2 MB against ~580 KB of HTML *(verified)*. v0 fetches them (they are the shareholder letter's
-actual content), but they go in `assets/` and are excluded from `documents.jsonl` text
-accounting. If total size becomes a problem, `assets/` is the first thing to make optional.
+# 16. Risks
 
-**6.3 — `index.json` does not carry exhibit types.** Its `type` field returns an icon
-reference (`text.gif`, `image2.gif`), not `EX-99.1` *(verified)*. Exhibit types come from the
-submission SGML header or edgartools' attachment API. Building on the `type` field will
-silently produce a role map where everything is an icon name.
+**16.1 — Rate limiting.** ~2,500–3,500 requests. Concurrency 4 at 5 req/s. Blocking is
+IP-level and there is no deadline here.
 
-**6.4 — Amended filings.** 8-K/A and 4/A exist in the corpus. v0 stores them as ordinary
-filings with `is_amendment: true` and makes no supersession decision. That decision belongs to
-the graph's temporal layer (doc 04 §11.5) and must not be pre-empted by deleting or
-overwriting anything here.
+**16.2 — Storage doubling.** Storing the full submission roughly doubles bytes. Accepted
+per §5; actual size is reported after the run.
 
-**6.5 — Filenames are not stable identifiers.** Never key anything on the EDGAR filename. The
-accession plus role is the identity; the filename is provenance.
+**16.3 — Filenames are not identifiers.** Nothing keys on a stored path or filename except
+artifact identity within a filing (§2), which is scoped by accession.
 
-**6.6 — EX-99.2 text yield is unverified.** 43 KB of HTML around 13 images suggests the
-substance is rendered as pictures. Confirm during v1 parsing. If text yield is near zero, the
-shareholder letter needs OCR or a vision model — a v2 concern, but do not assume it parses.
+**16.4 — Case-insensitive filesystem.** The working tree is on WSL `/mnt/c` (DrvFs), which
+is case-insensitive. Two EDGAR files differing only in case would collide. RESOLVE checks
+for case-folded collisions within each filing and reports them.
 
-# 7. Acceptance criteria
+**16.5 — Atomic rename portability.** `os.replace()` on a directory requires the target to
+not exist. The repair path (§6) quarantines first, so the rename target is always absent.
 
-1. `documents.jsonl` has one row per downloaded file with a stable deterministic ID.
-2. All 107 expected filings present; `verify` reports zero gaps against the manifest.
-3. Every 8-K's `_filing.json` carries its `items[]` array.
-4. Every exhibit is stored as its own file with a resolved role — none discarded, none merged.
-5. `glob("data/raw/sec/OPEN/8-K/*/ex99-01__*.htm")` returns all 23 earnings releases.
-6. `sorted(glob("data/raw/sec/OPEN/8-K/*/"))` is in filing-date order.
-7. Re-running Phase 2 downloads nothing and changes no file.
-8. Every stored file's recorded `sha256` matches its bytes on disk.
-9. Every file's `source_url` resolves to a live EDGAR URL.
-10. Deleting one filing directory and re-running restores it byte-identically.
+**16.6 — Large single files.** The FY2025 10-K primary document is ~2.9 MB and its full
+submission is larger. Downloads stream to disk rather than buffering whole files in memory.
 
-# 8. Open decisions
+# 17. Representative filings for testing
 
-1. **Store the `<accession>.txt` full submission?** It duplicates every document (~2× storage)
-   but carries the authoritative SGML header. Recommendation: store the parsed header in
-   `_filing.json` and skip the file.
-2. **Fetch `assets/` images in v0?** Recommendation: yes — they are the shareholder letter's
-   real content, and re-fetching later costs another 500 requests.
-3. **Include DEFA14A (10 filings)?** Proxy supplements, often substantive during contested
-   periods. Recommendation: defer to v1; it is a one-line config change.
-4. **Rendered `R*.htm` XBRL viewer files** — excluded. They are derived artifacts, not source.
+| Accession | Form | Why |
+| --- | --- | --- |
+| `0001801169-26-000009` | 8-K | Items 2.02/7.01/9.01; primary + EX-99.1/2/3 + 18 GRAPHIC + XBRL |
+| `0001801169-26-000010` | 10-K | Many exhibit types, certifications, full XBRL set |
+| `0001104659-20-132667` | 8-K | 2020, agent-filed: accession prefix ≠ CIK, `DESCRIPTION` in the old style |
+
+# 18. Open decisions
+
+1. **DEFA14A (10 filings)** — proxy supplements, often substantive during contested periods.
+   Deferred to v1; a one-line config change.
+2. **Manifest size in git.** An artifact manifest is ~2,500–3,500 entries. Tracked as
+   specified in §10; if repeated discovery runs make this unwieldy, compress or prune old
+   manifests rather than making them mutable.
+3. **`data/catalog/` is gitignored.** Derived and rebuildable. Revisit only if the catalogs
+   become an interchange format rather than a local index.
