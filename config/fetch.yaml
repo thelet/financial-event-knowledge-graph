@@ -1,0 +1,45 @@
+# Acquisition scope and transport settings.
+#
+# Every scope decision lives here rather than in code. Adding a form or a company must be a
+# config edit and nothing more. Changing any value in this file changes config_hash, which
+# produces a new immutable manifest (v0 plan section 10).
+
+source: sec
+
+# Forms to acquire. Out-of-scope forms (3, 4, 5, SC 13D/G, S-1, DEFA14A) are excluded here,
+# not in code.
+forms:
+  - 10-K
+  - 10-Q
+  - 8-K
+  - DEF 14A
+
+# Inclusive filing-date bounds. date_to: null means "up to today".
+date_from: "2020-01-01"
+date_to: null
+
+http:
+  # SEC requires a User-Agent naming the application with a contact email.
+  user_agent: "Financial-KG-Prototype thelet.shevach@gmail.com"
+  # SEC's ceiling is ~10 req/s. Deliberately conservative: being slow is free, being
+  # IP-blocked is not.
+  requests_per_second: 5.0
+  max_concurrency: 4
+  timeout_seconds: 60.0
+  max_retries: 5
+  backoff_base_seconds: 1.0
+  backoff_max_seconds: 60.0
+
+# Which artifact classes to acquire. See v0 plan sections 5 and 6.
+include:
+  full_submission: true
+  index_header: true
+  assets: true
+  # SEC's IDEA system appends rendering output (R*.htm, FilingSummary.xml,
+  # MetaLinks.json, *-xbrl.zip, *_htm.xml) to the SGML document list. Derived from the
+  # filing rather than part of it, so excluded by default.
+  render_artifacts: false
+
+paths:
+  data_root: data
+  manifests_root: manifests

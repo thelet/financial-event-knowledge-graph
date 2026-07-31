@@ -1,0 +1,16 @@
+[project]
+name = "financial-event-knowledge-graph"
+version = "0.1.0"
+description = "Financial event knowledge graph prototype - raw SEC filing acquisition"
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.27", "pydantic>=2.6", "PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Makes `acquisition` and the shared test helpers importable under a bare `pytest` too.
+pythonpath = [".", "tests"]
+markers = ["live: touches the real SEC API (deselect with -m 'not live')"]
+addopts = "-q"

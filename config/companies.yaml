@@ -1,0 +1,11 @@
+# Issuer scope for acquisition.
+#
+# CIK is the canonical issuer identity. Tickers are display values only -- an issuer may
+# hold several at once and they change over time. See the v0 plan section 2.
+companies:
+  - cik: 1801169
+    name: "Opendoor Technologies Inc."
+    wave: W0
+    tickers: [OPEN, OPENL, OPENW, OPENZ]
+    aliases:
+      - "Social Capital Hedosophia Holdings Corp. II"
