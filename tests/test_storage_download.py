@@ -279,6 +279,27 @@ def test_download_with_no_artifacts_fails_loudly(downloader, filing):
 # -- Concurrency -------------------------------------------------------------------------
 
 
+def test_successful_run_removes_its_staging_root(store, company):
+    """Surviving debris must mean interruption, not merely 'a run happened'."""
+    filings = [make_filing_record(accession="0001801169-26-000031")]
+    artifacts = [make_artifact_record(filings[0], "d.htm")]
+    dl = ArtifactDownloader(FakeSecClient({}), store, company, run_id="tidy")
+    dl.download_all(filings, artifacts)
+    assert not (store.tmp_root / "tidy").exists()
+
+
+def test_failed_run_keeps_evidence_of_interruption(store, company):
+    class ExplodingClient(FakeSecClient):
+        def download_to(self, url, destination):
+            raise RuntimeError("boom")
+
+    filings = [make_filing_record(accession="0001801169-26-000032")]
+    artifacts = [make_artifact_record(filings[0], "d.htm")]
+    dl = ArtifactDownloader(ExplodingClient({}), store, company, run_id="broken")
+    summary = dl.download_all(filings, artifacts)
+    assert summary.count(STATUS_FAILED) == 1
+
+
 def test_download_all_covers_every_filing(store, company):
     filings = [
         make_filing_record(accession=f"0001801169-26-00001{n}", filing_date="2026-02-19")

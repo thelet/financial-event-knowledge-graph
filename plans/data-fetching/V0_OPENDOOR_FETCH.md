@@ -77,13 +77,31 @@ data/raw/sec/0001801169/8-K/2026-02-19_0001801169-26-000009/
 | --- | --- | --- |
 | 10-K | 6 | FY2020–FY2025; primary ~2.9 MB plus ~10 exhibits and XBRL |
 | 10-Q | 19 | |
-| 8-K | 75 | 23 carry Item 2.02 |
+| 8-K | 75 | 24 carry Item 2.02 |
+| 8-K/A | 2 | amendments, preserved as filed (§11) |
 | DEF 14A | 7 | |
-| **Total** | **107** | |
+| **Total** | **109** | |
 
-Estimated **~2,500–3,500 artifacts**, **~350–550 MB**. The range is wide because storing the
-full-submission `.txt` (§5) roughly doubles on-disk bytes; the actual figures are reported
-after the run rather than asserted here.
+### Actual results — run `20260731T134913Z-d1cddf6a`
+
+| Measure | Estimated | **Actual** |
+| --- | --- | --- |
+| Filings | 107 + amendments | **109** |
+| Artifacts | 2,500–3,500 | **2,019** |
+| On disk | 350–550 MB | **739.6 MiB** |
+| Requests (download) | ~2,500–3,500 | **2,023** |
+| Failures | — | **0** |
+| Resolution anomalies | — | **0** |
+
+Two estimates were off and the reasons are worth recording. Artifact count came in **under**
+because SEC-generated render artifacts are excluded (§13.7) — 7 per XBRL filing. Bytes came in
+**over** because the full-submission `.txt` is not "roughly the size of the rest" but 475.8 MiB
+of the 739.6 MiB total — it embeds every document uuencoded, so binary assets inflate it well
+beyond their stored size. Storing it remains the right call per §5, but the cost is closer to
+2× the rest of the corpus than to parity.
+
+Artifact breakdown: asset 1,060 (135.0 MiB), xbrl 364 (44.2), exhibit 268 (20.5), primary 109
+(62.8), full_submission 109 (475.8), index_header 109 (1.2).
 
 Earnings 8-K exhibit structure, consistent across Q3 and Q4 2025 *(verified)*: primary 8-K
 body ~35 KB; **EX-99.1** earnings release ~500 KB; **EX-99.2** shareholder letter ~43 KB

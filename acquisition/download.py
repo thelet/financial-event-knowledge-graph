@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import identity
 from .config import CompanyConfig
 from .models import ArtifactRecord, FilingMetadata, FilingRecord, StoredArtifact
 from .runmeta import FETCHER_VERSION, dependency_versions, utc_now_iso
@@ -111,6 +110,7 @@ class ArtifactDownloader:
                 if progress:
                     progress(done, len(filing_list), summary.outcomes[futures[future]])
 
+        self._store.cleanup_run_staging(self._run_id)
         return summary
 
     # -- one filing --------------------------------------------------------------------

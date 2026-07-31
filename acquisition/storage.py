@@ -81,6 +81,18 @@ class LocalRawArtifactStore:
     def discard_staging(self, staging_dir: Path) -> None:
         shutil.rmtree(staging_dir, ignore_errors=True)
 
+    def cleanup_run_staging(self, run_id: str) -> None:
+        """Remove a run's staging root once it holds nothing.
+
+        Leaves anything still present alone: surviving debris is the signal that a run was
+        interrupted, and verification reports it.
+        """
+        run_root = self.tmp_root / run_id
+        if run_root.is_dir() and not any(run_root.iterdir()):
+            run_root.rmdir()
+        if self.tmp_root.is_dir() and not any(self.tmp_root.iterdir()):
+            self.tmp_root.rmdir()
+
     # -- finalization ------------------------------------------------------------------
 
     def write_filing_metadata(self, filing_root: Path, metadata: FilingMetadata) -> Path:

@@ -45,3 +45,26 @@ and the component contracts — not any particular provider, framework, or datab
 
 Phase 1 of the implementation sequence: define the interfaces, canonical models,
 configuration format, and run manifests.
+
+## Acquisition (v0)
+
+Raw SEC filing acquisition for the anchor company. Five independently runnable stages:
+
+```bash
+python -m acquisition discover        # -> manifests/filings/<run_id>.json    (immutable)
+python -m acquisition resolve         # -> manifests/artifacts/<run_id>.json  (immutable)
+python -m acquisition download        # -> data/raw/... + _filing.json        (atomic)
+python -m acquisition build-catalog   # -> data/catalog/*.jsonl               (derived)
+python -m acquisition verify          # exits non-zero on any inconsistency
+python -m acquisition report          # -> data/reports/<run_id>-corpus.md
+
+python -m acquisition acquire         # convenience: all of the above in order
+```
+
+Scope lives in `config/fetch.yaml` and `config/companies.yaml` — never in code.
+Rerunning `download` is safe and re-fetches nothing that is already valid.
+
+Tests: `pytest -m "not live"` runs offline; `pytest -m live` hits the real SEC API.
+
+Current corpus: 109 Opendoor filings, 2,019 artifacts, 739.6 MiB.
+See [plans/data-fetching/V0_OPENDOOR_FETCH.md](plans/data-fetching/V0_OPENDOOR_FETCH.md).
