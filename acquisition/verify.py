@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .catalog import ARTIFACTS_CATALOG, FILINGS_CATALOG, read_jsonl
-from .models import ArtifactManifest, FilingManifest
-from .storage import FILING_METADATA_NAME, LocalRawArtifactStore
+from .core.models import ArtifactManifest, FilingManifest
+from .core.storage import FILING_METADATA_NAME, LocalRawArtifactStore
 
 SEVERITY_ERROR = "ERROR"
 SEVERITY_WARNING = "WARNING"

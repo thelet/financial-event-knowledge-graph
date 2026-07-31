@@ -13,7 +13,7 @@ from acquisition.download import (
     STATUS_SKIPPED,
     ArtifactDownloader,
 )
-from acquisition.storage import (
+from acquisition.core.storage import (
     FILING_METADATA_NAME,
     FilingIntegrityError,
     LocalRawArtifactStore,

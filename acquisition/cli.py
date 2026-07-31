@@ -21,18 +21,18 @@ import sys
 from pathlib import Path
 
 from .catalog import CatalogBuilder
-from .config import AppConfig, load_config
+from .core.config import AppConfig, load_config
 from .discovery import FilingDiscoverer
 from .discovery import summarize as summarize_filings
 from .download import ArtifactDownloader
-from .manifests import ManifestRepository
-from .models import ArtifactManifest, FilingManifest, RunRecord
+from .core.manifests import ManifestRepository
+from .core.models import ArtifactManifest, FilingManifest, RunRecord
 from .report import build_corpus_report
 from .resolution import ArtifactResolver
 from .resolution import summarize as summarize_artifacts
-from .runmeta import build_run_metadata, utc_now_iso
-from .sec_client import SecClient
-from .storage import LocalRawArtifactStore
+from .core.runmeta import build_run_metadata, utc_now_iso
+from .core.sec_client import SecClient
+from .core.storage import LocalRawArtifactStore
 from .verify import CorpusVerifier
 
 EXIT_OK = 0

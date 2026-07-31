@@ -11,15 +11,15 @@ from pathlib import Path
 
 import pytest
 
-from acquisition import identity
-from acquisition.config import AppConfig, CompanyConfig, FetchConfig, HttpConfig, load_config
-from acquisition.models import (
+from acquisition.core import identity
+from acquisition.core.config import AppConfig, CompanyConfig, FetchConfig, HttpConfig, load_config
+from acquisition.core.models import (
     ArtifactRecord,
     FilingMetadata,
     FilingRecord,
     StoredArtifact,
 )
-from acquisition.sec_client import DownloadOutcome, FetchResult
+from acquisition.core.sec_client import DownloadOutcome, FetchResult
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[1]

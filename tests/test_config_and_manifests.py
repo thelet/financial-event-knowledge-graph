@@ -6,15 +6,15 @@ import copy
 
 import pytest
 
-from acquisition.config import canonical_hash, load_config
-from acquisition.manifests import (
+from acquisition.core.config import canonical_hash, load_config
+from acquisition.core.manifests import (
     ManifestExistsError,
     ManifestNotFoundError,
     ManifestRepository,
     compute_manifest_hash,
 )
-from acquisition.models import ArtifactManifest, FilingManifest
-from acquisition.runmeta import build_run_metadata, make_run_id
+from acquisition.core.models import ArtifactManifest, FilingManifest
+from acquisition.core.runmeta import build_run_metadata, make_run_id
 
 from conftest import make_filing_record
 
@@ -38,7 +38,7 @@ def test_repo_config_paths_are_rooted(repo_config):
 
 
 def test_user_agent_must_carry_a_contact_email(repo_config):
-    from acquisition.config import HttpConfig
+    from acquisition.core.config import HttpConfig
 
     with pytest.raises(ValueError):
         HttpConfig(user_agent="no-contact-here")

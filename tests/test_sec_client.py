@@ -10,7 +10,7 @@ import hashlib
 import httpx
 import pytest
 
-from acquisition.sec_client import (
+from acquisition.core.sec_client import (
     PermanentHttpError,
     RateLimiter,
     RetriesExhausted,

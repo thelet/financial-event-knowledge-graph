@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .catalog import ARTIFACTS_CATALOG, FILINGS_CATALOG, read_jsonl
-from .models import ArtifactManifest
+from .core.models import ArtifactManifest
 
 ITEM_RESULTS_OF_OPERATIONS = "2.02"
 

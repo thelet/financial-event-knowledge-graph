@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-from .models import FilingMetadata
-from .storage import LocalRawArtifactStore
+from .core.models import FilingMetadata
+from .core.storage import LocalRawArtifactStore
 
 FILINGS_CATALOG = "filings.jsonl"
 ARTIFACTS_CATALOG = "artifacts.jsonl"

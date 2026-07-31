@@ -13,11 +13,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .config import CompanyConfig
-from .models import ArtifactRecord, FilingMetadata, FilingRecord, StoredArtifact
-from .runmeta import FETCHER_VERSION, dependency_versions, utc_now_iso
-from .sec_client import SecClient
-from .storage import LocalRawArtifactStore
+from .core.config import CompanyConfig
+from .core.models import ArtifactRecord, FilingMetadata, FilingRecord, StoredArtifact
+from .core.runmeta import FETCHER_VERSION, dependency_versions, utc_now_iso
+from .core.sec_client import SecClient
+from .core.storage import LocalRawArtifactStore
 
 STATUS_DOWNLOADED = "downloaded"
 STATUS_SKIPPED = "skipped"

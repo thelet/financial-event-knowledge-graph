@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from acquisition import identity
-from acquisition.config import IncludeConfig
+from acquisition.core import identity
+from acquisition.core.config import IncludeConfig
 from acquisition.discovery import FilingDiscoverer, summarize
 from acquisition.resolution import (
     ANOMALY_CASE_COLLISION,

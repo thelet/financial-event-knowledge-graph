@@ -18,10 +18,10 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterable
 
-from . import identity
-from .config import IncludeConfig
-from .models import ArtifactRecord, FilingRecord, ResolutionAnomaly
-from .sec_client import SecClient
+from .core import identity
+from .core.config import IncludeConfig
+from .core.models import ArtifactRecord, FilingRecord, ResolutionAnomaly
+from .core.sec_client import SecClient
 from .sgml import ParsedHeader, SgmlParseError, parse_index_headers
 
 SOURCE_SUBDIR = "source"

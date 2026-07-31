@@ -10,10 +10,10 @@ import json
 from collections import Counter
 from typing import Any, Iterable
 
-from . import identity
-from .config import CompanyConfig
-from .models import FilingRecord
-from .sec_client import SecClient
+from .core import identity
+from .core.config import CompanyConfig
+from .core.models import FilingRecord
+from .core.sec_client import SecClient
 
 SUBMISSIONS_BASE = identity.SEC_SUBMISSIONS
 
