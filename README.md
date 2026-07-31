@@ -18,6 +18,14 @@ product direction, architecture, and component-selection documents.
 | [docs/03_TARGET_COMBINATIONS.md](docs/03_TARGET_COMBINATIONS.md) | Two concrete prototype combinations (simple modular vs. temporal graph framework), their milestones and tradeoffs, and the recommended route. |
 | [docs/04_DATA_ACQUISITION.md](docs/04_DATA_ACQUISITION.md) | Acquisition design for the first anchor company (Opendoor): sources, wave model, tool selection, storage layout, and first-milestone scope. |
 
+## Plans
+
+| Plan | Status |
+| --- | --- |
+| [plans/data-fetching/V0_OPENDOOR_FETCH.md](plans/data-fetching/V0_OPENDOOR_FETCH.md) | Implemented and validated — 109 filings, 2,019 artifacts |
+| [plans/data-fetching/REFACTOR_STAGE_STRUCTURE.md](plans/data-fetching/REFACTOR_STAGE_STRUCTURE.md) | Implemented — stage-oriented package structure |
+| [plans/normalization/V1_DOCUMENT_NORMALIZATION.md](plans/normalization/V1_DOCUMENT_NORMALIZATION.md) | **Planned, not implemented** — selection, parsing, normalization, passages |
+
 ## Anchor company
 
 The first corpus is **Opendoor Technologies Inc.** (CIK `0001801169`, Nasdaq: OPEN) — 665

@@ -107,6 +107,14 @@ Earnings 8-K exhibit structure, consistent across Q3 and Q4 2025 *(verified)*: p
 body ~35 KB; **EX-99.1** earnings release ~500 KB; **EX-99.2** shareholder letter ~43 KB
 plus 13 JPGs; **EX-99.3** supplemental ~5 KB plus 5 JPGs.
 
+Profiling later measured what those exhibits actually contain *(measured 2026-07-31, all 26
+EX-99.2 artifacts)*: **EX-99.2 yields a median 53,079 characters at 81.8% text yield, the
+highest of any role in the corpus.** The JPGs are supplementary charts, not substitutes for
+text. Any earlier suggestion in this repository that EX-99.2 was image-heavy and low-yield
+is withdrawn. See
+[../normalization/V1_DOCUMENT_NORMALIZATION.md](../normalization/V1_DOCUMENT_NORMALIZATION.md)
+§1.3.
+
 10-K exhibits of note *(verified, FY2025)*: `EX-21.1` subsidiaries, `EX-10.38`–`EX-10.41`
 executive offer letters, `EX-4.7` description of securities, `EX-23.1` auditor consent.
 `EX-31.x`/`EX-32.x` certifications are boilerplate — downloaded and cataloged, flagged

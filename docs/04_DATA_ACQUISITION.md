@@ -410,12 +410,19 @@ normalized document are three different things.
    development sandbox on 2026-07-31 (host blocked, not a site outage). Needs verification:
    are shareholder letters published there, in what format, and is there a stable URL
    pattern or RSS feed?
-2. ~~**Are shareholder letters already EX-99.2 exhibits?**~~ **Closed 2026-07-31 — yes.**
-   Earnings 8-Ks carry EX-99.1 (earnings release, ~500 KB), EX-99.2 (shareholder letter,
-   ~43 KB plus 13 images), and EX-99.3 (supplemental) *(verified on Q3 and Q4 2025)*. EDGAR
-   supplies them, so **no IR-site adapter is needed**. Caveat: EX-99.2's substance appears to
-   be largely rendered as images, so its text yield is likely low — a parsing-phase concern,
-   recorded in the v0 plan.
+2. ~~**Are shareholder letters already EX-99.2 exhibits?**~~ **Closed 2026-07-31.** Yes, and
+   the follow-on concern was wrong. Earnings 8-Ks carry EX-99.1 (earnings release), EX-99.2
+   (shareholder letter) and EX-99.3 (supplemental) *(verified)*, so **no IR-site adapter is
+   needed**.
+
+   The earlier caveat -- that EX-99.2's substance appeared to be "largely rendered as
+   images, so its text yield is likely low" -- is **withdrawn**. Profiling all 26 EX-99.2
+   artifacts *(measured 2026-07-31)* gives a median of **53,079 characters at 81.8% text
+   yield, the highest of any role in the corpus**. The images are supplementary charts
+   beside full narrative text. EX-99.2 is a high-value normalization input, not a deferred
+   OCR problem. See
+   [plans/normalization/V1_DOCUMENT_NORMALIZATION.md](../plans/normalization/V1_DOCUMENT_NORMALIZATION.md)
+   section 1.3.
 3. **Custom XBRL tags** — does Opendoor tag homes purchased/sold and inventory units as
    extension elements? Determines how much operating data bypasses the LLM entirely.
 4. **The 2025-09-19 Item 5.02** is presumed to be the CEO transition *(unverified)*. It is a
