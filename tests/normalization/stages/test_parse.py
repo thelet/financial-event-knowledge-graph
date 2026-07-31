@@ -59,6 +59,32 @@ def test_visible_inline_xbrl_text_is_kept():
     assert "1,234" in plain_text_from_bytes(raw)
 
 
+def test_inline_xbrl_metadata_containers_are_dropped():
+    """<ix:resources> carries no display:none, so the hidden rule misses it.
+
+    It holds <xbrli:unit>iso4217:USD</xbrli:unit>, which leaked into text as `USDxbrli`
+    on two documents in the full corpus.
+    """
+    raw = (
+        b"<html><body><ix:header><ix:resources>"
+        b"<xbrli:unit id='usd'><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>"
+        b"</ix:resources></ix:header><p>Total revenue</p></body></html>"
+    )
+    text = plain_text_from_bytes(raw)
+    assert "iso4217" not in text and "USD" not in text
+    assert "Total revenue" in text
+
+
+def test_visible_inline_xbrl_values_survive_the_metadata_drop():
+    """ix:nonFraction wraps displayed numbers and must never be dropped."""
+    raw = (
+        b"<html><body><ix:resources><xbrli:context id='c'/></ix:resources>"
+        b"<p>Revenue <ix:nonFraction name='Revenues'>1,234</ix:nonFraction></p></body></html>"
+    )
+    text = plain_text_from_bytes(raw)
+    assert "1,234" in text
+
+
 def test_html_comments_do_not_leak_into_text():
     """A filing agent's licensing banner reached document text before this was fixed."""
     raw = b"<html><head><!-- Broadridge PROfile 25.10 --></head><body><p>Body</p></body></html>"

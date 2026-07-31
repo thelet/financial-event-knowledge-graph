@@ -34,6 +34,23 @@ BLOCK_TAGS = frozenset(
 
 DROP_TAGS = frozenset({"script", "style", "noscript", "head", "meta", "link"})
 
+# Inline-XBRL metadata containers. These are never rendered by a browser but carry no
+# `display:none`, so the hidden-content rule does not catch them: <ix:resources> holds
+# <xbrli:unit>iso4217:USD</xbrli:unit> and friends, which leaked into text as `USDxbrli`.
+# `ix:nonFraction`, `ix:nonNumeric` and `ix:continuation` are deliberately NOT here -- they
+# wrap values the filing actually displays.
+XBRL_METADATA_TAGS = frozenset(
+    {"ix:header", "ix:hidden", "ix:references", "ix:resources", "ix:exclude"}
+)
+
+# Namespaces that are pure XBRL metadata; nothing under them is display content.
+XBRL_METADATA_PREFIXES = ("xbrli:", "xbrldi:", "link:", "xlink:", "iso4217:", "xsi:")
+
+
+def is_xbrl_metadata(tag: str) -> bool:
+    lowered = tag.lower()
+    return lowered in XBRL_METADATA_TAGS or lowered.startswith(XBRL_METADATA_PREFIXES)
+
 _HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)
 
 
@@ -69,7 +86,8 @@ def strip_non_content(root: HtmlElement) -> int:
         parent = element.getparent()
         if parent is None:
             continue
-        if element.tag.lower() in DROP_TAGS or is_hidden(element):
+        tag = element.tag.lower()
+        if tag in DROP_TAGS or is_xbrl_metadata(tag) or is_hidden(element):
             parent.remove(element)
             removed += 1
     return removed
@@ -102,7 +120,9 @@ def _walk(element: HtmlElement, parts: list[str]) -> None:
     if element.text:
         parts.append(element.text)
     for child in element:
-        if isinstance(child.tag, str) and child.tag.lower() in DROP_TAGS:
+        if isinstance(child.tag, str) and (
+            child.tag.lower() in DROP_TAGS or is_xbrl_metadata(child.tag)
+        ):
             continue
         _walk(child, parts)
         if child.tail:

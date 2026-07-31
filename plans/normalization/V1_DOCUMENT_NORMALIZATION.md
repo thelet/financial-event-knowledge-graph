@@ -808,6 +808,29 @@ diffed directly.
 
 ---
 
+# 16a. Findings from the full 294-artifact run
+
+**Inline-XBRL metadata leaks past the hidden-content rule.** `<ix:resources>` carries no
+`display:none` — browsers simply do not render it — so `<xbrli:unit>iso4217:USD</xbrli:unit>`
+reached document text as the fused token `USDxbrli` on two documents. Two fixes: XBRL
+metadata containers (`ix:header`, `ix:hidden`, `ix:references`, `ix:resources`, `ix:exclude`
+and the `xbrli:`/`xbrldi:`/`link:`/`xlink:`/`iso4217:`/`xsi:` namespaces) are dropped by
+tag; and when re-extraction of a sec-parser element yields empty text, the block is
+**dropped rather than backfilled** with the library's own text. `ix:nonFraction` and
+`ix:nonNumeric` are deliberately kept — they wrap displayed values.
+
+Only the spike's 18 fixtures were checked before; both affected documents were outside it.
+This is the value of running verification over the whole corpus rather than trusting a
+sample.
+
+**`issues.jsonl` is built before the run writes its issue file.** BUILD_CATALOG runs inside
+the pipeline; the CLI writes `<run_id>-issues.jsonl` after the pipeline returns. The
+aggregate issue catalog is therefore empty on the first pass and correct after any
+subsequent `build-catalog`. Not a data-loss bug — issues are authoritative in the per-run
+file and appear in verification output and the corpus report — but the pipeline should
+write issues before the catalog stage. Left as-is to avoid changing behaviour after the
+configuration freeze; worth fixing before the next corpus.
+
 # 17. Risks
 
 **17.1 sec-parser staleness.** No release since 2024-06-09, no 10-K parser. Mitigated by

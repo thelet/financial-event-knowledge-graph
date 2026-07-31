@@ -92,9 +92,9 @@ class SecHtmlDocumentParser:
             if block_type == "table":
                 block = self._table_block(element, len(blocks))
             else:
-                if not text:
-                    continue
                 block = self._text_block(element, block_type, text, len(blocks))
+                if block is None:
+                    continue
             blocks.append(block)
 
         for index, block in enumerate(blocks):
@@ -132,7 +132,7 @@ class SecHtmlDocumentParser:
         except Exception as exc:  # noqa: BLE001 - converted to the canonical failure type
             raise ParserError(TRIGGER_EXCEPTION, f"{type(exc).__name__}: {exc}") from exc
 
-    def _text_block(self, element, block_type: str, text: str, sequence: int) -> ParsedBlock:
+    def _text_block(self, element, block_type: str, text: str, sequence: int) -> ParsedBlock | None:
         level = getattr(element, "level", None)
         if block_type == "heading":
             level = int(level) + 1 if isinstance(level, int) else 2
@@ -151,9 +151,13 @@ class SecHtmlDocumentParser:
         # extractor applies the block-boundary rule uniformly across both parsers.
         node = _node_of(source)
         if node is not None:
-            extracted = element_text(node)
-            if extracted:
-                text = extracted
+            # Authoritative even when empty. An empty result means the element held only
+            # inline-XBRL metadata -- <ix:resources> and its <xbrli:*> children -- and the
+            # block must be dropped, not backfilled with the library's raw text, which
+            # concatenates those namespaces into tokens like `USDxbrli`.
+            text = element_text(node)
+        if not text:
+            return None
         style = _style_from_node(node)
         return ParsedBlock(
             block_sequence=sequence,
