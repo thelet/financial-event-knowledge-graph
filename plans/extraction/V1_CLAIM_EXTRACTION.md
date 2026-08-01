@@ -743,7 +743,7 @@ The authoritative order. Each step ends with a green offline suite and its own n
 | 3 | Shared contracts, identities, assembly, validation | §4.4 §4.5 §5 §6 | **done** `f92533a` | Structural + conformance tests; no provider reachable |
 | 4 | Typed candidate selection | §4.1 | **done** `614f1ac` | One reason code per (passage, lane); benchmark recall 1.000 |
 | 5 | Deterministic table lane | §4.2 | **done** `22aafa4` | Recall ≥0.93; six dimensions at 1.000 |
-| 6 | Table-lane benchmark evaluation report | §4.0 | next | Per-case results and issue counts written to `data/` |
+| 6 | Table-lane benchmark evaluation report | §4.0 | next | `benchmarks/extraction/v1/reports/table_lane_v1.{json,md}`; two regenerations byte-identical |
 | 7 | Local Qwen runtime and real provider | §4.3 | runtime **done** `614f1ac`; provider not started | Provider defaults to `enable_thinking: false`; config test |
 | 8 | Lexical candidate scoping | §4.2a | not started | `LexicalOntologyCandidateScope` never removes a protected candidate |
 | 9 | Embedding index and hybrid scoping | §4.2a | not started | Cache keyed by `definition_hash`, model id, dimensions, renderer version |
@@ -756,6 +756,14 @@ Steps 0–6 and 8 are fully offline. Step 7 introduces the only provider; steps 
 
 `catalog` (§4.6) and the run manifest fold into step 13, since a derived index of claims is
 only meaningful once both lanes emit.
+
+**Where reports and catalogs live.** Benchmark evaluation reports are durable artifacts of
+the benchmark, not of a corpus run, so they are committed under
+`benchmarks/extraction/v1/reports/` — `table_lane_v1.{json,md}` at step 6,
+`narrative_lane_v1.{json,md}` at step 11. Run-specific derived catalogs belong to a run and
+live under `data/extraction_runs/<run_id>/` (step 13), which is gitignored like the rest of
+`data/`. Keeping them apart stops a benchmark result from being mistaken for corpus data, and
+stops a report from being silently overwritten by a run.
 
 ## 9.1 Numbering used before this revision
 
@@ -842,13 +850,38 @@ tested.
    has measured how often a bare mention actually occurs — changing `aliases.yaml` shifts
    `definition_hash` and invalidates the cached concept vectors step 9 will build.
 
-1. **Narrative-lane provider and prompt strategy** — deliberately unspecified until the
-   claim contract is proven by the table lane (§4.3). It is a step-8 decision, and making
-   it now would be choosing a provider before knowing what the contract demands.
-2. **Whether `select` should also emit candidates for event and relationship claims.** This
-   plan covers `metric_observation` only. The ontology defines `event_claim` and
-   `relationship_claim`, and the corpus plainly contains both (partnership announcements,
-   credit facilities, the 64 material agreements). **Recommendation:** yes, but in a
-   follow-on plan — metric observations exercise the full path end to end at the smallest
-   scope, and the 64 material agreements deserve their own selection policy rather than an
+1. **The narrative-lane provider is fixed; the prompt strategy is not.** This decision was
+   deliberately left open until the claim contract was proven by the table lane. It has since
+   been made and validated (`614f1ac`, `LOCAL_RUNTIME_VALIDATED.md`):
+
+   | | |
+   | --- | --- |
+   | model | `Qwen3.5-9B-Q4_K_M.gguf` (`unsloth/Qwen3.5-9B-GGUF`) |
+   | runtime | local `llama.cpp` OpenAI-compatible server |
+   | context | 8,192 |
+   | GPU offload | `-ngl 99`, flash attention on |
+   | KV cache | `q8_0` / `q8_0` |
+   | thinking | **`enable_thinking: false`** |
+
+   Thinking is off by default and not a tuning knob. With it on, a four-field schema request
+   spent all 900 tokens reasoning and returned empty content; with it off the same request
+   returned schema-conformant JSON in 59 tokens. Leaving it on would make the lane's budget
+   failures present as extraction failures.
+
+   **What remains to be measured**, not chosen in advance: prompt and schema design, retry
+   and repair behaviour on malformed output, and whether the benchmark justifies lexical or
+   hybrid candidate scoping as the default (§4.2a, steps 8–9). No larger or alternative model
+   is compared in v1.
+2. **Settled, not open — recorded because an earlier draft said otherwise.** This plan no
+   longer covers `metric_observation` only. **V1 includes the benchmark's representative 4
+   event claims and 2 relationship claims** (step 12), as a bounded proof that the same claim
+   path carries non-metric payloads: the same provider, candidate-scoping boundaries,
+   evidence validation, ontology validation and abstention behaviour.
+
+   **Broad event and relationship extraction remains follow-on work**, including a sweep of
+   the 64 material agreements, which deserves its own selection policy rather than an
    afterthought in a metrics plan.
+
+   One thing genuinely still open: `select` routes only metric candidates today, so step 12
+   may need the smallest typed routing extension that reaches those six cases. Anything
+   wider than the benchmark subset is a founder gate.
