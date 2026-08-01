@@ -1,9 +1,29 @@
 # v1 — Claim Extraction
 
-**Status:** plan. Nothing implemented.
+**Status:** partially implemented. The provider-independent half is built and green — shared
+contracts, deterministic identities, assembly, validation, typed candidate selection and the
+deterministic table lane. The narrative lane and its local provider are next; the runtime for
+them is built and gated but unused. **1,254 tests pass offline.**
+
 **Scope:** turn the normalized corpus into validated `OntologyClaim` objects carrying
 evidence that points back into that corpus, for the 20 metrics the corpus can actually
 support.
+
+| Stage | State | Commit |
+| --- | --- | --- |
+| This plan | written, then corrected twice against measurement | `4af55ae`, `7b063a6` |
+| Encoding prerequisite (§8) | **done** | `a0eb6bc`, `928e806` |
+| Reviewed benchmark (§4.0) | **done** — 26 cases, 68 gold claims | `0cc3678` |
+| Local runtime probe and build | **done** — gated, unused so far | `0dbcc11`, `614f1ac` |
+| `core/` + `contracts.py` + assembly + validation (§4.4, §4.5, §5, §6) | **done** | `f92533a` |
+| `select` (§4.1) | **done** — 503 table, 3,072 narrative candidates | `614f1ac` |
+| `tables` lane (§4.2) | **done** — recall 0.939, six dimensions at 1.000 | `22aafa4` |
+| `narrative` lane (§4.3) | not started | — |
+| candidate scoping (§4.2a) | not started | — |
+| `catalog` (§4.6) | not started | — |
+
+Sections 1–3 are measurement. Sections 4–7 are durable design decisions. Section 8a records
+what implementation measured and changed. Section 9 is the remaining sequence.
 
 Consumes the corpus built by
 [../normalization/V1_DOCUMENT_NORMALIZATION.md](../normalization/V1_DOCUMENT_NORMALIZATION.md)
@@ -16,9 +36,20 @@ Normalized passages → candidate selection → lane extraction → claim assemb
 ```
 
 **Out of scope, and enforced by a structural test:** graph construction, Neo4j, Graphiti,
-entity resolution beyond the single anchor company, embeddings, vector search, RAG,
-question answering, post generation, XBRL fact extraction (§3.1), transcript or
-peer-company acquisition.
+entity resolution beyond the single anchor company, vector search, RAG, question answering,
+post generation, XBRL fact extraction (§3.1), transcript or peer-company acquisition,
+and comparison of larger or alternative generation models.
+
+**In scope, narrowly.** Three things this plan originally excluded were later accepted into
+v1 and are in §9, bounded so they do not become their own projects:
+
+- **Embeddings — inside candidate scoping only** (§4.2a, steps 8–9). They may add semantic
+  candidates and may never remove a protected one. No vector database; ~131 concept vectors
+  cached locally.
+- **Events and relationships — a representative subset** (step 12): the benchmark's 4 events
+  and 2 relationships, proving the claim path carries non-metric payloads. Not a sweep of the
+  64 material agreements.
+- **A local generation provider** (step 7), for the narrative lane. One model, no comparison.
 
 Facts marked *(verified)* were measured against the committed corpus and the installed
 libraries on **2026-08-01**, by the commands recorded beside them. Facts marked
@@ -304,6 +335,35 @@ extraction/
 meaning, so they are `core/`, not `utils/`. They are the two places where §1.3's scattered
 cells and §1.4's stray `Â` get resolved once.
 
+## 4.0 The reviewed benchmark — the acceptance instrument *(built: `0cc3678`)*
+
+`benchmarks/extraction/v1/`. Not a stage of the pipeline and deliberately outside it: every
+value was read off the normalized passage it cites, and runtime extraction code may not
+import it. An executable test fails if anything under `extraction/` references the benchmark
+path or module.
+
+| | Count |
+| --- | --- |
+| documents | 15 |
+| cases | 26 |
+| gold claims | 68 |
+| gold events | 4 |
+| gold relationships | 2 |
+| expected abstentions | 24 |
+
+Eight dimensions are scored independently — metric identity, value, unit, scale, period,
+subject, evidence, ambiguity — because a claim can be right about the metric and wrong about
+the period, and a blended score hides exactly that.
+
+**It is the acceptance instrument for every lane**, and §11's criteria are checked against
+it. Two properties matter more than its size:
+
+- **A third of it is negative.** A gold set of positives only measures recall and rewards a
+  lane that emits everything. 24 cases expect an abstention.
+- **Precision is not measurable against it.** Each case names a deliberate subset of its
+  table's claims, so an unmatched claim is usually a right answer the case did not list.
+  Reported as a ratio for run-to-run movement, never as an accuracy.
+
 ## 4.1 `select` — typed candidate selection
 
 Emits a `CandidatePassage` per (passage, lane) with a recorded reason code, so a passage's
@@ -528,25 +588,193 @@ plus a third rebuild, `verify` passes, and 717 tests pass offline.
 
 ---
 
+# 8a. What implementation measured and changed *(2026-08-01)*
+
+Design decisions live in §4–§7 and are unchanged. What follows is what building the lanes
+*measured* — each found by a wrong answer rather than by reasoning, and each now carried by a
+test that fails without it.
+
+## 8a.1 Value columns align by ordinal, not by position
+
+In the Q1 2025 KPI table the header dates sit at original columns **2, 4, 6, 8, 10** while
+its `Homes sold` values sit at **2, 5, 8, 11, 14**. A `$` row and a `%` row consume different
+numbers of layout cells, so every row has its own spacing.
+
+Positional indexing dropped the third column and reported 3,615 homes under **2Q24 instead of
+3Q24** — right metric, right value, wrong year, and nothing downstream could catch it. What
+survives the Markdown rendering is *order*: the k-th reported magnitude belongs to the k-th
+period column.
+
+Where the counts disagree the row is refused with `AMBIGUOUS_COLUMN_ALIGNMENT`, with one
+exception that is not a guess — a change column carries a value on some rows and not others
+(the 10-Q prints `Homes sold 2,946 / 3,078 / (132)` but `Percentage … 27% / 15%` with the
+change cell blank), so falling back to the reporting columns alone resolves it.
+
+## 8a.2 Duration groups also assign by ordinal
+
+The Q4 2020 reconciliation puts `Three Months Ended December 31,` and `Year Ended December
+31,` at columns 2 and 4, above years at 2, 4, 6, 8. The `colspan` that placed the first
+phrase over the first *two* years does not survive the rendering, so "nearest phrase at or
+left of this column" handed 2019 to the annual group and reported a quarterly margin as a
+full year.
+
+Even division in document order gives `2020Q4, 2019Q4, FY2020, FY2019`. An uneven split is
+not guessed at — it falls back to position, and the resulting period is still checked against
+the metric's declared period type.
+
+## 8a.3 Metric resolution is whole-label, never substring
+
+Substring matching read **"Contribution Profit per Home Sold"** as `contribution_profit` and
+emitted a $31 per-home figure as a **$31,000 quarterly total**; and **"Holding costs on sales
+– Current Period"** as `holding_costs`, which is one of two rows the filing never totals.
+Both pass every downstream check.
+
+Resolution is now exact on the whole label after stripping footnote markers (`(3)`, `(4)(5)`)
+and the `(at period end)` qualifier. The qualifier is stripped **for matching only** —
+`periods.is_instant_label` still reads it off the original, so the row is correctly typed as
+an instant.
+
+## 8a.4 A concept's canonical label outranks a same-spelled ambiguous alias
+
+**An ontology defect, recorded rather than patched around.** `gaap_gross_margin`'s canonical
+label *is* `Gross Margin`, and `aliases.yaml` separately declares that exact string ambiguous
+across the GAAP and adjusted concepts. The metric was therefore unreachable from its own
+name, and every KPI table's `Gross Margin` row yielded nothing — the headline GAAP margin,
+invisible.
+
+A whole-label match against a concept's own canonical label now wins. The ambiguity entry's
+own note says what it is for: *"Only the qualifier 'Adjusted' separates them, and it is
+sometimes only in the row label"* — a rule about bare prose, not about a cell whose entire
+contents are the metric's name. Bare and partial matches stay ambiguous and still emit no
+claim, and §7's ambiguity protections are unrelaxed.
+
+The same shadowing applies to `gaap_gross_profit` / `Gross profit`. Whether `aliases.yaml`
+should stop declaring a concept's own canonical label ambiguous is an ontology decision, not
+an extraction one, and is left open (§13).
+
+## 8a.5 Scale applies to monetary values, not to counts
+
+`(in thousands, except percentages)` does not except `Homes sold in period`, and multiplying
+the count produced **2,462,000 homes sold in a quarter**. The exception list is a
+presentation note about the monetary columns; the *unit* decides whether a scale can apply at
+all.
+
+Related: the ontology's `USD_millions` names the unit a metric is customarily *presented* in,
+not the scale a given table used — the same metric appears in thousands in a 2021
+reconciliation and millions in a 2025 KPI table. Claims carry absolute USD.
+
+## 8a.6 Scale comes from the table header or the preceding passage
+
+§1.3 already carries this correction — the plan originally said the scale was always a
+parenthetical in the header row, and building the benchmark showed otherwise. Restated here
+because it is what the lane and selection are built around: of the 74 KPI-bearing table
+passages, **65 declare the scale inside the table and 9 in the immediately preceding
+narrative passage**, and none omit it. Selection therefore attaches the predecessor to every
+table candidate (§4.1).
+
+**Precedence: table-local wins.** A table stating its own scale states it for itself, while a
+preceding paragraph may introduce several tables. The source is recorded on every claim as
+`table_header`, `preceding_context` or `metric_default`, so "nobody declared one" is never
+mistaken for "the table said units".
+
+## 8a.7 Table shapes not yet supported
+
+Stated rather than discovered later:
+
+| Shape | Behaviour |
+| --- | --- |
+| A single period column | No claims — header detection requires ≥2 period-ish cells in a row. No corpus KPI table is like this; a future one could be. |
+| Date columns not evenly divisible by duration groups | Falls back to positional group assignment. Still period-type checked, so a wrong answer is caught rather than emitted. |
+| A row label genuinely spanning several cells | Only the first non-empty cell is read as the label. |
+| Nested or merged data cells beyond layout gutters | Unrecognised; the row is refused with `AMBIGUOUS_COLUMN_ALIGNMENT` rather than guessed. |
+
+## 8a.8 `Homes sold in period` — an unresolved surface form
+
+The Q1 2021 reconciliation labels its homes-sold row `Homes sold in period`, which the
+ontology does not carry as an alias. It is the **only** remaining benchmark recall miss (3 of
+49 gold observations, all from this one row).
+
+**Left unresolved deliberately.** Broadening the alias would be fitting the vocabulary to a
+fixture. The benchmark case says as much itself — the label "has to resolve semantically or
+this row is missed" — which makes it work for the narrative or hybrid-scoped lane, not for a
+deterministic reader.
+
+## 8a.9 Table-lane benchmark results *(`22aafa4`)*
+
+11 reviewed table cases, 49 gold observations, 410 observations emitted:
+
+| Measure | Result |
+| --- | --- |
+| metric recall | **0.939** |
+| value accuracy | **1.000** |
+| unit accuracy | **1.000** |
+| scale accuracy | **1.000** |
+| period accuracy | **1.000** |
+| subject accuracy | **1.000** |
+| evidence accuracy | **1.000** |
+
+Issues: `AMBIGUOUS_ALIAS` 43, `UNRESOLVED_METRIC` 24, `DERIVED_CHANGE_COLUMN` 16,
+`DEFERRED_REQUIRED_SOURCE_LANE` 11.
+
+Remaining misses: `homes_sold` at 2021Q1, 2020Q4 and 2020Q1, all from §8a.8's single row.
+
+## 8a.10 Selection results *(`614f1ac`)*
+
+503 table candidates and 3,072 narrative candidates over 24,884 (passage, lane) decisions,
+one reason code each. Benchmark required-concept recall **1.000**, known-instance recall
+**1.000**, ambiguity preservation **1.000**.
+
+Alias evidence is restricted to **metric** concepts. Admitting entity aliases selected 6,098
+narrative passages — in a single-company corpus `opendoor` and `the company` match nearly
+everything, and a candidate set that size has stopped discriminating. Entity hits are still
+recorded on the candidate for a subject resolver.
+
+---
+
 # 9. Implementation sequence
 
-Each step ends with a green suite.
+The authoritative order. Each step ends with a green offline suite and its own narrow commit.
 
-| # | Step | Gate |
-| --- | --- | --- |
-| 0 | ~~Fix the encoding defect, re-normalize, re-verify (§8)~~ **done** | 0 passages with `Â`/`â`; 294 documents, 12,442 passages, 1,935 tables; catalogs byte-identical |
-| 1 | `core/` models, identifiers, `periods.py`, `numbers.py` | Unit tests from committed real cells |
-| 2 | `contracts.py`, `public.py` per stage, `context.py` | Structural + conformance tests |
-| 3 | `select` stage + `config/extraction.yaml` | Candidate counts match §4.1 policy exactly |
-| 4 | `tables` lane | Committed reconciliation-table fixtures extract correctly |
-| 5 | `assemble` + §7 policies | Every §7 policy has a test that fails without it |
-| 6 | `verify` | Dangling evidence and forbidden-lane claims both fail the run |
-| 7 | `catalog` + manifest | Two runs byte-identical |
-| 7a | Local Qwen runtime and real provider | See [LOCAL_RUNTIME_PREREQUISITES.md](LOCAL_RUNTIME_PREREQUISITES.md); no blocker, three apt packages missing |
-| 8 | `narrative` lane | Marked `live`; suite still green offline |
-| 9 | Report + sweep README and the two upstream plans | No stale cross-references |
+| # | Step | Stage (§4) | State | Gate |
+| --- | --- | --- | --- | --- |
+| 0 | Encoding prerequisite, re-normalize, re-verify | — (§8) | **done** `a0eb6bc` `928e806` | 0 mojibake passages; 294 / 12,442 / 1,935; catalogs byte-identical |
+| 1 | Repository documentation corrected | — | **done** `7b063a6` | No stale cross-references |
+| 2 | Reviewed benchmark constructed | §4.0 | **done** `0cc3678` | 26 cases, 68 gold claims, integrity test green |
+| 3 | Shared contracts, identities, assembly, validation | §4.4 §4.5 §5 §6 | **done** `f92533a` | Structural + conformance tests; no provider reachable |
+| 4 | Typed candidate selection | §4.1 | **done** `614f1ac` | One reason code per (passage, lane); benchmark recall 1.000 |
+| 5 | Deterministic table lane | §4.2 | **done** `22aafa4` | Recall ≥0.93; six dimensions at 1.000 |
+| 6 | Table-lane benchmark evaluation report | §4.0 | next | Per-case results and issue counts written to `data/` |
+| 7 | Local Qwen runtime and real provider | §4.3 | runtime **done** `614f1ac`; provider not started | Provider defaults to `enable_thinking: false`; config test |
+| 8 | Lexical candidate scoping | §4.2a | not started | `LexicalOntologyCandidateScope` never removes a protected candidate |
+| 9 | Embedding index and hybrid scoping | §4.2a | not started | Cache keyed by `definition_hash`, model id, dimensions, renderer version |
+| 10 | Narrative metric extraction | §4.3 | not started | Marked `live`; offline suite still green |
+| 11 | Narrative benchmark evaluation | §4.0 | not started | Same eight dimensions as the table lane |
+| 12 | Representative event and relationship extraction | §4.4 | not started | The benchmark's 4 events and 2 relationships |
+| 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping decided on measurement |
 
-Steps 0–7 are fully offline. Only step 8 introduces a provider.
+Steps 0–6 and 8 are fully offline. Step 7 introduces the only provider; steps 9–13 use it.
+
+`catalog` (§4.6) and the run manifest fold into step 13, since a derived index of claims is
+only meaningful once both lanes emit.
+
+## 9.1 Numbering used before this revision
+
+Steps 0–5 were executed under an earlier numbering, and their commit messages use it. It
+matched this table except that the benchmark had no step of its own. Recorded so old messages
+stay readable:
+
+| Earlier instruction step | This plan |
+| --- | --- |
+| 0 — encoding fix | 0 |
+| 1 — README correction | 1 |
+| 2 — benchmark construction | 2 |
+| 3 — shared contracts and validation | 3 |
+| 4 — typed candidate selection | 4 |
+| 5 — deterministic table lane | 5 |
+
+An older `§9` in the first draft of this plan numbered the same work 0–9 without the
+benchmark; `core/` and `contracts.py` were its steps 1–2, `select` its step 3 and `tables`
+its step 4. Commit `4af55ae` refers to that draft.
 
 ---
 
@@ -575,9 +803,17 @@ Steps 0–7 are fully offline. Only step 8 introduces a provider.
 6. The six §16 questions are each answered by a policy with a test, or recorded as an
    explicit deferral with a reason (§7.4, §7.5).
 
+7. Every lane is scored against the reviewed benchmark (§4.0) on all eight dimensions, with
+   per-case results, and its abstentions are scored as answers rather than silences.
+
 Criterion 5 is deliberately "a stated count", not a coverage threshold. §1.5 gives a floor
 from naive matching; setting a target before the table lane runs would be inventing a
 measurement.
+
+**Met so far**, against the table lane: criterion 2 (evidence accuracy 1.000), criterion 3
+(no claim uses a forbidden or deferred lane), criterion 7 for the table half. Criteria 1, 4
+and 5 need `assemble` and `catalog` wired into a run; criterion 6 is answered by §7 and
+tested.
 
 ---
 
@@ -596,6 +832,15 @@ measurement.
 ---
 
 # 13. Open decisions
+
+0. **Should `aliases.yaml` stop declaring a concept's own canonical label ambiguous?**
+   Raised by §8a.4. `gaap_gross_margin` is labelled `Gross Margin` and that same string is
+   declared ambiguous, so the metric is unreachable from its own name; `gaap_gross_profit` /
+   `Gross profit` is the same shape. Extraction works around it with canonical-label
+   precedence, which is sound for a table cell but does not help a bare prose mention.
+   **Recommendation:** leave the vocabulary alone for now and revisit once the narrative lane
+   has measured how often a bare mention actually occurs — changing `aliases.yaml` shifts
+   `definition_hash` and invalidates the cached concept vectors step 9 will build.
 
 1. **Narrative-lane provider and prompt strategy** — deliberately unspecified until the
    claim contract is proven by the table lane (§4.3). It is a step-8 decision, and making
