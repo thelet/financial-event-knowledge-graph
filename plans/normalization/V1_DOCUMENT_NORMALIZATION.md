@@ -1,6 +1,7 @@
 # v1 — Document Normalization
 
-**Status:** plan. Nothing implemented.
+**Status:** implemented and run over the full corpus. **294 documents, 12,442 passages,
+1,935 table passages** — see §16b, which corrects the counts this plan originally reported.
 **Scope:** turn the acquired raw SEC corpus into a deterministic, evidence-preserving
 normalized corpus that different graph-building and extraction strategies can consume.
 
@@ -306,10 +307,14 @@ corpus non-reproducible. Thresholds measured across the 18 spike fixtures:
 
 | Fixture | source tables | detected ratio | probe coverage | outcome |
 | --- | --- | --- | --- | --- |
-| EX-10.12 | 137 | 0.000 | **0.50** | **falls back** |
+| EX-10.12 | 137 | 0.000 | ~~0.50~~ **1.00** | ~~falls back~~ **no — see §16b** |
 | DEF 14A 2026 | 375 | 0.005 | 1.00 | no — content survives as prose |
 | EX-3.1 | 323 | 0.015 | 1.00 | no — content survives as prose |
 | FY2025 10-K | 83 | 0.807 | 0.38 | no — spared by the ratio condition |
+
+The EX-10.12 coverage of 0.50 was an artifact of the encoding defect corrected in §16b, not
+a property of the document. **No document in the corpus falls back**; the trigger's positive
+arm is now held by a synthetic fixture in `test_fallback.py`.
 
 The selected parser, the parser it replaced, and the reason are recorded on the document
 (`parser_name`, `parser_fallback_from`, `parser_fallback_reason`), carried into
@@ -822,6 +827,84 @@ tag; and when re-extraction of a sec-parser element yields empty text, the block
 Only the spike's 18 fixtures were checked before; both affected documents were outside it.
 This is the value of running verification over the whole corpus rather than trusting a
 sample.
+
+# 16b. Correction — the v1 run shipped an encoding defect *(corrected 2026-08-01)*
+
+The first full run produced a corpus in which **every non-ASCII character was corrupted**.
+It was found while profiling the corpus for claim extraction, not by this plan's own
+verification, and the corrected counts below supersede §16a's.
+
+**What the original implementation did.** `parse_html_bytes` takes bytes, deliberately: 91
+of 377 artifacts open with an XML declaration, and `lxml.html.fromstring` rejects a `str` for
+those. But two call sites in `sec_html_parser.py` — `_table_block` and `_node_of` — were not
+handing it a downloaded file. They took the fragment source `sec_parser` had *already
+decoded* into a `str`, re-encoded it with `source.encode("utf-8")`, and passed the result on
+without saying what encoding those bytes were in.
+
+**Why the defect occurred.** SEC fragments carry no charset declaration, so lxml applied the
+HTML default and decoded them as latin-1. UTF-8 `\xc2\xa0` came back as `Â` + NBSP, and a
+later whitespace pass folded the NBSP into a space, stranding the `Â`. The same mechanism
+mangled em dashes, en dashes, curly quotes and accented letters; NBSP was simply the one
+whose second half got eaten, leaving a visible orphan. **178,625 corrupted characters across
+7,920 of 14,203 passages in 268 of 294 documents.**
+
+**Why earlier checks did not catch it.** Three reasons, each worth recording:
+
+1. **Nothing asserted on character fidelity.** The parse tests covered byte input, hidden
+   XBRL, separators, tables and protocol conformance — structure, never encoding.
+2. **The corpus report shows counts, not text.** A 55.8% corruption rate is invisible in
+   document, passage and table totals, all of which looked healthy.
+3. **The defect defeated the one check that could have found it.** `probe_coverage`
+   substring-matches clean ASCII probes taken from the source against the parser's output.
+   The output had `Â` inserted at every NBSP *inside* those same strings, so the match failed
+   and `TABLE_CONTENT_LOSS` read corruption as missing content. The gate fired on nine
+   documents, which then fell back to `LxmlDocumentParser` — and because the fallback
+   produced a plausible corpus, the misfire looked like the safety net working.
+
+**The corrected counts.** The fix removes phantom passages and repairs the fallback misfire:
+
+| | Before | After |
+| --- | --- | --- |
+| documents | 294 | **294** |
+| passages | 14,203 | **12,442** |
+| table passages | 2,987 | **1,935** |
+| mojibake characters | 178,625 | **0** |
+| `NEEDS_REVIEW` | 60 | **60** |
+| `HIERARCHY_UNCERTAIN` | 30 | **30** |
+| `PARSER_FALLBACK` | 9 | **0** |
+
+Neither count drop is content loss. 803 passages across 285 documents were page-break
+`<div>`s whose entire content was `&#160;`; they rendered as `'Â'` and so counted as
+non-empty, and they were fragmenting the passages around them. All 1,052 lost table passages
+come from the nine formerly-falling-back documents — the other 285 have identical table
+counts, 1,933 before and after. Case-insensitive word-token recall is **0.99937**, and every
+apparent absence traces to a mojibake-split fragment (`agreem`, `closin`, `indemnificatio`).
+Section titles that looked lost are in `heading_path`, which is the designed
+`HEADING_AS_METADATA` behaviour. Passage ids are stable: 12,442 of 14,203 survive unchanged
+and **no new id was introduced**, so nothing renumbered.
+
+**Why it had to be corrected before claim extraction.** Passage `content_sha256` and
+`fragment_sha256` are content-addressed. Every evidence reference an extractor emits pins a
+passage; correcting the encoding afterwards changes 83.7% of surviving passage hashes and
+all 294 document hashes, turning a few hours of re-normalization into a hash migration
+across the graph. `passage_id` is positional and would have survived either way, so the blast
+radius was the hashes, not the anchors.
+
+**Still open, deliberately.** `profile_source` parses raw bytes with no encoding argument,
+which is correct for self-describing files, but its probes would themselves be mojibake for a
+charset-less document with non-ASCII in a sampled cell. **Zero of 294 documents hit that
+today** — every probe is ASCII *(verified 2026-08-01)*. Changing it would alter probe values,
+and therefore fallback decisions, for no present benefit.
+
+**A second defect, found while verifying the first.** The derived issue catalog concatenated
+every `*-issues.jsonl` ever written, so it grew by one run's worth of issues on each rebuild
+(99 → 189 → 279 over three runs of an unchanged corpus) and kept reporting the superseded
+`PARSER_FALLBACK: 9`. It now reads the current run only and drops run-scoped fields. §11's
+authoritative/derived split is unchanged; the per-run files remain authoritative.
+
+**Determinism, re-proven.** Two independent full runs plus a third catalog rebuild produce
+**byte-identical** `documents.jsonl`, `passages.jsonl`, `selection.jsonl` and `issues.jsonl`.
+`verify` passes. 717 tests pass offline.
 
 # 17. Risks
 

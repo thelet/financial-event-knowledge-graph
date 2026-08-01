@@ -30,9 +30,13 @@ libraries on **2026-08-01**, by the commands recorded beside them. Facts marked
 
 ## 1.1 Shape *(verified)*
 
-`data/normalization_catalog/` holds 294 documents and **14,203 passages** — 11,216
-narrative, 2,987 table. Issues: 60 `NEEDS_REVIEW`, 30 `HIERARCHY_UNCERTAIN`, 9
+`data/normalization_catalog/` holds 294 documents and **12,442 passages** — 10,507
+narrative, 1,935 table. Issues: 60 `NEEDS_REVIEW`, 30 `HIERARCHY_UNCERTAIN`, 0
 `PARSER_FALLBACK`.
+
+These are the corrected counts. Every figure in this section was re-measured on 2026-08-01
+after the encoding defect of §1.4 was fixed and the corpus re-normalized; the pre-fix
+figures this plan first carried are superseded, and §1.2 changed materially as a result.
 
 | Form | Documents |
 | --- | --- |
@@ -46,21 +50,26 @@ narrative, 2,987 table. Issues: 60 `NEEDS_REVIEW`, 30 `HIERARCHY_UNCERTAIN`, 9
 
 | `document_type` | Passages | Table passages |
 | --- | --- | --- |
-| narrative_primary | 8,865 | 1,648 |
-| material_agreement | 2,427 | 1,130 |
-| earnings_release | 959 | 145 |
-| governance | 800 | 44 |
-| structured_exhibit | 28 | 10 |
-| other | 337 | 9 |
-| shareholder_letter | 619 | **1** |
-| supplemental | 168 | 0 |
+| narrative_primary | 8,567 | 1,648 |
+| earnings_release | 917 | 145 |
+| material_agreement | 1,345 | 78 |
+| governance | 636 | 44 |
+| structured_exhibit | 27 | 10 |
+| other | 243 | 9 |
+| shareholder_letter | 583 | **1** |
+| supplemental | 124 | 0 |
 
 Two consequences that shape the whole design:
 
-**`material_agreement` contributes 1,130 of 2,987 table passages and no KPIs.** The most
-common table heading in the corpus is `Whereas:` (941 occurrences) — credit-agreement
-recitals. Running a metric extractor over all 2,987 tables would spend 38% of its work on
-contract boilerplate. Candidate selection must be typed, not exhaustive (§4.1).
+**Typed selection is still right, but for a much weaker reason than I first wrote.** The
+pre-fix corpus showed `material_agreement` holding 1,130 of 2,987 table passages, with
+`Whereas:` (941 occurrences) the commonest table heading corpus-wide — an apparently
+overwhelming case for excluding it. Almost all of those tables came from the nine documents
+that were falling back to the lxml parser because of the encoding defect. After the fix,
+`material_agreement` holds **78 of 1,935** table passages and `Whereas:` is gone from the
+heading census entirely. Excluding contract and governance tables now skips 131 of 1,935
+tables — **6.8%, not 38%**. Worth doing, and still auditable, but it is a tidiness argument
+now rather than a cost argument.
 
 **Shareholder letters have exactly one table across 26 documents.** The KPI commentary in
 letters is prose. Any design that treats "KPIs live in tables" as universal loses the
@@ -73,11 +82,11 @@ ontology §16.1 flags as high-impact actually appears.
 
 ```text
 |  |  | Three Months Ended |  |  |  |  |
-| (in thousands, exceptÂ percentages) |  | March 31, 2021 |  | December 31, 2020 |  |
-| Gross profit (GAAP) |  | $ | 97,132Â |  |  | $ | 38,365Â |
-| Gross Margin |  | 13.0Â | % |  | 15.4Â | % |
-| Adjusted Gross Profit |  | $ | 97,038Â |  |  | $ | 38,228Â |
-| Adjusted Gross Margin |  | 13.0Â | % |  | 15.4Â | % |
+| (in thousands, except percentages) |  | March 31, 2021 |  | December 31, 2020 |  |
+| Gross profit (GAAP) |  | $ | 97,132 |  |  | $ | 38,365 |
+| Gross Margin |  | 13.0 | % |  | 15.4 | % |
+| Adjusted Gross Profit |  | $ | 97,038 |  |  | $ | 38,228 |
+| Adjusted Gross Margin |  | 13.0 | % |  | 15.4 | % |
 ```
 
 Everything a claim needs is present but scattered across cells that HTML layout, not
@@ -95,10 +104,14 @@ A row-and-column reader must therefore collapse empty columns before aligning a 
 its period header. This is mechanical and fully testable offline — it is the reason the
 table lane needs no model (§4.2).
 
-## 1.4 The corpus carries an encoding defect *(verified — root cause reproduced)*
+## 1.4 The corpus carried an encoding defect *(fixed 2026-08-01)*
 
-**7,920 of 14,203 passages (55.8%), across 268 of 294 documents, contain an orphaned `Â`
-or `â`.** Visible above as `97,132Â` and `exceptÂ percentages`.
+**Fixed and re-normalized.** Recorded here because it changed this plan's own measurements
+and because §1.2's argument was built on its artifacts.
+
+Before the fix, **7,920 of 14,203 passages (55.8%), across 268 of 294 documents, carried an
+orphaned `Â` or `â`** — 178,625 corrupted characters. The §1.3 sample above read
+`97,132Â` and `exceptÂ percentages`.
 
 This is ours, not the SEC's. The raw byte at that position is the entity `&#160;`:
 
@@ -116,41 +129,47 @@ html.fromstring(s2.encode('utf-8')).text_content()
 ```
 
 `sec_parser` resolves `&#160;` to U+00A0 and returns a `str`.
-`normalization/stages/parse/sec_html_parser.py:179` and `:233` then re-encode that string
-with `source.encode("utf-8")` and hand the bytes to `parse_html_bytes`. Because the
-document declares no charset, lxml falls back to latin-1 and reads `\xc2\xa0` as `Â` +
-NBSP. A later whitespace pass folds the NBSP into a space, leaving the `Â` stranded — no
-passage in the corpus still contains a real U+00A0 *(verified)*.
+`normalization/stages/parse/sec_html_parser.py:179` and `:233` then re-encoded that string
+with `source.encode("utf-8")` and handed the bytes to `parse_html_bytes`. Because the
+document declares no charset, lxml fell back to latin-1 and read `\xc2\xa0` as `Â` + NBSP.
+A later whitespace pass folded the NBSP into a space, stranding the `Â`.
+
+It was never NBSP-specific: em dashes, curly quotes and accented letters were mangled by the
+same round trip. `parse_html_bytes` now takes an optional `encoding`, and the two call sites
+that manufacture bytes from a decoded `str` declare it.
 
 `parse_html_bytes` taking bytes is correct and documented (91 artifacts carry an XML
 declaration that makes `lxml.html.fromstring` reject a `str`). The defect is only at the
 two call sites that manufacture bytes from a string we already decoded, without telling
 lxml the encoding they used.
 
-**What this does and does not cost.** I expected it to break metric-name matching. It does
-not: stripping `Â`/`â` and re-running alias matching over all 14,203 passages recovers
-**zero** additional hits, in either lane *(verified)*. The damage is confined to value
-parsing — `97,132Â`, `13.0Â`, `DecemberÂ 31` — which a number parser must strip anyway.
+**What it cost, and what I got wrong about it.** I expected it to break metric-name
+matching. It did not: stripping `Â`/`â` and re-running alias matching recovered **zero**
+additional hits in either lane. The damage was confined to value parsing.
 
-It is still a prerequisite (§8), for a different reason than I first assumed: passage
-`content_sha256` and `fragment_sha256` are content-addressed. Fixing the encoding after
-extraction has emitted claims invalidates every evidence hash in the graph and forces a
-re-verification pass. `passage_id` is positional (`#p20`) and survives, so the blast radius
-is the hashes, not the anchors — but re-normalizing first is hours, and re-normalizing
-later is a migration.
+The reason it had to be fixed first was different from the one I first gave: passage
+`content_sha256` and `fragment_sha256` are content-addressed, so fixing it after extraction
+emitted claims would have turned a few hours of re-normalization into a hash migration.
+`passage_id` is positional and survived — 12,442 of 14,203 ids unchanged, none renumbered.
+
+**The consequence I did not anticipate at all** was §1.2. Nine documents were falling back
+to the lxml parser because the corruption defeated `TABLE_CONTENT_LOSS`'s probe matching,
+and those nine were producing 1,052 of the corpus's 2,987 table passages — including every
+`Whereas:` recital table that made contract boilerplate look like 38% of the table lane's
+work. See `V1_DOCUMENT_NORMALIZATION.md` §16b.
 
 ## 1.5 Candidate density *(verified)*
 
 Case-insensitive substring match of each coverable metric's label and declared aliases
-against all 14,203 passages. A **floor**, not an estimate — naive matching, no
+against all 12,442 passages. A **floor**, not an estimate — naive matching, no
 normalization of the metric label:
 
 | Metric | Passages | Documents |
 | --- | --- | --- |
-| homes_sold | 554 | 86 |
-| adjusted_ebitda | 490 | 90 |
-| contribution_margin | 444 | 87 |
+| homes_sold | 553 | 86 |
+| adjusted_ebitda | 489 | 90 |
 | holding_costs | 445 | 84 |
+| contribution_margin | 444 | 87 |
 | contribution_profit | 432 | 78 |
 | adjusted_gross_profit | 340 | 80 |
 | gaap_gross_margin | 308 | 87 |
@@ -158,7 +177,7 @@ normalization of the metric label:
 | adjusted_ebitda_margin | 200 | 85 |
 | adjusted_gross_margin | 190 | 84 |
 | housing_inventory_homes | 133 | 75 |
-| homes_purchased | 128 | 70 |
+| homes_purchased | 127 | 70 |
 | home_price_appreciation | 109 | 43 |
 | contribution_profit_after_interest | 94 | 27 |
 | homes_under_contract | 55 | 42 |
@@ -166,7 +185,7 @@ normalization of the metric label:
 | acquisition_contracts | 10 | 6 |
 | pct_homes_on_market_gt_120_days | 10 | 10 |
 
-Aggregate: **1,150 narrative and 131 table passages** mention at least one coverable
+Aggregate: **1,148 narrative and 131 table passages** mention at least one coverable
 metric. The two rarest metrics are exactly the two that ontology §16 flags as ambiguous —
 `acquisition_contracts` (10 passages) and `pct_homes_on_market_gt_120_days` (10). There is
 not enough corpus evidence to resolve either by extraction volume; §7 handles them by
@@ -291,7 +310,7 @@ Policy, from §1.2 and §1.5:
 | --- | --- | --- |
 | tables | earnings_release, narrative_primary, structured_exhibit, supplemental | 1,803 table passages; where reconciliation and KPI tables live |
 | narrative | earnings_release, shareholder_letter, narrative_primary | letters are prose-only (§1.2) |
-| — excluded | material_agreement, governance, other | 1,183 table passages of recitals and boilerplate, no KPIs |
+| — excluded | material_agreement, governance, other | 131 table passages of recitals and boilerplate, no KPIs |
 
 Selection is by `document_type` and alias hit, both recorded. It is a policy in
 `config/extraction.yaml`, never in code.
@@ -451,19 +470,23 @@ sets an end date without a passage asserting one.
 
 ---
 
-# 8. Prerequisite: fix the encoding defect first
+# 8. Prerequisite: the encoding defect — **done**
 
-Fix the two call sites in `normalization/stages/parse/sec_html_parser.py` (§1.4) so lxml is
-told the encoding of bytes we produced ourselves, re-run normalization, and re-verify.
+Fixed and landed as its own normalization commit before any extraction work, with the
+correction note in `V1_DOCUMENT_NORMALIZATION.md` §16b.
 
-Order matters for the reason given in §1.4, not the one I first assumed: `content_sha256`
-is content-addressed, so this is hours now and a hash migration later. `passage_id` is
-positional and unaffected, so nothing about the ID scheme in §5 changes.
+| | Before | After |
+| --- | --- | --- |
+| mojibake characters | 178,625 | **0** |
+| passages | 14,203 | **12,442** |
+| table passages | 2,987 | **1,935** |
+| documents | 294 | **294** |
+| `PARSER_FALLBACK` | 9 | **0** |
 
-**This is a normalization change, and belongs in a normalization commit** with its own
-before/after counts — not folded into extraction work. Expected result: the 7,920-passage
-count falls to 0, and `V1_DOCUMENT_NORMALIZATION.md` gains a correction note recording that
-the original run shipped this defect and why it was missed.
+A second defect surfaced while verifying the first: the derived issue catalog concatenated
+every run's issue file, growing 99 → 189 → 279 across three runs of an unchanged corpus.
+Fixed separately. All four catalogs are now byte-identical across two independent full runs
+plus a third rebuild, `verify` passes, and 717 tests pass offline.
 
 ---
 
@@ -473,7 +496,7 @@ Each step ends with a green suite.
 
 | # | Step | Gate |
 | --- | --- | --- |
-| 0 | Fix the encoding defect, re-normalize, re-verify (§8) | 0 passages with `Â`/`â`; document counts unchanged at 294/14,203 |
+| 0 | ~~Fix the encoding defect, re-normalize, re-verify (§8)~~ **done** | 0 passages with `Â`/`â`; 294 documents, 12,442 passages, 1,935 tables; catalogs byte-identical |
 | 1 | `core/` models, identifiers, `periods.py`, `numbers.py` | Unit tests from committed real cells |
 | 2 | `contracts.py`, `public.py` per stage, `context.py` | Structural + conformance tests |
 | 3 | `select` stage + `config/extraction.yaml` | Candidate counts match §4.1 policy exactly |
@@ -493,8 +516,9 @@ Steps 0–7 are fully offline. Only step 8 introduces a provider.
 - Architectural rules executable, not documented: extraction imports normalization's
   catalog and the ontology's public contract, and **nothing** imports a stage from another
   stage. Import-direction and cycle tests, as in the other two packages.
-- Fixtures from the real corpus, saved and committed — including at least one passage
-  carrying the pre-fix mojibake, so `numbers.py` proves it handles both forms.
+- Fixtures from the real corpus, saved and committed — including at least one passage in
+  the pre-fix mojibake form, so `numbers.py` stays robust to text from any corpus rebuilt
+  before the §8 fix.
 - Every §7 policy has a test that fails when the policy is removed.
 - Provider-touching narrative tests marked `live`; `pytest -m "not live"` stays green.
 - Tests written during implementation, not after.
@@ -528,7 +552,7 @@ measurement.
 | Emit `SUPERSEDES` during extraction | A per-passage extractor cannot see the other filing. Graph-layer policy (§7.5). |
 | Pin the `norm:` ID grammar into `claims.yaml` | Couples the vocabulary to one corpus. The extraction verifier owns it instead (§2). |
 | Fix the encoding defect after extraction | `content_sha256` is content-addressed; later means a hash migration (§8). |
-| Run the table lane over all 2,987 table passages | 1,183 are contract and governance boilerplate; the top table heading corpus-wide is `Whereas:` (941). Typed selection instead (§4.1). |
+| Run the table lane over all 1,935 table passages | 131 are contract and governance boilerplate. A weaker argument than it looked pre-fix (§1.2), but typed selection also keeps the reason a passage was skipped auditable. |
 
 ---
 

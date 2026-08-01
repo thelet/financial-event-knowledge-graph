@@ -6,8 +6,17 @@ explorable knowledge graph of companies, products, technologies, executives, fin
 metrics, and business events, where every extracted fact links back to the exact passage
 that supports it.
 
-**Status:** planning. No implementation code yet — this repository currently holds the
-product direction, architecture, and component-selection documents.
+**Status:** three layers implemented and verified — acquisition, normalization, and the
+executable ontology. Claim extraction is planned and not yet built.
+
+| Layer | State |
+| --- | --- |
+| `acquisition/` | 109 filings, 2,019 artifacts, 739.6 MiB |
+| `normalization/` | 294 documents, 12,442 passages (1,935 table), catalogs and reports |
+| `ontology/` | `real_estate_marketplace_v1`, `definition_hash 3372c5777c1d…`, 26 metrics |
+| extraction | **planned only** — see the plan below |
+
+`pytest -m "not live"` runs 717 tests offline.
 
 ## Documents
 
@@ -24,7 +33,10 @@ product direction, architecture, and component-selection documents.
 | --- | --- |
 | [plans/data-fetching/V0_OPENDOOR_FETCH.md](plans/data-fetching/V0_OPENDOOR_FETCH.md) | Implemented and validated — 109 filings, 2,019 artifacts |
 | [plans/data-fetching/REFACTOR_STAGE_STRUCTURE.md](plans/data-fetching/REFACTOR_STAGE_STRUCTURE.md) | Implemented — stage-oriented package structure |
-| [plans/normalization/V1_DOCUMENT_NORMALIZATION.md](plans/normalization/V1_DOCUMENT_NORMALIZATION.md) | **Planned, not implemented** — selection, parsing, normalization, passages |
+| [plans/normalization/V1_DOCUMENT_NORMALIZATION.md](plans/normalization/V1_DOCUMENT_NORMALIZATION.md) | Implemented — 294 documents, 12,442 passages. §16b records an encoding defect the first run shipped, and its correction |
+| [plans/ontology/OPENDOOR_CONCEPT_AND_METRIC_RESEARCH.md](plans/ontology/OPENDOOR_CONCEPT_AND_METRIC_RESEARCH.md) | Complete — concept and metric research behind the first ontology |
+| [plans/ontology/ONTOLOGY_V1_IMPLEMENTATION.md](plans/ontology/ONTOLOGY_V1_IMPLEMENTATION.md) | Implemented — `real_estate_marketplace_v1`, 24 fixtures behaving as declared |
+| [plans/extraction/V1_CLAIM_EXTRACTION.md](plans/extraction/V1_CLAIM_EXTRACTION.md) | **Planned, not implemented** — candidate selection, table and narrative lanes, ontology validation |
 
 ## Anchor company
 
@@ -51,8 +63,10 @@ and the component contracts — not any particular provider, framework, or datab
 
 ## Next step
 
-Phase 1 of the implementation sequence: define the interfaces, canonical models,
-configuration format, and run manifests.
+Claim extraction. The plan is
+[plans/extraction/V1_CLAIM_EXTRACTION.md](plans/extraction/V1_CLAIM_EXTRACTION.md); the
+first build step is a manually reviewed extraction benchmark, then the deterministic table
+lane.
 
 ## Acquisition (v0)
 
@@ -81,3 +95,49 @@ Tests: `pytest -m "not live"` runs offline; `pytest -m live` hits the real SEC A
 
 Current corpus: 109 Opendoor filings, 2,019 artifacts, 739.6 MiB.
 See [plans/data-fetching/V0_OPENDOOR_FETCH.md](plans/data-fetching/V0_OPENDOOR_FETCH.md).
+
+## Normalization (v1)
+
+Turns selected raw artifacts into a deterministic, evidence-preserving normalized corpus.
+
+```bash
+python -m normalization select          # -> normalization_manifests/<run_id>-selection.json
+python -m normalization normalize       # -> data/normalized/... (atomic, per-document)
+python -m normalization build-catalog   # -> data/normalization_catalog/*.jsonl (derived)
+python -m normalization verify          # exits non-zero on any inconsistency
+python -m normalization report          # -> data/normalization_reports/<run_id>-*.md
+
+python -m normalization run             # convenience: the whole pipeline in order
+```
+
+Authoritative: the selection manifest, per-document JSON, per-document passages JSONL, the
+per-run issue file, and the run manifest. Derived and always rebuilt: the four catalogs and
+the reports.
+
+Current corpus: **294 documents, 12,442 passages** (10,507 narrative, 1,935 table), with 60
+`NEEDS_REVIEW` and 30 `HIERARCHY_UNCERTAIN` issues and no parser fallbacks. Two independent
+full runs produce byte-identical catalogs.
+
+The first full run shipped an encoding defect that corrupted every non-ASCII character —
+`V1_DOCUMENT_NORMALIZATION.md` §16b records what it did, why it happened, why the existing
+checks missed it, and the corrected counts. The passage counts above supersede the earlier
+14,203 / 2,987.
+
+## Ontology (v1)
+
+A library, not a pipeline: it loads, validates and answers questions about a versioned
+vocabulary. `real_estate_marketplace_v1` is declared entirely in YAML under
+`ontology/versions/real_estate_marketplace_v1/definitions/` — the Python only reads it.
+
+```python
+from ontology import load_ontology
+
+ontology = load_ontology()            # <LoadedOntology real_estate_marketplace_v1 v1.0.0>
+ontology.definition_hash              # 3372c5777c1d… — changes only when the YAML does
+ontology.registry.resolve_alias("Adjusted Gross Margin")
+ontology.validate_claim(claim)        # -> ValidationResult
+```
+
+26 metrics, of which 20 are sourceable from the normalized narrative and table lanes; the
+other six name XBRL as their first source lane and wait on an XBRL lane that does not exist
+yet. See `V1_CLAIM_EXTRACTION.md` §3.
