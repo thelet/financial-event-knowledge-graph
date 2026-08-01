@@ -191,7 +191,12 @@ def test_aggregate_matches_the_authoritative_records(tmp_config):
     aggregate = read_jsonl(tmp_config.catalog_root / ISSUES_CATALOG)
     authoritative = read_jsonl(written.path)
     assert len(aggregate) == len(authoritative) == 5
-    assert {r["issue_id"] for r in aggregate} == {r["issue_id"] for r in authoritative}
+    # The derived row drops run identity and carries `issue_key` instead of `issue_id`; the
+    # artifact and code it describes must still match the authoritative record exactly.
+    assert {(r["artifact_id"], r["code"]) for r in aggregate} == {
+        (r["artifact_id"], r["code"]) for r in authoritative
+    }
+    assert not any("run_id" in r or "issue_id" in r for r in aggregate)
 
 
 def test_zero_issue_run_yields_an_empty_aggregate(tmp_config):
@@ -214,8 +219,9 @@ def test_aggregate_rebuild_is_byte_identical(tmp_config):
     assert (tmp_config.catalog_root / ISSUES_CATALOG).read_bytes() == first
 
 
-def test_rebuilding_does_not_duplicate_across_runs(tmp_config):
-    """Two runs are two authoritative files; ids are run-scoped, so no row is repeated."""
+def test_a_later_run_supersedes_an_earlier_one_rather_than_adding_to_it(tmp_config):
+    """The accumulation bug, at the level it bit: run-scoped ids made every rebuild append
+    a whole run's issues, so an unchanged corpus went 99 -> 189 -> 279 across three runs."""
     from normalization.stages.catalog import CatalogRequest
 
     stage = RunIssueLogStage(tmp_config)
@@ -223,8 +229,43 @@ def test_rebuilding_does_not_duplicate_across_runs(tmp_config):
     stage.run(IssueLogRequest(run_id="run-2", issues=[_issue(1, "run-2")]))
     result = _catalog(tmp_config).run(CatalogRequest(run_id="run-2"))
     rows = read_jsonl(tmp_config.catalog_root / ISSUES_CATALOG)
-    assert result.issue_count == len(rows) == 2
-    assert len({r["issue_id"] for r in rows}) == 2
+    assert result.issue_count == len(rows) == 1
+
+
+def test_a_finding_that_no_longer_holds_disappears(tmp_config):
+    """Deduplication could not have fixed this: a stale finding has no newer row to lose to.
+    After the encoding fix removed every parser fallback, the catalog still reported
+    PARSER_FALLBACK: 9 from the superseded pre-fix run."""
+    from normalization.stages.catalog import CatalogRequest
+
+    stale = NormalizationIssue(
+        issue_id="run-1:artifact-9:fallback", run_id="run-1", artifact_id="artifact-9",
+        severity="warning", code="PARSER_FALLBACK", detail="fell back")
+    stage = RunIssueLogStage(tmp_config)
+    stage.run(IssueLogRequest(run_id="run-1", issues=[stale, _issue(1, "run-1")]))
+    stage.run(IssueLogRequest(run_id="run-2", issues=[_issue(1, "run-2")]))
+
+    _catalog(tmp_config).run(CatalogRequest(run_id="run-2"))
+    rows = read_jsonl(tmp_config.catalog_root / ISSUES_CATALOG)
+    assert [r["code"] for r in rows] == ["HIERARCHY_UNCERTAIN"]
+
+
+def test_repeated_runs_over_an_unchanged_corpus_are_byte_identical(tmp_config):
+    """Run ids are the one field guaranteed to differ between runs, so they must not reach
+    the derived catalog."""
+    from normalization.stages.catalog import CatalogRequest
+
+    stage = RunIssueLogStage(tmp_config)
+    catalog = _catalog(tmp_config)
+    path = tmp_config.catalog_root / ISSUES_CATALOG
+
+    stage.run(IssueLogRequest(run_id="run-1", issues=[_issue(n, "run-1") for n in range(3)]))
+    catalog.run(CatalogRequest(run_id="run-1"))
+    first = path.read_bytes()
+
+    stage.run(IssueLogRequest(run_id="run-2", issues=[_issue(n, "run-2") for n in range(3)]))
+    catalog.run(CatalogRequest(run_id="run-2"))
+    assert path.read_bytes() == first
 
 
 # -- a fresh complete run, end to end -----------------------------------------------------

@@ -96,14 +96,54 @@ class JsonlCatalogStage:
         return [rows[k] for k in sorted(rows)]
 
     def _issue_rows(self) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
+        """Issues describing the corpus as it stands, not the history that produced it.
+
+        The most recent run only. Concatenating every `*-issues.jsonl` ever written made this
+        catalog grow by one run's worth of issues each time it was rebuilt — 99 to 189 to 279
+        across three runs of an unchanged corpus — and kept reporting findings that no longer
+        held. After the encoding fix removed every parser fallback, the catalog still carried
+        `PARSER_FALLBACK: 9` from the superseded pre-fix run. Deduplicating could not repair
+        that: a stale finding has no newer row to lose to, so only reading the current run
+        removes it.
+
+        `run_id` and the run-prefixed `issue_id` are dropped. A derived index that changes
+        its bytes because you re-ran an unchanged corpus is not describing that corpus, and
+        run ids are the one field guaranteed to differ. `issue_key` replaces `issue_id` as a
+        deterministic, readable identity. The per-run files under `runs_root` remain the
+        authoritative record of which run found what, and they still carry run ids.
+
+        The tradeoff, stated because it is real: a partial run — `spike` over a subset —
+        leaves this catalog describing that subset while `documents.jsonl` describes the
+        whole corpus. `run` processes the entire selection, which is how the pipeline is
+        actually driven, and `verify` compares the two.
+        """
         runs_root = self._config.runs_root
-        if runs_root.is_dir():
-            for path in sorted(runs_root.glob("*-issues.jsonl")):
-                rows.extend(read_jsonl(path))
-        rows.sort(key=lambda r: (r.get("artifact_id", ""), r.get("code", ""), r.get("issue_id", "")))
-        deduped, _ = _dedupe(rows, "issue_id")
+        if not runs_root.is_dir():
+            return []
+        # Run ids are timestamp-prefixed, so lexical order is chronological order.
+        run_files = sorted(runs_root.glob("*-issues.jsonl"))
+        if not run_files:
+            return []
+
+        rows = [_issue_row(r) for r in read_jsonl(run_files[-1])]
+        rows.sort(key=lambda r: (r["artifact_id"], r["code"], r["issue_key"]))
+        deduped, _ = _dedupe(rows, "issue_key")
         return deduped
+
+
+def _issue_row(row: dict[str, Any]) -> dict[str, Any]:
+    """One run-file issue as a corpus-level row: run identity out, stable identity in."""
+    artifact_id = row.get("artifact_id") or ""
+    document_id = row.get("document_id")
+    code = row.get("code") or ""
+    return {
+        "artifact_id": artifact_id,
+        "document_id": document_id,
+        "code": code,
+        "severity": row.get("severity"),
+        "detail": row.get("detail"),
+        "issue_key": f"{artifact_id}:{code.lower()}",
+    }
 
 
 def _document_row(document, path: Path, root: Path) -> dict[str, Any]:
