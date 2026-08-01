@@ -98,7 +98,13 @@ meaning, decided:
 - the **period** lives two header rows up, split between a duration phrase
   (`Three Months Ended`) and a date (`March 31, 2021`);
 - the **unit scale** (`in thousands`) is in a parenthetical in the header row, not
-  beside the number.
+  beside the number — **or not in the table at all**. *(corrected 2026-08-01)* Of the 74
+  KPI-bearing table passages, **65 declare the scale inside the table and 9 declare it in
+  the immediately preceding narrative passage**; none omit it. The Q1 2025 earnings release
+  is the second form: `#p14` holds the table and `#p13` holds "(In millions, except
+  percentages, homes sold, number of markets, homes purchased, and homes in inventory)". A
+  lane that only reads the table gets every dollar figure wrong by six orders of magnitude
+  and every count right, which is why the benchmark scores `scale` as its own dimension.
 
 A row-and-column reader must therefore collapse empty columns before aligning a value to
 its period header. This is mechanical and fully testable offline — it is the reason the

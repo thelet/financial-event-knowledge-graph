@@ -1,0 +1,304 @@
+# GAAP-to-non-GAAP reconciliation tables.
+#
+# Harder than the KPI tables: the currency sigil, the magnitude and the percent sign occupy
+# three separate cells, adjustment rows sit between the metrics they connect, and the
+# period columns mix quarter and full-year in one header. Values read on 2026-08-01.
+
+cases:
+  - case_id: recon-q1-2021-thousands-in-table
+    category: sparse_reconciliation_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm
+    passage_id: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm#p20
+    notes: >-
+      The scale declaration is the first cell of a header row, inside the table - the other
+      of the two forms the corpus uses. 65 of 74 KPI-bearing tables are like this; the other
+      9 declare it in the preceding passage. A lane must handle both or it silently mis-scales
+      one form.
+    scale_declaration:
+      location: in_table
+      text: "(in thousands, except percentages)"
+    gold_claims:
+      - metric_id: adjusted_gross_profit
+        value: 97038000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2021-01-01"
+        period_end: "2021-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2021"
+        note: Printed as "97,038" under a thousands declaration.
+      - metric_id: adjusted_gross_margin
+        value: 13.0
+        unit: percent
+        period_start: "2021-01-01"
+        period_end: "2021-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2021"
+        note: >-
+          Equal to Gross Margin (13.0%) for this quarter. A lane keying on the value rather
+          than the row label will attach it to the wrong metric and still look right.
+      - metric_id: contribution_profit
+        value: 76146000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2021-01-01"
+        period_end: "2021-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2021"
+      - metric_id: direct_selling_costs
+        value: -17340000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2021-01-01"
+        period_end: "2021-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2021"
+        note: >-
+          An adjustment row, negative because it is subtracted in the reconciliation. The
+          sign is part of the reported figure and must not be normalised away.
+      - metric_id: adjusted_gross_profit
+        value: 88848000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2020-01-01"
+        period_end: "2020-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2020"
+        note: Third column, not adjacent to the first - tests column alignment across a gap.
+    abstentions:
+      - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
+        detail: 'Row "Gross profit (GAAP)" reads 97,132 / 38,365 / 91,047.'
+        metrics: [gaap_gross_profit]
+        required_lane: xbrl
+      - reason: NO_MATCHING_METRIC
+        detail: >-
+          "Contribution Profit per Home Sold" ($31) and the two "Inventory impairment" rows
+          have no concept in real_estate_marketplace_v1.
+
+  - case_id: recon-q4-2020-mixed-period-lengths
+    category: sparse_reconciliation_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm
+    passage_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p27
+    notes: >-
+      The hardest period case in the benchmark. One header row carries two different column
+      groups - "Three Months Ended December 31," and "Year Ended December 31," - and the row
+      beneath carries bare years, 2020 / 2019 / 2020 / 2019. The same metric therefore yields
+      a quarter and a full year with identical end dates, and the only thing distinguishing
+      them is which group a column falls under. A lane that reads the year row alone emits
+      four annual observations, two of which are wrong by a factor of four in duration.
+    scale_declaration:
+      location: preceding_passage
+      passage_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p26
+      text: "(In thousands, except percentages, and homes sold)"
+    gold_claims:
+      - metric_id: adjusted_gross_profit
+        value: 38228000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2020-10-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "Three Months Ended December 31, 2020"
+      - metric_id: adjusted_gross_profit
+        value: 211274000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2020-01-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "Year Ended December 31, 2020"
+        note: Same row, same end date, four times the duration.
+      - metric_id: adjusted_gross_margin
+        value: 15.4
+        unit: percent
+        period_start: "2020-10-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "Three Months Ended December 31, 2020"
+      - metric_id: adjusted_gross_margin
+        value: 8.2
+        unit: percent
+        period_start: "2020-01-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "Year Ended December 31, 2020"
+      - metric_id: adjusted_gross_margin
+        value: 5.6
+        unit: percent
+        period_start: "2019-10-01"
+        period_end: "2019-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "Three Months Ended December 31, 2019"
+    abstentions:
+      - reason: EM_DASH_IS_NOT_A_VALUE
+        detail: >-
+          The "Restructuring in cost of revenue" row reads "—" for both December-31 columns.
+          An em dash means nil, not a missing value and not the number zero reported. It is
+          also the character the encoding defect used to corrupt, so a lane that treats a
+          bare "—" as extractable will behave differently on a pre-fix corpus.
+
+  - case_id: recon-shareholder-letter-table-as-prose
+    category: sparse_reconciliation_table
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm
+    passage_id: norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20
+    notes: >-
+      A KPI table that the parser emitted as a *narrative* passage, with the row labels and
+      all five period values run together on one line - "Inventory (at period end) $ 1,775
+      $ 1,311 $ 1,149 $ 2,118 $ 4,460". Shareholder letters have exactly one table passage
+      across 26 documents, so this shape is the norm for the letter lane rather than an
+      edge case. There is no column structure to align against; the period order has to come
+      from the surrounding text.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 18
+        unit: percent
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+        note: First of five values, "18 % 12 % 24 % 59 % 55 %", in descending recency.
+      - metric_id: housing_inventory_homes
+        value: 5326
+        unit: homes
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: From "5,326 4,007 3,558 6,261 12,788 5,326 12,788" - note the trailing repeat.
+    abstentions:
+      - reason: AMBIGUOUS_COLUMN_ORDER
+        detail: >-
+          The run-together row ends "5,326 12,788", repeating the first and fifth values as
+          a full-year pair. Without column structure a lane cannot tell the repeat from a
+          sixth and seventh period, so only the leading value is safely attributable and the
+          rest must be abstained on rather than positionally guessed.
+
+  - case_id: recon-q1-2021-holding-costs-split-rows
+    category: sparse_reconciliation_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm
+    passage_id: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm#p20
+    notes: >-
+      The ontology has one `holding_costs` metric and this reconciliation has two holding
+      cost rows - "Holding costs on sales – Current Period" and "– Prior Periods" - which
+      are separate adjustments summing into Contribution Profit. Neither row alone is the
+      metric and their sum is not stated. This is the case where a lane must abstain rather
+      than pick the larger row or silently add them.
+    scale_declaration:
+      location: in_table
+      text: "(in thousands, except percentages)"
+    gold_claims:
+      - metric_id: homes_sold
+        value: 2462
+        unit: homes
+        period_start: "2021-01-01"
+        period_end: "2021-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2021"
+        note: >-
+          Row label is "Homes sold in period", a fifth surface form for homes_sold and one
+          the ontology does not list as an alias - the label has to resolve semantically or
+          this row is missed.
+      - metric_id: homes_sold
+        value: 849
+        unit: homes
+        period_start: "2020-10-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2020"
+      - metric_id: homes_sold
+        value: 4908
+        unit: homes
+        period_start: "2020-01-01"
+        period_end: "2020-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2020"
+      - metric_id: contribution_profit
+        value: 31457000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2020-10-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2020"
+      - metric_id: contribution_profit
+        value: 38556000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2020-01-01"
+        period_end: "2020-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2020"
+    abstentions:
+      - reason: METRIC_SPLIT_ACROSS_ROWS
+        detail: >-
+          holding_costs has two candidate rows (-2,126 current period and -1,426 prior
+          periods for Q1 2021) and the filing states no total. Emitting either as
+          "holding costs" asserts a figure the filing does not report.
+        rows:
+          - "Holding costs on sales – Current Period"
+          - "Holding costs on sales – Prior Periods"

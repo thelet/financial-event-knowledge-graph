@@ -1,0 +1,174 @@
+# Shareholder-letter prose: the lane no table reader can serve.
+#
+# 26 letters produce exactly 1 table passage between them, so every figure a letter reports
+# arrives inside a sentence, usually with the period named as "4Q21" rather than a date and
+# the scale spelled out as a word. Values read on 2026-08-01.
+
+cases:
+  - case_id: letter-prose-multiple-metrics-q4-2021
+    category: shareholder_letter_prose
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm
+    passage_id: norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10
+    notes: >-
+      One passage carrying six figures for two metrics across two period lengths, each in
+      the form "$X million and Y% of revenue in 4Q21, versus $Z million ... in 4Q20". The
+      period is a fiscal-quarter shorthand, the scale is the word "million", and the margin
+      is stated as "% of revenue" rather than labelled as a margin metric.
+    gold_claims:
+      - metric_id: adjusted_gross_profit
+        value: 279000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2021-10-01"
+        period_end: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: '"Adjusted gross profit was $279 million and 7.3% of revenue in 4Q21".'
+      - metric_id: adjusted_gross_margin
+        value: 7.3
+        unit: percent
+        period_start: "2021-10-01"
+        period_end: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: >-
+          Stated as "7.3% of revenue", never as "Adjusted Gross Margin". The metric has to
+          come from the sentence's subject, not from a label.
+      - metric_id: adjusted_gross_profit
+        value: 769000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2021-01-01"
+        period_end: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: '"For the full year, ... Adjusted gross profit was $769 million and 9.6% of revenue".'
+      - metric_id: adjusted_gross_margin
+        value: 9.6
+        unit: percent
+        period_start: "2021-01-01"
+        period_end: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+      - metric_id: adjusted_gross_profit
+        value: 38000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2020-10-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: >-
+          The "versus $38 million ... in 4Q20" comparator. Reconciles with
+          recon-q4-2020-mixed-period-lengths, which reports 38,228 thousand for the same
+          period - the letter rounds. Both are `reported`; neither supersedes the other.
+      - metric_id: contribution_profit
+        value: 152000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2021-10-01"
+        period_end: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+    abstentions:
+      - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
+        detail: '"GAAP gross profit was $272 million and 7.1% of revenue in 4Q21" and its 4Q20 comparator.'
+        metrics: [gaap_gross_profit]
+        required_lane: xbrl
+
+  - case_id: letter-prose-inventory-and-120d-q2-2022
+    category: shareholder_letter_prose
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm
+    passage_id: norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#p7
+    notes: >-
+      Two stock metrics and a market comparator in two sentences. "17,013 homes in inventory
+      on our balance sheet, representing $6.6 billion in value" pairs a count and a dollar
+      amount for the same instant, and only the count is in scope.
+    gold_claims:
+      - metric_id: housing_inventory_homes
+        value: 17013
+        unit: homes
+        instant_date: "2022-06-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: '"We ended 2Q with 17,013 homes in inventory on our balance sheet".'
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 5
+        unit: percent
+        instant_date: "2022-06-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: "5% of our homes were listed on the market for more than 120 days"
+        ambiguity_codes: [pct_120_day_denominator]
+    abstentions:
+      - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
+        detail: '"$6.6 billion in value" is the inventory balance for the same instant.'
+        metrics: [inventory_balance]
+        required_lane: xbrl
+      - reason: NOT_THE_SUBJECT_COMPANY
+        detail: '"14% of the homes in the overall market" is a market statistic, not an Opendoor observation.'
+
+  - case_id: letter-prose-run-together-kpi-row-q1-2025
+    category: shareholder_letter_prose
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-25-000037:exhibit9921q25opendoorsh.htm
+    passage_id: norm:0001801169:0001801169-25-000037:exhibit9921q25opendoorsh.htm#p16
+    notes: >-
+      A KPI summary flattened into prose - "Homes in inventory (at period end) 7,080 6,417
+      6,288 6,399 5,706" - with five values and no delimiters beyond spaces. The values
+      reconcile exactly with kpi-table-q1-2025-current-column, so this case also tests that
+      the same fact reached through two lanes produces two observations that agree rather
+      than one that silently wins.
+    gold_claims:
+      - metric_id: housing_inventory_homes
+        value: 7080
+        unit: homes
+        instant_date: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: Agrees with the table lane's 7,080 for the same instant, from a different document.
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 27
+        unit: percent
+        instant_date: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+        ambiguity_codes: [pct_120_day_denominator]
+    abstentions:
+      - reason: AMBIGUOUS_COLUMN_ORDER
+        detail: >-
+          Only the leading value of each run is safely attributable. The remaining four have
+          no period labels in the passage; inferring them from quarter-count position is a
+          guess a lane must not dress up as a reading.

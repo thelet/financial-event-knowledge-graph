@@ -1,0 +1,144 @@
+# Representative events and relationships.
+#
+# A small deliberate subset, not corpus-wide coverage: enough to prove the claim path works
+# for event and relationship payloads as well as metric observations. Participant roles and
+# entity types follow real_estate_marketplace_v1's declarations exactly. Read on 2026-08-01.
+
+cases:
+  - case_id: event-executive-change-ceo-2025
+    category: event_or_relationship
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm
+    passage_id: norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2
+    notes: >-
+      Three distinct changes in two sentences - an incoming CEO who also joins the board, and
+      two co-founders returning to the board with one taking the chair. The passage names a
+      prior employer ("Chief Operating Officer of Shopify") that is a fact about the person
+      and not about Opendoor, which is the trap: a lane keyed on "Chief Operating Officer"
+      will attach a Shopify role to the wrong employer.
+    gold_events:
+      - event_type_id: executive_change
+        occurred_on: "2025-09-11"
+        participants:
+          - role: employer
+            entity_id: opendoor
+            entity_type: public_company
+          - role: officer
+            entity_id: kaz_nejatian
+            entity_type: person
+        properties:
+          new_title: Chief Executive Officer
+        note: '"Kaz Nejatian ... has been appointed Chief Executive Officer and member of the Board of Directors".'
+      - event_type_id: executive_change
+        occurred_on: "2025-09-11"
+        participants:
+          - role: employer
+            entity_id: opendoor
+            entity_type: public_company
+          - role: officer
+            entity_id: keith_rabois
+            entity_type: person
+        properties:
+          new_title: Chairman of the Board
+        note: '"Rabois taking on the role of Chairman".'
+    gold_relationships:
+      - relationship_id: holds_position_at
+        source_id: kaz_nejatian
+        source_type: person
+        target_id: opendoor
+        target_type: public_company
+        properties:
+          title: Chief Executive Officer
+          start_date: "2025-09-11"
+    abstentions:
+      - reason: THIRD_PARTY_ROLE
+        detail: >-
+          "Chief Operating Officer of Shopify" is Nejatian's prior position at another
+          company. If emitted at all it is holds_position_at(kaz_nejatian, shopify), never
+          a role at Opendoor, and the passage gives no dates for it.
+
+  - case_id: event-credit-facility-established-2022
+    category: event_or_relationship
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-22-000108:open-20220930.htm
+    passage_id: norm:0001801169:0001801169-22-000108:open-20220930.htm#p117
+    notes: >-
+      A facility established by "a subsidiary of the Company", not by Opendoor itself. The
+      ontology's borrower role accepts `subsidiary`, and the filing does not name which one -
+      so the borrower is an unresolved subsidiary rather than the parent. A lane that
+      defaults the borrower to Opendoor records a debt obligation against the wrong entity.
+    gold_events:
+      - event_type_id: credit_facility_established
+        occurred_on: "2022-10-19"
+        participants:
+          - role: borrower
+            entity_id: opendoor_unnamed_subsidiary
+            entity_type: subsidiary
+          - role: facility
+            entity_id: asset_backed_senior_revolving_2022_10
+            entity_type: asset_backed_debt_facility
+        properties:
+          borrowing_capacity_usd: 525000000
+          final_maturity_date: "2023-10-31"
+        note: >-
+          "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed
+          senior revolving credit facility with $525 million in borrowing capacity and a
+          final maturity date of October 31, 2023."
+    gold_claims:
+      - metric_id: borrowing_capacity
+        value: 525000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        instant_date: "2022-10-19"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: >-
+          Facility-level capacity at establishment. Subject is the consolidated company
+          because the facility is reported in its filings, while the *borrower* on the event
+          is the subsidiary - the two are deliberately different.
+    gold_relationships:
+      - relationship_id: borrows_under
+        source_id: opendoor_unnamed_subsidiary
+        source_type: subsidiary
+        target_id: asset_backed_senior_revolving_2022_10
+        target_type: asset_backed_debt_facility
+    abstentions:
+      - reason: UNNAMED_ENTITY
+        detail: >-
+          The subsidiary is not named. Resolving it to a specific EX-21.1 entity would be an
+          inference the filing does not support; the placeholder must stay unresolved and be
+          flagged for entity resolution rather than guessed.
+
+  - case_id: event-workforce-reduction-2020
+    category: event_or_relationship
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm
+    passage_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p28
+    notes: >-
+      A workforce reduction reported retrospectively in a footnote to a reconciliation table,
+      a year after it happened. The event date is in the text ("On April 15, 2020") and is
+      not the filing date, which is the common failure - dating an event to the document
+      that mentions it.
+    gold_events:
+      - event_type_id: workforce_reduction
+        occurred_on: "2020-04-15"
+        participants:
+          - role: operator
+            entity_id: opendoor
+            entity_type: public_company
+        properties:
+          stated_cause: following the outbreak of the COVID-19 pandemic
+        note: >-
+          "On April 15, 2020, we carried out a reduction in workforce following the outbreak
+          of the COVID-19 pandemic." Filed 2021-03-04 - nearly eleven months later.
+    abstentions:
+      - reason: NO_HEADCOUNT_STATED
+        detail: >-
+          The passage gives no number of affected employees. The event is real; a headcount
+          property must be absent rather than estimated from the severance figures nearby.

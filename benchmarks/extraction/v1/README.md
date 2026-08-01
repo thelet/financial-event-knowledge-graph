@@ -1,0 +1,124 @@
+# Extraction benchmark v1
+
+Hand-reviewed gold claims for the claim-extraction phase. **Every value here was read off
+the normalized passage it cites**, on 2026-08-01, against the corpus produced after the
+encoding correction (`V1_DOCUMENT_NORMALIZATION.md` §16b). No value is inferred, computed,
+or copied from a model's output.
+
+The point of this benchmark is to make "the parser emitted claims" an inadmissible proof.
+A lane is scored on eight dimensions independently, because a claim can be right about the
+metric and wrong about the period, and a scorer that collapses that into one number hides
+exactly the failures that matter for an evidence-linked graph.
+
+## Scope
+
+| | Count |
+| --- | --- |
+| documents | 15 |
+| cases | 26 |
+| gold claims | 68 |
+| gold events | 4 |
+| gold relationships | 2 |
+| expected abstentions | 24 |
+| distinct metrics covered | 15 of the 20 in scope |
+
+Coverage is deliberate, not proportional: the ambiguous and adversarial cases are
+over-represented relative to their corpus frequency, because they are where a lane fails
+silently.
+
+## Scored dimensions
+
+A predicted claim is compared to a gold claim on each of these separately:
+
+| Dimension | What it checks |
+| --- | --- |
+| `metric_identity` | the right `metric_id`, including not confusing `distinct_from` siblings |
+| `value` | the numeric magnitude, sign included |
+| `unit` | `homes`, `usd`, `percent`, `markets` |
+| `scale` | thousands vs millions vs units — the single most dangerous silent error |
+| `period` | `period_start`/`period_end` for durations, `instant_date` for stocks |
+| `subject` | the entity and its type |
+| `evidence` | the cited `passage_id` resolves and actually contains the value |
+| `ambiguity` | declared ambiguities carried, ambiguous aliases abstained on |
+
+`scale` gets its own dimension because a table lane that reads `1,153` from a
+`(In millions…)` table and emits `1153` rather than `1153000000` produces a claim that is
+right on every other dimension and wrong by six orders of magnitude.
+
+## Case schema
+
+```yaml
+case_id: kpi-table-q1-2025            # unique, kebab-case
+category: deterministic_kpi_table     # see below
+lane: tables                          # tables | narrative | either
+document_id: norm:…
+passage_id: norm:…#p14
+notes: >-
+  Why this case is here and what it is meant to break.
+scale_declaration:                    # omitted when the case carries no scale
+  location: in_table | preceding_passage | none
+  passage_id: norm:…#p13
+  text: "(In millions, except percentages, …)"
+gold_claims:
+  - metric_id: homes_sold
+    value: 2946
+    unit: homes
+    period_start: "2025-01-01"
+    period_end: "2025-03-31"
+    subject_entity_id: opendoor
+    subject_type: public_company
+    source_lane: normalized_table
+    assertion_type: reported
+    column_label: "March 31, 2025"    # which table column it came from
+abstentions:                          # claims a correct lane must NOT emit
+  - reason: AMBIGUOUS_ALIAS
+    detail: …
+```
+
+### Categories
+
+| Category | Cases | What it exercises |
+| --- | --- | --- |
+| `deterministic_kpi_table` | 7 | clean multi-period KPI tables; column alignment |
+| `sparse_reconciliation_table` | 4 | scattered `$`/magnitude/`%` cells, mixed period types |
+| `population_wording` | 4 | the 120-day denominator, verbatim, four ways |
+| `shareholder_letter_prose` | 3 | prose-only lane; letters have 1 table across 26 documents |
+| `negative_or_abstention` | 4 | text that looks extractable and is not |
+| `event_or_relationship` | 3 | representative events and relationships |
+| `formula_drift` | 1 | Adjusted Gross Profit's definition changing across years |
+
+## Rules the benchmark itself encodes
+
+**Ambiguous aliases are abstentions, not guesses.** The ontology declares seven aliases
+ambiguous (`homes`, `contracts`, `under contract`, `gross profit`, `gross margin`,
+`margin`, `contribution`). Where a passage uses one bare, the gold answer is *no claim*
+plus an `AMBIGUOUS_ALIAS` issue naming the candidates.
+
+**Population wording is carried verbatim or the claim is wrong.** The 120-day metric
+appears with four wordings — "our homes", "our homes in inventory", "our portfolio", and
+the KPI-table label — and no filing reconciles them. A claim without `population.definition_raw` is
+scored incorrect on `ambiguity` even when its value matches.
+
+**Out-of-scope metrics are gold abstentions, not gold claims.** Six metrics name XBRL as
+their first source lane and have no lane in this corpus (`V1_CLAIM_EXTRACTION.md` §3.1).
+Where such a metric appears in a benchmark table — `Revenue`, `Gross profit`, `Inventory
+(at period end)` all do — the expected behaviour is to record:
+
+```text
+status: deferred
+reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
+required_lane: xbrl
+```
+
+and emit no observation. A lane that reads `Revenue` off the table anyway is wrong even
+though the number is right, because the authoritative tagged source exists and is not
+being used.
+
+## Review status
+
+Every case is marked `reviewed: true` only after its values were checked against the cited
+passage text. `tests/extraction/test_benchmark_integrity.py` enforces what can be checked
+mechanically — that every `passage_id` resolves in the corpus, every `metric_id` exists in
+the ontology, every gold value's digits actually occur in the cited passage, and no case
+claims an out-of-scope metric. It cannot check that a period label was read correctly; that
+is what the manual review is for.

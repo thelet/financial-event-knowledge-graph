@@ -1,0 +1,128 @@
+# Text that looks extractable and is not, plus the formula-drift pair.
+#
+# A benchmark made only of positives measures recall and rewards a lane that emits
+# everything. These cases are where precision is measured. Values read on 2026-08-01.
+
+cases:
+  - case_id: drift-adjusted-gross-profit-2020-vs-2021
+    category: formula_drift
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm
+    passage_id: norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p27
+    compare_against: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm#p20
+    notes: >-
+      Adjusted Gross Profit's reconciliation changes between these two filings. In FY2020 it
+      is Gross profit plus inventory impairment (current and prior) plus **Restructuring in
+      cost of revenue** (1,902 for the year). By Q1 2021 the restructuring line is gone and
+      only the two impairment adjustments remain. The label is identical in both.
+
+      This is what `formula_version_id` exists for. Two observations of "Adjusted Gross
+      Profit" a year apart are not necessarily the same measure, and a lane that never
+      records which version produced a value makes the drift unrecoverable downstream.
+    gold_claims:
+      - metric_id: adjusted_gross_profit
+        value: 211274000
+        unit: usd
+        currency: USD
+        scale_applied: thousands
+        period_start: "2020-01-01"
+        period_end: "2020-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "Year Ended December 31, 2020"
+        expected_formula_inputs:
+          - "Gross profit (GAAP)"
+          - "Inventory impairment – Current Period"
+          - "Inventory impairment – Prior Periods"
+          - "Restructuring in cost of revenue"
+        note: The FY2020 definition, with the restructuring adjustment present.
+    expected_drift_signal:
+      detail: >-
+        The reconciliation rows differ between the two cited passages. A lane is scored
+        correct on `ambiguity` here only if it records the adjustment set it saw, or the
+        formula version resolved for the observation date - not if it emits a bare value.
+
+  - case_id: negative-risk-factor-partnership-boilerplate
+    category: negative_or_abstention
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm
+    passage_id: norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p12
+    notes: >-
+      Forward-looking-statements boilerplate listing "acquisitions, strategic partnerships,
+      joint ventures, capital-raising activities or other corporate transactions" among
+      things that might affect the stock price. It is the highest-scoring lexical match for
+      "partnership" in the corpus and it announces nothing. Every 8-K in the corpus carries
+      a paragraph like it, so a partnership extractor that fires here fires 200 times.
+    gold_claims: []
+    expected_events: []
+    abstentions:
+      - reason: HYPOTHETICAL_NOT_ASSERTED
+        detail: >-
+          Risk-factor and forward-looking language enumerates categories of event that have
+          not occurred. No partnership_announcement may be emitted.
+
+  - case_id: negative-material-agreement-recital
+    category: negative_or_abstention
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001104659-20-054449:tm2017926d1_ex10-12.htm
+    passage_id: norm:0001801169:0001104659-20-054449:tm2017926d1_ex10-12.htm#p5
+    notes: >-
+      An indemnity agreement's body. `material_agreement` is excluded from the table lane by
+      the typed selection policy, and this case pins that the exclusion is honoured rather
+      than merely intended. Worth keeping even though the exclusion is now cheap: before the
+      encoding fix these documents produced 1,130 table passages, and the count fell to 78
+      only because a parser fallback stopped misfiring - a future parser change could put
+      them back.
+    gold_claims: []
+    abstentions:
+      - reason: DOCUMENT_TYPE_EXCLUDED
+        detail: material_agreement is not in the table lane's selection policy.
+
+  - case_id: negative-ambiguous-alias-bare-gross-profit
+    category: negative_or_abstention
+    lane: either
+    reviewed: true
+    document_id: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm
+    passage_id: norm:0001801169:0001801169-21-000016:q12021form8-kxexhibit991.htm#p20
+    notes: >-
+      The ontology declares `gross profit`, `gross margin`, `margin` and `contribution`
+      ambiguous on purpose - each spans a mutually-distinct group. This table contains
+      "Gross profit (GAAP)", "Adjusted Gross Profit", "Gross Margin", "Adjusted Gross
+      Margin", "Contribution Profit" and "Contribution Margin" in twelve lines, so a lane
+      that resolves a bare alias to its single best match will confuse GAAP and adjusted
+      figures that differ by only 94 thousand dollars in this quarter.
+    gold_claims: []
+    abstentions:
+      - reason: AMBIGUOUS_ALIAS
+        detail: >-
+          A bare "gross profit" or "gross margin" match must resolve to more than one
+          concept and produce no claim, with the candidates named in the issue.
+          `distinct_from` exists to prevent exactly this collapse.
+        candidates: [gaap_gross_profit, adjusted_gross_profit, gaap_gross_margin, adjusted_gross_margin]
+
+  - case_id: negative-forward-looking-outlook
+    category: negative_or_abstention
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm
+    passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p13
+    notes: >-
+      The passage carrying the scale declaration sits under the heading "Second Quarter 2025
+      Financial Outlook". Guidance is an assertion about a period that has not happened; it
+      is not a `reported` observation and must not be recorded as one. This case also pins
+      that consuming a passage for its scale declaration does not make it a claim source.
+    gold_claims: []
+    abstentions:
+      - reason: GUIDANCE_NOT_REPORTED
+        detail: >-
+          A forward-looking figure may become a guidance event, never a reported metric
+          observation for the future period.
+      - reason: SCALE_SOURCE_ONLY
+        detail: >-
+          This passage is read for "(In millions, except percentages, ...)" and contributes
+          no observation of its own.

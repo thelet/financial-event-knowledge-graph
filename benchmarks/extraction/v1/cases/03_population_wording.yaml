@@ -1,0 +1,144 @@
+# The 120-day denominator, ontology §16.1's high-impact open question, made concrete.
+#
+# Four wordings appear in the corpus and no filing reconciles them. Whether the denominator
+# is listed homes or all owned homes is never stated identically, so every observation must
+# carry `population.definition_raw` verbatim and two observations whose wording differs are
+# not the same series. These cases exist to make a lane prove it does that.
+
+cases:
+  - case_id: population-our-homes-q4-2021
+    category: population_wording
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm
+    passage_id: norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10
+    notes: >-
+      Wording one - "our homes", unqualified. The same 8% appears in the FY2023 10-K's KPI
+      table under a different label (see kpi-table-10k-fy2023-three-year), which is the
+      cleanest demonstration that identical values do not imply identical populations.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 8
+        unit: percent
+        instant_date: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: "only 8% of our homes had been listed on the market for more than 120 days"
+        ambiguity_codes: [pct_120_day_denominator]
+    abstentions:
+      - reason: NOT_THE_SUBJECT_COMPANY
+        detail: >-
+          The same sentence reports 24% for "the overall market ... adjusted for our buybox".
+          That is a market statistic about third-party inventory, not an observation about
+          Opendoor, and must not be emitted with subject_entity_id opendoor.
+
+  - case_id: population-our-homes-in-inventory-q1-2023
+    category: population_wording
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-23-000054:q12023formxex992sharehol.htm
+    passage_id: norm:0001801169:0001801169-23-000054:q12023formxex992sharehol.htm#p8
+    notes: >-
+      Wording two - "our homes in inventory". The single filing that qualifies the
+      denominator, and the reason the ambiguity is recorded rather than resolved: it makes
+      the other wordings' silence conspicuous without settling what they meant.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 59
+        unit: percent
+        instant_date: "2023-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: "59% of our homes in inventory had been listed on the market for more than 120 days"
+        ambiguity_codes: [pct_120_day_denominator]
+      - metric_id: housing_inventory_homes
+        value: 6261
+        unit: homes
+        instant_date: "2023-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: From "$2.1 billion in inventory, representing 6,261 homes".
+
+  - case_id: population-two-wordings-one-passage-q4-2023
+    category: population_wording
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm
+    passage_id: norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p9
+    notes: >-
+      The decisive case. One passage uses two different denominators for the same metric -
+      "18% of our homes" for 2023-12-31 and "55% of our portfolio" for 2022-12-31 - while
+      explicitly comparing them as a trend. A lane that normalises both to one population
+      produces a comparison the filing does not support, and it will look correct because
+      both values are right.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 18
+        unit: percent
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: "18% of our homes had been listed on the market for more than 120 days"
+        ambiguity_codes: [pct_120_day_denominator]
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 55
+        unit: percent
+        instant_date: "2022-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: "55% of our portfolio had been listed on the market for more than 120 days"
+        ambiguity_codes: [pct_120_day_denominator]
+      - metric_id: acquisition_contracts
+        value: 2114
+        unit: homes
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        note: >-
+          "as of the end of the year, we were in contract to purchase 2,114 homes". One of
+          only 6 documents mentioning this metric - there is no volume to learn it from,
+          which is why it is in the benchmark by hand.
+    abstentions:
+      - reason: DERIVED_COMPARISON
+        detail: >-
+          "up 27% versus 3Q23 and up 109% versus 4Q22" are period-over-period changes, not
+          observations. Emitting them creates observations for periods never measured.
+
+  - case_id: population-portfolio-mdna-fy2023-10k
+    category: population_wording
+    lane: narrative
+    reviewed: true
+    document_id: norm:0001801169:0001801169-24-000016:open-20231231.htm
+    passage_id: norm:0001801169:0001801169-24-000016:open-20231231.htm#p114
+    notes: >-
+      Wording three, the MD&A form - "our percentage of homes 'on the market' for greater
+      than 120 days (as measured from initial listing date)". It is the only wording that
+      states a measurement basis, and it is the wording the 10-K uses every year. This is a
+      definitional passage: it explains the metric rather than reporting a value for it, and
+      a lane must be able to tell those apart.
+    gold_claims: []
+    abstentions:
+      - reason: DEFINITIONAL_NOT_OBSERVATIONAL
+        detail: >-
+          The passage defines the metric and names the measurement basis. The value for the
+          period is reported in the KPI table at open-20231231.htm#p105, not here. A lane
+          that mines a number out of this paragraph is attaching a value to a definition.
+        capture_instead:
+          field: population.definition_raw
+          text: 'our percentage of homes “on the market” for greater than 120 days (as measured from initial listing date)'

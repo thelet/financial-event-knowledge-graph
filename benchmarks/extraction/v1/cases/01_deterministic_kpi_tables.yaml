@@ -1,0 +1,491 @@
+# Clean multi-period KPI tables from earnings releases.
+#
+# These are the cases the deterministic table lane exists for. Each table has one metric per
+# row and one period per column group, and the only real work is column alignment and scale.
+# Values read off the cited passages on 2026-08-01.
+
+cases:
+  - case_id: kpi-table-q1-2025-current-column
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm
+    passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p14
+    notes: >-
+      The plainest in-scope case, and the one that proves the scale rule. The table itself
+      carries no scale; the declaration is in the preceding narrative passage. A lane that
+      only looks inside the table gets every dollar figure wrong by a factor of a million
+      and every count right, which is exactly the failure `scale` is scored separately for.
+    scale_declaration:
+      location: preceding_passage
+      passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p13
+      text: "(In millions, except percentages, homes sold, number of markets, homes purchased, and homes in inventory)"
+    gold_claims:
+      - metric_id: homes_sold
+        value: 2946
+        unit: homes
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+      - metric_id: homes_purchased
+        value: 3609
+        unit: homes
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+      - metric_id: housing_inventory_homes
+        value: 7080
+        unit: homes
+        instant_date: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+        note: >-
+          Row label says "(at period end)". An instant, not a duration - a lane that emits
+          period_start/period_end here is wrong on `period` even with the right value.
+      - metric_id: market_count
+        value: 50
+        unit: markets
+        instant_date: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+      - metric_id: gaap_gross_margin
+        value: 8.6
+        unit: percent
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+        note: >-
+          The magnitude and the `%` sigil are in two different cells. Excluded from the
+          scale declaration by "except percentages".
+      - metric_id: contribution_profit
+        value: 54000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+        note: Printed as "54"; the scale comes from the preceding passage.
+      - metric_id: contribution_margin
+        value: 4.7
+        unit: percent
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+      - metric_id: adjusted_ebitda
+        value: -30000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+        note: Printed as "(30)". Parenthesised negatives are the sign case.
+      - metric_id: adjusted_ebitda_margin
+        value: -2.6
+        unit: percent
+        period_start: "2025-01-01"
+        period_end: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 27
+        unit: percent
+        instant_date: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+        note: >-
+          The table label is a fourth wording, distinct from the three prose wordings in
+          04_population_wording.yaml. It must be carried verbatim like the others.
+    abstentions:
+      - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
+        detail: >-
+          Rows "Revenue" (1,153), "Gross profit" (99) and "Inventory (at period end)"
+          (2,362) are readable but belong to metrics whose first source lane is xbrl.
+        metrics: [revenue, gaap_gross_profit, inventory_balance]
+        required_lane: xbrl
+      - reason: NO_MATCHING_METRIC
+        detail: >-
+          Rows "Net loss" (-85) and "Adjusted Net Loss" (-63) have no concept in
+          real_estate_marketplace_v1. Inventing one is worse than skipping the row.
+
+  - case_id: kpi-table-q1-2025-prior-period-column
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm
+    passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p14
+    notes: >-
+      The same table, read four columns to the right. Column alignment is the single most
+      likely table-lane bug and it is invisible if only the leftmost column is ever tested -
+      an off-by-one lands on a real number from a real period.
+    scale_declaration:
+      location: preceding_passage
+      passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p13
+      text: "(In millions, except percentages, homes sold, number of markets, homes purchased, and homes in inventory)"
+    gold_claims:
+      - metric_id: homes_sold
+        value: 3078
+        unit: homes
+        period_start: "2024-01-01"
+        period_end: "2024-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2024"
+      - metric_id: homes_sold
+        value: 2822
+        unit: homes
+        period_start: "2024-10-01"
+        period_end: "2024-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2024"
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 46
+        unit: percent
+        instant_date: "2024-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2024"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      - metric_id: adjusted_ebitda
+        value: -49000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2024-10-01"
+        period_end: "2024-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2024"
+
+  - case_id: kpi-table-q4-2023-earnings
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm
+    passage_id: norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16
+    notes: >-
+      A KPI table carrying both quarter and full-year column groups, so the same metric row
+      yields two different period lengths. The 120-day row reads 18% for the quarter and 18%
+      for the year because it is an instant at the same date - a lane that treats every
+      column group as a duration will emit a full-year duration for a point-in-time stock.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 18
+        unit: percent
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2023"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 55
+        unit: percent
+        instant_date: "2022-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2022"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+    abstentions:
+      - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
+        detail: 'Row "Inventory (at period end)" reads 1,775 / 4,460 but belongs to inventory_balance.'
+        metrics: [inventory_balance]
+        required_lane: xbrl
+
+  - case_id: kpi-table-q1-2026-earnings
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-26-000013:q12026formxex991earningsre.htm
+    passage_id: norm:0001801169:0001801169-26-000013:q12026formxex991earningsre.htm#p19
+    notes: >-
+      The most recent quarter in the corpus, included so the benchmark is not entirely
+      historical and so a layout change in the newest filings would surface here.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 10
+        unit: percent
+        instant_date: "2026-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2026"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 33
+        unit: percent
+        instant_date: "2025-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2025"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+
+  - case_id: kpi-table-10q-q1-2025-two-column
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-25-000038:open-20250331.htm
+    passage_id: norm:0001801169:0001801169-25-000038:open-20250331.htm#p96
+    notes: >-
+      The 10-Q form of the same metrics: two columns and a change column. The change column
+      is a derived difference, not an observation, and a lane that emits it produces a claim
+      for a period that does not exist.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 27
+        unit: percent
+        instant_date: "2025-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2025"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 15
+        unit: percent
+        instant_date: "2024-03-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "March 31, 2024"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+    abstentions:
+      - reason: DERIVED_CHANGE_COLUMN
+        detail: >-
+          The third column is a period-over-period change, not a measurement of a period.
+          No observation may be emitted for it.
+
+  - case_id: kpi-table-10k-fy2023-three-year
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-24-000016:open-20231231.htm
+    passage_id: norm:0001801169:0001801169-24-000016:open-20231231.htm#p105
+    notes: >-
+      The 10-K version, carrying three fiscal year-ends plus two change columns. Included
+      because the 10-K is the authoritative annual source and its layout differs from both
+      the earnings release and the 10-Q.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 18
+        unit: percent
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2023"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 55
+        unit: percent
+        instant_date: "2022-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2022"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 8
+        unit: percent
+        instant_date: "2021-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2021"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+        note: >-
+          8% here matches the Q4 2021 shareholder letter's "only 8% of our homes", but the
+          letter's denominator wording differs. Same number, different stated population -
+          the pair that makes ontology §16.1 concrete.
+
+  - case_id: kpi-table-q1-2025-middle-columns
+    category: deterministic_kpi_table
+    lane: tables
+    reviewed: true
+    document_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm
+    passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p14
+    notes: >-
+      The two interior columns of the same table. Interior columns are the ones an
+      off-by-one lands on undetected: the first and last columns have a boundary to fail
+      against, the middle ones do not. Every value here is a real figure for a real quarter,
+      so a misaligned lane produces claims that pass every check except being about the
+      right period.
+    scale_declaration:
+      location: preceding_passage
+      passage_id: norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p13
+      text: "(In millions, except percentages, homes sold, number of markets, homes purchased, and homes in inventory)"
+    gold_claims:
+      - metric_id: homes_sold
+        value: 3615
+        unit: homes
+        period_start: "2024-07-01"
+        period_end: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+      - metric_id: homes_sold
+        value: 4078
+        unit: homes
+        period_start: "2024-04-01"
+        period_end: "2024-06-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "June 30, 2024"
+      - metric_id: homes_purchased
+        value: 3504
+        unit: homes
+        period_start: "2024-07-01"
+        period_end: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+      - metric_id: homes_purchased
+        value: 4771
+        unit: homes
+        period_start: "2024-04-01"
+        period_end: "2024-06-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "June 30, 2024"
+      - metric_id: housing_inventory_homes
+        value: 6288
+        unit: homes
+        instant_date: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+      - metric_id: contribution_profit
+        value: 52000000
+        unit: usd
+        currency: USD
+        scale_applied: millions
+        period_start: "2024-07-01"
+        period_end: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+      - metric_id: contribution_margin
+        value: 3.8
+        unit: percent
+        period_start: "2024-07-01"
+        period_end: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+      - metric_id: adjusted_ebitda_margin
+        value: -0.3
+        unit: percent
+        period_start: "2024-04-01"
+        period_end: "2024-06-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "June 30, 2024"
+        note: >-
+          Printed "(0.3)". The smallest magnitude in the table and the one where dropping
+          the parentheses changes a loss into a gain.
+      - metric_id: gaap_gross_margin
+        value: 7.6
+        unit: percent
+        period_start: "2024-07-01"
+        period_end: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 23
+        unit: percent
+        instant_date: "2024-09-30"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "September 30, 2024"
+        population:
+          definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
