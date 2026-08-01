@@ -16,10 +16,10 @@ in every filing — resolves in both. Aliases are never broadened to make a fixt
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from ...core import numbers, periods
+from ...core.concept_resolution import resolve_label
 from ...core.models import (
     LaneAbstention,
     LaneClaim,
@@ -316,52 +316,19 @@ class DeterministicTableClaimLane:
     # -- resolution helpers -------------------------------------------------------------------
 
     def _resolve_label(self, raw_label: str) -> tuple[tuple[str, ...], bool]:
-        """Resolve a row label to metric concepts, and say whether it is ambiguous.
+        """Resolve a row label through the shared resolver.
 
-        **Whole-label match only, after stripping footnote markers.** Substring matching is
-        what a deterministic lane must not do, and the reconciliation tables show why: it
-        reads "Contribution Profit per Home Sold" as `contribution_profit` (a $31 per-home
-        figure emitted as a $31,000 quarterly total) and "Holding costs on sales – Current
-        Period" as `holding_costs`, which is one of two rows the filing never totals. Both
-        are wrong in ways that pass every downstream check.
-
-        Footnote markers are stripped because they are typography, not meaning: "Direct
-        selling costs(3)" is the metric, "(3)" is a reference to a note below the table.
-
-        A whole-label exact match also outranks a same-spelled ambiguous alias.
-        `gaap_gross_margin`'s canonical label *is* "Gross Margin", and `aliases.yaml`
-        separately declares that string ambiguous across the GAAP and adjusted concepts, so
-        without this the metric is unreachable from its own name and every KPI table's
-        `Gross Margin` row yields nothing. The ambiguity entry's own note says what it is
-        for — "Only the qualifier 'Adjusted' separates them, and it is sometimes only in the
-        row label" — which is a rule about bare prose mentions, not about a cell whose
-        entire contents are the metric's name.
+        The precedence itself lives in `core.concept_resolution` because the lexical scope
+        needs the same answer for the same label, and a second implementation of "a canonical
+        label outranks a same-spelled ambiguous alias" would let the two disagree with nothing
+        able to notice (STAGE_08 §2). This lane needs only the two facts it always needed:
+        which metrics, and whether the label is ambiguous.
 
         Anything that is not a whole-label match yields no claim: either `AMBIGUOUS_ALIAS`
         when the label's only matches are declared ambiguous, or `UNRESOLVED_METRIC`.
         """
-        normalized = _strip_footnotes(fold(raw_label)).strip().lower()
-
-        canonical = self._aliases.canonical_labels.get(normalized)
-        if canonical:
-            return (canonical,), False
-
-        exact = self._aliases.by_surface.get(normalized)
-        if exact:
-            metric_ids = tuple(c for c in exact if c in self._aliases.metric_concepts)
-            if len(metric_ids) == 1:
-                return metric_ids, False
-            if len(metric_ids) > 1:
-                return metric_ids, True
-
-        hits = [h for h in self._aliases.hits(raw_label) if h.is_metric]
-        ambiguous_hits = [h for h in hits if h.ambiguous]
-        if ambiguous_hits:
-            widest = max(ambiguous_hits, key=lambda h: len(h.surface_form))
-            candidates = tuple(sorted(
-                c for c in widest.concept_ids if c in self._aliases.metric_concepts))
-            return candidates, True
-        return (), False
+        resolution = resolve_label(self._aliases, raw_label)
+        return resolution.concept_ids, resolution.ambiguous
 
     def _unit_for(self, metric, raw_label: str, grid: TableGrid, row_index: int):
         """Unit and currency for a row.
@@ -501,25 +468,6 @@ def _next_column_start(grid: TableGrid, column: PeriodColumn) -> int:
         and c.column_index > column.column_index
     )
     return starts[0] if starts else grid.width + 1
-
-
-_PERIOD_QUALIFIER = re.compile(r"\s*\((?:at\s+period\s+end|unaudited)\)\s*$", re.I)
-
-
-def _strip_footnotes(label: str) -> str:
-    """Normalise a row label for matching.
-
-    Two removals, both typography rather than identity. Trailing note references — "(3)",
-    "(4)(5)" — point at a note below the table. And "(at period end)" states *when* a stock
-    was measured, not *what* it is: the ontology happens to carry a suffixed alias for
-    `housing_inventory_homes` and not for `market_count`, and the metric a row reports
-    should not depend on that inconsistency.
-
-    The suffix is stripped for matching only. `periods.is_instant_label` still reads it off
-    the original label, so the row is correctly typed as an instant.
-    """
-    cleaned = re.sub(r"(\s*\(\d+\))+\s*$", "", label or "").strip()
-    return _PERIOD_QUALIFIER.sub("", cleaned).strip()
 
 
 def _declaration_line(text: str) -> str:

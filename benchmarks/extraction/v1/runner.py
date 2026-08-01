@@ -551,6 +551,13 @@ def _head_commit() -> str:
     return commit
 
 
+# Published because the lexical-scope report in `scope_runner.py` needs the same corpus
+# identity and the same commit. A second implementation of either is how two reports in one
+# directory start describing different runs while both looking authoritative.
+corpus_identity = _corpus_identity
+head_commit = _head_commit
+
+
 def build_report(*, catalog_root: Path | None = None,
                  implementation_commit: str | None = None) -> TableLaneReport:
     """The whole thing, from disk: cases, corpus, ontology, lane, scores."""

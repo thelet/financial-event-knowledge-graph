@@ -1,14 +1,21 @@
 """CLI for the extraction benchmark v1.
 
-Four subcommands, one of which writes anything:
+Seven subcommands, two of which write anything:
 
-    python -m benchmarks.extraction.v1 report            regenerate both reports
-    python -m benchmarks.extraction.v1 evaluate          print totals, write nothing
-    python -m benchmarks.extraction.v1 case <case_id>    one case in detail
-    python -m benchmarks.extraction.v1 claims <case_id>  every emitted observation
+    python -m benchmarks.extraction.v1 report                regenerate the table-lane reports
+    python -m benchmarks.extraction.v1 evaluate              print totals, write nothing
+    python -m benchmarks.extraction.v1 case <case_id>        one table case in detail
+    python -m benchmarks.extraction.v1 claims <case_id>      every emitted observation
+
+    python -m benchmarks.extraction.v1 scope-report          regenerate the scope reports
+    python -m benchmarks.extraction.v1 scope <case_id>       one case's candidate scope
+    python -m benchmarks.extraction.v1 scope-diff <case_id>  expected vs included
 
 `evaluate` exists because the common question during development is "did a number move",
-and answering it should not require a dirty working tree.
+and answering it should not require a dirty working tree. The scope commands are separated
+from the lane commands rather than folded into `case`: they cover all 26 cases while the lane
+covers 11, and one command that silently answered about a different set depending on its
+argument would be worse than two.
 """
 
 from __future__ import annotations
@@ -18,22 +25,40 @@ import os
 import sys
 from pathlib import Path
 
+from . import scope_runner
 from .runner import MATCH_DIMENSIONS, build_report, write_reports
+
+LANE_COMMANDS = ("report", "evaluate", "case", "claims")
+SCOPE_COMMANDS = ("scope-report", "scope", "scope-diff")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m benchmarks.extraction.v1",
-        description="Score the deterministic table lane against the reviewed table cases.")
+        description="Score the deterministic table lane and the lexical candidate scope "
+                    "against the reviewed cases.")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("report", help="regenerate reports/table_lane_v1.{json,md}")
-    subcommands.add_parser("evaluate", help="print totals; write nothing")
-    for name, help_text in (("case", "one case in detail"),
-                            ("claims", "every emitted observation for one case")):
+    subcommands.add_parser("evaluate", help="print lane totals; write nothing")
+    subcommands.add_parser(
+        "scope-report", help="regenerate reports/lexical_scope_v1.{json,md}")
+    for name, help_text in (("case", "one table case in detail"),
+                            ("claims", "every emitted observation for one case"),
+                            ("scope", "the candidate scope for one case"),
+                            ("scope-diff", "expected vs included concepts for one case")):
         sub = subcommands.add_parser(name, help=help_text)
         sub.add_argument("case_id")
 
     args = parser.parse_args(argv)
+    if args.command in SCOPE_COMMANDS:
+        return _run_scope_command(args)
+    return _run_lane_command(args)
+
+
+# -- the table lane -------------------------------------------------------------------------
+
+
+def _run_lane_command(args) -> int:
     report = build_report()
 
     if args.command == "report":
@@ -58,6 +83,98 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_claims(case)
     return 0
+
+
+# -- the candidate scope --------------------------------------------------------------------
+
+
+def _run_scope_command(args) -> int:
+    report = scope_runner.build_report()
+
+    if args.command == "scope-report":
+        json_path, markdown_path = scope_runner.write_reports(report)
+        for path in (json_path, markdown_path):
+            print(f"wrote {_display(path)}")
+        return 0
+
+    case = report.case(args.case_id)
+    if case is None:
+        print(f"no case {args.case_id!r}. Known cases:", file=sys.stderr)
+        for known in report.cases:
+            print(f"  {known.case.case_id}", file=sys.stderr)
+        return 2
+
+    if args.command == "scope":
+        _print_scope(case)
+    else:
+        _print_scope_diff(case)
+    return 0
+
+
+def _print_scope(case) -> None:
+    print(f"case        {case.case.case_id}")
+    print(f"category    {case.case.category}  lane {case.case.lane}  "
+          f"(cases/{case.case.source_file})")
+    print(f"passage     {case.case.passage_id}")
+    print(f"scope size  {len(case.scope)}  ({len(case.scope.protected_ids)} protected)")
+    print("reasons     " + "  ".join(
+        f"{reason}={count}" for reason, count in case.scope.counts_by_reason().items()
+        if count))
+    print()
+    for candidate in case.scope.concepts:
+        surfaces = ", ".join(candidate.surfaces)
+        print(f"  {candidate.concept_id:36} {','.join(candidate.reasons)}"
+              + (f"   [{surfaces}]" if surfaces else ""))
+    if case.scope.expansions:
+        print()
+        print("confusion-group expansions")
+        for expansion in case.scope.expansions:
+            print(f"  {expansion.concept_id} -> {expansion.sibling_id}")
+
+
+def _print_scope_diff(case) -> None:
+    """What the reviewers expect beside what the scope admits, and nothing else.
+
+    Two columns rather than a set difference in both directions: a candidate the gold set does
+    not name is not an error — the scope is recall-oriented on purpose and stage 9 ranks it —
+    while a gold concept the scope does not hold is unrecoverable downstream.
+    """
+    present = set(case.scope.concept_ids)
+    print(f"case        {case.case.case_id}")
+    print(f"passage     {case.case.passage_id}")
+    print(f"scope size  {len(case.scope)}")
+    print()
+    print("expected by gold")
+    expected = list(case.case.gold_metric_ids) + list(case.known_instance_ids)
+    if not expected:
+        print("  (none - this case asserts an abstention or a non-metric annotation)")
+    for concept_id in expected:
+        verdict = "in   " if concept_id in present else "MISS "
+        reasons = ",".join(case.scope.reasons_for(concept_id)) or "-"
+        print(f"  {verdict} {concept_id:36} {reasons}")
+
+    if case.case.ambiguous_alias_candidates:
+        print()
+        print("ambiguous-alias candidates the case says must all survive")
+        for concept_id in case.case.ambiguous_alias_candidates:
+            verdict = "in   " if concept_id in present else "MISS "
+            print(f"  {verdict} {concept_id}")
+
+    print()
+    print("included beyond gold (not errors - the scope only adds, stage 9 ranks)")
+    for candidate in case.scope.concepts:
+        if candidate.concept_id in expected:
+            continue
+        print(f"        {candidate.concept_id:36} {','.join(candidate.reasons)}")
+
+    if case.asymmetric_pairs:
+        print()
+        print("CONFUSABLE PAIRS HELD ASYMMETRICALLY")
+        for pair in case.asymmetric_pairs:
+            print(f"  {pair[0]} / {pair[1]}")
+
+
+# -- shared -------------------------------------------------------------------------------
 
 
 def _display(path: Path) -> str:

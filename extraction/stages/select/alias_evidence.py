@@ -18,31 +18,34 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+# The fold moved to `core.concept_resolution` when the canonical-label precedence was
+# extracted there (STAGE_08 \u00a72): that module is the lowest layer that needs it, and `core/`
+# may not import a stage. Re-exported here because it is part of this module's published
+# surface and callers should not have to know where matching normalisation lives.
+from ...core.concept_resolution import fold
+
 # Table row labels sit in the first cell of a Markdown pipe row.
 _ROW_LABEL = re.compile(r"^\|\s*([^|]{2,120}?)\s*\|", re.M)
 _WORD_BOUNDARY_CACHE: dict[str, re.Pattern[str]] = {}
 
-# Typographic variants folded before matching. Filings set quotes and dashes as typography;
-# the ontology transcribes them as ASCII. `pct_homes_on_market_gt_120_days` is labelled
-# `Percentage of homes "on the market" ...` with straight quotes, and every KPI table in the
-# corpus prints it with curly ones, so without this fold the metric resolves in no table at
-# all.
-#
-# The encoding correction is what exposed this. Before it these characters arrived as
-# mojibake and matched nothing either way, so the mismatch was invisible.
-# Quotes are *dropped*, not converted, because that is what the registry already does when
-# it builds its own index: the stored surface for the 120-day metric is
-# `percentage of homes on the market for greater than 120 days (at period end)` with no
-# quote characters at all. Folding to straight quotes would still miss it.
-_TYPOGRAPHY = str.maketrans({
-    "\u201c": "", "\u201d": "", "\u2018": "", "\u2019": "", '"': "", "'": "",
-    "\u2014": "-", "\u2013": "-", "\u2212": "-", "\u00a0": " ",
-})
+
+def row_labels(text: str) -> tuple[str, ...]:
+    """The first cell of every Markdown pipe row, in document order.
+
+    Public because the lexical scope resolves each one through the shared resolver rather
+    than re-deriving what counts as a row label from the same regex a second time.
+    """
+    return tuple(_ROW_LABEL.findall(text or ""))
 
 
-def fold(text: str) -> str:
-    """Typographic normalisation for matching only. Never applied to stored text."""
-    return (text or "").translate(_TYPOGRAPHY)
+def matches_whole(surface: str, text: str) -> bool:
+    """Whether a surface form occurs as a whole phrase in `text`, exactly as `hits` decides it.
+
+    Exposed so a caller can ask the same question of the raw and the folded text and learn
+    whether the fold was what made the match \u2014 the difference between `exact_alias` and
+    `normalized_alias`.
+    """
+    return bool(_boundary(surface).search(text or ""))
 
 
 def _boundary(alias: str) -> re.Pattern[str]:
@@ -149,7 +152,7 @@ class AliasIndex:
         if not text:
             return ()
         folded = fold(text)
-        row_labels = fold(" \n".join(_ROW_LABEL.findall(text))).lower()
+        labels = fold(" \n".join(row_labels(text))).lower()
         found: list[AliasHit] = []
         for surface, concept_ids in self.by_surface.items():
             if not _boundary(surface).search(folded):
@@ -158,7 +161,7 @@ class AliasIndex:
                 surface_form=surface,
                 concept_ids=concept_ids,
                 ambiguous=surface in self.ambiguous_surfaces,
-                in_row_label=bool(_boundary(surface).search(row_labels)),
+                in_row_label=bool(_boundary(surface).search(labels)),
                 is_metric=bool(set(concept_ids) & self.metric_concepts),
             ))
         return tuple(sorted(found, key=lambda h: h.surface_form))
