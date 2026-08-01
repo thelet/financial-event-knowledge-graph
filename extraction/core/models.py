@@ -92,7 +92,13 @@ class ScaleDeclaration(BaseModel):
     # Where the declaration was found. `metric_default` means no source declared one and the
     # metric's own unit governed — recorded distinctly so "nobody said" is never mistaken for
     # "the table said units".
-    location: Literal["table_header", "preceding_context", "metric_default"]
+    #
+    # `inline_prose` is the narrative lane's location and the one a table cannot produce: a
+    # letter writes "$279 million" and the scale travels with that number rather than being
+    # declared once for a block of figures. Recorded as its own location because "the word was
+    # printed beside the figure" and "a header two rows up said so" are different strengths of
+    # evidence, and a report that collapsed them could not say which claims rest on which.
+    location: Literal["table_header", "preceding_context", "metric_default", "inline_prose"]
     source_passage_id: str | None = None
     declaration_text: str | None = None
     # Row labels the declaration excludes, e.g. "except percentages, homes sold". Kept as
@@ -178,6 +184,14 @@ class LaneAbstention(BaseModel):
     passage_id: str
     candidate_metric_ids: tuple[str, ...] = ()
     row_label: str | None = None
+    # True when the lane refused something a reader proposed; False when the reader itself
+    # declined. Both are silences and they are not the same silence: a lane refusing a
+    # fabricated quotation is the lane working, and a model declining to answer is the model
+    # working, and §5 says step 11 scores them apart. Added at stage 10, where a narrative
+    # rejection was otherwise indistinguishable from an abstention through this protocol.
+    # Defaulted so the deterministic table lane, whose issues are all its own decisions, is
+    # unchanged.
+    rejected_claim: bool = False
 
 
 class LaneClaim(BaseModel):

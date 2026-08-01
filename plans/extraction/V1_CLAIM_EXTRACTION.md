@@ -543,6 +543,23 @@ ambiguity code `homes_sold_recognition_point` to every observation, rather than 
 recognition point the filings do not state. Matters only at quarter boundaries; flagging
 it costs one field and inventing an answer would be a fabricated measurement.
 
+**Amended 2026-08-02, widened to every declared ambiguity.** The implementation
+(`core.assembly.declared_ambiguity_codes`) attaches *all* the ambiguities the ontology records
+against a metric, not only this one, which today covers four metrics rather than one:
+
+| metric | ambiguity code |
+| --- | --- |
+| `homes_sold` | `homes_sold_recognition_point` |
+| `acquisition_contracts` | `acquisition_contracts_period_semantics` |
+| `pct_homes_on_market_gt_120_days` | `pct_120_days_denominator` |
+| `homes_under_resale_contract` | `resale_contract_unit` |
+
+The plan is amended rather than the code narrowed, and the reason is the one that produced this
+policy in the first place: each code was recorded on the concept precisely so it would travel
+with the observation instead of being silently decided, and there is no argument for carrying
+one and dropping three. Narrowing would also mean writing a metric id into the extractor that
+the vocabulary already states — the failure mode `deferred_metric_ids` exists to avoid.
+
 ## 7.4 `open:InventoryRealEstateInResaleContract` unit — *medium*
 
 Belongs to `homes_under_resale_contract`, which is **out of scope for v1** (§3.1, XBRL-first).
@@ -794,6 +811,54 @@ model can paraphrase; what the benchmark measured is that a whole-passage vector
   resolve in `passages.jsonl`, `verify` would fail it by construction, and evidence that
   cannot be checked is the one thing this pipeline exists to refuse.
 
+## 8a.12 Period attribution is narrowed, not closed — **step 11 must score it** *(2026-08-02)*
+
+§8a.7a records the failure: the period-type check catches an instant read as a duration and
+catches nothing about a duration read as the *wrong* duration, and 21 observations were wrongly
+dated because of it. Stage 10 narrowed that for the narrative lane by refusing to let the model
+state a period at all: `core.periods.period_phrases` collects the phrases a passage prints that
+resolve without a model, and the response schema makes them the enum of `period_label`.
+
+**What that achieves, and what it does not.** It removes every period the passage does not
+print — including the measured failure it was built for, six claims dated a year early on a
+letter that never printed the year. It does **not** make a wrong period unrepresentable, and the
+implementation claimed for a while that it did. A comparative MD&A paragraph prints its
+prior-period phrase too. On `open-20210930.htm#p142` the enum is:
+
+| position | phrase | resolves to |
+| --- | --- | --- |
+| 1 | `three months ended September 30, 2021` | 2021Q3 — the reporting period |
+| 2 | `September 30, 2021` | 2021-09-30 |
+| 3 | `three months ended September 30, 2020` | 2020Q3 — the comparative |
+| 4 | `September 30, 2020` | 2020-09-30 |
+
+Attaching phrase 3 to a 2021 figure passes the period-type check, the value check, the evidence
+check and `ontology.validate_claims`.
+
+**So it is measured rather than assumed.** Every narrative claim records, in
+`extractor_metadata`:
+
+| field | what it says |
+| --- | --- |
+| `period_label` | which printed phrase the model chose |
+| `period_label_char_start` | where that phrase sits in the passage |
+| `period_label_in_evidence` | whether it is inside the quoted evidence sentence |
+| `period_label_distance_from_evidence` | signed characters to the sentence when it is not — negative before, positive after |
+
+**Step 11 scores period attribution as its own dimension**, using these: the rate at which a
+claim's period comes from its own evidence sentence, and the rate at which a claim whose
+sentence states no period takes the passage's reporting period rather than a comparative one.
+`core.periods.reporting_period_keys` computes the second, and the live gate asserts both
+(`test_no_claim_attaches_a_prior_period_to_a_figure_that_does_not_state_one`). None of these
+numbers is an evidence anchor: §8a.11's rule is unchanged, and the anchor is the passage id.
+
+**Related, and recorded here so a gate result is not over-read.** A passage that prints no
+resolvable period gets an enum of `[""]`, so *every* claim on it is refused with
+`MISSING_PERIOD` by construction. The 10-K definitional gate passage
+(`open-20201231.htm#p128`) is one of these. Its empty claim list is therefore partly structural,
+and a run must say whether the model declined or the schema did before reporting it as evidence
+that the lane recognises a definition.
+
 ---
 
 # 9. Implementation sequence
@@ -812,8 +877,8 @@ The authoritative order. Each step ends with a green offline suite and its own n
 | 7 | Local Qwen runtime and real provider | §4.3 | runtime **done** `614f1ac`; provider not started | Provider defaults to `enable_thinking: false`; config test |
 | 8 | Lexical candidate scoping | §4.2a | **done** `e97ad5a` | `LexicalOntologyCandidateScope` never removes a protected candidate |
 | 9 | Embedding index and hybrid scoping | §4.2a | **done** (uncommitted) | Cache keyed by `definition_hash`, model id, dimensions, renderer version; §7 rule applied, **default deferred to step 13** |
-| 10 | Narrative metric extraction | §4.3 | not started | Marked `live`; offline suite still green |
-| 11 | Narrative benchmark evaluation | §4.0 | not started | Same eight dimensions as the table lane, run under **both** scopes — lexical and hybrid — so step 13 has extraction evidence and not only reachability |
+| 10 | Narrative metric extraction | §4.3 | **done** (uncommitted) | Marked `live`; offline suite green at 1,499, live at 49. See [STAGE_10_NARRATIVE_LANE.md](STAGE_10_NARRATIVE_LANE.md) §12a for what review corrected |
+| 11 | Narrative benchmark evaluation | §4.0 | not started | Same eight dimensions as the table lane, **plus period attribution (§8a.12) and rejection-versus-abstention**, run under **both** scopes — lexical and hybrid — so step 13 has extraction evidence and not only reachability |
 | 12 | Representative event and relationship extraction | §4.4 | not started | The benchmark's 4 events and 2 relationships |
 | 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping **decided here**, on step 11's extraction evidence |
 

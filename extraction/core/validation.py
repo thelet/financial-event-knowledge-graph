@@ -30,6 +30,9 @@ FORBIDDEN_SOURCE_LANE = "FORBIDDEN_SOURCE_LANE"
 ONTOLOGY_INVALID = "ONTOLOGY_INVALID"
 DUPLICATE_OBSERVATION_CONFLICT = "DUPLICATE_OBSERVATION_CONFLICT"
 QUOTED_TEXT_NOT_IN_PASSAGE = "QUOTED_TEXT_NOT_IN_PASSAGE"
+# The ontology said something short of an error. Carried under its own code so a reader can
+# tell an evidence warning this module raised from a vocabulary warning it relayed.
+ONTOLOGY_WARNING = "ONTOLOGY_WARNING"
 
 
 @dataclass(frozen=True)
@@ -149,7 +152,16 @@ def validate_no_conflicting_duplicates(claims: list[OntologyClaim]) -> list[Vali
 def validate(
     claims: list[OntologyClaim], *, ontology, passages
 ) -> ExtractionValidationResult:
-    """Every gate, in one call. Ontology validation last so structural problems surface first."""
+    """Every gate, in one call. Ontology validation last so structural problems surface first.
+
+    **The ontology's warnings are relayed, not dropped.** Only its errors were copied until
+    review found it *(2026-08-02)*, so `unpreferred_source_lane` — the vocabulary saying a
+    metric it expects from a table arrived from prose — could never reach a caller. "0 errors"
+    was true of the narrative lane's live gate and "clean" was not: four of its claims carried
+    that warning and nothing could see them. It is exactly the signal step 11 scores a lane on,
+    and a validator that discards the softer half of its own answer teaches a reader to trust a
+    number that was never measured.
+    """
     result = ExtractionValidationResult()
     result.errors.extend(validate_evidence_resolves(claims, passages))
     result.errors.extend(validate_source_lanes(claims, ontology))
@@ -161,4 +173,9 @@ def validate(
         result.errors.append(ValidationFinding(
             ONTOLOGY_INVALID, getattr(error, "message", str(error)),
             getattr(error, "claim_id", None)))
+    for warning in getattr(ontology_result, "warnings", ()) or ():
+        result.warnings.append(ValidationFinding(
+            ONTOLOGY_WARNING,
+            f"{getattr(warning, 'code', '')}: {getattr(warning, 'message', str(warning))}",
+            getattr(warning, "claim_id", None)))
     return result

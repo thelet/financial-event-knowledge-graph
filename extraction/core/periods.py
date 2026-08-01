@@ -156,3 +156,84 @@ def resolve_instant(text: str) -> PeriodRef | None:
     if date is None:
         return None
     return PeriodRef(instant_date=_iso(*date), label_raw=text.strip()[:120] or None)
+
+
+# -- the periods a passage of prose states ---------------------------------------------------
+#
+# A table's periods come from its header row. A passage's come from its own sentences, and the
+# two readers must be one reader or the enum a model chooses from and the resolution applied to
+# its choice will drift apart. These lived in the narrative lane's rejection boundary until
+# review moved them here *(2026-08-02)*: they are the schema's period vocabulary, built before
+# a prompt exists and consumed by the lane, so a lane reaching into the rejection boundary for
+# them was an inversion.
+
+DURATION = "duration"
+INSTANT = "instant"
+
+_DURATION_PHRASE = re.compile(
+    rf"\b(?:(?:three|six|nine|twelve)\s+months|year|fiscal\s+year)\s+ended\s+"
+    rf"(?:{_MONTH_ALT})\s+\d{{1,2}},?\s+\d{{4}}\b", re.I)
+_FISCAL_SHORTHAND = re.compile(r"\b[1-4]Q\d{2}\b")
+_FULL_DATE_IN_TEXT = re.compile(rf"\b(?:{_MONTH_ALT})\s+\d{{1,2}},?\s+\d{{4}}\b", re.I)
+
+
+def resolve_period_phrase(phrase: str, *, period_type: str) -> PeriodRef | None:
+    """One printed phrase to a `PeriodRef` of the type a metric declares, or None.
+
+    An instant falls back to a duration's end date because a passage naming "3Q23" does name
+    2023-09-30, and every stock metric in this corpus is reported at a period end. The reverse
+    fallback does not exist: a bare date says nothing about how long a flow ran, and inventing
+    a length is how a full-year figure becomes a Q4 figure.
+    """
+    if period_type == INSTANT:
+        instant = resolve_instant(phrase)
+        if instant is not None:
+            return instant
+        duration = resolve(phrase, group_header=phrase)
+        if duration is not None and not duration.is_instant and duration.period_end:
+            return PeriodRef(instant_date=duration.period_end, label_raw=phrase)
+        return None
+    duration = resolve(phrase, group_header=phrase)
+    return duration if (duration is not None and not duration.is_instant) else None
+
+
+def period_phrases(text: str) -> tuple[str, ...]:
+    """Every phrase in a passage that this module can resolve, in the order printed.
+
+    Derived by *asking* `resolve_period_phrase` rather than by trusting the patterns above: the
+    patterns propose, and a phrase only enters the vocabulary if it actually resolves.
+
+    Ordered by first occurrence rather than sorted, because the vocabulary is read by a human
+    reviewing a prompt and document order is how the passage reads.
+    """
+    found: dict[str, int] = {}
+    for pattern in (_DURATION_PHRASE, _FISCAL_SHORTHAND, _FULL_DATE_IN_TEXT):
+        for match in pattern.finditer(text or ""):
+            phrase = " ".join(match.group(0).split())
+            if phrase in found:
+                continue
+            if any(resolve_period_phrase(phrase, period_type=kind) is not None
+                   for kind in (DURATION, INSTANT)):
+                found[phrase] = match.start()
+    return tuple(sorted(found, key=lambda phrase: (found[phrase], phrase)))
+
+
+def reporting_period_keys(text: str) -> frozenset[str]:
+    """The period keys a passage's *own* reporting period resolves to, per period type.
+
+    The latest end date of each type, which is what a filing's own reporting period is: an
+    MD&A paragraph prints "three months ended September 30, 2021" beside the comparative
+    "three months ended September 30, 2020", and only the first is the period the paragraph is
+    about. Used to measure period attribution, never to repair it — a figure whose evidence
+    sentence prints its own period is judged against that sentence, not against this.
+    """
+    latest: dict[str, tuple[str, str]] = {}
+    for phrase in period_phrases(text):
+        for kind in (DURATION, INSTANT):
+            resolved = resolve_period_phrase(phrase, period_type=kind)
+            if resolved is None:
+                continue
+            end = resolved.instant_date or resolved.period_end or ""
+            if kind not in latest or end > latest[kind][0]:
+                latest[kind] = (end, resolved.key)
+    return frozenset(key for _, key in latest.values())

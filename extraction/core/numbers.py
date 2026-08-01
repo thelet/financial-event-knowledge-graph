@@ -159,3 +159,103 @@ def word_scale(text: str) -> Scale | None:
         return None
     return {"thousand": "thousands", "million": "millions",
             "billion": "billions"}[match.group(1).lower()]
+
+
+# -- reading a figure out of prose ---------------------------------------------------------
+#
+# These read a *sentence*, not a cell, and they carry no ontology and no model answer: given a
+# string they say what number it prints, what scale word it prints, and whether it names
+# anything at all. They lived inside the narrative lane's rejection boundary until review moved
+# them here *(2026-08-02)* — a module reviewed as a text reader is a module whose off-by-one
+# defects are visible, which is the same argument that moved span location to `text_spans`.
+
+# One printed number, wherever it sits in a phrase. The grouped form is first because
+# alternation is ordered and `\d+` would otherwise read "17,164" as 17 followed by 164.
+_MAGNITUDE = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?")
+
+# Accounting parentheses, meaning the parentheses that wrap **the number itself** — optionally
+# with its currency sigil or percent sign inside them. Written as a pattern rather than as
+# "the phrase contains a '(' and a ')'" because the loose test read every incidental
+# parenthetical as a sign: `'$43 million (Contribution Profit)'` came back as −43 and
+# `'9.8% gross margin (GAAP)'` as −9.8 *(defect found by review 2026-08-02)*. A prose figure
+# carries its label far more often than a cell does, which is why the cell reader never had to
+# make this distinction.
+_ACCOUNTING_NEGATIVE = re.compile(
+    r"\(\s*[$€£]?\s*(?P<value>-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)\s*%?\s*\)")
+
+_WORD_SCALE_NAMES = {"thousand": "thousands", "million": "millions", "billion": "billions"}
+
+
+def printed_magnitude(text: str) -> tuple[float, Scale | None] | None:
+    """A prose figure as printed: `(magnitude, scale word)`, or None.
+
+    Deliberately *not* `parse_money_phrase`, which applies the scale word and returns a scaled
+    value. What is needed by a lane checking a model is the number as the sentence prints it,
+    so the answer's stated value can be checked against it before anything is multiplied — a
+    check that compares two already-scaled numbers cannot tell a scale error from a
+    transcription error.
+
+    **Exactly one number, and everything else ignored.** The rule is a count, not a pattern,
+    which is what makes it both permissive and safe. "17,164 homes" and "44 markets" carry the
+    noun with the figure and are read *(the first version anchored a regex to the whole string
+    and refused both, 2026-08-01)*; "$149.7 million to $169.7 million" carries two figures and
+    is refused, because there is no defensible way to choose between them and choosing wrongly
+    is a silently wrong claim.
+
+    Accounting parentheses are honoured as `parse_magnitude` honours them — `$(49) million` is
+    negative forty-nine million — but **only when the parentheses wrap the number**. See
+    `_ACCOUNTING_NEGATIVE`.
+    """
+    cleaned = clean_cell(text)
+    if not cleaned:
+        return None
+
+    tokens = _MAGNITUDE.findall(cleaned)
+    if len(tokens) != 1:
+        return None
+
+    match = _WORD_SCALE.search(cleaned)
+    word = _WORD_SCALE_NAMES[match.group(1).lower()] if match else None
+
+    value = float(tokens[0].replace(",", ""))
+    negative = _ACCOUNTING_NEGATIVE.search(cleaned)
+    if negative is not None and negative.group("value") == tokens[0] and value > 0:
+        value = -value
+    return value, word
+
+
+def identifies_its_subject(span: str) -> bool:
+    """Whether a quoted span says anything about what its figure measures.
+
+    "to 5,988" is a true quotation of a passage and supports nothing: it locates a number and
+    names neither the metric nor the period *(measured 2026-08-01 — six of one passage's spans
+    came back in that shape after the prompt was rewritten to separate levels from changes)*.
+    Two words of three letters or more, once the numbers are removed, is the smallest rule that
+    separates it from "Sold 2,687 homes" and "or 9.8% gross margin".
+
+    The numbers are stripped rather than the whole figure, because a quotation sometimes puts
+    the noun in with the figure — "17,164 homes" — and removing the whole of that would delete
+    the very word that identifies the subject.
+    """
+    return len(re.findall(r"[A-Za-z]{3,}", _MAGNITUDE.sub(" ", span or ""))) >= 2
+
+
+def scale_word(scale: Scale | str) -> str:
+    """The singular word a scale is printed as. Raises on anything that is not a scale."""
+    return {"thousands": "thousand", "millions": "million", "billions": "billion"}[str(scale)]
+
+
+def declares_scale_word(text: str, word: str) -> bool:
+    """Whether `text` prints the scale word, singular or plural."""
+    return bool(re.search(rf"\b{re.escape(word)}s?\b", text or "", re.I))
+
+
+def scale_declaration_phrase(text: str, word: str) -> str | None:
+    """The scale word with enough of its surroundings to be read back by a human.
+
+    Recorded on the claim rather than the bare word: "in millions, except percentages" and
+    "returned to positive Contribution Profit of $43 million" declare the same scale with very
+    different strength, and a report that kept only "million" could not tell them apart.
+    """
+    match = re.search(rf".{{0,40}}\b{re.escape(word)}s?\b.{{0,20}}", text or "", re.I)
+    return " ".join(match.group(0).split()) if match else None

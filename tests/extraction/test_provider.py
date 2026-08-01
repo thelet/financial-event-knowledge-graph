@@ -379,12 +379,41 @@ def test_an_enum_violation_is_caught():
 # -- architectural rules, executable ------------------------------------------------------------------
 
 
-def test_no_stage_can_reach_a_provider():
+# The one stage that is allowed to know a provider exists, and the only module of the
+# provider package it may name. `extraction/contracts.py` has drawn this exception since
+# before either lane was written — `OntologyGuidedNarrativeClaimLane (a local generation
+# provider, behind its own port)` — and stage 10 is where it became real.
+#
+# Amended at stage 10 *(2026-08-01)*. The original rule was "no stage, ever", written when the
+# table lane was the only stage there was, and it would have failed the narrative lane for
+# importing two exception classes.
+#
+# **This is a narrowly scoped exception, not a stricter rule** *(wording corrected at review
+# 2026-08-02, which found it described as "stricter")*. It is strictly weaker: it permits
+# something the old rule forbade — `narrative/*` naming `providers.public` — and forbids
+# nothing the old rule allowed. What bounds it is the scope, not the strength: exactly one
+# stage, exactly one module of the provider package, and the adapter that holds the wire format
+# still unreachable from anywhere under `stages/`.
+PROVIDER_AWARE_STAGE = "narrative"
+PROVIDER_PORT_MODULE = "providers.public"
+
+
+def test_no_stage_can_reach_a_provider_except_the_lane_the_contract_names():
     """The rule the whole package exists to keep. A stage that *could* reach a provider is
     one that might, and the table lane's determinism would rest on review rather than
-    structure."""
+    structure.
+
+    What this test checks is the *provider* half: which stage may name which provider module.
+    The wire-format half — that no HTTP client is reachable from the narrative lane under any
+    name — is not checkable with the fixed list of two strings below, and is checked over the
+    transitive import graph by
+    `test_narrative_lane.test_nothing_the_narrative_lane_reaches_can_name_a_wire_format`. The
+    list here is a fast structural backstop for the two clients this repository actually has;
+    it is deliberately not the guarantee.
+    """
     offenders = []
     for path in (PACKAGE / "stages").rglob("*.py"):
+        stage = path.relative_to(PACKAGE / "stages").parts[0]
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             names = []
@@ -393,8 +422,13 @@ def test_no_stage_can_reach_a_provider():
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names = [node.module]
             for name in names:
-                if "provider" in name.lower() or name.split(".")[0] in ("httpx", "requests"):
+                if name.split(".")[0] in ("httpx", "requests"):
                     offenders.append(f"{path.relative_to(REPO)}: {name}")
+                elif "provider" in name.lower():
+                    allowed = (stage == PROVIDER_AWARE_STAGE
+                               and name.endswith(PROVIDER_PORT_MODULE))
+                    if not allowed:
+                        offenders.append(f"{path.relative_to(REPO)}: {name}")
     assert offenders == []
 
 
