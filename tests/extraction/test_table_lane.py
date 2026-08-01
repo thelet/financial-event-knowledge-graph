@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from extraction.core.assembly import deferred_metric_ids
+from extraction.core.assembly import assemble, deferred_metric_ids
 from extraction.core.models import PeriodRef
+from extraction.core.validation import validate
 from extraction.stages.select import AliasIndex
 from extraction.stages.tables import (
     DeterministicTableClaimLane,
@@ -155,7 +156,10 @@ def test_split_currency_and_value_cells(lane, passages):
     result = run(lane, passages, RECON_Q1_2021)
     claim = claim_for(result, "adjusted_gross_profit", "2021Q1")
     assert claim.raw_text == "97,038"
-    assert claim.unit == "usd" and claim.currency == "USD"
+    # `USD`, as the ontology spells it. `usd` is in no part of the vocabulary and
+    # `check_observation_unit` refuses it; this line asserted the lower-case spelling
+    # until 2026-08-02, which is how the lane kept emitting it.
+    assert claim.unit == "USD" and claim.currency == "USD"
 
 
 def test_split_value_and_percent_cells(lane, passages):
@@ -379,10 +383,18 @@ def test_the_lane_emits_lane_claims_and_not_ontology_claims(lane, passages):
 
 
 def test_source_lane_and_assertion_type(lane, passages):
+    """`reported`, because that is the only value `AssertionType` contains.
+
+    This asserted `explicitly_reported` until 2026-08-02, and so encoded the defect rather
+    than the contract: the string is not in the ontology's enum, and every claim carrying it
+    raised `ValidationError` the moment it reached `MetricObservation`. Nothing noticed for
+    five stages because no test drove a table-lane claim past `LaneClaim` -- see
+    `test_every_table_lane_claim_survives_assembly_and_both_validators`, which now does.
+    """
     result = run(lane, passages, KPI_Q1_2025, SCALE_Q1_2025)
     for claim in result.claims:
         assert claim.source_lane == "normalized_table"
-        assert claim.assertion_type == "explicitly_reported"
+        assert claim.assertion_type == "reported"
 
 
 def test_subject_basis_is_recorded(lane, passages):
@@ -557,3 +569,104 @@ def test_previously_correct_cases_are_unchanged_by_the_discriminator(lane, passa
     assert claim_for(recon, "adjusted_gross_profit", "2021Q1").value == 97_038_000
     tenq = run(lane, passages, TENQ_Q1_2025)
     assert claim_for(tenq, "homes_sold", "2025Q1").value == 2946
+
+
+# -- the whole way through, which is what neither defect above survived ----------------------
+
+
+class _CatalogPassages:
+    """A `PassageSource` over the real catalog, so evidence resolution is not simulated."""
+
+    def __init__(self, rows: dict[str, dict]):
+        self._rows = rows
+
+    def text_of(self, passage_id):
+        row = self._rows.get(passage_id)
+        return row["text"] if row else None
+
+    def exists(self, passage_id):
+        return passage_id in self._rows
+
+    def document_of(self, passage_id):
+        row = self._rows.get(passage_id)
+        return row["document_id"] if row else None
+
+
+def test_every_table_lane_claim_survives_assembly_and_both_validators(lane, passages, ontology):
+    """The test whose absence hid two defects for five stages.
+
+    Every other test in this file stops at `LaneClaim`, because that is the lane's contract
+    and `assemble` belongs to another module. The gap that opened is that *nothing* drove a
+    table-lane claim the rest of the way, so two values the ontology cannot accept sat in
+    every claim the lane emitted and no suite noticed:
+
+    - `assertion_type="explicitly_reported"`, which is not in `AssertionType` -- all 28 claims
+      from the Q1 2025 KPI table raised `ValidationError` at `MetricObservation`;
+    - `unit="usd"`, where every monetary metric declares
+      `allowed_units: ['USD', 'USD_thousands', 'USD_millions']` and `check_observation_unit`
+      refuses the lower-case spelling.
+
+    Both are one-word defects and neither could be caught by asserting on a `LaneClaim`, which
+    is why this test asserts on the far end instead. Step 13's integrated run is the first
+    thing that would have hit them in anger.
+    """
+    checked = 0
+    for passage_id, preceding_id in ((KPI_Q1_2025, SCALE_Q1_2025),
+                                     (RECON_Q1_2021, None),
+                                     (RECON_Q4_2020, SCALE_Q4_2020),
+                                     (TENQ_Q1_2025, None)):
+        extraction = run(lane, passages, passage_id, preceding_id)
+        assert extraction.claims, passage_id
+
+        result = assemble(list(extraction.claims), ontology=ontology, passage_rows=passages)
+        assert result.claims, f"{passage_id}: assembly produced nothing"
+        assert not result.rejected, [str(r) for r in result.rejected][:3]
+
+        ontology_result = ontology.validate_claims(list(result.claims))
+        assert not ontology_result.errors, \
+            f"{passage_id}: {[str(e) for e in ontology_result.errors][:3]}"
+
+        findings = validate(list(result.claims), ontology=ontology,
+                            passages=_CatalogPassages(passages))
+        assert not findings.errors, f"{passage_id}: {[str(e) for e in findings.errors][:3]}"
+        checked += len(result.claims)
+
+    assert checked > 50, f"only {checked} claims reached the validators"
+
+
+def test_the_unit_a_monetary_claim_carries_is_a_unit_the_ontology_declares(lane, passages,
+                                                                          ontology):
+    """`usd` is not in the vocabulary anywhere, and the lane used to emit it.
+
+    Asserted against the ontology rather than against the literal `"USD"` so that a
+    vocabulary that renamed its monetary unit would fail here rather than silently disagree
+    with the lane.
+    """
+    extraction = run(lane, passages, KPI_Q1_2025, SCALE_Q1_2025)
+    monetary = [c for c in extraction.claims if c.currency]
+    assert monetary
+
+    for claim in monetary:
+        metric = ontology.registry.metric(claim.metric_id)
+        allowed = set(metric.allowed_units) | {metric.unit}
+        assert claim.unit in allowed, f"{claim.metric_id}: {claim.unit!r} not in {sorted(allowed)}"
+
+
+def test_the_population_wording_is_carried_for_whatever_metric_declares_one(lane, passages,
+                                                                           ontology):
+    """§7.1 keyed on the vocabulary, not on one metric's name.
+
+    The lane wrote `metric_id == "pct_homes_on_market_gt_120_days"` -- the literal the rest
+    of it is careful never to write. A second metric declaring a population would have lost
+    its filed wording silently, which is the one thing §7.1 exists to prevent.
+    """
+    declaring = {c.concept_id for c in ontology.registry.by_category("metric_definition")
+                 if getattr(c, "population", None)}
+    assert declaring, "no metric declares a population; this test would prove nothing"
+
+    for passage_id, preceding_id in ((KPI_Q1_2025, SCALE_Q1_2025), (TENQ_Q1_2025, None)):
+        for claim in run(lane, passages, passage_id, preceding_id).claims:
+            if claim.metric_id in declaring:
+                assert claim.population_definition_raw, claim.metric_id
+            else:
+                assert claim.population_definition_raw is None, claim.metric_id

@@ -89,7 +89,7 @@ cases:
     gold_claims:
       - metric_id: borrowing_capacity
         value: 525000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         instant_date: "2022-10-19"

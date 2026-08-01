@@ -23,6 +23,7 @@ import yaml
 from extraction.core import numbers, periods
 from extraction.stages.select import AliasIndex, SelectionPolicy, TypedCandidateSelector
 from ontology import load_ontology
+from ontology.core.values import MONETARY_UNITS
 
 REPO = Path(__file__).resolve().parents[2]
 CASES_DIR = REPO / "benchmarks" / "extraction" / "v1" / "cases"
@@ -128,10 +129,23 @@ def test_period_headers_are_present_and_resolvable(case, passages):
 @pytest.mark.parametrize("case", CASES, ids=IDS)
 def test_unit_is_determinable_for_every_gold_claim(case):
     """Counts, percentages and dollars are distinguished by the row label and the sigil
-    columns, both of which the passage carries."""
+    columns, both of which the passage carries.
+
+    The allowed set is asked of the ontology rather than written down. It used to be the
+    literal `{"homes", "usd", "percent", "markets"}`, which is how the gold kept a lower-case
+    `usd` the vocabulary has never contained -- a spelling `check_observation_unit` refuses,
+    so a claim carrying it could not pass verify however right the rest of it was. A literal
+    set can only ever agree with the vocabulary by coincidence *(corrected 2026-08-02)*.
+    """
+    ontology = load_ontology()
     for claim in case.get("gold_claims") or []:
-        assert claim["unit"] in {"homes", "usd", "percent", "markets"}, claim["unit"]
-        if claim["unit"] == "usd":
+        metric = ontology.registry.metric(claim["metric_id"])
+        if metric is None:      # event and relationship cases carry no metric
+            continue
+        allowed = set(metric.allowed_units) | {metric.unit}
+        assert claim["unit"] in allowed, (
+            f"{case['case_id']}/{claim['metric_id']}: {claim['unit']!r} not in {sorted(allowed)}")
+        if claim["unit"] in MONETARY_UNITS:
             assert claim.get("currency") == "USD", (
                 f"{case['case_id']}/{claim['metric_id']}: a monetary claim needs a currency")
 

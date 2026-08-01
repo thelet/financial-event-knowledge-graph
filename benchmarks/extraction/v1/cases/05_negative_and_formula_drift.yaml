@@ -23,7 +23,7 @@ cases:
     gold_claims:
       - metric_id: adjusted_gross_profit
         value: 211274000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2020-01-01"

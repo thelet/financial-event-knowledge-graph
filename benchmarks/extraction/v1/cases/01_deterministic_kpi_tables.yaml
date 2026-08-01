@@ -77,7 +77,7 @@ cases:
           scale declaration by "except percentages".
       - metric_id: contribution_profit
         value: 54000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2025-01-01"
@@ -100,7 +100,7 @@ cases:
         column_label: "March 31, 2025"
       - metric_id: adjusted_ebitda
         value: -30000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2025-01-01"
@@ -195,7 +195,7 @@ cases:
           definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
       - metric_id: adjusted_ebitda
         value: -49000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2024-10-01"
@@ -435,7 +435,7 @@ cases:
         column_label: "September 30, 2024"
       - metric_id: contribution_profit
         value: 52000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2024-07-01"

@@ -19,7 +19,7 @@ cases:
     gold_claims:
       - metric_id: adjusted_gross_profit
         value: 279000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2021-10-01"
@@ -43,7 +43,7 @@ cases:
           come from the sentence's subject, not from a label.
       - metric_id: adjusted_gross_profit
         value: 769000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2021-01-01"
@@ -64,7 +64,7 @@ cases:
         assertion_type: reported
       - metric_id: adjusted_gross_profit
         value: 38000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2020-10-01"
@@ -79,7 +79,7 @@ cases:
           period - the letter rounds. Both are `reported`; neither supersedes the other.
       - metric_id: contribution_profit
         value: 152000000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: millions
         period_start: "2021-10-01"
@@ -124,7 +124,7 @@ cases:
         assertion_type: reported
         population:
           definition_raw: "5% of our homes were listed on the market for more than 120 days"
-        ambiguity_codes: [pct_120_day_denominator]
+        ambiguity_codes: [pct_120_days_denominator]
     abstentions:
       - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
         detail: '"$6.6 billion in value" is the inventory balance for the same instant.'
@@ -165,7 +165,7 @@ cases:
         assertion_type: reported
         population:
           definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
-        ambiguity_codes: [pct_120_day_denominator]
+        ambiguity_codes: [pct_120_days_denominator]
     abstentions:
       - reason: AMBIGUOUS_COLUMN_ORDER
         detail: >-

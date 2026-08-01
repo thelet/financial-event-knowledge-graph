@@ -22,7 +22,7 @@ cases:
     gold_claims:
       - metric_id: adjusted_gross_profit
         value: 97038000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2021-01-01"
@@ -48,7 +48,7 @@ cases:
           than the row label will attach it to the wrong metric and still look right.
       - metric_id: contribution_profit
         value: 76146000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2021-01-01"
@@ -60,7 +60,7 @@ cases:
         column_label: "March 31, 2021"
       - metric_id: direct_selling_costs
         value: -17340000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2021-01-01"
@@ -75,7 +75,7 @@ cases:
           sign is part of the reported figure and must not be normalised away.
       - metric_id: adjusted_gross_profit
         value: 88848000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2020-01-01"
@@ -116,7 +116,7 @@ cases:
     gold_claims:
       - metric_id: adjusted_gross_profit
         value: 38228000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2020-10-01"
@@ -128,7 +128,7 @@ cases:
         column_label: "Three Months Ended December 31, 2020"
       - metric_id: adjusted_gross_profit
         value: 211274000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2020-01-01"
@@ -271,7 +271,7 @@ cases:
         column_label: "March 31, 2020"
       - metric_id: contribution_profit
         value: 31457000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2020-10-01"
@@ -283,7 +283,7 @@ cases:
         column_label: "December 31, 2020"
       - metric_id: contribution_profit
         value: 38556000
-        unit: usd
+        unit: USD
         currency: USD
         scale_applied: thousands
         period_start: "2020-01-01"

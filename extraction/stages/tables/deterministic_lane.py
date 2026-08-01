@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ...core import numbers, periods
+from ...core import numbers, periods, units
 from ...core.concept_resolution import resolve_label
 from ...core.models import (
     LaneAbstention,
@@ -286,15 +286,20 @@ class DeterministicTableClaimLane:
             subject_entity_id=subject_entity_id,
             subject_type=subject_type,
             source_lane=LANE_NAME,
-            assertion_type="explicitly_reported",
+            assertion_type="reported",
             passage_id=passage_id,
             document_id=document_id,
             raw_text=raw_value,
             scale=applied,
             row_label=raw_label,
             column_label=column.column_label,
+            # §7.1's policy, decided from the vocabulary rather than from one metric's name.
+            # This read `metric_id == "pct_homes_on_market_gt_120_days"`, which is the literal
+            # the rest of this lane is careful never to write: a second metric declaring a
+            # population would silently lose its wording. `assemble` asks the same question
+            # the same way, so the lane and the policy cannot drift apart.
             population_definition_raw=(
-                raw_label if metric_id == "pct_homes_on_market_gt_120_days" else None),
+                raw_label if getattr(metric, "population", None) else None),
             extractor_metadata={
                 "lane": LANE_NAME,
                 "lane_version": LANE_VERSION,
@@ -331,21 +336,16 @@ class DeterministicTableClaimLane:
         return resolution.concept_ids, resolution.ambiguous
 
     def _unit_for(self, metric, raw_label: str, grid: TableGrid, row_index: int):
-        """Unit and currency for a row.
+        """Unit and currency for a row, from the one rule both lanes go through.
 
-        Monetary metrics report absolute USD. The ontology's `USD_millions` names the unit a
-        metric is *customarily presented* in, not the scale a particular table used - the
-        same metric appears in thousands in a 2021 reconciliation and millions in a 2025
-        KPI table. Emitting the declared string as the unit would make the claim's unit
-        depend on the vocabulary's presentation choice rather than on the filing.
+        This used to be its own copy of the rule, and it emitted lower-case `usd` -- a
+        spelling the ontology does not contain. Every monetary metric declares
+        `allowed_units: ['USD', 'USD_thousands', 'USD_millions']`, so `check_observation_unit`
+        rejects `usd` outright and no claim carrying it could pass §4.5's verify. Nothing
+        caught it because no test drove a table-lane claim through assembly (§14).
+        `core.units` now holds the rule and the reasoning behind absolute USD.
         """
-        declared = str(getattr(metric, "unit", "") or "")
-        value_type = str(getattr(metric, "value_type", "") or "")
-        if declared == "percent" or value_type == "percentage":
-            return "percent", None
-        if value_type == "monetary" or declared.lower().startswith("usd"):
-            return "usd", "USD"
-        return declared or None, None
+        return units.unit_for_metric(metric)
 
     def _period_type_mismatch(self, metric, period: PeriodRef) -> str | None:
         """Refuse a period whose shape the metric forbids.
@@ -369,7 +369,7 @@ class DeterministicTableClaimLane:
         sold in a quarter. The exception list is a presentation note about the monetary
         columns; the unit decides whether a scale can apply at all.
         """
-        if unit != "usd" or scale is None:
+        if not units.is_monetary(unit) or scale is None:
             return magnitude, None if scale is None else ScaleDeclaration(
                 scale="units", location=scale.location,
                 source_passage_id=scale.source_passage_id,

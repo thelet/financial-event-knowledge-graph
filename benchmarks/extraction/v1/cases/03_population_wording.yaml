@@ -27,7 +27,7 @@ cases:
         assertion_type: reported
         population:
           definition_raw: "only 8% of our homes had been listed on the market for more than 120 days"
-        ambiguity_codes: [pct_120_day_denominator]
+        ambiguity_codes: [pct_120_days_denominator]
     abstentions:
       - reason: NOT_THE_SUBJECT_COMPANY
         detail: >-
@@ -56,7 +56,7 @@ cases:
         assertion_type: reported
         population:
           definition_raw: "59% of our homes in inventory had been listed on the market for more than 120 days"
-        ambiguity_codes: [pct_120_day_denominator]
+        ambiguity_codes: [pct_120_days_denominator]
       - metric_id: housing_inventory_homes
         value: 6261
         unit: homes
@@ -90,7 +90,7 @@ cases:
         assertion_type: reported
         population:
           definition_raw: "18% of our homes had been listed on the market for more than 120 days"
-        ambiguity_codes: [pct_120_day_denominator]
+        ambiguity_codes: [pct_120_days_denominator]
       - metric_id: pct_homes_on_market_gt_120_days
         value: 55
         unit: percent
@@ -101,7 +101,7 @@ cases:
         assertion_type: reported
         population:
           definition_raw: "55% of our portfolio had been listed on the market for more than 120 days"
-        ambiguity_codes: [pct_120_day_denominator]
+        ambiguity_codes: [pct_120_days_denominator]
       - metric_id: acquisition_contracts
         value: 2114
         unit: homes
