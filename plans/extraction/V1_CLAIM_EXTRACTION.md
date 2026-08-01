@@ -3,7 +3,7 @@
 **Status:** partially implemented. The provider-independent half is built and green — shared
 contracts, deterministic identities, assembly, validation, typed candidate selection and the
 deterministic table lane. The narrative lane and its local provider are next; the runtime for
-them is built and gated but unused. **1,254 tests pass offline.**
+them is built and gated but unused. **1,405 tests pass offline.**
 
 **Scope:** turn the normalized corpus into validated `OntologyClaim` objects carrying
 evidence that points back into that corpus, for the 20 metrics the corpus can actually
@@ -19,7 +19,7 @@ support.
 | `select` (§4.1) | **done** — 503 table, 3,072 narrative candidates | `614f1ac` |
 | `tables` lane (§4.2) | **done** — recall 0.939, six dimensions at 1.000 | `22aafa4` |
 | `narrative` lane (§4.3) | not started | — |
-| candidate scoping (§4.2a) | not started | — |
+| candidate scoping (§4.2a) | **done** — lexical `e97ad5a`; hybrid measured, uncommitted | `e97ad5a` |
 | `catalog` (§4.6) | not started | — |
 
 Sections 1–3 are measurement. Sections 4–7 are durable design decisions. Section 8a records
@@ -767,6 +767,33 @@ narrative passages — in a single-company corpus `opendoor` and `the company` m
 everything, and a candidate set that size has stopped discriminating. Entity hits are still
 recorded on the candidate for a subject resolver.
 
+## 8a.11 Whole-passage embedding dilutes, and the evidence boundary does not move *(verified 2026-08-01)*
+
+Measured at step 9 while deciding lexical versus hybrid candidate scoping
+([STAGE_09_HYBRID_SCOPING.md](STAGE_09_HYBRID_SCOPING.md) §11.4). It is recorded here because
+it is a **constraint stage 10 inherits**, not a step-9 detail.
+
+The lexically unreachable wording "59% of our homes in inventory had been listed on the market
+for more than 120 days" behaves completely differently at two granularities against the same
+131-concept index:
+
+| Granularity | Rank of `pct_homes_on_market_gt_120_days` | Similarity | Margin over next |
+| --- | --- | --- | --- |
+| the sentence alone (82 chars) | **0** | 0.8307 | 0.1375 |
+| the 2,046-character passage it occurs in | **2** | 0.5169 | — |
+
+In that whole passage **nothing** stands clear of the passage's own background at 3 sd. So the
+model can paraphrase; what the benchmark measured is that a whole-passage vector cannot use it.
+
+**The evidence boundary remains the normalized passage.** A claim cites a `passage_id`, and
+§4.5's `verify` resolves it against `passages.jsonl`.
+
+- Stage 10 **may** focus prompts, or semantic scoring, on **evidence-resolvable spans** inside
+  a passage — sentences it can still cite by that passage's id.
+- Stage 10 **must not** create synthetic evidence anchors. A sub-passage identifier would not
+  resolve in `passages.jsonl`, `verify` would fail it by construction, and evidence that
+  cannot be checked is the one thing this pipeline exists to refuse.
+
 ---
 
 # 9. Implementation sequence
@@ -781,14 +808,14 @@ The authoritative order. Each step ends with a green offline suite and its own n
 | 3 | Shared contracts, identities, assembly, validation | §4.4 §4.5 §5 §6 | **done** `f92533a` | Structural + conformance tests; no provider reachable |
 | 4 | Typed candidate selection | §4.1 | **done** `614f1ac` | One reason code per (passage, lane); benchmark recall 1.000 |
 | 5 | Deterministic table lane | §4.2 | **done** `22aafa4` | Recall ≥0.93; six dimensions at 1.000 |
-| 6 | Table-lane benchmark evaluation report | §4.0 | next | `benchmarks/extraction/v1/reports/table_lane_v1.{json,md}`; two regenerations byte-identical |
+| 6 | Table-lane benchmark evaluation report | §4.0 | **done** `1d37eba` | `benchmarks/extraction/v1/reports/table_lane_v1.{json,md}`; two regenerations byte-identical |
 | 7 | Local Qwen runtime and real provider | §4.3 | runtime **done** `614f1ac`; provider not started | Provider defaults to `enable_thinking: false`; config test |
-| 8 | Lexical candidate scoping | §4.2a | not started | `LexicalOntologyCandidateScope` never removes a protected candidate |
-| 9 | Embedding index and hybrid scoping | §4.2a | not started | Cache keyed by `definition_hash`, model id, dimensions, renderer version |
+| 8 | Lexical candidate scoping | §4.2a | **done** `e97ad5a` | `LexicalOntologyCandidateScope` never removes a protected candidate |
+| 9 | Embedding index and hybrid scoping | §4.2a | **done** (uncommitted) | Cache keyed by `definition_hash`, model id, dimensions, renderer version; §7 rule applied, **default deferred to step 13** |
 | 10 | Narrative metric extraction | §4.3 | not started | Marked `live`; offline suite still green |
-| 11 | Narrative benchmark evaluation | §4.0 | not started | Same eight dimensions as the table lane |
+| 11 | Narrative benchmark evaluation | §4.0 | not started | Same eight dimensions as the table lane, run under **both** scopes — lexical and hybrid — so step 13 has extraction evidence and not only reachability |
 | 12 | Representative event and relationship extraction | §4.4 | not started | The benchmark's 4 events and 2 relationships |
-| 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping decided on measurement |
+| 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping **decided here**, on step 11's extraction evidence |
 
 Steps 0–6 and 8 are fully offline. Step 7 introduces the only provider; steps 9–13 use it.
 
@@ -886,7 +913,10 @@ tested.
    precedence, which is sound for a table cell but does not help a bare prose mention.
    **Recommendation:** leave the vocabulary alone for now and revisit once the narrative lane
    has measured how often a bare mention actually occurs — changing `aliases.yaml` shifts
-   `definition_hash` and invalidates the cached concept vectors step 9 will build.
+   `definition_hash` and invalidates the concept vectors step 9 **has now built**
+   (`benchmarks/extraction/v1/vectors/`, rejected outright on a key mismatch, never partially
+   reused). The cost of that revision is now concrete: a rebuild against the embedding server
+   and a regenerated `hybrid_scope_v1.{json,md}`.
 
 1. **The narrative-lane provider is fixed; the prompt strategy is not.** This decision was
    deliberately left open until the claim contract was proven by the table lane. It has since
@@ -906,10 +936,19 @@ tested.
    returned schema-conformant JSON in 59 tokens. Leaving it on would make the lane's budget
    failures present as extraction failures.
 
-   **What remains to be measured**, not chosen in advance: prompt and schema design, retry
-   and repair behaviour on malformed output, and whether the benchmark justifies lexical or
-   hybrid candidate scoping as the default (§4.2a, steps 8–9). No larger or alternative model
-   is compared in v1.
+   **What remains to be measured**, not chosen in advance: prompt and schema design, and
+   retry and repair behaviour on malformed output. No larger or alternative model is compared
+   in v1.
+
+   **The scoping half of this is now partly answered and explicitly still open.** Steps 8 and
+   9 measured *reachability* and nothing else: the lexical scope reaches 0.959 of required
+   concepts, the hybrid scope at the derived `top_k` 2 reaches 0.980, and no §7 criterion is
+   damaged by the addition
+   ([STAGE_09_HYBRID_SCOPING.md](STAGE_09_HYBRID_SCOPING.md) §11.3c). What that report cannot
+   say is which scope produces better *claims*, and no gold-independent heuristic establishes
+   the right runtime `top_k`. `scoping.strategy` therefore stays `lexical`, step 11 runs the
+   narrative benchmark under **both** scopes, and **step 13 decides the default** on that
+   evidence.
 2. **Settled, not open — recorded because an earlier draft said otherwise.** This plan no
    longer covers `metric_observation` only. **V1 includes the benchmark's representative 4
    event claims and 2 relationship claims** (step 12), as a bounded proof that the same claim

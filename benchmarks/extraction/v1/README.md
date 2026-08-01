@@ -179,6 +179,54 @@ it. It asks, for every case whose gold names one of five confusable pairs — `h
 whether **both** members are in scope. One without the other is the state in which a lane
 cannot tell it is reading the wrong one.
 
+### Hybrid scope
+
+`reports/hybrid_scope_v1.{json,md}` score three scopes over the same reviewed cases: the lexical one
+above, the semantic candidates alone as a **diagnostic**, and their union. The question is the
+one STAGE_09 sets — does semantic retrieval beat the lexical baseline and recover the two
+`pct_homes_on_market_gt_120_days` paraphrases, without unacceptable expansion or ambiguity
+damage.
+
+```bash
+python -m benchmarks.extraction.v1 hybrid-report        # regenerate both reports, offline
+python -m benchmarks.extraction.v1 hybrid-build         # fill the vector caches, then report
+python -m benchmarks.extraction.v1 hybrid <case_id>     # one case's ranking and candidates
+```
+
+`hybrid-report` never touches the network: it reads the committed vectors under `vectors/`,
+and a missing one is an error rather than a zero vector. `hybrid-build` is the only command
+here that talks to the embedding server on 8081.
+
+**Every score, the verdict and the `top_k` sweep live in
+[`reports/hybrid_scope_v1.md`](reports/hybrid_scope_v1.md), and are deliberately not repeated
+here.** A number copied into a README is a number nothing regenerates and no test checks; the
+report's own decision block is computed from the scores above it, and the sweep beneath it is
+computed at every cap. Read them there. The same applies to the sizes of the committed vector
+caches, which the report's identity table states.
+
+What this README is for is the parts that are *not* results:
+
+`embedding_only` is a diagnostic and never a runtime option. It is in the report to show which
+half of the hybrid column each number comes from.
+
+`vectors/concepts.json` and `vectors/texts.json` are committed. Their header `cache_key` is a
+sha256 over `definition_hash | model_id | dimensions | renderer_version |
+text_normalization_version`; a file whose key disagrees is rejected, never partially reused.
+Editing the ontology therefore invalidates them, which is the intended behaviour.
+
+**The committed vectors are the authority, and a rebuild reproduces meaning rather than
+bytes.** The embedding server's output depends on the request that preceded it, so byte
+identity of a rebuilt cache is not a property this code promises. The determinism contract is
+stated as five clauses in STAGE_09 §1.1 and asserted by
+`tests/extraction/test_embeddings_live.py`: live vectors need not be byte-identical, repeated
+compatible requests agree to cosine ≥ 0.9999, candidate selection is identical, the persisted
+cache is authoritative, and reports generated from that cache are byte-identical.
+
+Semantic additions the gold set does not name are called **unrequired additions** throughout,
+never false positives. The benchmark annotates a deliberate subset, so an unannotated addition
+is unmeasured rather than wrong — the same reason the table-lane report refuses to call its
+matched-over-emitted ratio precision.
+
 ## Review status
 
 Every case is marked `reviewed: true` only after its values were checked against the cited

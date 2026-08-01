@@ -101,6 +101,13 @@ def config():
 @pytest.fixture(scope="module")
 def provider(config):
     instance = LocalOpenAICompatibleGenerationProvider(config)
+    # Skip, not error. Without this gate every test in the file raises `ProviderUnavailable`
+    # during setup when the generation server is down, which is indistinguishable in the
+    # summary from the provider being broken — and the server is legitimately stopped for the
+    # offline stages. `test_embeddings_live.py` set this precedent; step 7 predates it.
+    if not instance.health().ok:
+        instance.close()
+        pytest.skip(f"no generation server at {config.base_url}")
     yield instance
     instance.close()
 

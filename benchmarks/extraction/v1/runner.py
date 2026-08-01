@@ -551,12 +551,6 @@ def _head_commit() -> str:
     return commit
 
 
-# Published because the lexical-scope report in `scope_runner.py` needs the same corpus
-# identity and the same commit. A second implementation of either is how two reports in one
-# directory start describing different runs while both looking authoritative.
-corpus_identity = _corpus_identity
-head_commit = _head_commit
-
 
 def build_report(*, catalog_root: Path | None = None,
                  implementation_commit: str | None = None) -> TableLaneReport:
@@ -915,6 +909,16 @@ def _cell(text: str | None) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
+def _ratio(hit: int, total: int) -> float:
+    """1.0 for an empty denominator: nothing was asked for and nothing was missed.
+
+    Rounded to `RATIO_DIGITS` before serialisation, because an unrounded ratio makes a
+    committed report sensitive to the last bits of a float division and turns a rerun on
+    another machine into a diff.
+    """
+    return 1.0 if total == 0 else round(hit / total, RATIO_DIGITS)
+
+
 def _index(value: int | None) -> str:
     return EM_DASH if value is None else str(value)
 
@@ -936,3 +940,16 @@ def write_reports(report: TableLaneReport, directory: Path = REPORTS_DIR) -> tup
     json_path.write_text(render_json(report), encoding="utf-8")
     markdown_path.write_text(render_markdown(report), encoding="utf-8")
     return json_path, markdown_path
+
+
+# Published because the two scope reports in this directory need the same corpus identity, the
+# same commit, the same rounding and the same Markdown escaping. A second implementation of any
+# of them is how two reports in one directory start describing different runs, or rounding to
+# different places, while both look authoritative. `ratio` lives here rather than in
+# `scope_runner` because `RATIO_DIGITS` does: the constant and the only function that applies
+# it belong together.
+corpus_identity = _corpus_identity
+head_commit = _head_commit
+ratio = _ratio
+anchor = _anchor
+cell = _cell

@@ -6,9 +6,13 @@ declarations exist to prevent: a reader could not tell whether `homes_purchased`
 because the passage names it or because `homes_sold` dragged it in as the sibling the lane
 must be able to reject. Every candidate therefore carries the reasons it is in the set.
 
-All eight reasons are **protected**. A later ranking stage — the hybrid scope and its
+All eight lexical reasons are **protected**. A later ranking stage — the hybrid scope and its
 `EmbeddingProvider` — may add candidates and may reorder them, and may never remove one of
 these. `extraction.contracts.EmbeddingProvider` states the same rule from the other side.
+
+The ninth reason, `semantic_neighbour`, is the one the hybrid scope adds and the one that is
+**not** protected. That asymmetry is the whole of stage 9's safety argument: a similarity
+score may put a concept in front of a lane, and may never be the reason one is taken away.
 
 No benchmark import belongs here, and an executable test enforces it.
 """
@@ -38,15 +42,23 @@ NORMALIZED_ALIAS = "normalized_alias"
 KNOWN_INSTANCE = "known_instance"
 CONFUSION_SIBLING = "confusion_sibling"
 
-SCOPE_REASONS = frozenset({
+# Stage 9's addition: a concept whose rendered ontology entry is near the passage in
+# embedding space. Evidence of a kind, and weaker than every reason above it — it names no
+# surface in the text, so a reader cannot check it by looking.
+SEMANTIC_NEIGHBOUR = "semantic_neighbour"
+
+# The eight the lexical scope produces, and the only ones a later stage may not drop. Stated
+# as its own name rather than as `SCOPE_REASONS` because the two stopped being equal the
+# moment `semantic_neighbour` arrived, and the rule "protected candidates may not be dropped"
+# has to keep meaning what it meant at stage 8. `semantic_neighbour` is deliberately absent:
+# STAGE_09 §4.1.
+PROTECTED_REASONS = frozenset({
     EXACT_ALIAS, NORMALIZED_ALIAS, CANONICAL_LABEL, AMBIGUOUS_ALIAS, STABLE_CORE,
     KNOWN_INSTANCE, TABLE_LABEL, CONFUSION_SIBLING,
 })
 
-# Every one of them. Stated as its own name rather than as `SCOPE_REASONS` because the two
-# will stop being equal the moment the hybrid scope adds a semantic reason, and the rule
-# "protected candidates may not be dropped" has to keep meaning what it means today.
-PROTECTED_REASONS = frozenset(SCOPE_REASONS)
+# Every reason any scope in this package can produce.
+SCOPE_REASONS = PROTECTED_REASONS | frozenset({SEMANTIC_NEIGHBOUR})
 
 # Always in scope, whatever the passage says. A single-registrant corpus has a subject even
 # when the sentence in front of the lane never names it, and a lane with no entity in its
@@ -89,10 +101,36 @@ class ConfusionExpansion:
 
 @dataclass(frozen=True)
 class CandidateScope:
-    """Everything a lane may consider for one passage, with the evidence for each candidate."""
+    """Everything a lane may consider for one passage, with the evidence for each candidate.
+
+    `reason_vocabulary` is the set of codes the scope that built this one *could* have
+    produced, and it exists so that `counts_by_reason` can key a zero honestly. A lexical
+    scope reporting `semantic_neighbour: 0` would be claiming a check that never ran; a hybrid
+    scope omitting the key when no neighbour cleared the threshold would hide the one number
+    that says the threshold is doing something. The default is the eight protected codes
+    because the lexical scope is the one that does not pass an argument.
+    """
 
     concepts: tuple[ScopedConcept, ...]
     expansions: tuple[ConfusionExpansion, ...] = ()
+    reason_vocabulary: frozenset[str] = PROTECTED_REASONS
+
+    def __post_init__(self) -> None:
+        """`reason_vocabulary` must cover every reason actually present, or the counts lie.
+
+        `counts_by_reason` keys on the vocabulary alone, so a scope built with a narrower one
+        than it carries reports candidates that are in `concept_ids` and in `len(scope)` under
+        no reason at all — the sum of the counts silently stops matching the set. That is the
+        exact failure mode the vocabulary was introduced to prevent, in the other direction,
+        so it is refused at construction rather than discovered in a report.
+        """
+        present = {reason for concept in self.concepts for reason in concept.reasons}
+        unknown = present - set(self.reason_vocabulary)
+        if unknown:
+            raise ValueError(
+                f"CandidateScope carries reasons {sorted(unknown)} that its "
+                f"reason_vocabulary {sorted(self.reason_vocabulary)} does not declare; "
+                f"counts_by_reason() would omit the candidates carrying them")
 
     @property
     def concept_ids(self) -> tuple[str, ...]:
@@ -119,6 +157,9 @@ class CandidateScope:
 
         A reason missing from the mapping and a reason that fired nothing are different
         findings, and a report that printed only the non-zero ones could not tell a reader
-        which of the eight stopped working.
+        which of the codes stopped working. Which codes are keyed is `reason_vocabulary`.
         """
-        return {reason: len(self.by_reason(reason)) for reason in sorted(SCOPE_REASONS)}
+        return {
+            reason: len(self.by_reason(reason))
+            for reason in sorted(self.reason_vocabulary)
+        }

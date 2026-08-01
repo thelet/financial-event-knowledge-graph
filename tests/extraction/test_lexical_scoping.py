@@ -109,6 +109,12 @@ def test_every_reason_code_is_produced_by_a_real_corpus_passage(scope, passages)
     rot silently: it exists only because filings set curly quotes where the ontology
     transcribes straight ones, and it would go to zero the moment the fold regressed without
     a single other assertion in this suite noticing.
+
+    Narrowed from `SCOPE_REASONS` to `PROTECTED_REASONS` when stage 9 added
+    `semantic_neighbour`: the set this scope is answerable for is the eight it can produce,
+    and asking a lexical scope to demonstrate a semantic reason would be asking it to fail.
+    `test_hybrid_scoping.py` demonstrates the ninth. The second assertion below is the one
+    that keeps this strict — the lexical scope may produce *nothing else*.
     """
     produced: dict[str, str] = {}
     for case in scope_runner.load_scope_cases():
@@ -117,9 +123,9 @@ def test_every_reason_code_is_produced_by_a_real_corpus_passage(scope, passages)
             if count and reason not in produced:
                 produced[reason] = case.case_id
 
-    missing = sorted(SCOPE_REASONS - set(produced))
+    missing = sorted(PROTECTED_REASONS - set(produced))
     assert missing == [], f"no corpus case produced {missing}"
-    assert set(produced) == set(SCOPE_REASONS)
+    assert set(produced) == set(PROTECTED_REASONS)
 
 
 def test_every_candidate_is_protected(scope, passages):
@@ -511,9 +517,11 @@ def test_every_passage_id_in_the_scope_report_resolves(passages):
     for case in committed["cases"]:
         assert case["passage_id"] in passages, case["case_id"]
         assert passages[case["passage_id"]]["document_id"] == case["document_id"]
-        assert set(case["counts_by_reason"]) == set(SCOPE_REASONS)
+        # The eight, and only the eight. A `semantic_neighbour: 0` key here would be a report
+        # of a check that never ran: the lexical scope has no embedding to run it with.
+        assert set(case["counts_by_reason"]) == set(PROTECTED_REASONS)
         for candidate in case["candidates"]:
-            assert set(candidate["reasons"]) <= SCOPE_REASONS
+            assert set(candidate["reasons"]) <= PROTECTED_REASONS
             assert candidate["protected"] is True
 
 

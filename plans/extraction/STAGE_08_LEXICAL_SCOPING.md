@@ -139,6 +139,13 @@ python -m benchmarks.extraction.v1 scope-diff <case_id>  # expected vs included
   **This is the measurement that motivates stage 9.** Semantic retrieval that may only *add*
   candidates is precisely the mechanism for a paraphrase no declared surface covers. 0.959 is
   the lexical baseline hybrid scoping must beat; if it does not, lexical stays the default.
+
+  **Stage 9 measured it and did not settle the default** —
+  [STAGE_09_HYBRID_SCOPING.md](STAGE_09_HYBRID_SCOPING.md) §11.3c. Hybrid reaches 0.980 at the
+  derived `top_k` 2 and recovers one of the two paraphrases; the other is reachable only at a
+  cap no gold-independent statistic establishes. What that answers is *reachability*, which is
+  all a scope can be scored on. The runtime default is deferred to step 13 and decided on step
+  11's narrative-extraction evidence, with `scoping.strategy` staying `lexical` meanwhile.
 - [ ] Table-lane benchmark numbers unchanged; its report regenerates identically.
 - [ ] `pytest -m "not live"` green.
 - [ ] Reports committed and byte-reproducible.

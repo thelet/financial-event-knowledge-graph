@@ -28,6 +28,16 @@ DEFAULT_TEMPERATURE = 0.0
 DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_MAX_RETRIES = 2
 
+# The validated embedding runtime, a second llama.cpp server on its own port so the two
+# coexist. STAGE_09 §1.1, measured 2026-08-01.
+DEFAULT_EMBEDDING_BASE_URL = "http://127.0.0.1:8081"
+DEFAULT_EMBEDDING_MODEL = "Qwen3-Embedding-0.6B-f16.gguf"
+DEFAULT_EMBEDDING_DIMENSIONS = 1024
+# 16 per request, the batch STAGE_09 §1.1 measured. Not a maximum: the server is started with
+# `-ub 2048`, so the physical batch covers the longest single input, and a larger request
+# batch buys nothing on 131 concepts while making one oversize input fail 16 embeddings.
+DEFAULT_EMBEDDING_BATCH = 16
+
 
 class ProviderError(RuntimeError):
     """Base of every failure this boundary is allowed to raise."""
@@ -154,4 +164,61 @@ class ProviderConfig:
                 f"provider.max_output_tokens ({self.max_output_tokens}) leaves no room for a "
                 f"prompt in provider.context_tokens ({self.context_tokens})"
             )
+        return self
+
+
+@dataclass(frozen=True)
+class EmbeddingConfig:
+    """The declarative half of the embedding provider, from `config/extraction.yaml`.
+
+    A sibling of `ProviderConfig` rather than a reuse of it: the two describe different
+    servers on different ports, and every generation-shaped field — context window, output
+    budget, temperature, thinking — is meaningless for an embedding request. Sharing the
+    dataclass would mean `max_output_tokens` had to hold a lie to pass `validated()`.
+
+    `dimensions` is configuration and is *checked* against every response rather than read
+    from one. STAGE_09 §1.1: the server echoes the `model` string it was sent, so nothing on
+    the wire can be trusted to say which model produced a vector — which is exactly why model
+    identity has to come from here, where it is committed and diffable.
+    """
+
+    kind: str = DEFAULT_KIND
+    base_url: str = DEFAULT_EMBEDDING_BASE_URL
+    model: str = DEFAULT_EMBEDDING_MODEL
+    dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    max_retries: int = DEFAULT_MAX_RETRIES
+    batch_size: int = DEFAULT_EMBEDDING_BATCH
+
+    @classmethod
+    def from_config(cls, config: dict) -> "EmbeddingConfig":
+        embedding = config.get("embedding") or {}
+        loaded = cls(
+            kind=str(embedding.get("kind", DEFAULT_KIND)),
+            base_url=str(
+                embedding.get("base_url", DEFAULT_EMBEDDING_BASE_URL)).rstrip("/"),
+            model=str(embedding.get("model", DEFAULT_EMBEDDING_MODEL)),
+            dimensions=int(embedding.get("dimensions", DEFAULT_EMBEDDING_DIMENSIONS)),
+            timeout_seconds=float(
+                embedding.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)),
+            max_retries=int(embedding.get("max_retries", DEFAULT_MAX_RETRIES)),
+            batch_size=int(embedding.get("batch_size", DEFAULT_EMBEDDING_BATCH)),
+        )
+        return loaded.validated()
+
+    def validated(self) -> "EmbeddingConfig":
+        if not self.base_url:
+            raise ProviderConfigurationError("embedding.base_url is required")
+        if not self.model:
+            raise ProviderConfigurationError(
+                "embedding.model is required: it is the only statement of which model a "
+                "cached vector came from, because the server echoes the request string")
+        if self.dimensions <= 0:
+            raise ProviderConfigurationError("embedding.dimensions must be positive")
+        if self.max_retries < 0:
+            raise ProviderConfigurationError("embedding.max_retries must not be negative")
+        if self.timeout_seconds <= 0:
+            raise ProviderConfigurationError("embedding.timeout_seconds must be positive")
+        if self.batch_size <= 0:
+            raise ProviderConfigurationError("embedding.batch_size must be positive")
         return self

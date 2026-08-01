@@ -36,7 +36,10 @@ from extraction.stages.select import AliasIndex
 from ontology import load_ontology
 
 from . import runner
-from .runner import BENCHMARK_VERSION, CASES_DIR, REPORTS_DIR, EM_DASH, RATIO_DIGITS
+from .runner import (
+    BENCHMARK_VERSION, CASES_DIR, EM_DASH, RATIO_DIGITS, REPORTS_DIR,
+    anchor as _anchor, cell as _cell, ratio as _ratio,
+)
 
 REPORT_STEM = "lexical_scope_v1"
 
@@ -356,7 +359,13 @@ def _totals(cases: list[CaseScopeReport]) -> dict[str, Any]:
     ambiguity_cases = [c for c in cases if c.ambiguity_preserved is not None]
     ambiguity_hit = sum(1 for c in ambiguity_cases if c.ambiguity_preserved)
 
-    counts: dict[str, int] = {reason: 0 for reason in sorted(SCOPE_REASONS)}
+    # Keyed by what the scopes under measurement could have produced, not by every reason the
+    # package declares. A lexical report carrying `semantic_neighbour: 0` would be reporting a
+    # check that never ran; the hybrid report, whose scopes carry the wider vocabulary, keys
+    # it and shows the count.
+    vocabulary = set().union(
+        *(case.scope.reason_vocabulary for case in cases)) if cases else SCOPE_REASONS
+    counts: dict[str, int] = {reason: 0 for reason in sorted(vocabulary)}
     for case in cases:
         for reason, count in case.scope.counts_by_reason().items():
             counts[reason] += count
@@ -388,13 +397,12 @@ def _totals(cases: list[CaseScopeReport]) -> dict[str, Any]:
     }
 
 
-def _ratio(hit: int, total: int) -> float:
-    """1.0 for an empty denominator: nothing was asked for and nothing was missed.
-
-    Rounded before serialisation for the same reason the table-lane report rounds — an
-    unrounded ratio makes a committed file sensitive to the last bits of a float division.
-    """
-    return 1.0 if total == 0 else round(hit / total, RATIO_DIGITS)
+# Published because the hybrid-scope report in `hybrid_scope_runner.py` scores three views on
+# exactly these terms. A second implementation of the scoring is how two reports in one
+# directory start disagreeing about what recall means while both looking authoritative — the
+# same reason `runner.py` publishes its corpus identity and its commit lookup.
+case_report = _case_report
+totals = _totals
 
 
 def build_report(*, catalog_root: Path | None = None,
@@ -709,17 +717,6 @@ def _case_markdown(case: CaseScopeReport) -> list[str]:
             "",
         ]
     return lines
-
-
-def _anchor(case_id: str) -> str:
-    return case_id.lower().replace(" ", "-")
-
-
-def _cell(text: str | None) -> str:
-    """Markdown table cells cannot carry a pipe or a newline."""
-    if not text:
-        return EM_DASH
-    return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
 # -- writing --------------------------------------------------------------------------------------

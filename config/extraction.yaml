@@ -32,6 +32,56 @@ provider:
   max_retries: 2
   enable_thinking: false
 
+# The local embedding provider, a second llama.cpp server so the two coexist. Every value is
+# the runtime validated on 2026-08-01 and recorded in plans/extraction/STAGE_09_HYBRID_SCOPING.md
+# §1.1, not a guess.
+#
+# `model` is the only statement of which model produced a cached vector: the server echoes
+# back whatever `model` string the request carried, so the response cannot be believed about
+# its own identity. It is part of the vector cache key for exactly that reason.
+embedding:
+  kind: local_openai_compatible
+  base_url: http://127.0.0.1:8081
+  model: Qwen3-Embedding-0.6B-f16.gguf
+  dimensions: 1024
+  timeout_seconds: 120
+  max_retries: 2
+
+# Which concepts a lane may consider for a passage.
+#
+# `strategy` stays `lexical`, and is the one key here with **no consumer yet**: step 10's
+# composition root is what reads it to choose a scope. It is validated at load anyway — an
+# unrecognised value raises rather than falling through to a default — so the key fails where
+# it is written instead of at the first passage.
+#
+# Why `lexical`: STAGE_09 §7 sets four conditions for hybrid to become the default and the
+# committed report `reports/hybrid_scope_v1.md` does not meet the first. Step 9's evidence is
+# about *reachability* only; the lexical-vs-hybrid default is deferred to step 13, which
+# decides it on step 11's narrative-extraction evidence. Changing this line is a founder
+# decision that the report is written to inform, not a tuning knob.
+#
+# Both numbers below come from the measured similarity distribution and from no gold answer.
+# The distribution is a mixture whose location moves with the text, so an absolute threshold
+# can only floor and rank has to select:
+#   top_k          how many concepts stand clear of a text's own field at its own mean + 3 sd,
+#                  at its maximum over the measured texts.
+#   min_similarity the pooled mean + 1 sd, rounded to two places, which excludes roughly 84%
+#                  of all pairs by construction. A statement about the background, not a text.
+# The figures behind both are in the report's distribution section, and
+# `tests/extraction/test_hybrid_scoping.py` asserts that these two values *are* what those
+# statistics produce — so an edit here that the distribution does not support fails the suite.
+#
+# There is no `cache_root`. STAGE_09 §3 promised one for a runtime cache under
+# `data/embedding_cache/`; nothing in step 9 fills it, because the benchmark's committed
+# vectors are what make the report regenerable offline. It arrives with the runtime that needs
+# it rather than sitting here validating and doing nothing (STAGE_09 §11.5).
+scoping:
+  strategy: lexical
+  hybrid:
+    renderer_version: v1
+    top_k: 2
+    min_similarity: 0.45
+
 selection:
   policy_version: v1
 

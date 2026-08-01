@@ -1,6 +1,6 @@
 """CLI for the extraction benchmark v1.
 
-Seven subcommands, two of which write anything:
+Ten subcommands, four of which write anything:
 
     python -m benchmarks.extraction.v1 report                regenerate the table-lane reports
     python -m benchmarks.extraction.v1 evaluate              print totals, write nothing
@@ -11,11 +11,20 @@ Seven subcommands, two of which write anything:
     python -m benchmarks.extraction.v1 scope <case_id>       one case's candidate scope
     python -m benchmarks.extraction.v1 scope-diff <case_id>  expected vs included
 
+    python -m benchmarks.extraction.v1 hybrid-report         regenerate the hybrid reports
+    python -m benchmarks.extraction.v1 hybrid-build          fill the vector caches, then above
+    python -m benchmarks.extraction.v1 hybrid <case_id>      one case's hybrid scope
+
 `evaluate` exists because the common question during development is "did a number move",
 and answering it should not require a dirty working tree. The scope commands are separated
 from the lane commands rather than folded into `case`: they cover all 26 cases while the lane
 covers 11, and one command that silently answered about a different set depending on its
 argument would be worse than two.
+
+`hybrid-build` is the only command in this file that touches a network. It is separate from
+`hybrid-report` on purpose: the report must be regenerable offline from the committed vector
+caches, and a single command that quietly reached for a server on a cache miss would make
+"the committed report reproduces" an untested claim.
 """
 
 from __future__ import annotations
@@ -23,13 +32,15 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
-from . import scope_runner
+from . import hybrid_scope_runner, scope_runner
 from .runner import MATCH_DIMENSIONS, build_report, write_reports
 
 LANE_COMMANDS = ("report", "evaluate", "case", "claims")
 SCOPE_COMMANDS = ("scope-report", "scope", "scope-diff")
+HYBRID_COMMANDS = ("hybrid-report", "hybrid-build", "hybrid")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,14 +53,21 @@ def main(argv: list[str] | None = None) -> int:
     subcommands.add_parser("evaluate", help="print lane totals; write nothing")
     subcommands.add_parser(
         "scope-report", help="regenerate reports/lexical_scope_v1.{json,md}")
+    subcommands.add_parser(
+        "hybrid-report", help="regenerate reports/hybrid_scope_v1.{json,md}, offline")
+    subcommands.add_parser(
+        "hybrid-build", help="fill the vector caches from the embedding server, then report")
     for name, help_text in (("case", "one table case in detail"),
                             ("claims", "every emitted observation for one case"),
                             ("scope", "the candidate scope for one case"),
-                            ("scope-diff", "expected vs included concepts for one case")):
+                            ("scope-diff", "expected vs included concepts for one case"),
+                            ("hybrid", "the hybrid candidate scope for one case")):
         sub = subcommands.add_parser(name, help=help_text)
         sub.add_argument("case_id")
 
     args = parser.parse_args(argv)
+    if args.command in HYBRID_COMMANDS:
+        return _run_hybrid_command(args)
     if args.command in SCOPE_COMMANDS:
         return _run_scope_command(args)
     return _run_lane_command(args)
@@ -172,6 +190,129 @@ def _print_scope_diff(case) -> None:
         print("CONFUSABLE PAIRS HELD ASYMMETRICALLY")
         for pair in case.asymmetric_pairs:
             print(f"  {pair[0]} / {pair[1]}")
+
+
+# -- the hybrid scope -----------------------------------------------------------------------
+
+
+def _run_hybrid_command(args) -> int:
+    """The three commands that involve the embedding index.
+
+    Timings are printed here and never written to the report: STAGE_09 §6 asks for both
+    durations and byte-identical regeneration, and those cannot both hold. See
+    `hybrid_scope_runner`'s module docstring.
+    """
+    if args.command == "hybrid-build":
+        return _build_vector_caches()
+
+    started = time.perf_counter()
+    report = hybrid_scope_runner.build_report()
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+
+    if args.command == "hybrid-report":
+        json_path, markdown_path = hybrid_scope_runner.write_reports(report)
+        for path in (json_path, markdown_path):
+            print(f"wrote {_display(path)}")
+        print(f"cache reuse: whole report from the committed caches in {elapsed_ms:.0f} ms, "
+              f"no network")
+        print(f"verdict: {report.decision['verdict']}")
+        return 0
+
+    case = report.case(args.case_id)
+    if case is None:
+        print(f"no case {args.case_id!r}. Known cases:", file=sys.stderr)
+        for known in report.views["hybrid"].cases:
+            print(f"  {known.case.case_id}", file=sys.stderr)
+        return 2
+    _print_hybrid(report, case)
+    return 0
+
+
+def _build_vector_caches() -> int:
+    """Embed whatever is missing, save both caches, and report what it cost.
+
+    The only network-touching command in this CLI. It builds the report afterwards so that a
+    build which leaves the caches incomplete fails here rather than in a test.
+    """
+    from extraction.providers import (
+        EmbeddingConfig,
+        LocalOpenAICompatibleEmbeddingProvider,
+    )
+    from ontology import load_ontology
+
+    from . import runner
+
+    config = EmbeddingConfig.from_config(hybrid_scope_runner._extraction_config())
+    provider = LocalOpenAICompatibleEmbeddingProvider(config)
+    health = provider.health()
+    print(f"embedding server {config.base_url}: {health.status}"
+          + (f" ({health.detail})" if health.detail else ""))
+    if not health.ok:
+        return 2
+
+    ontology = load_ontology()
+    started = time.perf_counter()
+    scope, concepts, texts = hybrid_scope_runner.build_scopes(
+        ontology, provider=provider, model_id=config.model, dimensions=config.dimensions)
+
+    passages = runner.load_passages()
+    cases = scope_runner.load_scope_cases()
+    embedded = [passages[case.passage_id]["text"] for case in cases]
+    labels = [case.case_id for case in cases]
+    for probe in list(scope_runner.PROBES) + list(hybrid_scope_runner.PARAPHRASE_PROBES) + [
+            hybrid_scope_runner.FORMULA_PROBE]:
+        embedded.append(probe["text"])
+        labels.append(probe["name"])
+    texts.vectors_for(embedded, labels=labels)
+    # The ablation arm of §2.1 renders one concept differently; embedding it here keeps the
+    # report's offline path complete.
+    from extraction.stages.scoping import concept_vectors
+
+    concept_vectors(ontology, concepts, include_raw_variants=True)
+    elapsed = time.perf_counter() - started
+
+    concept_path = concepts.save()
+    text_path = texts.save()
+    added = concepts.added + texts.added
+    print(f"cache build: {added} vectors embedded in {elapsed:.1f} s"
+          + (f" ({elapsed / added * 1000:.0f} ms each)" if added else " (all cached)"))
+    print(f"wrote {_display(concept_path)}  {len(concepts)} entries")
+    print(f"wrote {_display(text_path)}  {len(texts)} entries")
+    print(f"cache_key {concepts.cache_key}")
+
+    report = hybrid_scope_runner.build_report()
+    json_path, markdown_path = hybrid_scope_runner.write_reports(report)
+    for path in (json_path, markdown_path):
+        print(f"wrote {_display(path)}")
+    print(f"verdict: {report.decision['verdict']}")
+    return 0
+
+
+def _print_hybrid(report, case) -> None:
+    case_id = case.case.case_id
+    neighbours = report.neighbours[case_id]
+    print(f"case        {case_id}")
+    print(f"passage     {case.case.passage_id}")
+    print("scope size  " + "  ".join(
+        f"{view}={len(report.views[view].case(case_id).scope)}"
+        for view in hybrid_scope_runner.VIEWS))
+    print(f"top_k       {report.selection['top_k']}  "
+          f"min_similarity {report.selection['min_similarity']}")
+    print()
+    print("ranking head")
+    selected = {n.concept_id for n in neighbours.selected}
+    for neighbour in neighbours.head:
+        mark = "*" if neighbour.concept_id in selected else " "
+        print(f"  {mark} {neighbour.rank:3} {neighbour.similarity:.4f} "
+              f"{neighbour.concept_id}")
+    if neighbours.gold_ranks:
+        print()
+        print("gold metrics in the ranking")
+        for concept_id, rank, similarity in neighbours.gold_ranks:
+            print(f"    {rank:3} {similarity:.4f} {concept_id}")
+    print()
+    for candidate in case.scope.concepts:
+        print(f"  {candidate.concept_id:36} {','.join(candidate.reasons)}")
 
 
 # -- shared -------------------------------------------------------------------------------
