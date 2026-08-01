@@ -9,6 +9,29 @@ paths:
   normalization_catalog: data/normalization_catalog
   manifests_root: extraction_manifests
 
+# The local generation provider. Every value is the runtime validated on 2026-08-01 and
+# recorded in plans/extraction/LOCAL_RUNTIME_VALIDATED.md §1, not a guess.
+#
+# `enable_thinking: false` is not a tuning preference. With thinking on, a four-field schema
+# request spent all 900 tokens reasoning and returned empty content; with it off the same
+# request returned conformant JSON in 59 tokens (§4). Config loading REJECTS `true` with
+# ProviderConfigurationError rather than warning, because the failure would present as an
+# extraction failure rather than a budget one.
+provider:
+  kind: local_openai_compatible
+  base_url: http://127.0.0.1:8080
+  model: Qwen3.5-9B-Q4_K_M.gguf
+  # 8,192 is deliberate, not a maximum: the Q1 2025 KPI table is ~2,657 characters before an
+  # ontology candidate list is appended. Raising it is a later measurement.
+  context_tokens: 8192
+  max_output_tokens: 1024
+  temperature: 0.0
+  timeout_seconds: 120
+  # Retries *after* the first attempt, so three attempts in total. Transport and 5xx only —
+  # a schema-invalid answer is a model result and is never retried.
+  max_retries: 2
+  enable_thinking: false
+
 selection:
   policy_version: v1
 

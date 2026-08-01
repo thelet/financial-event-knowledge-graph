@@ -12,5 +12,5 @@ dev = ["pytest>=8.0"]
 testpaths = ["tests"]
 # Makes `acquisition` and the shared test helpers importable under a bare `pytest` too.
 pythonpath = [".", "tests", "tests/normalization", "tests/ontology"]
-markers = ["live: touches the real SEC API (deselect with -m 'not live')"]
+markers = ["live: touches something outside the repository — the real SEC API, or the local llama.cpp server (deselect with -m 'not live')"]
 addopts = "-q"

@@ -20,7 +20,8 @@ involved beyond an opaque `extractor_metadata` dict the ontology never interpret
 
 from __future__ import annotations
 
-from typing import Protocol, Sequence, TypeVar, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Protocol, Sequence, TypeVar, runtime_checkable
 
 from .core.models import CandidatePassage, LaneResult
 
@@ -85,6 +86,39 @@ class PassageSource(Protocol):
     def document_of(self, passage_id: str) -> str | None: ...
 
 
+@dataclass(frozen=True)
+class GenerationResult:
+    """One model answer, with everything needed to audit it and nothing vendor-shaped.
+
+    `content` is the parsed object the schema described. `raw_content` is the exact string it
+    was parsed from, kept because a scale or sign error is only recoverable when the printed
+    form survives.
+
+    Two hashes, for two different questions. `raw_sha256` covers the whole response body and
+    answers "what exactly did the server send"; it is *not* stable across identical requests,
+    because llama.cpp's envelope carries a fresh `id`, a `created` timestamp and per-request
+    `timings` *(measured 2026-08-01: two identical temperature-0 requests produced envelope
+    digests `09a83ea4…` and `9f49033c…`)*. `content_sha256` covers the answer alone and is
+    the digest that is stable, so it is the one determinism is checked against.
+    """
+
+    content: dict[str, Any]
+    raw_content: str
+    model_id: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    latency_ms: float
+    raw_sha256: str
+    content_sha256: str
+    finish_reason: str
+    attempts: int
+    # Free-form and uninterpreted downstream, matching `OntologyClaim.extractor_metadata`'s
+    # own rule. `reasoning_content` is recorded here when the server emits it and is never
+    # returned as content.
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 @runtime_checkable
 class GenerationProvider(Protocol):
     """Where a model answer comes from. The narrative lane's only outside dependency.
@@ -101,7 +135,7 @@ class GenerationProvider(Protocol):
 
     def generate(
         self, *, prompt: str, schema: dict, max_tokens: int = 1024, temperature: float = 0.0
-    ) -> dict: ...
+    ) -> GenerationResult: ...
 
 
 @runtime_checkable
