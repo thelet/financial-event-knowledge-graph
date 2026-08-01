@@ -54,16 +54,31 @@ def is_xbrl_metadata(tag: str) -> bool:
 _HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)
 
 
-def parse_html_bytes(raw: bytes) -> HtmlElement:
-    """Parse raw bytes.
+def parse_html_bytes(raw: bytes, encoding: str | None = None) -> HtmlElement:
+    """Parse raw bytes, optionally declaring the encoding those bytes are in.
 
     Bytes, never str: 91 of 377 artifacts in this corpus begin with an XML declaration and
     `lxml.html.fromstring` raises `ValueError: Unicode strings with encoding declaration
     are not supported` when handed a `str`.
+
+    `encoding` exists because bytes reach this function from two different places, and only
+    one of them is self-describing:
+
+    * **A file we downloaded** — pass no encoding. The bytes carry their own XML declaration
+      or `<meta charset>`, and lxml must be free to honour it.
+    * **Bytes we produced ourselves** by re-encoding an already-decoded `str` — pass the
+      encoding we encoded with. Most SEC fragments declare no charset, so lxml falls back to
+      latin-1 (the HTML default) and reads UTF-8 `\\xc2\\xa0` back as `Â` + NBSP. That
+      silently corrupted every non-ASCII character in the corpus: NBSP, em dashes, curly
+      quotes and accented letters alike.
     """
     if not isinstance(raw, (bytes, bytearray)):
         raise TypeError("parse_html_bytes requires bytes; SEC inline-XBRL files declare an encoding")
-    return lxml.html.fromstring(raw)
+    if encoding is None:
+        return lxml.html.fromstring(raw)
+    # Built per call rather than module-level: lxml parsers carry state and are not safe to
+    # share across concurrent parses.
+    return lxml.html.fromstring(raw, parser=lxml.html.HTMLParser(encoding=encoding))
 
 
 def strip_non_content(root: HtmlElement) -> int:

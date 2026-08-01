@@ -176,7 +176,10 @@ class SecHtmlDocumentParser:
         table = None
         if source:
             try:
-                root = parse_html_bytes(source.encode("utf-8"))
+                # `source` is a str sec-parser already decoded; declare the encoding we
+                # re-encode with or lxml falls back to latin-1 on these charset-less
+                # fragments and mangles every non-ASCII character.
+                root = parse_html_bytes(source.encode("utf-8"), encoding="utf-8")
                 found = root.find(".//table")
                 node = root if root.tag == "table" else (found if found is not None else root)
                 table = extract_table(
@@ -230,7 +233,8 @@ def _node_of(source: str | None):
     if not source:
         return None
     try:
-        return parse_html_bytes(source.encode("utf-8"))
+        # See `_table_block`: same str -> bytes round trip, same encoding declaration.
+        return parse_html_bytes(source.encode("utf-8"), encoding="utf-8")
     except Exception:  # noqa: BLE001
         return None
 
