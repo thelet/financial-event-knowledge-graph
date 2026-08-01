@@ -100,6 +100,28 @@ class TableLaneEvaluation:
         return "\n".join(lines)
 
 
+def compare(gold: GoldClaim, claim: LaneClaim, *,
+            evidence_resolves: bool) -> dict[str, bool]:
+    """The six per-dimension verdicts for one matched (gold, claim) pair.
+
+    Public because a report that shows a verdict per observation and an accuracy per
+    dimension must derive both from here. Two implementations of the same comparison can
+    disagree silently — all 46 observations reading WRONG while the accuracy reads 1.000 —
+    and nothing in the numbers would say which one was lying.
+
+    Evidence resolution is passed in rather than recomputed: what makes a passage id
+    resolvable belongs to the caller's corpus, not to scoring.
+    """
+    return {
+        "value_ok": _close(claim.value, gold.value),
+        "unit_ok": claim.unit == gold.unit,
+        "scale_ok": _scale_of(claim) == (gold.scale_applied or "units"),
+        "period_ok": claim.period.key == gold.period_key,
+        "subject_ok": claim.subject_entity_id == gold.subject_entity_id,
+        "evidence_ok": evidence_resolves,
+    }
+
+
 def evaluate_case(
     case_id: str,
     passage_id: str,
@@ -121,18 +143,12 @@ def evaluate_case(
             missing.append(f"{want.metric_id}@{want.period_key}")
             continue
         result.matched += 1
-        if _close(got.value, want.value):
-            result.value_ok += 1
-        if got.unit == want.unit:
-            result.unit_ok += 1
-        if _scale_of(got) == (want.scale_applied or "units"):
-            result.scale_ok += 1
-        if got.period.key == want.period_key:
-            result.period_ok += 1
-        if got.subject_entity_id == want.subject_entity_id:
-            result.subject_ok += 1
-        if resolves_evidence(got):
-            result.evidence_ok += 1
+        # `compare` keys are `CaseResult`'s counter names, so the aggregate and the
+        # per-observation verdicts cannot drift apart: they are the same booleans.
+        for dimension, ok in compare(
+                want, got, evidence_resolves=resolves_evidence(got)).items():
+            if ok:
+                setattr(result, dimension, getattr(result, dimension) + 1)
 
     gold_keys = {(g.metric_id, g.period_key) for g in gold}
     result.missing = tuple(sorted(missing))
