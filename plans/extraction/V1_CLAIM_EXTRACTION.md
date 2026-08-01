@@ -343,6 +343,38 @@ committed passages covers most of the corpus.
 claim and records an `AMBIGUOUS_ALIAS` issue naming the candidates. Guessing would
 manufacture exactly the metric confusion the `distinct_from` declarations exist to prevent.
 
+## 4.2a The lane hierarchy, and what may never overrule what
+
+Both lanes satisfy one `ClaimLane` protocol and neither is named in `contracts.py`:
+
+```text
+ClaimLane
+├── DeterministicTableClaimLane        no provider, fully offline
+└── OntologyGuidedNarrativeClaimLane   a local generation provider, behind its own port
+```
+
+`extract` takes **one candidate at a time**, not a batch. Routing stays outside the lanes so
+it is auditable: the caller decides which lane sees which passage and records the reason,
+rather than each lane filtering a shared stream by private rules. Not every table is
+deterministic and not every narrative needs the same model path.
+
+Candidate scoping is a separate protocol with two implementations, compared on the benchmark
+before either becomes the default:
+
+```text
+OntologyCandidateScope
+├── LexicalOntologyCandidateScope      alias and label matching only
+└── HybridOntologyCandidateScope       lexical, plus semantic neighbours from an EmbeddingProvider
+```
+
+**Embeddings may only add.** A similarity score may never remove an exact alias candidate,
+an ambiguous alias candidate, a table-label candidate, a stable core concept, or a
+confusion-group sibling. The ontology's `distinct_from` declarations exist to stop metrics
+collapsing into each other — `homes_sold` from `homes_purchased`, adjusted from GAAP — and a
+cosine distance is not entitled to overrule a declared distinction. No vector database: the
+concept vectors are cached locally, keyed by ontology `definition_hash`, model id,
+dimensions and renderer version, so a vocabulary edit invalidates them automatically.
+
 ## 4.3 `narrative` — model-backed, behind the same protocol
 
 1,150 candidate passages. Prose KPI commentary and the letter lane cannot be read
@@ -510,6 +542,7 @@ Each step ends with a green suite.
 | 5 | `assemble` + §7 policies | Every §7 policy has a test that fails without it |
 | 6 | `verify` | Dangling evidence and forbidden-lane claims both fail the run |
 | 7 | `catalog` + manifest | Two runs byte-identical |
+| 7a | Local Qwen runtime and real provider | See [LOCAL_RUNTIME_PREREQUISITES.md](LOCAL_RUNTIME_PREREQUISITES.md); no blocker, three apt packages missing |
 | 8 | `narrative` lane | Marked `live`; suite still green offline |
 | 9 | Report + sweep README and the two upstream plans | No stale cross-references |
 
