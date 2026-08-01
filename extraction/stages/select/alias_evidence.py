@@ -83,6 +83,11 @@ class AliasIndex:
     by_surface: dict[str, tuple[str, ...]] = field(default_factory=dict)
     ambiguous_surfaces: frozenset[str] = frozenset()
     metric_concepts: frozenset[str] = frozenset()
+    # A metric's own canonical label, folded and lowercased. Kept separate from
+    # `by_surface` because a shared ambiguous alias can be spelled identically to a
+    # concept's canonical label and would otherwise shadow it - `gaap_gross_margin` is
+    # labelled "Gross Margin", and `aliases.yaml` declares that same string ambiguous.
+    canonical_labels: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_ontology(cls, ontology) -> "AliasIndex":
@@ -108,13 +113,20 @@ class AliasIndex:
             if ontology.registry.is_ambiguous(key):
                 ambiguous.add(key)
 
-        metrics = frozenset(
-            c.concept_id for c in ontology.registry.by_category("metric_definition")
-        )
+        metric_definitions = ontology.registry.by_category("metric_definition")
+        metrics = frozenset(c.concept_id for c in metric_definitions)
+        canonical: dict[str, str] = {}
+        for concept in metric_definitions:
+            label = fold(str(getattr(concept, "label", "") or "")).strip().lower()
+            # A label shared by two metrics is genuinely ambiguous and must not be a
+            # shortcut for either. None exist today; the guard keeps that true.
+            if label:
+                canonical[label] = "" if label in canonical else concept.concept_id
         return cls(
             by_surface=surfaces,
             ambiguous_surfaces=frozenset(ambiguous),
             metric_concepts=metrics,
+            canonical_labels={k: v for k, v in canonical.items() if v},
         )
 
     def confusion_siblings(self, ontology, concept_ids: tuple[str, ...]) -> tuple[str, ...]:

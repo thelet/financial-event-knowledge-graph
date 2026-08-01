@@ -176,10 +176,10 @@ def test_assembly_records_scale_and_labels_in_extractor_metadata(ontology):
     claim = to_claim(make_lane_claim(
         metric_id="contribution_profit", value=54_000_000, unit="usd", currency="USD",
         row_label="Contribution Profit", column_label="March 31, 2025",
-        scale=ScaleDeclaration(scale="millions", location="preceding_passage")))
+        scale=ScaleDeclaration(scale="millions", location="preceding_context")))
     metadata = claim.extractor_metadata
     assert metadata["scale"] == "millions"
-    assert metadata["scale_location"] == "preceding_passage"
+    assert metadata["scale_location"] == "preceding_context"
     assert metadata["column_label"] == "March 31, 2025"
 
 

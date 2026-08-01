@@ -89,7 +89,10 @@ class ScaleDeclaration(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scale: Scale
-    location: Literal["in_table", "preceding_passage", "assumed_units"]
+    # Where the declaration was found. `metric_default` means no source declared one and the
+    # metric's own unit governed — recorded distinctly so "nobody said" is never mistaken for
+    # "the table said units".
+    location: Literal["table_header", "preceding_context", "metric_default"]
     source_passage_id: str | None = None
     declaration_text: str | None = None
     # Row labels the declaration excludes, e.g. "except percentages, homes sold". Kept as
