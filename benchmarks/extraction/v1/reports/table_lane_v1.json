@@ -8440,11 +8440,31 @@
         "issues": 5,
         "matched": 2,
         "missed": 0,
-        "unmatched_emitted": 55
+        "unmatched_emitted": 62
       },
       "document_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm",
       "document_type": "earnings_release",
       "emitted": [
+        {
+          "column_label": "December 31, 2022",
+          "currency": "USD",
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 17,
+            "value_column_index": 19
+          },
+          "is_instant": false,
+          "metric_id": "adjusted_ebitda",
+          "period_key": "2022Q4",
+          "raw_text": "(351)",
+          "row_label": "Adjusted EBITDA",
+          "scale": "millions",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "usd",
+          "value": -351000000.0
+        },
         {
           "column_label": "March 31, 2023",
           "currency": "USD",
@@ -8456,7 +8476,7 @@
           },
           "is_instant": false,
           "metric_id": "adjusted_ebitda",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "(341)",
           "row_label": "Adjusted EBITDA",
           "scale": "millions",
@@ -8476,7 +8496,7 @@
           },
           "is_instant": false,
           "metric_id": "adjusted_ebitda",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "(168)",
           "row_label": "Adjusted EBITDA",
           "scale": "millions",
@@ -8526,26 +8546,6 @@
           "value": -69000000.0
         },
         {
-          "column_label": "December 31, 2022",
-          "currency": "USD",
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 17,
-            "value_column_index": 19
-          },
-          "is_instant": false,
-          "metric_id": "adjusted_ebitda",
-          "period_key": "FY2022",
-          "raw_text": "(351)",
-          "row_label": "Adjusted EBITDA",
-          "scale": "millions",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "usd",
-          "value": -351000000.0
-        },
-        {
           "column_label": "2022",
           "currency": "USD",
           "evidence": {
@@ -8586,6 +8586,26 @@
           "value": -627000000.0
         },
         {
+          "column_label": "December 31, 2022",
+          "currency": null,
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 18,
+            "value_column_index": 14
+          },
+          "is_instant": false,
+          "metric_id": "adjusted_ebitda_margin",
+          "period_key": "2022Q4",
+          "raw_text": "(12.3)",
+          "row_label": "Adjusted EBITDA Margin",
+          "scale": "units",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "percent",
+          "value": -12.3
+        },
+        {
           "column_label": "March 31, 2023",
           "currency": null,
           "evidence": {
@@ -8596,7 +8616,7 @@
           },
           "is_instant": false,
           "metric_id": "adjusted_ebitda_margin",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "(10.9)",
           "row_label": "Adjusted EBITDA Margin",
           "scale": "units",
@@ -8616,7 +8636,7 @@
           },
           "is_instant": false,
           "metric_id": "adjusted_ebitda_margin",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "(8.5)",
           "row_label": "Adjusted EBITDA Margin",
           "scale": "units",
@@ -8666,26 +8686,6 @@
           "value": -7.9
         },
         {
-          "column_label": "December 31, 2022",
-          "currency": null,
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 18,
-            "value_column_index": 14
-          },
-          "is_instant": false,
-          "metric_id": "adjusted_ebitda_margin",
-          "period_key": "FY2022",
-          "raw_text": "(12.3)",
-          "row_label": "Adjusted EBITDA Margin",
-          "scale": "units",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "percent",
-          "value": -12.3
-        },
-        {
           "column_label": "2022",
           "currency": null,
           "evidence": {
@@ -8726,6 +8726,26 @@
           "value": -9.0
         },
         {
+          "column_label": "December 31, 2022",
+          "currency": null,
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 16,
+            "value_column_index": 14
+          },
+          "is_instant": false,
+          "metric_id": "contribution_margin",
+          "period_key": "2022Q4",
+          "raw_text": "(7.2)",
+          "row_label": "Contribution Margin",
+          "scale": "units",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "percent",
+          "value": -7.2
+        },
+        {
           "column_label": "March 31, 2023",
           "currency": null,
           "evidence": {
@@ -8736,7 +8756,7 @@
           },
           "is_instant": false,
           "metric_id": "contribution_margin",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "(7.7)",
           "row_label": "Contribution Margin",
           "scale": "units",
@@ -8756,7 +8776,7 @@
           },
           "is_instant": false,
           "metric_id": "contribution_margin",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "(4.6)",
           "row_label": "Contribution Margin",
           "scale": "units",
@@ -8806,26 +8826,6 @@
           "value": 3.4
         },
         {
-          "column_label": "December 31, 2022",
-          "currency": null,
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 16,
-            "value_column_index": 14
-          },
-          "is_instant": false,
-          "metric_id": "contribution_margin",
-          "period_key": "FY2022",
-          "raw_text": "(7.2)",
-          "row_label": "Contribution Margin",
-          "scale": "units",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "percent",
-          "value": -7.2
-        },
-        {
           "column_label": "2022",
           "currency": null,
           "evidence": {
@@ -8866,6 +8866,26 @@
           "value": -3.7
         },
         {
+          "column_label": "December 31, 2022",
+          "currency": "USD",
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 15,
+            "value_column_index": 19
+          },
+          "is_instant": false,
+          "metric_id": "contribution_profit",
+          "period_key": "2022Q4",
+          "raw_text": "(207)",
+          "row_label": "Contribution Profit (Loss)",
+          "scale": "millions",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "usd",
+          "value": -207000000.0
+        },
+        {
           "column_label": "March 31, 2023",
           "currency": "USD",
           "evidence": {
@@ -8876,7 +8896,7 @@
           },
           "is_instant": false,
           "metric_id": "contribution_profit",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "(241)",
           "row_label": "Contribution Profit (Loss)",
           "scale": "millions",
@@ -8896,7 +8916,7 @@
           },
           "is_instant": false,
           "metric_id": "contribution_profit",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "(90)",
           "row_label": "Contribution Profit (Loss)",
           "scale": "millions",
@@ -8946,26 +8966,6 @@
           "value": 30000000.0
         },
         {
-          "column_label": "December 31, 2022",
-          "currency": "USD",
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 15,
-            "value_column_index": 19
-          },
-          "is_instant": false,
-          "metric_id": "contribution_profit",
-          "period_key": "FY2022",
-          "raw_text": "(207)",
-          "row_label": "Contribution Profit (Loss)",
-          "scale": "millions",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "usd",
-          "value": -207000000.0
-        },
-        {
           "column_label": "2022",
           "currency": "USD",
           "evidence": {
@@ -9006,6 +9006,26 @@
           "value": -258000000.0
         },
         {
+          "column_label": "December 31, 2022",
+          "currency": null,
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 6,
+            "value_column_index": 14
+          },
+          "is_instant": false,
+          "metric_id": "gaap_gross_margin",
+          "period_key": "2022Q4",
+          "raw_text": "2.5",
+          "row_label": "Gross Margin",
+          "scale": "units",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "percent",
+          "value": 2.5
+        },
+        {
           "column_label": "March 31, 2023",
           "currency": null,
           "evidence": {
@@ -9016,7 +9036,7 @@
           },
           "is_instant": false,
           "metric_id": "gaap_gross_margin",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "5.4",
           "row_label": "Gross Margin",
           "scale": "units",
@@ -9036,7 +9056,7 @@
           },
           "is_instant": false,
           "metric_id": "gaap_gross_margin",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "7.5",
           "row_label": "Gross Margin",
           "scale": "units",
@@ -9086,26 +9106,6 @@
           "value": 8.3
         },
         {
-          "column_label": "December 31, 2022",
-          "currency": null,
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 6,
-            "value_column_index": 14
-          },
-          "is_instant": false,
-          "metric_id": "gaap_gross_margin",
-          "period_key": "FY2022",
-          "raw_text": "2.5",
-          "row_label": "Gross Margin",
-          "scale": "units",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "percent",
-          "value": 2.5
-        },
-        {
           "column_label": "2022",
           "currency": null,
           "evidence": {
@@ -9146,6 +9146,26 @@
           "value": 7.0
         },
         {
+          "column_label": "December 31, 2022",
+          "currency": null,
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 10,
+            "value_column_index": 14
+          },
+          "is_instant": false,
+          "metric_id": "homes_purchased",
+          "period_key": "2022Q4",
+          "raw_text": "3,427",
+          "row_label": "Homes purchased",
+          "scale": "units",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "homes",
+          "value": 3427.0
+        },
+        {
           "column_label": "March 31, 2023",
           "currency": null,
           "evidence": {
@@ -9156,7 +9176,7 @@
           },
           "is_instant": false,
           "metric_id": "homes_purchased",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "1,747",
           "row_label": "Homes purchased",
           "scale": "units",
@@ -9176,7 +9196,7 @@
           },
           "is_instant": false,
           "metric_id": "homes_purchased",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "2,680",
           "row_label": "Homes purchased",
           "scale": "units",
@@ -9226,26 +9246,6 @@
           "value": 3683.0
         },
         {
-          "column_label": "December 31, 2022",
-          "currency": null,
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 10,
-            "value_column_index": 14
-          },
-          "is_instant": false,
-          "metric_id": "homes_purchased",
-          "period_key": "FY2022",
-          "raw_text": "3,427",
-          "row_label": "Homes purchased",
-          "scale": "units",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "homes",
-          "value": 3427.0
-        },
-        {
           "column_label": "2022",
           "currency": null,
           "evidence": {
@@ -9286,6 +9286,26 @@
           "value": 11246.0
         },
         {
+          "column_label": "December 31, 2022",
+          "currency": null,
+          "evidence": {
+            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
+            "resolves": true,
+            "row_index": 9,
+            "value_column_index": 14
+          },
+          "is_instant": false,
+          "metric_id": "homes_sold",
+          "period_key": "2022Q4",
+          "raw_text": "7,512",
+          "row_label": "Homes sold",
+          "scale": "units",
+          "scale_source": "preceding_context",
+          "subject_entity_id": "opendoor",
+          "unit": "homes",
+          "value": 7512.0
+        },
+        {
           "column_label": "March 31, 2023",
           "currency": null,
           "evidence": {
@@ -9296,7 +9316,7 @@
           },
           "is_instant": false,
           "metric_id": "homes_sold",
-          "period_key": "2022-04-01_2023-03-31",
+          "period_key": "2023Q1",
           "raw_text": "8,274",
           "row_label": "Homes sold",
           "scale": "units",
@@ -9316,7 +9336,7 @@
           },
           "is_instant": false,
           "metric_id": "homes_sold",
-          "period_key": "2022-07-01_2023-06-30",
+          "period_key": "2023Q2",
           "raw_text": "5,383",
           "row_label": "Homes sold",
           "scale": "units",
@@ -9364,26 +9384,6 @@
           "subject_entity_id": "opendoor",
           "unit": "homes",
           "value": 2364.0
-        },
-        {
-          "column_label": "December 31, 2022",
-          "currency": null,
-          "evidence": {
-            "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
-            "resolves": true,
-            "row_index": 9,
-            "value_column_index": 14
-          },
-          "is_instant": false,
-          "metric_id": "homes_sold",
-          "period_key": "FY2022",
-          "raw_text": "7,512",
-          "row_label": "Homes sold",
-          "scale": "units",
-          "scale_source": "preceding_context",
-          "subject_entity_id": "opendoor",
-          "unit": "homes",
-          "value": 7512.0
         },
         {
           "column_label": "2022",
@@ -10000,11 +10000,15 @@
       "unmatched_emitted": [
         {
           "metric_id": "adjusted_ebitda",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "adjusted_ebitda",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "adjusted_ebitda",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "adjusted_ebitda",
@@ -10024,11 +10028,15 @@
         },
         {
           "metric_id": "adjusted_ebitda_margin",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "adjusted_ebitda_margin",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "adjusted_ebitda_margin",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "adjusted_ebitda_margin",
@@ -10048,11 +10056,15 @@
         },
         {
           "metric_id": "contribution_margin",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "contribution_margin",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "contribution_margin",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "contribution_margin",
@@ -10072,11 +10084,15 @@
         },
         {
           "metric_id": "contribution_profit",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "contribution_profit",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "contribution_profit",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "contribution_profit",
@@ -10096,11 +10112,15 @@
         },
         {
           "metric_id": "gaap_gross_margin",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "gaap_gross_margin",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "gaap_gross_margin",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "gaap_gross_margin",
@@ -10120,11 +10140,15 @@
         },
         {
           "metric_id": "homes_purchased",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "homes_purchased",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "homes_purchased",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "homes_purchased",
@@ -10144,11 +10168,15 @@
         },
         {
           "metric_id": "homes_sold",
-          "period_key": "2022-04-01_2023-03-31"
+          "period_key": "2022Q4"
         },
         {
           "metric_id": "homes_sold",
-          "period_key": "2022-07-01_2023-06-30"
+          "period_key": "2023Q1"
+        },
+        {
+          "metric_id": "homes_sold",
+          "period_key": "2023Q2"
         },
         {
           "metric_id": "homes_sold",
@@ -12845,7 +12873,7 @@
       ]
     }
   ],
-  "implementation_commit": "93e771baed12aa3f36a67196128657e337a7a5f3",
+  "implementation_commit": "1d37eba9eb1afe8e8dcffee600025f25442dcd3b",
   "known_misses": [
     {
       "candidate_concept_ids": [

@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from ...core import periods
 from ...core.models import PeriodRef
+
+_MONTH_ALT = "|".join(periods.MONTHS)
 from .table_grid import TableGrid
 
 _DURATION_PHRASE = re.compile(
@@ -52,6 +54,9 @@ class HeaderAnalysis:
     header_row_indices: tuple[int, ...] = ()
     first_data_row: int = 0
     unresolved_columns: tuple[tuple[int, str], ...] = ()
+    # True when the duration groups cannot be assigned to columns uniquely. The caller emits
+    # AMBIGUOUS_COLUMN_ALIGNMENT and no claim rather than falling back to position.
+    group_assignment_ambiguous: bool = False
 
     @property
     def ok(self) -> bool:
@@ -65,12 +70,27 @@ def analyse(grid: TableGrid) -> HeaderAnalysis:
         return HeaderAnalysis(unresolved_columns=(( -1, "no row carries a date or period label"),))
 
     group_spans = _duration_spans(grid, date_row)
-    date_cells = [c for c in grid.rows[date_row] if c.text.strip()]
-    group_of = _assign_groups(group_spans, date_cells)
+    # Two different subsets, deliberately. `header_cells` is what becomes a column, and
+    # includes change columns, which are period-shaped in position but not in label.
+    # `date_cells` is what decides how the duration groups divide, and must be period-shaped
+    # only: the row carrying the dates usually also carries the scale declaration in its
+    # first cell — `| (in thousands, except percentages) |  | March 31, 2021 | …` — and
+    # counting that inflates the division the assignment depends on.
+    header_cells = [c for c in grid.rows[date_row] if c.text.strip()
+                    and (_looks_like_a_period(c.text.strip())
+                         or _CHANGE_COLUMN.search(c.text.strip()))]
+    date_cells = [c for c in header_cells if not _CHANGE_COLUMN.search(c.text.strip())]
+    group_of, group_assignment_ambiguous = _assign_groups(group_spans, date_cells)
+    if group_assignment_ambiguous:
+        return HeaderAnalysis(
+            group_assignment_ambiguous=True,
+            unresolved_columns=tuple(
+                (c.column_index, c.text.strip()) for c in date_cells),
+        )
     columns: list[PeriodColumn] = []
     unresolved: list[tuple[int, str]] = []
 
-    for cell in date_cells:
+    for cell in header_cells:
         label = cell.text.strip()
         group = group_of.get(cell.column_index, "")
         if _CHANGE_COLUMN.search(label):
@@ -164,8 +184,8 @@ def _duration_spans(grid: TableGrid, date_row: int) -> list[tuple[int, int, str]
     return spans
 
 
-def _assign_groups(spans, date_cells) -> dict[int, str]:
-    """Map each date column to its duration group.
+def _assign_groups(spans, date_cells) -> tuple[dict[int, str], bool]:
+    """Map each date column to its duration group. Returns (assignment, ambiguous).
 
     Position alone does not work, and the Q4 2020 reconciliation shows why. Its header reads
 
@@ -177,24 +197,64 @@ def _assign_groups(spans, date_cells) -> dict[int, str]:
     time the table is Markdown, so "nearest phrase at or left of this column" hands 2019 to
     the annual group and reports a quarterly figure as a full year.
 
-    When the date columns divide evenly among the duration groups, they are assigned in
-    document order, N/G consecutive columns each. That is what these layouts mean: every
-    group carries the same comparative years in the same order. An uneven split is not
-    guessed at — it falls back to position and any resulting period is still checked
-    against the metric's declared period type.
+    Three rules, in order of how defensible they are.
+
+    **Date shape decides when the shapes disagree.** A column label is either a full date
+    (`March 31, 2023`) or a bare year (`2023`), and a duration phrase either supplies a
+    month and day (`Year Ended December 31,`) or does not (`Three Months Ended`). The two
+    fit together exactly one way: a full-date column already carries its own month and day,
+    so it belongs to the phrase that supplies none; a bare year is unusable without one, so
+    it belongs to the phrase that supplies it. This is a reading of the layout, not a guess.
+
+    It is what the Q4 2023 earnings table needs — five full dates under `Three Months Ended`
+    beside two bare years under `Year Ended December 31,`, seven columns over two groups.
+    Even division cannot split 7 by 2, and the positional fallback read `December 31, 2022`
+    as FY2022 and `March 31, 2023` and `June 30, 2023` as twelve-month durations: 21
+    observations with the wrong period, none of them gold, so every score stayed at 1.000.
+
+    **Even division otherwise.** When every column has the same shape the discriminator says
+    nothing, and N/G consecutive columns per group in document order is what these layouts
+    mean — the Q4 2020 reconciliation's four bare years under two date-supplying phrases.
+
+    **Otherwise, refuse.** An uneven split that the shapes cannot resolve is not assigned at
+    all. The caller raises `AMBIGUOUS_COLUMN_ALIGNMENT` and emits nothing, because the
+    period-type check catches an instant read as a duration and *not* a duration read as the
+    wrong duration — the failure that hid here for exactly that reason.
     """
     if not spans:
-        return {}
+        return {}, False
     phrases = [text for _, _, text in spans]
+
+    duration_only = [p for p in phrases if not _supplies_month_day(p)]
+    date_supplying = [p for p in phrases if _supplies_month_day(p)]
+    full_date = [c for c in date_cells if periods.parse_date(c.text.strip())]
+    bare_year = [c for c in date_cells if _BARE_YEAR.match(c.text.strip())]
+
+    # Unique only when each shape has exactly one home and both shapes are present.
+    if (len(duration_only) == 1 and len(date_supplying) == 1
+            and full_date and bare_year
+            and len(full_date) + len(bare_year) == len(date_cells)):
+        assignment = {c.column_index: duration_only[0] for c in full_date}
+        assignment.update({c.column_index: date_supplying[0] for c in bare_year})
+        return assignment, False
+
     if len(date_cells) and len(phrases) and len(date_cells) % len(phrases) == 0:
         per_group = len(date_cells) // len(phrases)
         return {
             cell.column_index: phrases[index // per_group]
             for index, cell in enumerate(date_cells)
-        }
-    return {
-        cell.column_index: _nearest(spans, cell.column_index) for cell in date_cells
-    }
+        }, False
+
+    return {}, True
+
+
+def _supplies_month_day(phrase: str) -> bool:
+    """Whether a duration phrase carries its own month and day.
+
+    `Year Ended December 31,` does and `Three Months Ended` does not. Matched without a year,
+    because the year is what the column beneath supplies.
+    """
+    return bool(re.search(rf"\b({_MONTH_ALT})\s+\d{{1,2}}\b", phrase or "", re.I))
 
 
 def _nearest(spans: list[tuple[int, int, str]], column_index: int) -> str:

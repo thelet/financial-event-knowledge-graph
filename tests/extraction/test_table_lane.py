@@ -462,3 +462,98 @@ def test_per_case_results_are_available(evaluation):
     assert len(evaluation.cases) >= 10
     for case in evaluation.cases:
         assert case.case_id and case.passage_id
+
+
+# -- stage 6b: duration groups bind to columns by date shape -------------------------------
+
+Q4_2023 = "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16"
+
+
+def test_seven_columns_over_two_duration_groups_resolve_by_date_shape(lane, passages):
+    """The shape even division cannot split. Five full dates under `Three Months Ended`
+    beside two bare years under `Year Ended December 31,` — a full-date column carries its
+    own month and day so it belongs to the phrase supplying none, and a bare year is
+    unusable without one so it belongs to the phrase supplying it."""
+    result = run(lane, passages, Q4_2023)
+    assert not result.header.group_assignment_ambiguous
+    assert [(c.column_label, c.period.key) for c in result.header.period_columns] == [
+        ("December 31, 2023", "2023Q4"),
+        ("September 30, 2023", "2023Q3"),
+        ("June 30, 2023", "2023Q2"),
+        ("March 31, 2023", "2023Q1"),
+        ("December 31, 2022", "2022Q4"),
+        ("2023", "FY2023"),
+        ("2022", "FY2022"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "column_label,period_key",
+    [("December 31, 2022", "2022Q4"), ("March 31, 2023", "2023Q1"),
+     ("June 30, 2023", "2023Q2")])
+def test_the_three_columns_that_were_read_as_annual_are_now_quarterly(
+    lane, passages, column_label, period_key
+):
+    """These three produced 21 observations under twelve-month durations. None were gold, so
+    every score stayed at 1.000 and the defect was invisible to the benchmark."""
+    result = run(lane, passages, Q4_2023)
+    column = next(c for c in result.header.period_columns if c.column_label == column_label)
+    assert column.period.key == period_key
+    assert column.period.period_start and column.period.period_end
+    months = (int(column.period.period_end[:4]) * 12 + int(column.period.period_end[5:7])) - (
+        int(column.period.period_start[:4]) * 12 + int(column.period.period_start[5:7]))
+    assert months == 2, "a quarter spans three months inclusive"
+
+
+def test_the_twenty_one_wrong_period_observations_are_gone(lane, passages):
+    """The regression this stage exists for."""
+    result = run(lane, passages, Q4_2023)
+    offenders = [
+        c for c in result.claims
+        if c.column_label in ("December 31, 2022", "March 31, 2023", "June 30, 2023")
+        and c.period.key in ("FY2022", "FY2023")
+    ]
+    assert offenders == []
+    assert not any(c.period.key.startswith("FY") and "," in (c.column_label or "")
+                   for c in result.claims), "a full-date column may never yield a fiscal year"
+
+
+def test_bare_year_columns_still_take_the_month_and_day_from_their_group(lane, passages):
+    result = run(lane, passages, Q4_2023)
+    annual = [c for c in result.header.period_columns if c.column_label in ("2023", "2022")]
+    assert [c.period.key for c in annual] == ["FY2023", "FY2022"]
+    for column in annual:
+        assert column.period.period_end.endswith("-12-31")
+
+
+def test_uniform_bare_years_still_divide_evenly(lane, passages):
+    """The discriminator says nothing when every column has the same shape, and the Q4 2020
+    reconciliation must keep working: four bare years under two date-supplying phrases."""
+    result = run(lane, passages, RECON_Q4_2020, SCALE_Q4_2020)
+    assert not result.header.group_assignment_ambiguous
+    assert [c.period.key for c in result.header.period_columns] == [
+        "2020Q4", "2019Q4", "FY2020", "FY2019"]
+
+
+def test_an_unresolvable_uneven_grouping_abstains(lane):
+    """Three columns of mixed shape over two phrases that both supply a month and day. The
+    shapes cannot separate them and 3 does not divide by 2, so nothing is emitted."""
+    table = ("|  |  | Three Months Ended June 30, |  | Year Ended December 31, |  |\n"
+             "| --- | --- | --- | --- | --- | --- |\n"
+             "| (in thousands) |  | 2023 |  | March 31, 2023 |  | 2022 |\n"
+             "| Adjusted Gross Profit |  | 1,000 |  | 2,000 |  | 3,000 |")
+    result = lane.extract_table(table, passage_id="norm:x:y:z.htm#p1")
+    assert result.claims == []
+    assert [i.code for i in result.issues] == ["AMBIGUOUS_COLUMN_ALIGNMENT"]
+    assert result.header.group_assignment_ambiguous
+
+
+def test_previously_correct_cases_are_unchanged_by_the_discriminator(lane, passages):
+    """Guards the fix against being a regression somewhere else."""
+    kpi = run(lane, passages, KPI_Q1_2025, SCALE_Q1_2025)
+    assert claim_for(kpi, "homes_sold", "2024Q3").value == 3615
+    assert claim_for(kpi, "contribution_profit", "2025Q1").value == 54_000_000
+    recon = run(lane, passages, RECON_Q1_2021)
+    assert claim_for(recon, "adjusted_gross_profit", "2021Q1").value == 97_038_000
+    tenq = run(lane, passages, TENQ_Q1_2025)
+    assert claim_for(tenq, "homes_sold", "2025Q1").value == 2946

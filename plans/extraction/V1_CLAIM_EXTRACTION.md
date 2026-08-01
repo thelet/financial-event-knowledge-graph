@@ -684,15 +684,53 @@ Stated rather than discovered later:
 | Shape | Behaviour |
 | --- | --- |
 | A single period column | No claims — header detection requires ≥2 period-ish cells in a row. No corpus KPI table is like this; a future one could be. |
-| Date columns not evenly divisible by duration groups | Falls back to positional group assignment. Still period-type checked, so a wrong answer is caught rather than emitted. |
+| Date columns not evenly divisible by duration groups, and the date shapes cannot separate them | **Refused** with `AMBIGUOUS_COLUMN_ALIGNMENT`. No claim. *(corrected in stage 6b — see §8a.7a)* |
 | A row label genuinely spanning several cells | Only the first non-empty cell is read as the label. |
 | Nested or merged data cells beyond layout gutters | Unrecognised; the row is refused with `AMBIGUOUS_COLUMN_ALIGNMENT` rather than guessed. |
+
+## 8a.7a Duration groups bind to columns by date shape *(stage 6b, `93e771b`→)*
+
+The original rule — even division, else fall back to position — was wrong on a real table,
+and the claim beside it that "a wrong answer is caught rather than emitted" was wrong twice
+over. **The period-type check catches an instant read as a duration; it does not catch a
+duration read as the wrong duration.**
+
+`kpi-table-q4-2023-earnings` has **7 period columns over 2 duration groups**: five full dates
+under `Three Months Ended` beside two bare years under `Year Ended December 31,`. Seven does
+not divide by two, so the positional fallback read `December 31, 2022` as **FY2022** and
+`March 31, 2023` and `June 30, 2023` as **twelve-month durations** — **21 observations with
+the wrong period**. None were gold, so the case scored 1.000 on every dimension and the
+totals were unaffected. That is exactly how it stayed invisible, and it is why the durable
+report (step 6) was worth building before trusting the lane.
+
+**The discriminator.** A column label is either a full date (`March 31, 2023`) or a bare year
+(`2023`); a duration phrase either supplies a month and day (`Year Ended December 31,`) or
+does not (`Three Months Ended`). They fit together exactly one way — a full-date column
+already carries its own month and day, so it belongs to the phrase supplying none; a bare
+year is unusable without one, so it belongs to the phrase supplying it. This is a reading of
+the layout, not an inference.
+
+Applied only when it is unique: exactly one phrase of each kind, and both column shapes
+present. Otherwise even division, which still handles the Q4 2020 reconciliation's four
+uniform bare years under two date-supplying phrases. **Otherwise the table is refused** with
+`AMBIGUOUS_COLUMN_ALIGNMENT` and emits nothing.
+
+A latent bug surfaced while testing it: the header row carrying the dates usually also
+carries the scale declaration in its first cell, and that cell was being counted as a column,
+inflating the division the assignment depends on. Group assignment now counts period-shaped
+cells only, while change columns still become columns.
 
 ## 8a.8 `Homes sold in period` — an unresolved surface form
 
 The Q1 2021 reconciliation labels its homes-sold row `Homes sold in period`, which the
 ontology does not carry as an alias. It is the **only** remaining benchmark recall miss (3 of
-49 gold observations, all from this one row).
+49 gold observations, all from this one row, row index 17).
+
+**The abstention is `AMBIGUOUS_ALIAS`, not `UNRESOLVED_METRIC`** *(corrected 2026-08-01)*.
+The whole label matches nothing, so the widest surface hit inside it is the declared-ambiguous
+`homes`, and the lane abstains over four candidates — `homes_purchased`, `homes_sold`,
+`homes_under_contract`, `housing_inventory_homes`. The refusal is right and the earlier
+account of its mechanism was not.
 
 **Left unresolved deliberately.** Broadening the alias would be fitting the vocabulary to a
 fixture. The benchmark case says as much itself — the label "has to resolve semantically or

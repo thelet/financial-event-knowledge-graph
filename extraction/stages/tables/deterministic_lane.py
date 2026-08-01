@@ -136,6 +136,17 @@ class DeterministicTableClaimLane:
 
         header = analyse(grid)
         result.header = header
+        if header.group_assignment_ambiguous:
+            # Duration groups cannot be bound to columns uniquely. Refusing is the whole
+            # point: the period-type check catches an instant read as a duration and not a
+            # duration read as the wrong duration, so a positional guess here emits claims
+            # that are wrong about the period and right about everything else.
+            result.issues.append(TableIssue(
+                AMBIGUOUS_COLUMN_ALIGNMENT,
+                "duration groups cannot be assigned to columns uniquely; labels: "
+                f"{[l for _, l in header.unresolved_columns][:6]}",
+                passage_id, table_id))
+            return result
         if not header.ok:
             result.issues.append(TableIssue(
                 MISSING_PERIOD,
