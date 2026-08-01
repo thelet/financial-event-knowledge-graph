@@ -17,7 +17,7 @@ from extraction.core import identifiers
 from extraction.core.assembly import assemble, deferred_metric_ids, to_claim
 from extraction.core.models import (
     AMBIGUOUS_ALIAS,
-    SELECTED,
+    EXACT_ALIAS,
     CandidatePassage,
     LaneAbstention,
     LaneClaim,
@@ -114,7 +114,7 @@ def test_a_lane_is_usable_through_the_claim_lane_protocol():
     lane: ClaimLane = StubLane()
     candidate = CandidatePassage(
         passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, document_type="earnings_release",
-        passage_kind="table", lane="tables", reason=SELECTED)
+        passage_kind="table", lane="tables", reason=EXACT_ALIAS)
     assert lane.supports(candidate)
     result = lane.extract(candidate, "2,946")
     assert result.claims[0].metric_id == "homes_sold"

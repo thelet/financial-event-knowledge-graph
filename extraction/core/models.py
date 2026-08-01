@@ -17,12 +17,37 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 # Why a passage was or was not offered to a lane. Recorded either way, so a passage's
-# absence from extraction is as auditable as its presence.
-SELECTED = "SELECTED"
-DOCUMENT_TYPE_EXCLUDED = "DOCUMENT_TYPE_EXCLUDED"
-NO_ALIAS_MATCH = "NO_ALIAS_MATCH"
-WRONG_PASSAGE_KIND = "WRONG_PASSAGE_KIND"
-SELECTION_REASONS = frozenset({SELECTED, DOCUMENT_TYPE_EXCLUDED, NO_ALIAS_MATCH, WRONG_PASSAGE_KIND})
+# absence from extraction is as auditable as its presence — the discipline
+# `selection.jsonl` already applies to artifacts one layer up.
+#
+# These live here rather than in the select stage because `CandidatePassage.selected` has to
+# know which codes mean "in", and a core model must not import a stage.
+EXACT_ALIAS = "exact_alias"
+AMBIGUOUS_ALIAS_SIGNAL = "ambiguous_alias"
+TABLE_LABEL = "table_label"
+DOCUMENT_TYPE_PRIOR = "document_type_prior"
+HEADING_PRIOR = "heading_prior"
+STABLE_CORE = "stable_core"
+ADJACENT_SCALE_CONTEXT = "adjacent_scale_context"
+
+INCLUSION_REASONS = frozenset({
+    EXACT_ALIAS, AMBIGUOUS_ALIAS_SIGNAL, TABLE_LABEL, DOCUMENT_TYPE_PRIOR,
+    HEADING_PRIOR, STABLE_CORE, ADJACENT_SCALE_CONTEXT,
+})
+
+UNSUPPORTED_DOCUMENT_TYPE = "unsupported_document_type"
+UNSUPPORTED_PASSAGE_KIND = "unsupported_passage_kind"
+NO_CANDIDATE_SIGNAL = "no_candidate_signal"
+DEFERRED_REQUIRED_SOURCE_LANE = "deferred_required_source_lane"
+CONTRACT_BOILERPLATE = "contract_boilerplate"
+GOVERNANCE_BOILERPLATE = "governance_boilerplate"
+
+EXCLUSION_REASONS = frozenset({
+    UNSUPPORTED_DOCUMENT_TYPE, UNSUPPORTED_PASSAGE_KIND, NO_CANDIDATE_SIGNAL,
+    DEFERRED_REQUIRED_SOURCE_LANE, CONTRACT_BOILERPLATE, GOVERNANCE_BOILERPLATE,
+})
+
+SELECTION_REASONS = INCLUSION_REASONS | EXCLUSION_REASONS
 
 # Why a lane declined to emit a claim it could plausibly have emitted. These are findings,
 # not failures: the benchmark scores a lane on producing them.
@@ -133,7 +158,7 @@ class CandidatePassage(BaseModel):
 
     @property
     def selected(self) -> bool:
-        return self.reason == SELECTED
+        return self.reason in INCLUSION_REASONS
 
 
 class LaneAbstention(BaseModel):

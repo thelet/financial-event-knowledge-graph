@@ -1,0 +1,59 @@
+# Extraction configuration. Scope lives here, never in code.
+#
+# Counts in comments are measured against the corrected corpus (2026-08-01): 294 documents,
+# 12,442 passages, 1,935 table passages, PARSER_FALLBACK 0.
+version: v1
+
+paths:
+  data_root: data
+  normalization_catalog: data/normalization_catalog
+  manifests_root: extraction_manifests
+
+selection:
+  policy_version: v1
+
+  lanes:
+    tables:
+      passage_kinds: [table]
+      # Where reconciliation and KPI tables live: 1,803 of 1,935 table passages.
+      document_types: [earnings_release, narrative_primary, structured_exhibit, supplemental]
+      # A table's magnitude scale is declared inside the table in 65 of 74 KPI-bearing
+      # tables and in the immediately preceding narrative passage in the other 9. A
+      # candidate therefore carries its predecessor, or the second form is unreadable.
+      carry_preceding_passage: true
+
+    narrative:
+      passage_kinds: [narrative]
+      # Shareholder letters have exactly 1 table across 26 documents, so the letter lane is
+      # prose or it is nothing.
+      document_types: [earnings_release, shareholder_letter, narrative_primary]
+      carry_preceding_passage: false
+
+  # Excluded from the table lane. This is semantic routing, not a cost argument: contract
+  # recitals and governance schedules carry no operating or non-GAAP metric, and admitting
+  # them dilutes every candidate the lane does emit.
+  #
+  # The earlier justification here claimed material_agreement was 1,130 of 2,987 table
+  # passages. That was an artifact of nine documents falling back to the lxml parser because
+  # of the encoding defect. After the correction it holds 78 of 1,935. The obsolete 38%
+  # figure is deliberately not repeated.
+  excluded_document_types:
+    contract_boilerplate: [material_agreement]     #  78 table passages
+    governance_boilerplate: [governance]           #  44 table passages
+    unsupported_document_type: [other]             #   9 table passages
+
+  # A passage needs at least one of these to become a candidate. Alias evidence comes from
+  # the ontology at run time; nothing here names a metric.
+  signals:
+    require_alias_evidence: true
+    # Headings that make a passage worth reading even without an alias hit. Matched
+    # case-insensitively against the heading path.
+    heading_priors:
+      - "FINANCIAL HIGHLIGHTS AND OPERATING METRICS"
+      - "RECONCILIATION OF GAAP TO NON-GAAP MEASURES"
+      - "Non-GAAP Financial Measures"
+      - "Key Operating Metrics"
+      - "Results of Operations"
+    # Concepts always offered to a lane regardless of retrieval, so a scoping change can
+    # never drop the subject of the corpus.
+    stable_core_concepts: [opendoor, company, public_company]
