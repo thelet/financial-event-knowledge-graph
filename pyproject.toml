@@ -18,5 +18,10 @@ dev = ["pytest>=8.0"]
 testpaths = ["tests"]
 # Makes `acquisition` and the shared test helpers importable under a bare `pytest` too.
 pythonpath = [".", "tests", "tests/normalization", "tests/ontology"]
-markers = ["live: touches something outside the repository — the real SEC API, or the local llama.cpp server (deselect with -m 'not live')"]
+markers = [
+    "live: touches something outside the repository — the real SEC API, or the local llama.cpp server (deselect with -m 'not live')",
+    # Separate from `live` on purpose: the Neo4j container is local, free and offline, so
+    # deselecting it is about "no database running", not about "no network and no cost".
+    "neo4j: touches the local Neo4j instance (deselect with -m 'not neo4j')",
+]
 addopts = "-q"

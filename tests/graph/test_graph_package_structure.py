@@ -153,11 +153,40 @@ def test_the_closure_actually_leaves_the_graph_package():
     assert any(name.startswith("ontology.") for name in reached)
 
 
+#: The one package permitted to construct a database driver (§11). Written as a path rather
+#: than a name so a module moved out of it loses the exemption automatically.
+DRIVER_OWNING_PACKAGE = PACKAGE / "stages" / "load"
+
+
 @pytest.mark.parametrize("path", GRAPH_MODULES, ids=lambda p: p.name)
 def test_no_graph_module_names_a_driver(path):
-    """Direct imports, over the whole package including `context`, `pipeline` and `cli`."""
+    """Direct imports, over the whole package including `context`, `pipeline` and `cli`.
+
+    G2 gave the driver a home, and the rule got *stronger* rather than weaker: neo4j may be
+    imported under `graph/stages/load/` and nowhere else in the repository. The G1 form of this
+    test — no module anywhere names a driver — could only ever be satisfied by having no loader,
+    so it had to change the day one arrived. What must not change is the boundary: `contracts`,
+    `core` and `projection` stay driver-free, which is what keeps the graph model testable with
+    no database and is asserted by the two tests below.
+    """
+    if path.is_relative_to(DRIVER_OWNING_PACKAGE):
+        return
     for imported in imports(path):
         assert imported.split(".")[0] not in FORBIDDEN, f"{path.name} imports {imported}"
+
+
+def test_the_driver_is_named_only_inside_the_load_stage():
+    """The other half of the rule above: somebody must actually be allowed to import it, and
+    exactly one package is. A driver import that escapes into `core` or `projection` fails the
+    parametrised test; this one fails if the load stage stops being the only importer."""
+    importers = {
+        path.relative_to(PACKAGE).as_posix()
+        for path in GRAPH_MODULES
+        if any(imported.split(".")[0] == "neo4j" for imported in imports(path))
+    }
+    assert importers, "no module imports the driver — the load stage cannot work"
+    escaped = {name for name in importers if not name.startswith("stages/load/")}
+    assert escaped == set(), f"driver imported outside the load stage: {sorted(escaped)}"
 
 
 # -- rule 2: contracts.py depends on almost nothing -----------------------------------------
@@ -263,13 +292,18 @@ def test_no_catch_all_module(path):
     assert path.name not in CATCH_ALL_NAMES, f"{path} is named for nothing in particular"
 
 
-def test_the_stages_package_holds_only_projection_at_g1():
-    """`load` and `verify` are G2/G3 and are absent rather than empty.
+def test_the_stages_package_holds_exactly_the_stages_that_exist():
+    """A stage directory exists only once something is in it — never empty as a placeholder.
 
-    An empty package would put a directory in the layout that no test can constrain, and the
-    one thing §11 is emphatic about — the driver lives in exactly one stage — is easiest to
-    keep true while that stage does not exist.
+    At G1 this read `== ["projection"]`, and it was right to: an empty package would put a
+    directory in the layout that no test can constrain. G2 added `load`, so the expectation
+    moves with the code. `verify` stays absent until G3 gives it a module, for the same reason
+    it was absent before.
+
+    What the assertion protects is not the count but §11's boundary — the driver lives in
+    exactly one stage — and that is asserted directly by
+    `test_the_driver_is_named_only_inside_the_load_stage`.
     """
     stages = sorted(p.name for p in (PACKAGE / "stages").iterdir()
                     if p.is_dir() and p.name != "__pycache__")
-    assert stages == ["projection"]
+    assert stages == ["load", "projection"]

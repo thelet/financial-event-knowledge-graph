@@ -1,0 +1,71 @@
+# Graph layer configuration — V1_GRAPH_PROTOTYPE §5.1, §5.2, §5.3, §6.2, §6.3.
+#
+# NON-SECRET DEFAULTS ONLY. There is no credential in this file and there must never be one:
+# §5.1 puts `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` and `NEO4J_DATABASE` in the gitignored
+# repository-root `.env`, and `graph/stages/load/connection.py` reads them from there (or from
+# the process environment, which wins). `tests/graph/test_schema.py` asserts that no
+# secret-shaped key or value appears here, so adding one fails the suite rather than leaking
+# quietly.
+#
+# `uri` and `database` are duplicated between this file and `.env` on purpose, with opposite
+# roles: this file records the *documented default* for a fresh checkout, `.env` records what
+# *this machine* actually runs. The environment wins.
+#
+# The server these defaults describe (see `docs/05_LOCAL_NEO4J_ENVIRONMENT.md`):
+#
+#   compose project   fkg                 (pinned in `compose.yaml`; deriving it from the
+#                                          directory name yields a second, silently empty
+#                                          database when run from a worktree)
+#   compose service   neo4j
+#   container         fkg-neo4j           image neo4j:5.26.28-community
+#   volumes           fkg_neo4j_data      the store — `docker compose down -v` deletes it
+#                     fkg_neo4j_logs
+#   ports             127.0.0.1:7687      Bolt        127.0.0.1:7474  Browser
+#
+# Changing a value here changes what a graph run loaded, so treat it the way
+# `config/normalization.yaml` is treated: an edit is a change of record, not a preference.
+
+version: v1
+
+# Bumped when the constraint or index set in `graph/stages/load/schema.py` changes shape.
+# Independent of `GRAPH_PROJECTION_VERSION` (what a node looks like) and of the ontology
+# version (what a node means) — three things that move for different reasons.
+schema_version: "1.0.0"
+
+neo4j:
+  # Defaults, not credentials. `NEO4J_URI` and `NEO4J_DATABASE` in the environment override
+  # them; there is deliberately no `user` or `password` key, at any indentation.
+  uri: bolt://localhost:7687
+
+  # Community Edition hosts exactly one user database, verified against the live 5.26.28
+  # server on 2026-08-03: `SHOW DATABASES` returns `neo4j` (standard) and `system` (system),
+  # and `CREATE DATABASE` is refused with
+  # `Neo.ClientError.Statement.UnsupportedAdministrationCommand`. So this name has one
+  # sensible value here, and a rebuild wipes it rather than creating a second one (§6.2).
+  database: neo4j
+
+  # Socket connect timeout, passed to the driver as `connection_timeout`. The driver's own
+  # default is 30s; ten is enough for a loopback container and short enough that a stopped
+  # container is reported as stopped instead of appearing to hang.
+  connect_timeout_seconds: 10
+
+  # Ceiling on a single server-side statement. Generous because the fulltext index build over
+  # 8,776 passages and the §6.2 wipe are the two slow statements, and neither is interactive.
+  query_timeout_seconds: 120
+
+load:
+  # §6.3: one transaction per batch of ~1,000 rows. Nodes and edges are separate numbers
+  # because an edge row carries two endpoint keys and a `MATCH` per endpoint, so the two are
+  # not the same unit of work — kept equal until a real run says otherwise.
+  node_batch_size: 1000
+  edge_batch_size: 1000
+
+  # §6.2: V1 loads one run into an empty database. `refuse` means a load that finds a
+  # *different* `graph_run_id` already present stops instead of merging into it; `--replace`
+  # on the command line is the only way to wipe. The default is the refusing one because the
+  # destructive branch must be asked for, never inherited from an absent setting.
+  replace_policy: refuse
+
+paths:
+  # Where `graph project` writes and `graph load` reads (§6.1). Repository-relative.
+  graph_runs_root: data/graph_runs

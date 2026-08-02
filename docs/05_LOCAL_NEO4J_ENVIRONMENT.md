@@ -136,5 +136,8 @@ tree. *(Verified 2026-08-02 by running the same three files in a clean worktree 
   public. Note the password is *not* hidden from the local machine: `docker inspect` shows
   `NEO4J_AUTH` in cleartext to anyone in the `docker` group. `.gitignore` already
   ignores `.env` and `.env.*` while un-ignoring `.env.example`.
-- **No `config/graph.yaml`.** §5.1 says credentials never live there, and the file itself is
-  G2 work belonging to the graph implementation.
+- **`config/graph.yaml` now exists** *(added at G2; this bullet previously said it did not,
+  which was true when this document was written)*. It holds non-secret defaults only — URI,
+  database name, batch sizes, graph-run root, schema version, timeout, replace policy. §5.1's
+  rule is unchanged and is now enforced by a test: credentials come from the environment or the
+  ignored `.env`, and nothing secret-shaped may appear in the YAML.

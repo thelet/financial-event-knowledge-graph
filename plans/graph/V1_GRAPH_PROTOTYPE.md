@@ -657,12 +657,27 @@ it re-derives the volume names from the directory — which yields a *silently e
 rather than an error. And a shell started before Docker Desktop's install lacks the `docker`
 group, so commands need `sg docker -c '<cmd>'` or a fresh shell.
 
-*(still unverified — G2 must confirm, and the environment build deliberately did not, because
-testing it means creating constraints)*: Community Edition supports `IS UNIQUE` constraints but
-not `IS NODE KEY` or existence constraints, and hosts a single user database. This plan is designed
-so Community suffices: uniqueness constraints only, NOT NULL enforced by the projection models
-and re-checked by a post-load Cypher assertion, and rebuilds wipe the one database rather than
-creating a new one.
+**Community's limits, now measured** *(verified 2026-08-03 against the running `fkg-neo4j`,
+Neo4j Kernel 5.26.28 community, driver 6.2.0; carried as "(unverified)" since G0 because
+testing it means creating constraints, which the environment build declined to do)*. Four
+probes were issued on `:__CapabilityProbe` and dropped again; the server's own words:
+
+| Probe | Result |
+| --- | --- |
+| `CREATE CONSTRAINT … REQUIRE n.probe_id IS UNIQUE` | **accepted.** `SHOW CONSTRAINTS` reports type `UNIQUENESS`; it also brings a backing `RANGE` index carrying the constraint's own name |
+| `CREATE CONSTRAINT … REQUIRE n.probe_key IS NODE KEY` | **refused**, `Neo.DatabaseError.Schema.ConstraintCreationFailed` — *"Unable to create Constraint( type='NODE KEY', schema=(:__CapabilityProbe {probe_key}) ): Node Key constraint requires Neo4j Enterprise Edition."* |
+| `CREATE CONSTRAINT … REQUIRE n.probe_id IS NOT NULL` | **refused**, `Neo.DatabaseError.Schema.ConstraintCreationFailed` — *"Unable to create Constraint( type='NODE PROPERTY EXISTENCE', schema=(:__CapabilityProbe {probe_id}) ): Property existence constraint requires Neo4j Enterprise Edition."* |
+| `SHOW DATABASES` / `CREATE DATABASE probe_db` | `neo4j` (`standard`) and `system` (`system`), both online — **one user database**. Creating a second is refused: `Neo.ClientError.Statement.UnsupportedAdministrationCommand` — *"Unsupported administration command: CREATE DATABASE probe_db."* |
+
+So the design holds as written: uniqueness constraints only, NOT NULL enforced by the
+projection models and re-checked by a post-load Cypher assertion, and rebuilds wipe the one
+database rather than creating a new one. Two details the probes added to the assumption. First,
+`IF NOT EXISTS` does **not** soften the two Enterprise refusals — a constraint that does not
+exist still fails to be created — so there is no "try the strong form, fall back" path to write.
+Second, the refusals arrive as `DatabaseError`, not `ClientError`, so "this edition cannot do
+that" and "the server broke" share an exception class; only the message distinguishes them.
+`CREATE FULLTEXT INDEX … IF NOT EXISTS` was probed in the same pass and is accepted, which is
+what §5.3's `passage_text` index depends on.
 
 ## 5.2 Constraints
 
