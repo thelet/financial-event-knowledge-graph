@@ -36,7 +36,7 @@
     "gold_event_types_reached_by_any_scope": 0,
     "score_deltas_that_are_nonzero": {}
   },
-  "implementation_commit": "23216f8c78d095243194692270c489a124e7b278",
+  "implementation_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
   "metric_extraction": {
     "cases": 14,
     "cases_with_a_difference": 1,
@@ -86,10 +86,10 @@
     "lexical_scope_size_mean": 17.923077
   },
   "sources": {
-    "event_relationship_v1.json": "23216f8c78d095243194692270c489a124e7b278",
-    "hybrid_scope_v1.json": "23216f8c78d095243194692270c489a124e7b278",
-    "lexical_scope_v1.json": "23216f8c78d095243194692270c489a124e7b278",
-    "narrative_lane_v1.json": "23216f8c78d095243194692270c489a124e7b278"
+    "event_relationship_v1.json": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+    "hybrid_scope_v1.json": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+    "lexical_scope_v1.json": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+    "narrative_lane_v1.json": "4d3ae1e8e2b90356932a33c6b611e444d1396faa"
   },
   "verdict": {
     "adoption_conditions_met": false,

@@ -98,9 +98,9 @@ The commit below is the only field permitted to move between two regenerations o
 
 |  | Value |
 | --- | --- |
-| implementation commit | `23216f8c78d095243194692270c489a124e7b278` |
+| implementation commit | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
 | ontology definition hash | `e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc` |
-| source `event_relationship_v1.json` | `23216f8c78d095243194692270c489a124e7b278` |
-| source `hybrid_scope_v1.json` | `23216f8c78d095243194692270c489a124e7b278` |
-| source `lexical_scope_v1.json` | `23216f8c78d095243194692270c489a124e7b278` |
-| source `narrative_lane_v1.json` | `23216f8c78d095243194692270c489a124e7b278` |
+| source `event_relationship_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
+| source `hybrid_scope_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
+| source `lexical_scope_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
+| source `narrative_lane_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |

@@ -161,11 +161,72 @@ class DeterministicTableClaimLane:
         for row_index in grid.data_rows():
             if row_index < header.first_data_row:
                 continue
+            before = len(result.claims)
             self._read_row(grid, header, row_index, scale, result,
                            passage_id=passage_id, document_id=document, table_id=table_id,
                            block_ids=block_ids, preceding_passage_id=preceding_passage_id,
                            subject_entity_id=subject_entity_id, subject_type=subject_type)
+            self._refuse_rows_that_disagree_with_themselves(
+                result, before, passage_id=passage_id, table_id=table_id,
+                row_index=row_index)
         return result
+
+    @staticmethod
+    def _refuse_rows_that_disagree_with_themselves(
+        result, first_claim_index: int, *, passage_id, table_id, row_index: int,
+    ) -> None:
+        """Two cells of one row that mean the same thing and say different things.
+
+        The general form of a header the column rules read wrongly. If two cells of a single
+        row resolve to one structural identity — `(metric, subject, period, lane, passage)`,
+        the identity `observation_identity` uses — and carry different values, then the header
+        mapping that produced them is not uniquely supported, whatever rule produced it. There
+        is no basis for preferring either cell, so **both are refused** and
+        `AMBIGUOUS_COLUMN_ALIGNMENT` is recorded. Selecting one would be a guess with a 50%
+        error rate, and keeping both puts two answers to one question in the catalogs.
+
+        Found by the step 13 corpus run on a header carrying five period-end columns and two
+        bare years under a single `Nine Months Ended September 30,` phrase: seven columns
+        divided evenly by one group gave every column the same nine-month duration, so
+        `September 30, 2023` and `2023` became one identity holding -49,000,000 and
+        -558,000,000. **Nothing here names that table, metric, period or value** — the guard
+        is a property of a row disagreeing with itself, and any header rule that produces one
+        trips it.
+
+        Deliberately *not* the row discriminator's job. `observation_id` now separates these
+        two cells, which is right — they are different readings — and that separation is
+        exactly why a check keyed on the id cannot see the contradiction. This runs on
+        structural identity for the same reason `validate_no_conflicting_duplicates` does.
+        """
+        emitted = result.claims[first_claim_index:]
+        if len(emitted) < 2:
+            return
+        by_identity: dict[tuple, list] = {}
+        for claim in emitted:
+            identity = (claim.metric_id, claim.subject_entity_id, claim.period.key,
+                        claim.source_lane, claim.passage_id)
+            by_identity.setdefault(identity, []).append(claim)
+
+        refused = []
+        for identity, claims in by_identity.items():
+            if len(claims) < 2 or len({c.value for c in claims}) < 2:
+                continue
+            refused.extend(claims)
+            readings = "; ".join(
+                f"column {c.column_index} {c.column_label!r} -> {c.period.key} = {c.value!r}"
+                for c in claims)
+            result.issues.append(TableIssue(
+                AMBIGUOUS_COLUMN_ALIGNMENT,
+                f"{claims[0].row_label!r}: {len(claims)} cells of one row resolve to "
+                f"{identity[0]} at {identity[2]} with different values, so the column "
+                f"mapping is not uniquely supported — {readings}",
+                passage_id, table_id, row_index=row_index,
+                column_index=claims[0].column_index,
+                raw_label=claims[0].row_label))
+        if refused:
+            keep = [c for c in emitted if c not in refused]
+            del result.claims[first_claim_index:]
+            result.claims.extend(keep)
 
     # -- one row ----------------------------------------------------------------------------
 

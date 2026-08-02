@@ -742,3 +742,79 @@ def test_a_partial_span_heading_that_floats_between_columns_is_refused(lane):
     result = lane.extract_table(table, passage_id="norm:x:y:z.htm#p1")
     assert result.claims == []
     assert [i.code for i in result.issues] == ["AMBIGUOUS_COLUMN_ALIGNMENT"]
+
+
+# The header the step 13 run's conflicting-duplicate check failed on, verbatim from
+# q32023formxex991earningsre.htm#p29: five period-end columns and two bare years under a
+# single `Nine Months Ended September 30,` phrase. Seven columns divided evenly by one group
+# gives every column the same nine-month duration.
+ONE_PHRASE_OVER_SEVEN_COLUMNS = (
+    "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n"
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    " --- |\n"
+    "|  |  |  |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |\n"
+    "| (in millions, except percentages) |  | September 30, 2023 |  | June 30, 2023 |"
+    "  | March 31, 2023 |  | December 31, 2022 |  | September 30, 2022 |  | 2023 |"
+    "  | 2022 |\n"
+    "| Adjusted EBITDA |  | (49) |  | (30) |  | (105) |  | (351) |  | (211) |  | (558) |"
+    "  | (954) |"
+)
+
+
+def test_a_row_that_disagrees_with_itself_is_refused_not_resolved(lane):
+    """The step 13 data-integrity blocker, as a fixture.
+
+    Two cells of one row resolving to one structural identity with different values means the
+    column mapping is not uniquely supported. There is no basis for preferring either, so both
+    are refused: choosing one is a guess with a 50% error rate and keeping both puts two
+    answers to one question into the catalogs.
+
+    Nothing in the guard names this table, metric, period or value — it is a property of a row
+    contradicting itself, and any header rule that produces one trips it *(2026-08-02)*.
+    """
+    result = lane.extract_table(ONE_PHRASE_OVER_SEVEN_COLUMNS, passage_id="norm:x:y:z.htm#p1")
+
+    ambiguous = [i for i in result.issues if i.code == "AMBIGUOUS_COLUMN_ALIGNMENT"]
+    # Two, not one: the single row contradicts itself twice, once for each of the two
+    # nine-month periods the header collapses onto. One issue per contradicted identity, so a
+    # reader sees each one rather than a single message hiding a count.
+    assert len(ambiguous) == 2, [i.detail for i in result.issues]
+
+    # Both readings survive in the diagnostic — the row, both columns, the period they were
+    # both assigned, and both values — so the refusal can be audited without re-running.
+    detail = next(i.detail for i in ambiguous if "2023-01-01_2023-09-30" in i.detail)
+    assert "Adjusted EBITDA" in detail
+    assert "September 30, 2023" in detail and "'2023'" in detail
+    assert "2023-01-01_2023-09-30" in detail
+    assert "-49000000" in detail and "-558000000" in detail
+
+    # And neither value reached a claim.
+    values = {c.value for c in result.claims if c.metric_id == "adjusted_ebitda"}
+    assert -49000000.0 not in values and -558000000.0 not in values
+
+
+def test_no_row_of_that_table_holds_two_values_for_one_identity(lane):
+    """The invariant the guard exists to hold, stated over the whole table rather than one
+    row: after refusal, no (metric, subject, period) in this passage carries two values."""
+    result = lane.extract_table(ONE_PHRASE_OVER_SEVEN_COLUMNS, passage_id="norm:x:y:z.htm#p1")
+    seen: dict[tuple, float] = {}
+    for claim in result.claims:
+        identity = (claim.metric_id, claim.subject_entity_id, claim.period.key)
+        if identity in seen:
+            assert seen[identity] == claim.value, identity
+        seen[identity] = claim.value
+
+
+def test_the_guard_does_not_refuse_a_row_that_merely_repeats_a_value(lane):
+    """Agreement is not ambiguity. Two cells resolving to one identity with the *same* value
+    are two renderings of one fact, and refusing them would lose it."""
+    table = (
+        "|  |  |  |  |  |  |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "|  |  |  |  | Nine Months Ended September 30, |  |\n"
+        "| (in millions) |  | September 30, 2023 |  | 2023 |  |\n"
+        "| Adjusted EBITDA |  | (49) |  | (49) |  |"
+    )
+    result = lane.extract_table(table, passage_id="norm:x:y:z.htm#p1")
+    assert [i for i in result.issues if i.code == "AMBIGUOUS_COLUMN_ALIGNMENT"] == []
+    assert any(c.value == -49000000.0 for c in result.claims)
