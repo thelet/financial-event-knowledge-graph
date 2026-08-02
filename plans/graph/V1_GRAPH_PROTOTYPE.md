@@ -278,7 +278,10 @@ it is the "best general-purpose graph backend when transparency, querying, and v
 inspection are priorities". `docs/03_TARGET_COMBINATIONS.md:386-395` recommends starting with a
 narrow custom extraction strategy and a local graph repository, and implementing Graphiti only
 later as a second `GraphBuilder` adapter for comparison. `.gitignore:34` already lists
-`neo4j_data/` *(verified)*.
+`neo4j_data/` *(verified)*. **That gitignore entry turned out to be moot** — the store cannot
+live on this working tree at all, because `/mnt/c` is NTFS over WSL 9p and Neo4j's files hit
+locking and ownership failures there. The data lives in named Docker volumes instead; §5.1
+records the correction.
 
 Nothing in the repository argues against Neo4j, and no requirement was found that Neo4j Browser
 cannot satisfy for a first look. **No custom viewer is planned** (§12). The one thing this plan
@@ -412,7 +415,7 @@ readable Cypher use.
 | `:Metric` | — | `metric_id` | ontology `metric_definition` (26) |
 | `:Passage` | — | `passage_id` | `passages.jsonl`, only passages some claim or issue cites — **8,776** *(153 by claims, 8,757 by issues; measured at G0)* |
 | `:Document` | — | `document_id` | `documents.jsonl`, only documents of cited passages — **185** *(49 by claims; measured at G0)* |
-| `:Issue` | `:NotAttempted` on the 10,852 `NO_STORED_ANSWER` rows | `issue_id` (**supplied by the run**, §4.3) | `issues.jsonl` |
+| `:Issue` | `:NotAttempted` on the 10,852 `NO_STORED_ANSWER` rows; `:Rejected` on the 46 a `rejected_claims.jsonl` row mirrors | `issue_id` (**supplied by the run**, §4.3), or `rejection_id` for an unmirrored rejection | `issues.jsonl` **plus** any `rejected_claims.jsonl` row `issues.jsonl` does not mirror |
 
 Concrete entity labels are derived from the payload's own `entity_type` / `subject_type`
 string, PascalCased, **with the ontology's `is_a` ancestors added** — so `opendoor` is
@@ -439,6 +442,20 @@ A second, non-exclusive label `:Unresolved` marks any entity node the filing did
 (§4.2). Styling it distinctly in Browser is the cheapest possible guard against reading a
 placeholder as an answer.
 
+**An `assemble`-origin rejection gets an `:Issue:Rejected` node too** *(added 2026-08-03 after
+review)*. `jsonl_catalog.py:98-121` writes **no** `issues.jsonl` row for such a refusal, so a
+builder that iterated `issues.jsonl` alone projected it nowhere — no node, no label, no count —
+which §10 criterion 5 forbids: refusals must *appear*. It is keyed on its `rejection_id` (the
+run's own id, §4.3) and carries **no `issue_id` property**, because it has no issue row; that
+absence is the signal that the two files are never summed (§2.2 P10). Zero such rows in this
+run, so no count in this document moves.
+
+**No node property is ever null.** In Cypher `SET n += {k: null}` *removes* `k`, so a null in
+`nodes.jsonl` describes a property the loaded graph will not have. The projection drops it, as
+`edges.jsonl` always did — 53,951 such properties were exported before this was made uniform
+*(measured 2026-08-03)*. Absence and null are one fact in the source too: `extractor_metadata`
+omits keys rather than nulling them (§5.4 point 1).
+
 **Deliberately not nodes:**
 
 | Not a node | Why |
@@ -455,13 +472,28 @@ placeholder as an answer.
 The projection reads them from the registry rather than hard-coding a list, so a vocabulary
 edit cannot silently disagree with the code (the same rule `deferred_metric_ids` follows).
 
-**One wrinkle review found in that plan:** five endpoint type names in `relationships.yaml` —
-`metric_definition`, `metric_observation`, `event_type`, `relationship_type`, `metric_formula` —
-are **category** names, not registry concepts, and `registry.concept(...)` raises
-`ConceptNotFoundError` for each. They are exactly the structural predicates §1.1 is built on
-(`HAS_OBSERVATION`, `EVIDENCED_BY`, `PARTICIPATES_IN`, `SUPERSEDES`). So the endpoint validator
-resolves a name as *either* a concept *or* a `ConceptCategory`, and only a name that is neither
-raises `UNDECLARED_ENDPOINT_TYPE`. Without that, the projection would reject its own backbone.
+**One wrinkle review found in that plan, and G1 found the correction was itself half wrong:**
+five endpoint type names in `relationships.yaml` — `metric_definition`, `metric_observation`,
+`event_type`, `relationship_type`, `metric_formula` — are not registry concepts, and
+`registry.concept(...)` raises `ConceptNotFoundError` for each. They are exactly the structural
+predicates §1.1 is built on (`HAS_OBSERVATION`, `EVIDENCED_BY`, `PARTICIPATES_IN`, `SUPERSEDES`).
+
+**Four of the five are `ConceptCategory` members. `metric_observation` is a `ClaimKind`**
+*(measured at G1: `'metric_observation' in [c.value for c in ConceptCategory]` is False)*.
+Resolving against `ConceptCategory` alone — which is what this section said to do — would still
+have rejected `HAS_OBSERVATION`, `OBSERVATION_OF_SUBJECT` and `EVIDENCED_BY`, i.e. the whole
+backbone the wrinkle exists to protect. The validator resolves a name as a concept, a
+`ConceptCategory`, **or** a `ClaimKind`, and only a name that is none of the three raises
+`UNDECLARED_ENDPOINT_TYPE`.
+
+**Endpoint checking is subtype-aware, and that is the ontology's own rule rather than a
+widening.** The run's facility participant carries `entity_type: asset_backed_debt_facility`
+while `PARTICIPATES_IN` declares `credit_facility`; exact membership would drop a filed
+participant. `ConceptRegistry.accepts_type` (`ontology/registry.py:176-183`) already resolves
+`is_a` chains for exactly this reason — "a slot declaring `company` accepts `public_company`
+… without this, every declaration would have to enumerate its own subtypes and would silently
+rot". The projection asks that method rather than reimplementing membership. The widening is
+one-directional: a type the registry does not know at all is still an error.
 
 | Edge | From → To | Emitted from |
 | --- | --- | --- |
@@ -588,7 +620,20 @@ with `sort_keys=True` and a declared sort order (nodes by `(label_base, key)`, e
 `(type, source_key, target_key, edge_key)`), matching `normalization/utils/jsonl.py`.
 
 **Acceptance:** two projections of one extraction run produce byte-identical exports, and two
-loads of one export produce identical node, edge and property counts (§10).
+loads of one export produce identical node, edge and property counts (§10). The two projections
+must run in **two processes with different `PYTHONHASHSEED` values** *(added 2026-08-03)*: a
+comparison made inside one interpreter shares that interpreter's seed, so a builder that
+iterated a `set` into a property would produce the same wrong order twice and the check would
+pass. `tests/graph/test_export_determinism.py` shells out for exactly this reason.
+
+**The graph run id derives from the input bytes, not only from the input's name.**
+`graph-v1-<digest12>` digests the projection version, the extraction run id, the ontology
+definition hash **and** `input_content_digest` — the completion marker, the sha256 of each of
+the seven catalog files, and the loaded row counts. Without the fourth term,
+`tests/fixtures/graph/extraction_run/` — which ships the run's manifest verbatim, deliberately
+— minted the same id as the full run, and projecting the fixture removed the real export
+(§6.4's note on `.rejected/` records the sibling failure). All four terms are functions of the
+input; none of them is a clock, so byte-identity is unaffected.
 
 ---
 
@@ -596,12 +641,25 @@ loads of one export produce identical node, edge and property counts (§10).
 
 ## 5.1 Deployment
 
-Local Neo4j 5 Community in Docker, data in `./neo4j_data/` — already gitignored. Bolt on
-`localhost:7687`, Browser on `localhost:7474`. Credentials from the environment, never in
-`config/graph.yaml`.
+Local Neo4j **5.26.28** Community in Docker, container `fkg-neo4j`, loopback only. Bolt on
+`localhost:7687`, Browser on `localhost:7474`. Credentials from `.env` (`NEO4J_URI`,
+`NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`), never in `config/graph.yaml`.
 
-*(unverified — confirm at G2)*: Community Edition supports `IS UNIQUE` constraints but not
-`IS NODE KEY` or existence constraints, and hosts a single user database. This plan is designed
+**Data lives in named Docker volumes `fkg_neo4j_data` / `fkg_neo4j_logs`, not in `./neo4j_data/`**
+*(corrected 2026-08-02 by the environment build; this section and §1.6 both said otherwise)*.
+The reason is specific to this machine and worth recording: the working tree is on `/mnt/c`,
+NTFS through WSL's 9p mount, where Neo4j's store files hit file-locking and ownership failures.
+A bind mount into the repository is therefore not available, and the gitignored `./neo4j_data/`
+path the plan assumed never comes into existence.
+
+Two consequences that bite silently if forgotten: `compose.yaml` pins `name: fkg`, and removing
+it re-derives the volume names from the directory — which yields a *silently empty* database
+rather than an error. And a shell started before Docker Desktop's install lacks the `docker`
+group, so commands need `sg docker -c '<cmd>'` or a fresh shell.
+
+*(still unverified — G2 must confirm, and the environment build deliberately did not, because
+testing it means creating constraints)*: Community Edition supports `IS UNIQUE` constraints but
+not `IS NODE KEY` or existence constraints, and hosts a single user database. This plan is designed
 so Community suffices: uniqueness constraints only, NOT NULL enforced by the projection models
 and re-checked by a post-load Cypher assertion, and rebuilds wipe the one database rather than
 creating a new one.
@@ -678,9 +736,30 @@ not re-scale anything.
 
 **Temporal.** ISO strings are authoritative, because they are what the catalogs contain and
 what byte-identity is checked against: `period_start`, `period_end`, `instant_date`,
-`period_key`, `occurred_on`, `announced_on`, `valid_from`, `valid_to`. Typed `date()` twins are
-added *only* where range queries need them — `occurred_on_date`, `announced_on_date`,
-`period_end_date` — and are derived, never authoritative.
+`period_key`, `occurred_on`, `announced_on`, `valid_from`, `valid_to`.
+
+**Typed `date()` twins are a G2 loader concern, not a projection concern** *(amended
+2026-08-03; the draft added `occurred_on_date`, `announced_on_date` and `period_end_date` as
+projection properties, and G1 built them before measuring what they held)*. The measurement:
+
+| Twin | What it held | Null | Information added |
+| --- | --- | --- | --- |
+| `period_end_date` | a byte-identical copy of `period_end` on all 2,707 observations | 403 — exactly the instants | none |
+| `occurred_on_date` | a byte-identical copy of `occurred_on` on all 6 events | 3 of 6 | none |
+| `announced_on_date` | a byte-identical copy of `announced_on` on all 6 events | 2 of 6 | none |
+
+*(Measured 2026-08-03 on `data/graph_runs/graph-v1-380c18fe3b9f/nodes.jsonl`, the last export
+that carried them; "byte-identical" is an equality check over every row, not a sample.)*
+
+The projection holds no database, so it cannot call `date()`; a "typed twin" written by a
+process with no type system is a second string under a name that promises a temporal type.
+Worse, `period_end_date` was null on exactly the 403 rows a range query most needs a date on —
+an instant observation has an `instant_date` and no `period_end` — so the property was
+misleading as well as empty. The loader is the layer that has `date()`, and it can apply it to
+the **authoritative** ISO field it already reads; §6.3's `SET n += row.properties` becomes one
+extra `SET` per temporal field. The three properties are therefore removed from the projection
+and this section no longer asks for them. Nothing is lost: `date(n.period_end)` is available to
+any query, and to the loader, from the field the catalog actually filed.
 
 **The five event fields that exist only in `events.jsonl` are carried, not dropped** *(added by
 review, which caught the projection spec silently discarding what §0b called load-bearing)*:
@@ -719,7 +798,15 @@ null, and **neither is ever filled from the other or from a document's `filing_d
 **Validation state — re-derived, because the run does not record it** *(G0)*.
 
 `validation_state` ∈ `{clean, warned}`, `warning_codes: [...]`, and a non-exclusive `:Warned`
-label. The run's 186 `unpreferred_source_lane` warnings exist **only** as a manifest aggregate:
+label — **on `:Event` as well as `:Observation`** *(added 2026-08-03; the draft gave them to
+observations only, so `WHERE x.validation_state = 'clean'`, the obvious way to ask for
+trustworthy facts, silently excluded all six events)*. Every event is `clean` with
+`warning_codes: []`, and that is a measurement rather than a default: the manifest's 186 come
+from `validate_claims` over all 2,717 claims and not one of them is an event, because this
+ontology declares no event-level warning rule — the same fact this section's last paragraph
+records as the reason the two denominators agree today.
+
+The run's 186 `unpreferred_source_lane` warnings exist **only** as a manifest aggregate:
 `CheckFinding` carries a `claim_id` (`extraction/stages/verify/public.py:49-53`) and
 `as_row()` writes counts, discarding the findings (`:70-80`). Nothing in the run directory
 associates a warning with a claim.
@@ -835,11 +922,19 @@ The projection validates every input row against a typed reader. A row it cannot
 written to `rejected.jsonl` with `{row_index, file, code, detail}` and **the projection exits
 non-zero**. Codes: `UNKNOWN_FIELD`, `UNKNOWN_CLAIM_KIND`, `UNKNOWN_PREDICATE`,
 `UNDECLARED_ENDPOINT_TYPE`, `EVIDENCE_PASSAGE_NOT_IN_CATALOG`, `MISSING_REQUIRED_KEY`,
-`MALFORMED_EVENT_PROPERTY` (§5.4 — a property value Neo4j cannot store as a scalar).
+`MALFORMED_EVENT_PROPERTY` (§5.4 — a property value Neo4j cannot store as a scalar),
+`PROVENANCE_KEY_COLLISION` (§5.5 — a run-provenance key that shadows a filed fact key).
 
 Failing rather than skipping is the whole point: a graph that silently drops 3% of its claims
 looks exactly like a graph that did not. The file exists so the reason is auditable when it
 happens.
+
+**A refusal is written beside the run id, never on top of it** *(added 2026-08-03 after
+review)*: `rejected.jsonl` lands in `data/graph_runs/<graph_run_id>.rejected/`, and
+`data/graph_runs/<graph_run_id>/` is not touched. G1 originally finalized a rejection over the
+run id itself, which removed a complete projection's `nodes.jsonl`, `edges.jsonl` and
+`manifest.json` and left only the rejection — a failed run destroying a good one. A rejection
+is a record of why there is no projection; it may not occupy the name a projection would have.
 
 ## 6.5 Reproducibility checks
 
@@ -986,10 +1081,26 @@ A build is accepted when all of the following hold, each with an executable chec
    `MATCH (x) WHERE (x:Observation OR x:Event) AND NOT (x)-[:EVIDENCED_BY]->() RETURN count(x)` → 0.
 3. **Stable across two rebuilds.** Byte-identical `nodes.jsonl` and `edges.jsonl`; identical
    per-label and per-type counts after two loads; no id differs.
-4. **Every fact links back to claim and evidence provenance.** Every `:Observation`, `:Event`
-   and every ontology-declared edge carries a non-null `claim_id`, `extraction_run_id`,
-   `ontology_definition_hash` and at least one resolvable `passage_id`; every `passage_id` in
-   the graph exists in `data/normalization_catalog/passages.jsonl`.
+4. **Every fact links back to claim and evidence provenance.** *(Scope corrected 2026-08-03:
+   the criterion demanded a `claim_id` and a `passage_id` on every ontology-declared edge, and
+   38 ontology-declared edges correctly carry neither. The design was right and this text was
+   never swept.)*
+   - **Claim-sourced facts** — every `:Observation`, every `:Event`, and every ontology-declared
+     edge built from a claim row (`HAS_OBSERVATION`, `OBSERVATION_OF_SUBJECT`, `EVIDENCED_BY`,
+     `PARTICIPATES_IN`, and the entity-to-entity predicates of `relationships.jsonl`) — carry a
+     non-null `claim_id`, `extraction_run_id`, `ontology_definition_hash` and at least one
+     resolvable `passage_id`.
+   - **Vocabulary-sourced edges** — the 36 `DISTINCT_FROM` and 2 `RECONCILES_TO` edges, read
+     from `metrics.yaml` rather than from a filing — carry `assertion: ontology_definition`
+     and **no** `claim_id`, `passage_id`, `document_id` or `assertion_type`. No claim asserted
+     them and no passage evidences them; a `claim_id` on one would be a fabricated citation,
+     which is a worse failure than the missing field the original criterion asked for.
+   - Both branches are executable and both are asserted
+     (`tests/graph/test_edges.py::test_fact_bearing_edges_carry_claim_passage_document_and_assertion`);
+     the test previously `continue`d past the second family, which is how the contradiction
+     survived a green suite.
+   - Either way, every `passage_id` in the graph exists in
+     `data/normalization_catalog/passages.jsonl`.
 5. **Nothing unsupported loads as an accepted fact — and nothing supported is suppressed.**
    Abstentions, refusals, rejections and deferrals appear only as `:Issue`, with no edge into
    the fact graph; `count(:Issue)` equals the 17,127 rows of `issues.jsonl`; no `:Observation`
@@ -1059,12 +1170,14 @@ Dependency: the official `neo4j` Python driver. It removes real work — Bolt fr
 pooling, transaction retry on transient failures — that would otherwise be hand-rolled. Nothing
 else is added; no APOC (§6.3), no OGM, no graph library.
 
-**Two environment prerequisites, neither satisfied today** *(verified 2026-08-02)*: the `neo4j`
-driver is **not installed** (`pyproject.toml` declares only `httpx`, `pydantic`, `PyYAML`), and
-**`docker` is not on PATH in this WSL environment**. Neither blocks G0 or G1, which are
-database-free by design and are where the graph model is actually tested. Both must be resolved
-before G2, and how — Docker Desktop with WSL integration, a native Neo4j install, or a different
-local runtime — is an environment decision to take at that point rather than now.
+**Both environment prerequisites are now satisfied** *(2026-08-02; this paragraph previously said
+neither was, which was true when G1 began and is stale)*. Driver `neo4j>=6.2,<7` is installed and
+declared; Docker Desktop 4.84.0 with WSL integration provides `docker`. A verified authenticated
+Bolt connection reports **5.26.28 community**, the database survives a restart, and it is empty —
+0 nodes, 0 relationships, so G3 loads into a known-clean store rather than onto residue.
+
+G0 and G1 were database-free by design and are where the graph model is actually tested, so
+neither waited on this.
 
 | Stage | Work | Gate |
 | --- | --- | --- |
