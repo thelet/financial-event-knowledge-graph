@@ -8416,7 +8416,7 @@
     "text_cache_entries": 26,
     "text_normalization_version": "v1"
   },
-  "implementation_commit": "c687beaecfd0d67357e5d86d642386141b56df8e",
+  "implementation_commit": "23216f8c78d095243194692270c489a124e7b278",
   "normalization_corpus": {
     "documents": 294,
     "documents_sha256": "c2baa5373a5161967a1311458874318801338d39b298df82f6af78a249dbe5e3",

@@ -4,7 +4,7 @@ Pure functions, same rule as `normalization/core/identity.py`: derived from stab
 and structural position, never from randomness, and readable because they surface in
 evidence panels.
 
-    observation_id  obs:{metric_id}:{subject}:{period_key}:{lane}:{passage_digest12}
+    observation_id  obs:{metric_id}:{subject}:{period_key}:{lane}:{position_digest12}
     claim_id        claim:{claim_kind}:{payload_digest12}
     event_id        evt:{event_type_id}:{occurred_on}:{position_digest12}
     relationship_instance_id
@@ -22,6 +22,22 @@ reconciliation table states as 38,228 thousand — and an id built only from
 arrived second. Keeping them distinct is also what makes the restatement question in
 ONTOLOGY_V1_IMPLEMENTATION §16.5 decidable later instead of already lost: `SUPERSEDES` is a
 graph-layer policy over a complete set of observations, and it needs both to exist.
+
+**That argument was entirely about *cross-passage* collisions, and the corpus contains the
+within-passage kind it never covered** *(measured 2026-08-02 on
+`extract-v1-lexical-2422c4252c07`, before `structural_position` existed: 2,715 observation
+rows carry 2,657 distinct ids — **58 ids describe two grid cells each**, across 12 table
+passages)*. One table row reports one metric under several period columns, and the passage
+digest cannot tell those columns apart. Four of the 58 carry disagreeing values, e.g.
+
+    obs:adjusted-ebitda:opendoor:2022-01-01_2022-09-30:normalized-table:98849a208451
+        183000000.0  row "Adjusted EBITDA", column "2022"
+       -211000000.0  row "Adjusted EBITDA", column "September 30, 2022"
+
+`observation_id` therefore digests structural position, not the passage alone — the same
+extension `event_id` took when participants entered its digest, and additive in the same way:
+an empty `structural_position` reproduces the previous id byte for byte, so a narrative claim,
+which has no grid position to state, keeps the id it already had.
 """
 
 from __future__ import annotations
@@ -56,14 +72,30 @@ def observation_id(
     period_key: str,
     lane: str,
     passage_id: str,
+    structural_position: tuple[str, ...] = (),
 ) -> str:
+    """`obs:{metric}:{subject}:{period}:{lane}:{digest12}` over the reading's position.
+
+    `structural_position` is where the passage was read — for a table, the grid coordinates
+    the lane already knows (`LaneClaim.structural_position`). It must be **structural**: a
+    grid coordinate, a block id, an ordinal. Never the value, never what a label appears to
+    mean, never anything a model produced, and never a counter that depends on the order rows
+    happened to be visited. Those would make the id a function of the answer rather than of
+    the position, which is the property that lets a second run over the same bytes recompute
+    the same id.
+
+    **Empty `structural_position` reproduces the previous digest exactly** — `digest(passage_id)`
+    and `digest(*[passage_id])` are the same call — so the extension is additive and every
+    narrative-lane id is unchanged by it. This is the discipline `event_id` used when
+    `participants` entered its digest; see that docstring.
+    """
     return ":".join((
         "obs",
         _slug(metric_id),
         _slug(subject_entity_id),
         period_key,
         _slug(lane),
-        digest(passage_id),
+        digest(passage_id, *structural_position),
     ))
 
 

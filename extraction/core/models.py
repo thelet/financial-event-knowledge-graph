@@ -202,6 +202,13 @@ class LaneClaim(BaseModel):
     `value` is already scaled — the lane owns scale resolution because only the lane can see
     the declaration. `raw_text` keeps the cell or phrase as printed so a scale or sign error
     is recoverable after the fact instead of being a bare wrong number.
+
+    **The two grid fields are optional because only a grid has a position.** They state where
+    in a table the reading sits, and they are the discriminator `observation_id` digests; a
+    lane reading prose leaves both unset and its ids are unchanged by their existence. They
+    are explicit fields rather than `extractor_metadata` keys precisely because an id is
+    derived from them — a free-form metadata dict is where a key gets renamed without anything
+    noticing, and renaming one of these silently changes every table observation id.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -221,10 +228,41 @@ class LaneClaim(BaseModel):
     scale: ScaleDeclaration | None = None
     row_label: str | None = None
     column_label: str | None = None
+    # Where in a grid this reading sits: the data row carrying the metric label, and the header
+    # column carrying the period (`PeriodColumn.column_index`) — the *original* column index,
+    # which is what evidence points at, and not the value cell's, which shifts row by row with
+    # layout spacing (see `_value_cells`).
+    #
+    # **No `table_id` here, and the omission is deliberate.** The grid's own identity is
+    # already in the digest as `passage_id`, which is what a table passage is; a `table_id`
+    # beside it would add nothing and would make the id depend on the entry point, because a
+    # run calls `extract` (which supplies none) while the benchmark calls `extract_table` with
+    # the catalog's real block id — two callers, one cell, two ids.
+    row_index: int | None = None
+    column_index: int | None = None
     population_definition_raw: str | None = None
     ambiguity_codes: tuple[str, ...] = ()
     confidence: float | None = None
     extractor_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def structural_position(self) -> tuple[str, ...]:
+        """The claim's grid coordinates, as ordered parts for a digest. Empty when it has none.
+
+        Empty is the honest answer for prose and it is also the additive one: `observation_id`
+        digests `()` to exactly the id it minted before this field existed, so adding grid
+        coordinates changed table ids and left every narrative id alone.
+
+        Self-describing parts (`row=12`) rather than bare numbers, because these surface in a
+        debugging session as the reason two ids differ, and `12` on its own does not say
+        whether it is a row or a column.
+        """
+        if self.row_index is None and self.column_index is None:
+            return ()
+        return (
+            f"row={'' if self.row_index is None else self.row_index}",
+            f"column={'' if self.column_index is None else self.column_index}",
+        )
 
 
 class LaneEventParticipant(BaseModel):

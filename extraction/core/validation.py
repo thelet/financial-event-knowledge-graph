@@ -11,11 +11,12 @@ Four failures fail a run:
 1. an evidence id that does not resolve against the passage catalog;
 2. a claim whose `source_lane` is in its metric's `forbidden_source_lanes`;
 3. `ontology.validate_claims` returning any error;
-4. a duplicate observation id carrying a different value.
+4. one observation identity carrying two different values.
 
-The fourth is the one that would otherwise pass quietly. Ids are deterministic, so two
-identical readings of the same fact collide harmlessly; a collision with a *different* value
-means the id scheme has lost a distinction it was supposed to keep.
+The fourth is the one that would otherwise pass quietly: one passage, one lane, one metric,
+one subject, one period, and two readings that disagree about the number. See
+`observation_identity` for why it is keyed on that tuple and pointedly not on the
+`observation_id`, which now separates the very rows this check exists to compare.
 """
 
 from __future__ import annotations
@@ -131,20 +132,59 @@ def validate_source_lanes(claims: list[OntologyClaim], ontology) -> list[Validat
     return findings
 
 
+def observation_identity(observation) -> tuple:
+    """What must agree about a value: (metric, subject, period, lane, passages).
+
+    **Deliberately not the `observation_id`, and this is the whole of the check's survival.**
+    It keyed on the id until `observation_id` gained a structural row discriminator
+    *(2026-08-02)*, and the two rows of one table row that disagree about a value are exactly
+    the rows the discriminator now separates — so keying on the id would have taken this check
+    from 4 failures to 0 on the same corpus and called the run clean. A repair that hides the
+    defect it was measured against is not a repair.
+
+    This is the identity the id carried *before* the discriminator, so the check means what it
+    always meant: one passage, one lane, one metric, one subject, one period, two values.
+
+    Not broadened to (metric, subject, period) alone, which the module docstring's own example
+    forbids: a letter rounding to $38 million and a table stating 38,228 thousand are two
+    readings of one fact that the id scheme keeps distinct on purpose. *(Measured on
+    `extract-v1-lexical-2422c4252c07`: this key flags 4, dropping the passage flags 124.)*
+    """
+    passages = tuple(sorted({
+        str(reference.passage_id or "") for reference in (observation.evidence or ())}))
+    return (
+        str(observation.metric_id),
+        str(observation.subject_entity_id),
+        observation.period_start,
+        observation.period_end,
+        observation.instant_date,
+        str(observation.source_lane),
+        passages,
+    )
+
+
 def validate_no_conflicting_duplicates(claims: list[OntologyClaim]) -> list[ValidationFinding]:
-    seen: dict[str, object] = {}
+    seen: dict[tuple, tuple[object, str]] = {}
     findings: list[ValidationFinding] = []
     for claim in claims:
         observation = _observation(claim)
         if observation is None:
             continue
-        previous = seen.get(observation.observation_id)
+        identity = observation_identity(observation)
+        previous = seen.get(identity)
         if previous is None:
-            seen[observation.observation_id] = observation.value
-        elif previous != observation.value:
+            seen[identity] = (observation.value, observation.observation_id)
+            continue
+        previous_value, previous_id = previous
+        if previous_value != observation.value:
+            # Both ids, because they are no longer the same id. The discriminator is what makes
+            # the two readings distinct rows, and a message naming one of them would leave a
+            # reader unable to find the other.
             findings.append(ValidationFinding(
                 DUPLICATE_OBSERVATION_CONFLICT,
-                f"{observation.observation_id} seen with {previous!r} and {observation.value!r}",
+                f"{previous_id} = {previous_value!r} and "
+                f"{observation.observation_id} = {observation.value!r} report one "
+                "(metric, subject, period) on one passage",
                 claim.claim_id))
     return findings
 

@@ -11,6 +11,9 @@ already produced.
 **Status: done, 2026-08-02.** §11–§17 record what was built, the run's numbers, four
 corrections to this brief, the two defects the run's own verification found, and the decision.
 Read §14 before trusting §1–§10: two statements in them are wrong and are corrected there.
+**§18 closes §13.2** — `observation_id` now digests grid position, `duplicate_identities` goes
+from 82 failures to 0, and `conflicting_duplicates` still reports its 4. §12's numbers predate
+both `23216f8` and §18; where they disagree with §18.5, §18.5 is the measurement.
 
 **This stage produces inspectable extractions, not only scores.** A run directory whose
 `report.md` is good and whose `claims.jsonl` cannot be read back claim by claim has not
@@ -87,7 +90,7 @@ Every row in every catalog carries the deterministic id of what it describes:
 | Catalog | Key |
 | --- | --- |
 | `claims.jsonl` | `claim:{kind}:{digest12}` |
-| `observations.jsonl` | `obs:{metric}:{subject}:{period_key}:{lane}:{passage_digest12}` |
+| `observations.jsonl` | `obs:{metric}:{subject}:{period_key}:{lane}:{position_digest12}` — digest over `(passage_id, row, column)`; see §18 |
 | `events.jsonl` | `evt:{type}:{occurred_on-or-undated}:{digest12}` |
 | `relationships.jsonl` | `rel:{predicate}:{source}:{target}:{digest12}` |
 | `evidence.jsonl` | its claim id, plus `passage_id` |
@@ -132,8 +135,11 @@ Each is a run-level check whose result goes in the manifest and the report:
    xbrl-first metrics must produce no normalized-lane observation.
 4. **Duplicate identities** — no two distinct payloads share an id, in any catalog. A
    collision merges two facts silently, which is why it is checked rather than trusted.
-5. **Conflicting duplicates** — same `(metric, subject, period)` with different values, the
-   `DUPLICATE_OBSERVATION_CONFLICT` step 11 met.
+5. **Conflicting duplicates** — same `(metric, subject, period)` on one passage and one lane,
+   with different values; the `DUPLICATE_OBSERVATION_CONFLICT` step 11 met. *(This is what §5
+   always said and what the code did **not** do: it keyed on `observation_id` until §18. The
+   two agree now, and the difference stopped being cosmetic the moment the id gained a row
+   discriminator — see §18.3.)*
 
 # 6. The scoping decision
 
@@ -219,7 +225,7 @@ Not fixed here; none blocks a trustworthy catalog.
 | `extraction/cli.py`, `__main__.py` | `run`, `runs`, `inspect`, `claim`, `filter`, `issues`, `rejected`, `report`, `rebuild` |
 | `benchmarks/extraction/v1/scoping_decision.py` | §6, from the four committed reports, outside `extraction/` by rule |
 
-Offline suite **1,913 passed** (was 1,839), 60 live deselected.
+Offline suite **1,913 passed** (was 1,839), 60 live deselected. *(1,924 after §18.)*
 
 # 12. The run *(2026-08-02)*
 
@@ -257,7 +263,9 @@ Issues by code: `NO_STORED_ANSWER` 10,852 · `UNRESOLVED_METRIC` 4,811 · `AMBIG
 
 ## 12.1 Determinism, demonstrated
 
-Two independent full runs, same inputs:
+Two independent full runs, same inputs. **The hashes below are the `c687bea` run's**; the current
+ones are in §18.5, where the three files no payload id reaches — `events.jsonl`,
+`relationships.jsonl`, `rejected_claims.jsonl` — still carry these exact digests.
 
 ```text
 IDENTICAL lane_outputs.jsonl       1cfc36b33dc11252c918f9c6c4924704d0bd11d6adeb73d8b896b5686779a05b
@@ -283,6 +291,10 @@ left the run id unchanged, because `config_hash` digests the parsed document. Co
 recording: a run id that moved when a comment moved would be useless for comparison.
 
 ## 12.2 The five self-verifications — three pass, two fail
+
+**Superseded twice; kept as the record of what the first run found.** The counts below are the
+`c687bea` run. `23216f8` (header spans) moved them to 25,344 rows / 82 / 4, and §18 moves them
+again to 25,344 / **0** / 4. §18.5 is the current measurement.
 
 | Check | Result | Examined | Findings |
 | --- | --- | --- | --- |
@@ -336,18 +348,18 @@ one earnings-release passage above.
 it needs its own measurement pass. Step 13's charter is to run what exists and verify it, and the
 verification did exactly what it was built to do. **Founder decision:** whether to re-open stage 6.
 
-## 13.2 `observation_id` is not unique within one passage — **open, and a design question**
+## 13.2 `observation_id` is not unique within one passage — **fixed, see §18**
 
-`obs:{metric}:{subject}:{period_key}:{lane}:{passage_digest12}` carries no row discriminator.
-`identifiers.py` argues the passage digest at length and argues it entirely about *cross-passage*
-collisions — "two filings routinely report the same metric for the same period". It does not
-cover two rows of one table reporting the same metric for the same period, which the corpus
-contains 67 times.
+`obs:{metric}:{subject}:{period_key}:{lane}:{passage_digest12}` carried no row discriminator.
+`identifiers.py` argued the passage digest at length and argued it entirely about *cross-passage*
+collisions — "two filings routinely report the same metric for the same period". It did not
+cover two cells of one table reporting the same metric for the same period.
 
-Adding a row discriminator would change every observation id in two committed reports, so it is
-not a step 13 change. **Founder decision**, and it is a real one: today a within-passage
-collision is *detected* rather than *prevented*, and a consumer indexing on the id would silently
-keep one of the two.
+**Two claims in this section were wrong and are corrected in §18.1:** the count (67 was measured
+before the §13.1 header-span repair; the defect is 58 ids over 12 passages at `23216f8`), and
+"adding a row discriminator would change every observation id in two committed reports" — no
+committed benchmark report contains an observation id at all *(verified 2026-08-02:
+`grep -o "obs:[a-z0-9:_.-]*" benchmarks/extraction/v1/reports/*.json` matches nothing)*.
 
 ## 13.3 A code's severity is not a function of the code — **fixed**
 
@@ -450,13 +462,182 @@ announcement-versus-occurrence verifier as follow-up.
 
 # 17. Still open, for the founder
 
-1. **§13.1** — the table lane's header span gap. 21 passages, 138 observations, 10 provably
-   misdated. Re-open stage 6, or accept and record?
-2. **§13.2** — `observation_id` within one passage. Add a row discriminator and re-render two
-   committed reports, or keep detection-without-prevention?
+1. **§13.1** — the table lane's header span gap. Addressed at `23216f8`; the residue is §18.4's
+   four value disagreements, which are a *header* defect and not an id defect.
+2. ~~**§13.2**~~ — done, §18.
 3. **§6's population-wording question**, carried from step 11: gold's whole clause or the lane's
    noun phrase. It is the dimension the one hybrid-only claim fails, and answering it the other
    way flips §15's verdict.
 4. **`top_k` 2 → 3**, never scored against extraction quality.
 5. Whether a corpus-scale embedding cache is worth building, which is what "measure hybrid's
    corpus cost" actually costs.
+6. **§18.4's four value disagreements** — a header-analysis defect the id repair deliberately
+   did not touch and deliberately did not hide.
+7. **§18.6's two recorded observations**, neither fixed here.
+
+# 18. `observation_id` gains a structural row discriminator *(2026-08-02, §13.2 closed)*
+
+**Result.** `duplicate_identities` goes from **82 failures to 0** over the same 25,344 catalog
+rows, and `conflicting_duplicates` **still reports 4**, which is the point: the repair separates
+two grid cells that were one id, and it does not thereby unsee that they disagree.
+
+| | before (`23216f8`) | after |
+| --- | --- | --- |
+| `observation_id` | `obs:{metric}:{subject}:{period}:{lane}:{digest12(passage_id)}` | `obs:{metric}:{subject}:{period}:{lane}:{digest12(passage_id, row, column)}` |
+| observation rows / distinct ids | 2,715 / 2,657 | 2,715 / **2,715** |
+| ids describing two grid cells | **58**, over 12 passages | **0** |
+| `duplicate_identities` | FAIL — 82 over 25,344 rows (58 `claims.jsonl`, 20 `observations.jsonl`, 4 `evidence.jsonl`) | **pass** — 0 over 25,344 |
+| `conflicting_duplicates` | FAIL — 4 over 2,715 | **FAIL — 4 over 2,715** *(unchanged, and required to be)* |
+
+## 18.1 The defect, and two things §13.2 got wrong
+
+The docstring in `identifiers.py` argued the passage digest at length and argued it **entirely**
+about cross-passage collisions. Within one passage, one table row reports one metric under
+several period columns, and the passage digest cannot tell those columns apart:
+
+    obs:adjusted-ebitda:opendoor:2022-01-01_2022-09-30:normalized-table:98849a208451
+        183000000.0  row "Adjusted EBITDA", column "2022"
+       -211000000.0  row "Adjusted EBITDA", column "September 30, 2022"
+
+**§13.2's count of 67 was stale**, measured before the §13.1 header-span repair. Re-measured at
+`23216f8`: **58** ids over **12** passages *(verified 2026-08-02 by
+`rm -rf data/extraction_runs && python -m extraction run` and grouping
+`observations.jsonl` by `observation_id`)*.
+
+**§13.2's blocker did not exist.** It said adding a discriminator "would change every observation
+id in two committed reports". No committed benchmark report contains an observation id — or any
+payload id — at all *(verified 2026-08-02:
+`grep -o "obs:[a-z0-9:_.-]*" benchmarks/extraction/v1/reports/*.json` and `grep -c "claim:"`
+both match nothing; the two files that mention `observation_id` mention it in prose about
+`reported_metric_observation_ids`)*. The repair changed **no** committed report content.
+
+## 18.2 The discriminator: grid position, and nothing a model produced
+
+`LaneClaim` gains two optional fields, `row_index` and `column_index`, and a
+`structural_position` property that renders them as `("row=4", "column=12")`. The table lane
+fills them from what it already had — the data row carrying the metric label, and
+`PeriodColumn.column_index`, the *header* column. `observation_id` takes them as a trailing
+`structural_position` tuple and digests them after the passage id.
+
+Three rejected alternatives, with reasons:
+
+| Rejected | Why |
+| --- | --- |
+| a row counter incremented as the lane iterates | not structural — it is a function of visit order, so an unrelated change to which rows abstain renumbers ids that did not move |
+| the value cell's `column_index` | shifts row by row with layout spacing (`_value_cells`), so one cell read from tables padded differently mints two ids |
+| including `table_id` in the position | a run calls `extract` (which supplies none) while the benchmark calls `extract_table` with the catalog's real block id — two callers, one cell, two ids. The grid's identity is already in the digest as `passage_id`, which *is* what a table passage is. |
+
+**Additive, on the `event_id` precedent.** An empty `structural_position` reproduces the previous
+digest byte for byte, because `digest(passage_id)` and `digest(*[passage_id])` are the same call.
+Of the run's 2,715 lane claims, 2,698 are table claims that now state a position and **17 are
+narrative claims that state none and whose ids did not move**.
+
+## 18.3 The trap: the conflict check keyed on the id it was about to lose
+
+`validate_no_conflicting_duplicates` keyed on `observation.observation_id`. Every one of the 4
+disagreements is **between two columns of one table row** — exactly the pair the discriminator
+now separates — so leaving the check alone would have taken it from 4 failures to 0 and called
+the run clean over an unrepaired defect.
+
+**The brief for this repair asserted the check "keys on (metric, subject, period), not on id".
+It did not; it keyed on the id.** What *did* already say the right thing is this plan's §5 and
+`verify/public.py`'s own `DESCRIPTIONS`, which has rendered
+`no (metric, subject, period, lane, passage) is reported twice with different values` into every
+`report.md` this stage has produced. The code was the thing out of step with both.
+
+`core/validation.py` now has `observation_identity(observation)` returning
+`(metric, subject, period_start, period_end, instant_date, lane, passages)` — the identity the
+id carried *before* the discriminator — and the check keys on that. Not broadened to
+(metric, subject, period) alone, which the id scheme's own founding example forbids: *(measured
+on this run: keyed with the passage, **4** failures; dropping the passage, **124**; dropping
+passage and lane, **89**)*. The finding's message now names **both** ids, since a reader given
+one can no longer derive the other.
+
+## 18.4 What the 4 conflicts are, and why they stay
+
+All four are in `q32023formxex991earningsre.htm#p29`, all four pair a bare-year column against a
+`September 30,` column, and all four are a **header-analysis** defect, not an id defect:
+
+| metric | period | value under `2023` | value under `September 30, 2023` |
+| --- | --- | --- | --- |
+| `adjusted_ebitda` | 2023-01-01…2023-09-30 | -558,000,000 | -49,000,000 |
+| `adjusted_ebitda_margin` | 2023-01-01…2023-09-30 | -9.2 | -5.0 |
+| `adjusted_ebitda` | 2022-01-01…2022-09-30 | 183,000,000 | -211,000,000 |
+| `adjusted_ebitda_margin` | 2022-01-01…2022-09-30 | 1.4 | -6.3 |
+
+Two columns are being resolved to one nine-month duration and at most one of them can be right.
+That is §13.1's residue and it is **recorded, not fixed** — a table-lane header question with its
+own measurement pass, and out of scope for an identity repair.
+
+## 18.5 Verification, and the two-run byte-identity proof
+
+`rm -rf data/extraction_runs && python -m extraction run`, twice, at this working tree:
+
+| Check | Result | Examined | Findings |
+| --- | --- | --- | --- |
+| evidence resolution | **pass** | 2,725 anchors | 0 failures, 0 warnings |
+| ontology validation | **pass** | 2,725 claims | 0 errors, 186 warnings (all `unpreferred_source_lane`) |
+| forbidden lanes | **pass** | 2,715 observations | 0 |
+| duplicate identities | **pass** | 25,344 rows | **0** *(was 82)* |
+| conflicting duplicates | **FAIL** | 2,715 observations | **4** `DUPLICATE_OBSERVATION_CONFLICT` *(§18.4)* |
+
+The run still exits non-zero, and it should.
+
+```text
+IDENTICAL lane_outputs.jsonl       65365198cf8e8c06b5eb9416a89c5191d52af5e452ba15c5d2b94a24340d39d5
+IDENTICAL claims.jsonl             5653e156c24138e86ae39455f9d621a6d01045d355bbf642c634f1c409525cb3
+IDENTICAL observations.jsonl       26ce953da38621177521584fcda8049df2a2987e828ba2bca0e52f4ac1f46e5c
+IDENTICAL events.jsonl             b1eaed303fc6af24bfb4b331e4e0d5e40d659929d2f8413de9c61f14698166b8
+IDENTICAL relationships.jsonl      bf095051992e7315e03ac8a6c17eabbf59192cae05eba4bdde9ebf97437f0104
+IDENTICAL evidence.jsonl           694750942d9579de37323d941b79282642f71c3dd36d6256d139855e55b70923
+IDENTICAL issues.jsonl             eb246f14653fae5b7aede0b3c85823d9d9d84cd0a2b5126e676cf2a75ed72400
+IDENTICAL rejected_claims.jsonl    45f6c2562ff8956c286121803baa809176fa7980ea354ea2b541c842764e3238
+IDENTICAL report.md                b54c2109f6ece580418a2dd0b6468b59cf445599838db109ced7d92b5e28b933
+```
+
+`manifest.json` differs in `created_at` alone (`15:24:49Z` vs `15:25:42Z`); `run.complete`
+differs with it because the marker digests the manifest. `events.jsonl`,
+`relationships.jsonl` and `rejected_claims.jsonl` carry the **same hashes as §12.1** — no event,
+edge or rejection payload has an observation id in it, so the repair could not touch them, and
+the fact that it did not is checkable rather than argued.
+
+## 18.6 Recorded, not fixed
+
+1. **The committed benchmark reports were stale at `23216f8`.** All twelve recorded
+   `implementation commit c687bea…` — the commit *before* HEAD — because `23216f8` changed the
+   table lane's header analysis and did not regenerate them. Regenerating all six report
+   commands here moved exactly that field in ten files and that field plus four `source …json`
+   rows in `scoping_decision_v1.{json,md}`. **Every scored number in every report is byte-for-byte
+   unchanged**, which is a second, independent statement that neither `23216f8` nor this repair
+   moved a benchmark result.
+2. **The lane records grid coordinates in two places now.** `extractor_metadata` keeps
+   `row_index`, `value_column_index`, `period_header_column_index` and `metric_label_row_index`
+   for debugging; `LaneClaim.row_index` / `column_index` are the id's inputs. The duplication is
+   deliberate — an id must not be derived from a free-form dict whose keys can be renamed without
+   anything noticing — but it is duplication, and a later pass could make the metadata read from
+   the fields rather than restate them.
+
+## 18.7 Files changed
+
+| File | Change |
+| --- | --- |
+| `extraction/core/identifiers.py` | `observation_id` takes `structural_position`; docstrings record the within-passage defect and the additivity rule |
+| `extraction/core/models.py` | `LaneClaim.row_index`, `LaneClaim.column_index`, `LaneClaim.structural_position` |
+| `extraction/core/assembly.py` | `to_observation` passes the claim's structural position |
+| `extraction/stages/tables/deterministic_lane.py` | the table lane states its grid position on every claim |
+| `extraction/core/validation.py` | `observation_identity`; the conflict check keys on it, not on the id; both ids in the message |
+| `tests/extraction/test_contracts_and_validation.py` | six tests (§18.8) |
+| `benchmarks/extraction/v1/reports/*` | regenerated; only the recorded commit moved (§18.6) |
+
+Offline suite **1,924 passed** (was 1,918), 60 live passed.
+
+## 18.8 The tests
+
+| Test | Claim |
+| --- | --- |
+| `test_two_grid_positions_in_one_passage_cannot_share_an_observation_id` | two real grid positions from `…#p29` mint different ids, and differ only in the digest |
+| `test_an_observation_id_is_recomputed_identically_in_a_second_process` | stable in-process and across a `subprocess` boundary — the check that catches a per-process `hash()` salt |
+| `test_a_claim_with_no_grid_position_keeps_the_id_it_had_before_the_repair` | additivity, pinned to the literal `obs:homes-sold:opendoor:2025Q1:normalized-narrative:dd50cffa6513`, and the five-argument call still works |
+| `test_the_passage_that_collided_now_yields_one_id_per_grid_cell` | the real lane over the real colliding passage through `assemble`: every id distinct, every claim positioned |
+| `test_the_row_discriminator_does_not_silence_the_conflict_check` | two cells with different ids and different values are still one `DUPLICATE_OBSERVATION_CONFLICT`, naming both ids |
+| `test_two_passages_reporting_one_fact_differently_are_not_a_conflict` | the check was not broadened past the passage |

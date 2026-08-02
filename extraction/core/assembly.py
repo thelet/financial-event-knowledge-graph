@@ -174,6 +174,7 @@ def to_observation(claim: LaneClaim, evidence: EvidenceReference) -> MetricObser
             claim.period.key,
             claim.source_lane,
             claim.passage_id,
+            claim.structural_position,
         ),
         metric_id=claim.metric_id,
         subject_entity_id=claim.subject_entity_id,

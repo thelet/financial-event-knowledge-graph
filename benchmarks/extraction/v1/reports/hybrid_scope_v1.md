@@ -11,7 +11,7 @@ Durations are deliberately absent: this artifact is byte-identical on regenerati
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `c687beaecfd0d67357e5d86d642386141b56df8e` |
+| implementation commit | `23216f8c78d095243194692270c489a124e7b278` |
 | scope | `hybrid` v`1.0.0` |
 | ontology definition hash | `e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc` |
 | embedding model | `Qwen3-Embedding-0.6B-f16.gguf` |

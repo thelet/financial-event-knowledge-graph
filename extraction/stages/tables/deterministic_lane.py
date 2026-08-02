@@ -293,6 +293,16 @@ class DeterministicTableClaimLane:
             scale=applied,
             row_label=raw_label,
             column_label=column.column_label,
+            # The grid coordinates that make this cell a different reading from the cell beside
+            # it, and the reason `obs:adjusted-ebitda:…:98849a208451` no longer names both
+            # 183000000.0 and -211000000.0. The lane already recorded them in
+            # `extractor_metadata` for debugging; they are stated as fields as well because
+            # `observation_id` digests them, and an id built out of a metadata dict would change
+            # whenever a key was renamed. Row and *period header* column, not the value cell's
+            # column: the value cell's index shifts row by row with layout spacing, so two
+            # readings of one cell from tables padded differently would otherwise mint two ids.
+            row_index=row_index,
+            column_index=column.column_index,
             # §7.1's policy, decided from the vocabulary rather than from one metric's name.
             # This read `metric_id == "pct_homes_on_market_gt_120_days"`, which is the literal
             # the rest of this lane is careful never to write: a second metric declaring a
