@@ -233,11 +233,160 @@ def test_gold_event_types_and_roles_exist_in_the_ontology(case, ontology):
 
 
 @pytest.mark.parametrize("case", CASES, ids=case_ids())
-def test_gold_relationship_ids_exist_in_the_ontology(case, ontology):
+def test_gold_relationship_predicates_resolve_the_way_the_validator_resolves_them(
+        case, ontology):
+    """Looked up through the runtime path, not through the concept-id index.
+
+    This used to call `registry.find`, which searches by `concept_id` — and a
+    `RelationshipDefinition` carries *two* identifiers, `concept_id` (`holds_position_at`)
+    and `relationship_id` (`HOLDS_POSITION_AT`). `ClaimValidator.validate_relationship`
+    resolves the predicate through `registry.relationship`, which is keyed by the upper-case
+    one. So the gold wrote `holds_position_at`, `find` returned a definition, the test passed
+    — and driving the same id through the real validator gave
+    `unknown_relationship_predicate`. A correct lane emitting the benchmark's own ids could
+    not have produced a valid claim *(corrected 2026-08-02)*.
+
+    The same shape as the `usd`/`USD` defect step 6b found: a gold field and a runtime
+    vocabulary agreeing by coincidence of index rather than by identity. Both are fixed the
+    same way — ask the thing that will actually be asked at runtime.
+    """
     for relationship in case.get("gold_relationships") or []:
-        assert ontology.registry.find(relationship["relationship_id"]) is not None, (
-            f"{case['case_id']}: unknown relationship {relationship['relationship_id']}"
+        predicate = relationship["relationship_id"]
+        assert ontology.registry.relationship(predicate) is not None, (
+            f"{case['case_id']}: {predicate!r} is not a declared relationship predicate. "
+            f"The registry keys relationships by `relationship_id`, not `concept_id`."
         )
+
+
+@pytest.mark.parametrize("case", CASES, ids=case_ids())
+def test_gold_relationships_are_accepted_by_the_real_validator(case, ontology):
+    """The predicate resolving is necessary and not sufficient — drive the whole payload.
+
+    Endpoint types are checked against `allowed_source_types`/`allowed_target_types` by
+    `check_relationship_instance`, and nothing in this file checked them before. Evidence is
+    supplied here because `evidence_required` is true for these definitions and the gold does
+    not carry an evidence block; what is under test is the predicate and the endpoints, so
+    the case's own passage stands in as the anchor.
+    """
+    from ontology.core.models import EvidenceReference, RelationshipInstance
+
+    for relationship in case.get("gold_relationships") or []:
+        instance = RelationshipInstance(
+            relationship_id=relationship["relationship_id"],
+            source_id=relationship["source_id"],
+            source_type=relationship["source_type"],
+            target_id=relationship["target_id"],
+            target_type=relationship["target_type"],
+            evidence=(EvidenceReference(
+                passage_id=case["passage_id"], document_id=case["document_id"]),),
+        )
+        result = ontology.validate_relationship(instance)
+        assert result.ok, (
+            f"{case['case_id']}/{relationship['relationship_id']}: "
+            f"{[i.message for i in result.issues]}")
+
+
+@pytest.mark.parametrize("case", CASES, ids=case_ids())
+def test_gold_event_properties_are_declared_by_the_event_type(case, ontology):
+    """`allowed_properties` had no consumer anywhere in the repo, so nothing had ever
+    checked it — and not one of the four gold property names was a declared one
+    *(found and reconciled 2026-08-02)*.
+
+    `new_title` became `position`, `final_maturity_date` became `maturity_date`, and
+    `stated_cause` became `reason`; all three are renames onto the declared vocabulary and
+    none changes what the property means. `borrowing_capacity_usd` was **removed** rather
+    than renamed: the declared names are `committed_capacity` and `uncommitted_capacity`, and
+    the passage says "borrowing capacity" unqualified while distinguishing committed from
+    aggregate two sentences later — so either rename would have asserted something the filing
+    does not. The figure is gold as a metric observation on the same case instead.
+
+    Declaring a property that the event type does not is how an event acquires meaning its
+    ontology never granted it, which is why this is enforced rather than trusted.
+    """
+    for event in case.get("gold_events") or []:
+        definition = ontology.registry.event_type(event["event_type_id"])
+        assert definition is not None, event["event_type_id"]
+        declared = set(definition.allowed_properties or ())
+        used = set((event.get("properties") or {}).keys())
+        assert used <= declared, (
+            f"{case['case_id']}/{event['event_type_id']}: properties {sorted(used - declared)} "
+            f"are not declared. Allowed: {sorted(declared)}")
+
+
+@pytest.mark.parametrize("case", CASES, ids=case_ids())
+def test_gold_event_participant_entity_types_are_accepted_by_the_role(case, ontology):
+    """Roles were checked; the entity types the roles accept were not.
+
+    `check_event_participants` rejects a participant whose `entity_type` is outside its
+    role's `entity_types`, so a gold event could name a legal role and an illegal type for it
+    and only fail once a lane tried to emit it.
+    """
+    for event in case.get("gold_events") or []:
+        definition = ontology.registry.event_type(event["event_type_id"])
+        declared = {p.role: set(p.entity_types) for p in (definition.participants or ())}
+        for participant in event.get("participants") or []:
+            allowed = declared.get(participant["role"])
+            assert allowed is not None, (
+                f"{case['case_id']}: undeclared role {participant['role']!r}")
+            assert participant["entity_type"] in allowed, (
+                f"{case['case_id']}/{event['event_type_id']}: role {participant['role']!r} "
+                f"does not accept {participant['entity_type']!r} (allowed: {sorted(allowed)})")
+
+
+@pytest.mark.parametrize("case", CASES, ids=case_ids())
+def test_an_undated_gold_event_says_why_and_quotes_the_date_it_does_have(case, passages):
+    """`occurred_on` may be absent only deliberately, and the absence must be evidenced.
+
+    The executive-change events carry no `occurred_on` because their passage states no
+    effective date *(founder decision, 2026-08-02)*. That is a claim about the passage, so it
+    is checked against the passage: the announcement date recorded as context must be printed
+    there, and the case must name a reason rather than leaving the field quietly missing.
+
+    A silently undated event is indistinguishable from a forgotten one, which is the whole
+    reason the old `occurred_on: 2025-09-11` — the filing date — survived review.
+    """
+    text = passages[case["passage_id"]]["text"]
+    for event in case.get("gold_events") or []:
+        if event.get("occurred_on"):
+            assert not event.get("occurrence_date"), (
+                f"{case['case_id']}: an event states occurred_on and also declares it "
+                f"unsupported")
+            continue
+        assert event.get("occurrence_date") == "unsupported_by_passage", (
+            f"{case['case_id']}/{event['event_type_id']}: no occurred_on and no stated "
+            f"reason for its absence")
+        context = event.get("announcement_context") or {}
+        quoted = context.get("quoted_text")
+        assert quoted, f"{case['case_id']}: undated event records no announcement context"
+        assert quoted in text, (
+            f"{case['case_id']}: announcement_context.quoted_text is not verbatim in "
+            f"{case['passage_id']}")
+        # The date the passage does carry must not be smuggled in as the occurrence date.
+        assert context.get("announced_on") not in {
+            event.get("occurred_on"), event.get("period_start"), event.get("period_end")}
+
+
+def test_no_gold_event_is_dated_by_its_filings_metadata(passages):
+    """The failure the workforce case names and the CEO case committed.
+
+    `occurred_on` must never equal the passage's `filing_date` or `report_date` unless the
+    passage prints that date in its own text. Filing metadata records when a document was
+    submitted, not when the thing it describes happened, and 2025-09-11 reached gold as an
+    occurrence date precisely because nothing compared the two.
+    """
+    offenders = []
+    for case in CASES:
+        row = passages.get(case["passage_id"])
+        if row is None:
+            continue
+        metadata = {row.get("filing_date"), row.get("report_date")} - {None}
+        for event in case.get("gold_events") or []:
+            occurred = event.get("occurred_on")
+            if occurred and occurred in metadata and occurred not in row["text"]:
+                offenders.append(
+                    f"{case['case_id']}/{event['event_type_id']}: occurred_on {occurred} is "
+                    f"the document's own metadata and is not printed in the passage")
+    assert offenders == [], offenders
 
 
 @pytest.mark.parametrize("case", CASES, ids=case_ids())

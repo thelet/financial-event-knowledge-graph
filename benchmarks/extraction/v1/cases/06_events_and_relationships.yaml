@@ -3,6 +3,23 @@
 # A small deliberate subset, not corpus-wide coverage: enough to prove the claim path works
 # for event and relationship payloads as well as metric observations. Participant roles and
 # entity types follow real_estate_marketplace_v1's declarations exactly. Read on 2026-08-01.
+#
+# **Corrected 2026-08-02, founder decision, in four places.** Every one was a gold annotation
+# disagreeing with the ontology it claims to follow, and every one had survived because no
+# integrity check read the field:
+#
+#   1. Both `executive_change` events were dated `2025-09-11`, which is the 8-K's *filing
+#      date* and appears nowhere in the passage. `occurred_on` is now absent. See the case.
+#   2. Relationship predicates were written as concept ids (`holds_position_at`). The registry
+#      keys relationships by `relationship_id`, which is upper-case, so `validate_relationship`
+#      rejected the gold's own ids with `unknown_relationship_predicate`. Now `HOLDS_POSITION_AT`
+#      and `BORROWS_UNDER`.
+#   3. Not one event property name was in its event type's `allowed_properties`, and
+#      `allowed_properties` had no consumer anywhere in the repo. All four are reconciled to
+#      the declared vocabulary below, and a test now enforces it.
+#   4. The `holds_position_at` gold carried a `properties` mapping. `RelationshipInstance` has
+#      no `properties` field at all — it has `valid_from`/`valid_to` and nothing else — so
+#      that mapping was unrepresentable. Removed; the title lives on the event's `position`.
 
 cases:
   - case_id: event-executive-change-ceo-2025
@@ -17,9 +34,36 @@ cases:
       prior employer ("Chief Operating Officer of Shopify") that is a fact about the person
       and not about Opendoor, which is the trap: a lane keyed on "Chief Operating Officer"
       will attach a Shopify role to the wrong employer.
+
+      **The occurrence date is unsupported and must not be inferred** *(founder decision,
+      2026-08-02)*. Both events used to state `occurred_on: 2025-09-11`. That is the 8-K's
+      filing date; the string does not occur in the passage, and neither does "September 11".
+      What the passage prints is a dateline - "SAN FRANCISCO, Sept. 10, 2025 ... today
+      announced" - which dates the *announcement*, not the appointment's effective date. The
+      passage states no effective date at all. A filing date is not evidence of occurrence,
+      and neither is the passage's `report_date` metadata (2025-09-06, a third value).
+
+      So `occurred_on` is absent, and 2025-09-10 is preserved below as announcement context
+      rather than promoted into the payload. `EventInstance` has no announcement or
+      disclosure date field and `executive_change` does not declare one in
+      `allowed_properties`, so there is nowhere in the contract for it to go that would not
+      be an ontology expansion - and expanding the ontology to satisfy one benchmark case is
+      a separate founder gate that has not been opened.
+
+      **A lane is correct here when it identifies the executive change, extracts the
+      participants, roles and evidence, and abstains from an exact occurrence date.** The
+      third case in this file already states the principle - "the event date is in the text
+      ... and is not the filing date, which is the common failure" - and this case had been
+      breaking it.
+
+      **Known consequence, recorded rather than resolved:** `executive_change` declares
+      `required_temporal_fields: ('occurred_on',)`, so an `EventInstance` built from this
+      gold fails `validate_event` with `event_missing_required_temporal_field`. The correct
+      answer is currently not expressible as a valid payload. This is the same shape as
+      STAGE_10's finding that the period enum could not state a true period, and it is
+      recorded in STAGE_12 §2.1 as an open ontology question, not worked around here.
     gold_events:
       - event_type_id: executive_change
-        occurred_on: "2025-09-11"
         participants:
           - role: employer
             entity_id: opendoor
@@ -28,10 +72,18 @@ cases:
             entity_id: kaz_nejatian
             entity_type: person
         properties:
-          new_title: Chief Executive Officer
+          position: Chief Executive Officer
+        occurrence_date: unsupported_by_passage
+        announcement_context:
+          announced_on: "2025-09-10"
+          quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
+          note: >-
+            Benchmark-side context only. Not an `EventInstance` field, not in
+            `executive_change.allowed_properties`, and **not gold to emit**. It records what
+            the passage does date, so that a later reader can tell "no date was printed" from
+            "a date was printed and we declined to use it as the occurrence date".
         note: '"Kaz Nejatian ... has been appointed Chief Executive Officer and member of the Board of Directors".'
       - event_type_id: executive_change
-        occurred_on: "2025-09-11"
         participants:
           - role: employer
             entity_id: opendoor
@@ -40,23 +92,45 @@ cases:
             entity_id: keith_rabois
             entity_type: person
         properties:
-          new_title: Chairman of the Board
+          position: Chairman of the Board
+        occurrence_date: unsupported_by_passage
+        announcement_context:
+          announced_on: "2025-09-10"
+          quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
+          note: >-
+            As above. The passage dates the announcement and not the change of role.
         note: '"Rabois taking on the role of Chairman".'
     gold_relationships:
-      - relationship_id: holds_position_at
+      - relationship_id: HOLDS_POSITION_AT
         source_id: kaz_nejatian
         source_type: person
         target_id: opendoor
         target_type: public_company
-        properties:
-          title: Chief Executive Officer
-          start_date: "2025-09-11"
+        note: >-
+          `HOLDS_POSITION_AT`, not `holds_position_at` *(corrected 2026-08-02)*. The
+          definition carries both a `concept_id` and a `relationship_id` and the registry
+          keys relationships by the latter, so the lower-case form is rejected by
+          `validate_relationship` as an unknown predicate. The old integrity test looked the
+          id up in the concept-id index instead and therefore passed on an id the validator
+          refuses.
+
+          The `properties: {title, start_date}` mapping this gold used to carry is removed:
+          `RelationshipInstance` has no `properties` field. `title` is expressed as the
+          event's `position` property, and `start_date` was the unsupported 2025-09-11. The
+          model's own temporal slot is `valid_from`, which is left absent for the same reason
+          `occurred_on` is.
     abstentions:
       - reason: THIRD_PARTY_ROLE
         detail: >-
           "Chief Operating Officer of Shopify" is Nejatian's prior position at another
-          company. If emitted at all it is holds_position_at(kaz_nejatian, shopify), never
+          company. If emitted at all it is HOLDS_POSITION_AT(kaz_nejatian, shopify), never
           a role at Opendoor, and the passage gives no dates for it.
+      - reason: EFFECTIVE_DATE_NOT_STATED
+        detail: >-
+          The passage dates its own announcement ("Sept. 10, 2025") and never states when
+          either appointment takes effect. An `occurred_on` of 2025-09-11 is the filing date
+          and 2025-09-06 is the report date; neither is evidence about when the change
+          happened, and 2025-09-10 dates the announcement rather than the appointment.
 
   - case_id: event-credit-facility-established-2022
     category: event_or_relationship
@@ -69,6 +143,21 @@ cases:
       ontology's borrower role accepts `subsidiary`, and the filing does not name which one -
       so the borrower is an unresolved subsidiary rather than the parent. A lane that
       defaults the borrower to Opendoor records a debt obligation against the wrong entity.
+
+      Unlike the executive-change case, this event **is** dated by its own evidence: "On
+      October 19, 2022, a subsidiary of the Company entered into..." states the occurrence
+      date in the sentence that reports it.
+
+      **Properties reconciled to the declared vocabulary** *(2026-08-02)*.
+      `final_maturity_date` is now `maturity_date`, which is a rename and not a meaning
+      change. `borrowing_capacity_usd` is **removed rather than renamed**: the declared
+      vocabulary offers `committed_capacity` and `uncommitted_capacity`, and this passage
+      says "borrowing capacity" unqualified - it distinguishes "aggregate borrowing capacity
+      of $12.6 billion" from "committed borrowing capacity of $7.3 billion" two sentences
+      later, so calling the facility's $525 million *committed* would assert something the
+      filing does not. The figure is not lost: it is already gold as the `borrowing_capacity`
+      metric observation below, and `EventInstance.reported_metric_observation_ids` is the
+      contract's own mechanism for tying an event to the observations reported with it.
     gold_events:
       - event_type_id: credit_facility_established
         occurred_on: "2022-10-19"
@@ -80,8 +169,8 @@ cases:
             entity_id: asset_backed_senior_revolving_2022_10
             entity_type: asset_backed_debt_facility
         properties:
-          borrowing_capacity_usd: 525000000
-          final_maturity_date: "2023-10-31"
+          maturity_date: "2023-10-31"
+        reported_metric_observation_metric_ids: [borrowing_capacity]
         note: >-
           "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed
           senior revolving credit facility with $525 million in borrowing capacity and a
@@ -102,7 +191,7 @@ cases:
           because the facility is reported in its filings, while the *borrower* on the event
           is the subsidiary - the two are deliberately different.
     gold_relationships:
-      - relationship_id: borrows_under
+      - relationship_id: BORROWS_UNDER
         source_id: opendoor_unnamed_subsidiary
         source_type: subsidiary
         target_id: asset_backed_senior_revolving_2022_10
@@ -124,7 +213,11 @@ cases:
       A workforce reduction reported retrospectively in a footnote to a reconciliation table,
       a year after it happened. The event date is in the text ("On April 15, 2020") and is
       not the filing date, which is the common failure - dating an event to the document
-      that mentions it.
+      that mentions it. The executive-change case in this file was doing exactly that until
+      2026-08-02.
+
+      `stated_cause` is now `reason` *(2026-08-02)*, the name `workforce_reduction` declares.
+      A rename, not a meaning change.
     gold_events:
       - event_type_id: workforce_reduction
         occurred_on: "2020-04-15"
@@ -133,7 +226,7 @@ cases:
             entity_id: opendoor
             entity_type: public_company
         properties:
-          stated_cause: following the outbreak of the COVID-19 pandemic
+          reason: following the outbreak of the COVID-19 pandemic
         note: >-
           "On April 15, 2020, we carried out a reduction in workforce following the outbreak
           of the COVID-19 pandemic." Filed 2021-03-04 - nearly eleven months later.

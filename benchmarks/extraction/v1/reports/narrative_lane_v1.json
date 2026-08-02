@@ -10,19 +10,19 @@
     "event-credit-facility-established-2022": {
       "category": "event_or_relationship",
       "lane": "narrative",
-      "notes": "A facility established by \"a subsidiary of the Company\", not by Opendoor itself. The ontology's borrower role accepts `subsidiary`, and the filing does not name which one - so the borrower is an unresolved subsidiary rather than the parent. A lane that defaults the borrower to Opendoor records a debt obligation against the wrong entity.",
+      "notes": "A facility established by \"a subsidiary of the Company\", not by Opendoor itself. The ontology's borrower role accepts `subsidiary`, and the filing does not name which one - so the borrower is an unresolved subsidiary rather than the parent. A lane that defaults the borrower to Opendoor records a debt obligation against the wrong entity. Unlike the executive-change case, this event **is** dated by its own evidence: \"On October 19, 2022, a subsidiary of the Company entered into...\" states the occurrence date in the sentence that reports it. **Properties reconciled to the declared vocabulary** *(2026-08-02)*. `final_maturity_date` is now `maturity_date`, which is a rename and not a meaning change. `borrowing_capacity_usd` is **removed rather than renamed**: the declared vocabulary offers `committed_capacity` and `uncommitted_capacity`, and this passage says \"borrowing capacity\" unqualified - it distinguishes \"aggregate borrowing capacity of $12.6 billion\" from \"committed borrowing capacity of $7.3 billion\" two sentences later, so calling the facility's $525 million *committed* would assert something the filing does not. The figure is not lost: it is already gold as the `borrowing_capacity` metric observation below, and `EventInstance.reported_metric_observation_ids` is the contract's own mechanism for tying an event to the observations reported with it.",
       "source_file": "06_events_and_relationships.yaml"
     },
     "event-executive-change-ceo-2025": {
       "category": "event_or_relationship",
       "lane": "narrative",
-      "notes": "Three distinct changes in two sentences - an incoming CEO who also joins the board, and two co-founders returning to the board with one taking the chair. The passage names a prior employer (\"Chief Operating Officer of Shopify\") that is a fact about the person and not about Opendoor, which is the trap: a lane keyed on \"Chief Operating Officer\" will attach a Shopify role to the wrong employer.",
+      "notes": "Three distinct changes in two sentences - an incoming CEO who also joins the board, and two co-founders returning to the board with one taking the chair. The passage names a prior employer (\"Chief Operating Officer of Shopify\") that is a fact about the person and not about Opendoor, which is the trap: a lane keyed on \"Chief Operating Officer\" will attach a Shopify role to the wrong employer. **The occurrence date is unsupported and must not be inferred** *(founder decision, 2026-08-02)*. Both events used to state `occurred_on: 2025-09-11`. That is the 8-K's filing date; the string does not occur in the passage, and neither does \"September 11\". What the passage prints is a dateline - \"SAN FRANCISCO, Sept. 10, 2025 ... today announced\" - which dates the *announcement*, not the appointment's effective date. The passage states no effective date at all. A filing date is not evidence of occurrence, and neither is the passage's `report_date` metadata (2025-09-06, a third value). So `occurred_on` is absent, and 2025-09-10 is preserved below as announcement context rather than promoted into the payload. `EventInstance` has no announcement or disclosure date field and `executive_change` does not declare one in `allowed_properties`, so there is nowhere in the contract for it to go that would not be an ontology expansion - and expanding the ontology to satisfy one benchmark case is a separate founder gate that has not been opened. **A lane is correct here when it identifies the executive change, extracts the participants, roles and evidence, and abstains from an exact occurrence date.** The third case in this file already states the principle - \"the event date is in the text ... and is not the filing date, which is the common failure\" - and this case had been breaking it. **Known consequence, recorded rather than resolved:** `executive_change` declares `required_temporal_fields: ('occurred_on',)`, so an `EventInstance` built from this gold fails `validate_event` with `event_missing_required_temporal_field`. The correct answer is currently not expressible as a valid payload. This is the same shape as STAGE_10's finding that the period enum could not state a true period, and it is recorded in STAGE_12 §2.1 as an open ontology question, not worked around here.",
       "source_file": "06_events_and_relationships.yaml"
     },
     "event-workforce-reduction-2020": {
       "category": "event_or_relationship",
       "lane": "narrative",
-      "notes": "A workforce reduction reported retrospectively in a footnote to a reconciliation table, a year after it happened. The event date is in the text (\"On April 15, 2020\") and is not the filing date, which is the common failure - dating an event to the document that mentions it.",
+      "notes": "A workforce reduction reported retrospectively in a footnote to a reconciliation table, a year after it happened. The event date is in the text (\"On April 15, 2020\") and is not the filing date, which is the common failure - dating an event to the document that mentions it. The executive-change case in this file was doing exactly that until 2026-08-02. `stated_cause` is now `reason` *(2026-08-02)*, the name `workforce_reduction` declares. A rename, not a meaning change.",
       "source_file": "06_events_and_relationships.yaml"
     },
     "letter-prose-inventory-and-120d-q2-2022": {
@@ -251,7 +251,7 @@
     "scale_wrong",
     "value_wrong"
   ],
-  "implementation_commit": "7f28364cf24add8c5e5cf11517aad3230c36e4ef",
+  "implementation_commit": "6e1a4006dcd6655dab1696d76f6fe8aebb97c277",
   "lane": {
     "name": "normalized_narrative",
     "prompt_version": "1.2.0",
@@ -564,10 +564,10 @@
             "code_agreeing_abstentions": 0,
             "duplicate_claim_keys": 0,
             "emitted": 0,
-            "expected_abstentions": 1,
+            "expected_abstentions": 2,
             "failures": 0,
             "gold": 0,
-            "honoured_abstentions": 1,
+            "honoured_abstentions": 2,
             "matched": 0,
             "missed": 0,
             "model_abstentions": 1,
@@ -590,6 +590,17 @@
               "concept_ids": [],
               "honoured": true,
               "reason": "THIRD_PARTY_ROLE",
+              "silence_kept": true
+            },
+            {
+              "ambiguity_candidates": [],
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "claimed_anyway": [],
+              "code_recorded": false,
+              "concept_ids": [],
+              "honoured": true,
+              "reason": "EFFECTIVE_DATE_NOT_STATED",
               "silence_kept": true
             }
           ],
@@ -3398,7 +3409,7 @@
         "duplicate_claim_keys": 0,
         "emitted_observations": 24,
         "emitted_observations_distinct": 18,
-        "expected_abstentions": 14,
+        "expected_abstentions": 15,
         "failures": 15,
         "failures_by_category": {
           "ambiguity_collapsed": 0,
@@ -3413,7 +3424,7 @@
           "value_wrong": 1
         },
         "gold_observations": 20,
-        "honoured_abstentions": 13,
+        "honoured_abstentions": 14,
         "issues_by_code": {
           "AMBIGUOUS_ALIAS": 2,
           "DEFERRED_REQUIRED_SOURCE_LANE": 17,
@@ -3461,8 +3472,8 @@
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
         "score_denominators": {
-          "abstention_code_agreement": 14,
-          "abstention_honoured_rate": 14,
+          "abstention_code_agreement": 15,
+          "abstention_honoured_rate": 15,
           "ambiguity_codes_accuracy": 4,
           "ambiguity_preserved_rate": 1,
           "evidence_accuracy": 12,
@@ -3478,7 +3489,7 @@
         },
         "score_numerators": {
           "abstention_code_agreement": 1,
-          "abstention_honoured_rate": 13,
+          "abstention_honoured_rate": 14,
           "ambiguity_codes_accuracy": 4,
           "ambiguity_preserved_rate": 0,
           "evidence_accuracy": 12,
@@ -3493,8 +3504,8 @@
           "value_accuracy": 10
         },
         "scores": {
-          "abstention_code_agreement": 0.071429,
-          "abstention_honoured_rate": 0.928571,
+          "abstention_code_agreement": 0.066667,
+          "abstention_honoured_rate": 0.933333,
           "ambiguity_codes_accuracy": 1.0,
           "ambiguity_preserved_rate": 0.0,
           "evidence_accuracy": 1.0,
@@ -3688,10 +3699,10 @@
             "code_agreeing_abstentions": 0,
             "duplicate_claim_keys": 0,
             "emitted": 0,
-            "expected_abstentions": 1,
+            "expected_abstentions": 2,
             "failures": 0,
             "gold": 0,
-            "honoured_abstentions": 1,
+            "honoured_abstentions": 2,
             "matched": 0,
             "missed": 0,
             "model_abstentions": 1,
@@ -3714,6 +3725,17 @@
               "concept_ids": [],
               "honoured": true,
               "reason": "THIRD_PARTY_ROLE",
+              "silence_kept": true
+            },
+            {
+              "ambiguity_candidates": [],
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "claimed_anyway": [],
+              "code_recorded": false,
+              "concept_ids": [],
+              "honoured": true,
+              "reason": "EFFECTIVE_DATE_NOT_STATED",
               "silence_kept": true
             }
           ],
@@ -6450,7 +6472,7 @@
         "duplicate_claim_keys": 0,
         "emitted_observations": 23,
         "emitted_observations_distinct": 17,
-        "expected_abstentions": 14,
+        "expected_abstentions": 15,
         "failures": 15,
         "failures_by_category": {
           "ambiguity_collapsed": 0,
@@ -6465,7 +6487,7 @@
           "value_wrong": 1
         },
         "gold_observations": 20,
-        "honoured_abstentions": 13,
+        "honoured_abstentions": 14,
         "issues_by_code": {
           "AMBIGUOUS_ALIAS": 3,
           "DEFERRED_REQUIRED_SOURCE_LANE": 18,
@@ -6513,8 +6535,8 @@
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
         "score_denominators": {
-          "abstention_code_agreement": 14,
-          "abstention_honoured_rate": 14,
+          "abstention_code_agreement": 15,
+          "abstention_honoured_rate": 15,
           "ambiguity_codes_accuracy": 3,
           "ambiguity_preserved_rate": 1,
           "evidence_accuracy": 11,
@@ -6530,7 +6552,7 @@
         },
         "score_numerators": {
           "abstention_code_agreement": 1,
-          "abstention_honoured_rate": 13,
+          "abstention_honoured_rate": 14,
           "ambiguity_codes_accuracy": 3,
           "ambiguity_preserved_rate": 0,
           "evidence_accuracy": 11,
@@ -6545,8 +6567,8 @@
           "value_accuracy": 9
         },
         "scores": {
-          "abstention_code_agreement": 0.071429,
-          "abstention_honoured_rate": 0.928571,
+          "abstention_code_agreement": 0.066667,
+          "abstention_honoured_rate": 0.933333,
           "ambiguity_codes_accuracy": 1.0,
           "ambiguity_preserved_rate": 0.0,
           "evidence_accuracy": 1.0,
