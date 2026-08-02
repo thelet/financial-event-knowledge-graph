@@ -87,6 +87,10 @@ def is_instant_label(label: str) -> bool:
     return bool(_AT_PERIOD_END.search(label or ""))
 
 
+_INSTANT_GROUP_HEADER = re.compile(
+    rf"^({_MONTH_ALT})\s+\d{{1,2}},?$", re.I)
+
+
 def resolve(
     column_label: str,
     *,
@@ -138,6 +142,18 @@ def resolve(
     end = _iso(year, month, day)
 
     if is_instant_label(row_label):
+        return PeriodRef(instant_date=end, label_raw=raw)
+
+    if _INSTANT_GROUP_HEADER.match((group_header or "").strip()):
+        # A group heading that is a bare month and day — `September 30,` — states no length
+        # because it *is* a point in time, and the column beneath supplies only the year.
+        # Falling into the refusal below dropped three quarter-end columns out of a header
+        # that also carried `Year Ended December 31,`, which is how the step 13 corpus run
+        # met a table reporting three quarters and three years and emitting only the years
+        # *(added 2026-08-02)*. Distinguished by matching the whole heading: `Year Ended
+        # December 31,` and `Three Months Ended June 30,` both contain a month and day and
+        # neither matches, so the refusal below still governs every heading that states or
+        # implies a duration.
         return PeriodRef(instant_date=end, label_raw=raw)
 
     months = duration_months(group_header) or duration_months(label)

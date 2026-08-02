@@ -69,7 +69,7 @@ def analyse(grid: TableGrid) -> HeaderAnalysis:
     if date_row is None:
         return HeaderAnalysis(unresolved_columns=(( -1, "no row carries a date or period label"),))
 
-    group_spans = _duration_spans(grid, date_row)
+    group_spans = _group_spans(grid, date_row)
     # Two different subsets, deliberately. `header_cells` is what becomes a column, and
     # includes change columns, which are period-shaped in position but not in label.
     # `date_cells` is what decides how the duration groups divide, and must be period-shaped
@@ -171,15 +171,36 @@ def _looks_like_a_period(label: str) -> bool:
     )
 
 
-def _duration_spans(grid: TableGrid, date_row: int) -> list[tuple[int, int, str]]:
-    """(row, start column, phrase) for every duration header above the date row."""
+#: A group heading that names an instant rather than a duration: a month and day with no year,
+#: because the year sits in the row beneath. `September 30,` and `March 31,` are these.
+_INSTANT_HEADING = re.compile(rf"^({_MONTH_ALT})\s+\d{{1,2}},?$", re.I)
+
+
+def _group_spans(grid: TableGrid, date_row: int) -> list[tuple[int, int, str]]:
+    """(row, start column, phrase) for every group heading above the date row.
+
+    **Instant headings are collected as well as duration phrases** *(corrected 2026-08-02)*.
+    Until then only `_DURATION_PHRASE` was matched, so a header reading
+
+        |  |  | September 30, |  | June 30, |  | March 31, |  | Year Ended December 31, |
+        | (in whole numbers) |  | 2022 |  | 2022 |  | 2022 |  | 2021 |  | 2020 |  | 2019 |
+
+    presented **one** phrase to `_assign_groups` where the layout has four. Six date columns
+    divided evenly by one group handed every column to `Year Ended December 31,`, and three
+    quarter-end instants were reported as full years. The step 13 corpus run found it: 21
+    passages, 138 observations, and 8 pairs where two rows then disagreed about the value of
+    one (metric, subject, period).
+
+    A month-day with no year is a group heading for exactly the reason a duration phrase is —
+    it governs the columns beneath it and supplies what they do not carry.
+    """
     spans: list[tuple[int, int, str]] = []
     for row_index in range(date_row):
         if row_index in grid.separator_rows:
             continue
         for cell in grid.rows[row_index]:
             text = cell.text.strip()
-            if text and _DURATION_PHRASE.search(text):
+            if text and (_DURATION_PHRASE.search(text) or _INSTANT_HEADING.match(text)):
                 spans.append((row_index, cell.column_index, text))
     return spans
 
@@ -245,7 +266,58 @@ def _assign_groups(spans, date_cells) -> tuple[dict[int, str], bool]:
             for index, cell in enumerate(date_cells)
         }, False
 
+    positional = _positional_spans(spans, date_cells)
+    if positional is not None:
+        return positional, False
+
     return {}, True
+
+
+def _positional_spans(spans, date_cells) -> dict[int, str] | None:
+    """Bind each column to the heading that sits over it, when the layout says so uniquely.
+
+    Deliberately the **last** rule, after even division, and the ordering is the whole of its
+    safety. The Q4 2020 reconciliation would be bound wrongly by position — its two phrases
+    sit at columns 2 and 4 above years at 2, 4, 6 and 8 because the `colspan` is gone, so
+    "nearest heading at or left" gives `Three Months Ended` one column instead of two. Even
+    division answers that layout first and correctly, and this rule never sees it.
+
+    What reaches here is a header even division cannot split: several partial-span headings
+    over a column count that is not a multiple of them. It applies only when **every heading
+    sits exactly on a date column**, which is what makes the binding a reading of the rendered
+    structure rather than a guess about a lost `colspan`. When a heading floats between
+    columns, or before the first of them, nothing here is supported and the caller refuses
+    with `AMBIGUOUS_COLUMN_ALIGNMENT`.
+    """
+    if len(spans) < 2:
+        return None
+    date_indices = [cell.column_index for cell in date_cells]
+    starts = [start for _, start, _ in spans]
+    if len(set(starts)) != len(starts):
+        return None
+    if any(start not in date_indices for start in starts):
+        return None
+    ordered = sorted(spans, key=lambda span: span[1])
+    assignment: dict[int, str] = {}
+    for cell in date_cells:
+        governing = [text for _, start, text in ordered if start <= cell.column_index]
+        if not governing:
+            return None
+        assignment[cell.column_index] = governing[-1]
+    # Every heading must actually govern something, or the reading is not the one the layout
+    # shows and a heading has been silently absorbed by its neighbour.
+    if len(set(assignment.values())) != len(ordered):
+        return None
+    # And the binding must not contradict the shapes. A column that already carries its own
+    # month and day cannot sit under a heading that supplies a different one — the position
+    # says it does, the shapes say it cannot, and two readings disagreeing is the definition
+    # of not uniquely supported. Caught by `test_an_unresolvable_uneven_grouping_abstains`,
+    # which this rule made pass claims until the check was added.
+    for cell in date_cells:
+        if periods.parse_date(cell.text.strip()) and _supplies_month_day(
+                assignment[cell.column_index]):
+            return None
+    return assignment
 
 
 def _supplies_month_day(phrase: str) -> bool:

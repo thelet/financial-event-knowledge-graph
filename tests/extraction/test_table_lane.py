@@ -670,3 +670,75 @@ def test_the_population_wording_is_carried_for_whatever_metric_declares_one(lane
                 assert claim.population_definition_raw, claim.metric_id
             else:
                 assert claim.population_definition_raw is None, claim.metric_id
+
+
+# The header shape the step 13 corpus run found misdated, verbatim from
+# open-20220930.htm#p126. Three quarter-end instant headings beside one annual duration
+# heading, over six bare-year columns.
+MIXED_INSTANT_AND_ANNUAL_HEADER = (
+    "|  |  |  |  |  |  |  |  |  |  |  |  |  |\n"
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    "|  |  | September 30, |  | June 30, |  | March 31, |  | Year Ended December 31, |"
+    "  |  |  |  |\n"
+    "| (in whole numbers) |  | 2022 |  | 2022 |  | 2022 |  | 2021 |  | 2020 |  | 2019 |\n"
+    "| Number of markets (at period end) |  | 51 |  | 51 |  | 45 |  | 44 |  | 21 |  | 21 |"
+)
+
+
+def test_instant_group_headings_bind_to_the_columns_they_span(lane):
+    """The step 13 defect, as a fixture.
+
+    `_group_spans` collected only duration phrases, so this header presented **one** group
+    where the layout has four. Six columns divided evenly by one handed every column to
+    `Year Ended December 31,`, and three quarter-end instants were reported as full years —
+    51 markets "for the year ended December 31, 2022" from a column headed September 30.
+
+    Eleven reviewed table cases scored `period_accuracy 1.000` throughout, because none
+    exercises this shape and because that dimension matches on (metric, period) before testing
+    period equality: a misdated observation never matches a gold row, so it cannot fail. It
+    took a corpus run checking duplicate identities to surface it *(2026-08-02)*.
+    """
+    result = lane.extract_table(MIXED_INSTANT_AND_ANNUAL_HEADER, passage_id="norm:x:y:z.htm#p1")
+    assert not result.header.group_assignment_ambiguous
+    assert [(c.column_label, c.group_header, c.period.key)
+            for c in result.header.period_columns] == [
+        ("2022", "September 30,", "2022-09-30"),
+        ("2022", "June 30,", "2022-06-30"),
+        ("2022", "March 31,", "2022-03-31"),
+        ("2021", "Year Ended December 31,", "FY2021"),
+        ("2020", "Year Ended December 31,", "FY2020"),
+        ("2019", "Year Ended December 31,", "FY2019"),
+    ]
+    # And the values follow the periods, which is the thing that was actually wrong.
+    assert {(c.period.key, c.value) for c in result.claims} == {
+        ("2022-09-30", 51.0), ("2022-06-30", 51.0), ("2022-03-31", 45.0),
+        ("2021-12-31", 44.0), ("2020-12-31", 21.0), ("2019-12-31", 21.0),
+    }
+
+
+def test_no_two_columns_of_that_header_share_a_period(lane):
+    """The symptom the corpus run measured, stated directly.
+
+    Six columns collapsing onto one group produced repeated (metric, period) pairs, and where
+    two of them carried different values the catalogs held two answers to one question. A
+    header where every column has its own period cannot do that.
+    """
+    result = lane.extract_table(MIXED_INSTANT_AND_ANNUAL_HEADER, passage_id="norm:x:y:z.htm#p1")
+    keys = [c.period.key for c in result.header.period_columns]
+    assert len(set(keys)) == len(keys), keys
+
+
+def test_a_partial_span_heading_that_floats_between_columns_is_refused(lane):
+    """The refusal the founder asked for, rather than a guess.
+
+    Positional binding is only a reading of the rendered structure when each heading sits
+    exactly on a date column. A heading between columns is not supported by anything, and
+    `AMBIGUOUS_COLUMN_ALIGNMENT` is the honest answer.
+    """
+    table = ("|  | September 30, |  |  | Year Ended December 31, |  |  |\n"
+             "| --- | --- | --- | --- | --- | --- | --- |\n"
+             "| (in whole numbers) |  | 2022 |  | 2021 |  | 2020 |\n"
+             "| Number of markets (at period end) |  | 51 |  | 44 |  | 21 |")
+    result = lane.extract_table(table, passage_id="norm:x:y:z.htm#p1")
+    assert result.claims == []
+    assert [i.code for i in result.issues] == ["AMBIGUOUS_COLUMN_ALIGNMENT"]
