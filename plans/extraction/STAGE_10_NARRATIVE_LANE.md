@@ -249,6 +249,8 @@ with what was tried.
 - [x] The live gate demonstrated on narrative passages, with recorded numbers (§10, and see
       the caveat in §12a about which of those numbers are measurements).
 - [x] No change to the table lane, the ontology, the benchmark cases, or any committed report.
+      *(Two changes were made to **this** lane at step 11 — see §12b. Both are correctness
+      fixes the benchmark found, and one of them changes `PROMPT_VERSION` to 1.2.0.)*
 - [x] `scoping.strategy` still `lexical`; the scope injected, not hard-coded.
 
 # 12a. What review found after the lane ran *(2026-08-02)*
@@ -273,6 +275,10 @@ is true — the enum removes every period the passage does not print. The residu
 dimension for step 11** (V1 §8a.12): every claim records which phrase was chosen, whether it sits
 inside the quoted evidence sentence, and how far away it is when it does not.
 
+*Step 11 then found the other half of this: the narrowing also removed the model's only way to
+say that **no** printed phrase gives a figure's period, which is a state the corpus has. §12b.1
+records the member that closes it and the four ontology errors it was producing.*
+
 Two smaller results that change how a number should be read:
 
 - **The definitional gate passage's abstention is partly structural.** `period_phrases` returns
@@ -293,3 +299,72 @@ Two smaller results that change how a number should be read:
 Benchmark scoring (step 11). Events and relationships (step 12). The integrated run and
 catalogs (step 13). A second model, model comparison, batching, streaming, concurrency, or
 fine-tuning. Changing the ontology, the benchmark, or the scope's default.
+
+# 12b. Two corrections to the lane, made at step 11 *(2026-08-02)*
+
+Step 11 was written not to change the lane. Both of these are changes to it, and both are
+recorded here rather than in the benchmark because they are defects in the lane that the
+benchmark *found* — a schema that could not express a true state, and a request that could be
+issued knowing it would not fit. Neither moves a number by changing what the lane is asked to
+do. STAGE_11 §12 carries the full account; this section is the lane-side record.
+
+## 12b.1 `period_label`'s enum could not say "the passage prints no phrase for this period"
+
+§12a already corrected the claim that the enum made a wrong period unrepresentable. What
+neither §12a nor V1 §8a.12 noticed is the state the narrowing *removed*: a figure whose period
+the passage never names in any resolvable form.
+
+**Measured on `q42021formxex992sharehol.htm#p10`.** `period_phrases()` yields exactly
+`['December 31, 2021', '4Q21', '4Q20']`. The letter reports a quarter *and* a full year, and
+prints no phrase that resolves to FY2021. The model quoted "For the year, we delivered
+Contribution Profit of $525 million…" and labelled it `4Q21` — every other check passed. The
+result was `contribution_profit` at both $152M and $525M for 2021Q4 and `contribution_margin`
+at both 4.0 and 6.5: **four `DUPLICATE_OBSERVATION_CONFLICT` errors, so V1 §11 acceptance
+criterion 1 did not hold.**
+
+Rule 6 already told the model to abstain with `MISSING_PERIOD` in that case. A grammar that
+offers only wrong answers gets one, and the schema is the harder constraint.
+
+**The mechanism.** `public.PERIOD_NOT_PRINTED` is now the last member of the `period_label`
+enum on **every** passage, whatever it prints. `prompt.py` renders it as a listed choice in
+the period block rather than describing it in the rules, because that block is where the model
+picks the label from. `response_mapping._resolve_period` maps it to `MISSING_PERIOD`, checked
+**before** the period-type test — a model declining to name a period has not also made a claim
+about that period's kind, and deciding the type first would classify the one failure this
+member exists to allow under a category about a disagreement the answer never had. A claim
+carrying it is refused, which is the correct outcome: a wrong period is worse than a missing
+figure.
+
+`PROMPT_VERSION` is 1.2.0. Every answer produced under 1.1.0 is unreachable rather than
+silently re-used, and the answer store was regenerated whole. **After the rebuild: zero
+ontology validation errors under both scopes.**
+
+It still does not make a wrong period unrepresentable. A comparative paragraph prints its
+prior-period phrase, the enum still offers it, and choosing it still passes every check. What
+changed is that "none of these" is now sayable.
+
+## 12b.2 The output budget could not fit the largest prompts
+
+`DEFAULT_MAX_OUTPUT_TOKENS` was a fixed 4,096 against an 8,192-token slot, and its comment
+reasoned from a measured worst-case prompt of 3,529 tokens. Prompts had outgrown that, so the
+lane could issue a request whose prompt plus budget did not fit the slot at all.
+
+**The cause statement step 11 first gave was wrong, and the correction is the more useful
+finding.** It read the one truncated answer as caused by that overflow. Tokenizing all 13
+benchmark prompts on the running server shows prompt length is not the discriminator:
+`negative-ambiguous-alias-bare-gross-profit` is 4,299 prompt tokens and
+`letter-prose-run-together-kpi-row-q1-2025` is **larger** at 4,806 and conforms. Completion
+length is the discriminator.
+
+**The mechanism.** `narrative_lane.output_budget(prompt, ceiling, context_tokens)` returns
+`min(ceiling, context_tokens − estimated prompt tokens)`, the estimate being the prompt's
+character count divided by 3.5 — below every measured ratio, which run 3.57 to 4.55 — plus 128
+tokens for the chat template and estimation slack. It is pure and takes no network call,
+because `max_tokens` is one of the fields `request_identity` digests and an identity that
+needed a server to compute could not be recomputed offline. A request whose budget falls below
+`MIN_OUTPUT_TOKENS` is not issued at all: the lane records the new `PROMPT_EXCEEDS_CONTEXT`
+code, which is a lane decision taken with no model answer to reject and is counted as one.
+
+Re-issued under the new budget, the truncating request runs 4,311 prompt + 3,601 completion =
+7,912 of 8,192 and still stops with `finish_reason: length`. That is the honest result: the
+budget can guarantee the request fits, and it cannot make a long completion short.

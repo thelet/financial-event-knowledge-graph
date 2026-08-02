@@ -78,6 +78,7 @@ from .public import (
     LANE_NAME,
     METRIC_OUT_OF_SCOPE,
     MISSING_POPULATION_DEFINITION,
+    PERIOD_NOT_PRINTED,
     PERIOD_OVER_PERIOD_CHANGE,
     QUOTED_SPAN_NOT_IN_PASSAGE,
     SCALE_NOT_APPLICABLE,
@@ -416,10 +417,27 @@ def _resolve_period(finding, *, metric, passage_text):
     chosen phrase and its position relative to the quoted evidence are recorded on every claim
     by `_period_attribution` so period attribution can be scored rather than assumed.
 
+    **The residual the enum itself created, and the member that closes it**
+    *(added 2026-08-02)*. Narrowing `period_label` to printed phrases left no way to answer
+    "this figure's period is not among them", and step 11 measured the consequence on
+    `q42021formxex992sharehol.htm#p10`: the letter reports 4Q21 *and* the full year, the phrases
+    are exactly `['December 31, 2021', '4Q21', '4Q20']`, and the model labelled the full-year
+    Contribution Profit `4Q21` rather than abstaining — two values under one deterministic
+    observation id. `public.PERIOD_NOT_PRINTED` is now the enum's last member and is checked
+    **before** the period-type test, because a model saying "no printed phrase gives this
+    period" has answered the question this function asks and the kind of a period it declines
+    to name is not a further disagreement.
+
     Still refused, and correctly: a passage whose only period wording is "the third quarter",
     with no date and no shorthand anywhere in it. Resolving that needs the filing date, and
     reading a period off the filing date is an inference the passage does not make.
     """
+    label = _text(finding.get("period_label"))
+    if label == PERIOD_NOT_PRINTED:
+        return None, None, (
+            MISSING_PERIOD,
+            "the answer states that no phrase this passage prints gives this figure's period")
+
     kind = _text(finding.get("period_kind"))
     declared = str(getattr(metric, "period_type", "") or "")
     if declared and kind and declared != kind:
@@ -427,7 +445,6 @@ def _resolve_period(finding, *, metric, passage_text):
             PERIOD_TYPE_MISMATCH,
             f"{metric.concept_id} is a {declared} metric and the answer gives a {kind}")
 
-    label = _text(finding.get("period_label"))
     if not label:
         return None, None, (MISSING_PERIOD,
                             "the answer names no period phrase from the passage")

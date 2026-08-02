@@ -40,8 +40,13 @@ from extraction.core.units import unit_for_metric
 from extraction.core.validation import ONTOLOGY_WARNING, validate
 from extraction.providers.public import ProviderResponseError
 from extraction.stages.narrative import (
+    DEFAULT_CONTEXT_TOKENS,
+    DEFAULT_MAX_OUTPUT_TOKENS,
     ISSUE_CODES,
     LANE_NAME,
+    MIN_OUTPUT_TOKENS,
+    PERIOD_NOT_PRINTED,
+    PROMPT_EXCEEDS_CONTEXT,
     PROMPT_VERSION,
     AnswerStore,
     MissingAnswerError,
@@ -50,6 +55,7 @@ from extraction.stages.narrative import (
     ReplayingGenerationProvider,
     build_prompt,
     map_answer,
+    output_budget,
     period_phrases,
     printed_magnitude,
     request_identity,
@@ -518,6 +524,174 @@ def test_the_chosen_period_phrase_is_recorded_with_its_position(ontology):
     assert metadata["period_label_in_evidence"] is True
     assert metadata["period_label_distance_from_evidence"] == 0
     assert PASSAGE_TEXT[metadata["period_label_char_start"]:].startswith("September 30, 2023")
+
+
+# -- the period the passage does not print, which the enum could not say ---------------------------
+
+# The shape step 11 measured on `q42021formxex992sharehol.htm#p10`, reduced to its essentials:
+# a letter that reports a quarter and a full year and prints a phrase for the quarter only. The
+# enum offered `4Q21` and nothing else, so the model labelled the full-year figure `4Q21` and
+# two values collided under one deterministic observation id.
+UNREPRESENTABLE_PERIOD_PASSAGE = (
+    "In 4Q21 we delivered Contribution Profit of $152 million. "
+    "For the year, we delivered Contribution Profit of $525 million."
+)
+
+
+def test_the_passage_prints_no_phrase_for_the_period_the_figure_belongs_to(ontology):
+    """The premise, measured rather than assumed: this is why the enum needed a new member."""
+    assert period_phrases(UNREPRESENTABLE_PERIOD_PASSAGE) == ("4Q21",)
+
+
+def test_the_enum_can_say_that_no_printed_phrase_gives_this_figures_period(ontology):
+    """`PERIOD_NOT_PRINTED` is offered on every passage, whatever it prints."""
+    lane, provider = build_lane(ontology)
+    lane.extract_passage(
+        UNREPRESENTABLE_PERIOD_PASSAGE,
+        context=PassageContext(passage_id=PASSAGE_ID, document_type="shareholder_letter"),
+        document_id=DOCUMENT_ID)
+    enum = provider.schemas[0]["properties"]["claims"]["items"]["properties"]["period_label"]
+    assert enum["enum"] == ["4Q21", PERIOD_NOT_PRINTED]
+    assert PERIOD_NOT_PRINTED in provider.prompts[0]
+
+
+def test_choosing_it_refuses_the_claim_with_missing_period(ontology):
+    """The member is an abstention wearing a claim's shape, not a period.
+
+    Without this the only representable answers on the full-year figure were wrong ones, and
+    the model gave one: `4Q21` on a full-year total, which passed every other check.
+    """
+    finding = money_finding(
+        evidence_sentence="For the year, we delivered Contribution Profit of $525 million.",
+        value_text="$525 million", value=525, period_label=PERIOD_NOT_PRINTED)
+    extraction = map_answer(
+        {"claims": [finding], "abstentions": []},
+        ontology=ontology,
+        context=context(passage_text=UNREPRESENTABLE_PERIOD_PASSAGE))
+    assert extraction.claims == []
+    assert [i.code for i in extraction.issues] == [MISSING_PERIOD]
+    assert extraction.issues[0].rejected_claim is True
+
+
+def test_it_is_decided_before_the_period_type_check(ontology):
+    """A model declining to name a period has not also made a claim about that period's kind.
+
+    Reversing the two produces `PERIOD_TYPE_MISMATCH` on an answer that named no period, which
+    would classify the one failure this member exists to allow under a category about a
+    disagreement the answer never had.
+    """
+    finding = population_finding(period_kind="duration",
+                                period_label=PERIOD_NOT_PRINTED)
+    extraction = map_answer({"claims": [finding], "abstentions": []},
+                            ontology=ontology, context=context())
+    assert [i.code for i in extraction.issues] == [MISSING_PERIOD]
+
+
+def test_the_wrong_printed_phrase_is_still_representable(ontology):
+    """The new member does not make a wrong period impossible and must not be read as doing so.
+
+    A comparative paragraph still prints its prior-period phrase; the enum still offers it.
+    What changed is that "none of these" is now sayable, not that the wrong one is not.
+    """
+    finding = claim_finding(evidence_sentence="Homes sold were 5,988 in the period.",
+                            value_text="5,988", value=5988,
+                            period_label="three months ended September 30, 2020")
+    extraction = map_answer({"claims": [finding], "abstentions": []},
+                            ontology=ontology,
+                            context=context(passage_text=COMPARATIVE_PASSAGE))
+    assert extraction.claims[0].period.key == "2020Q3"
+
+
+# -- the output budget fits the slot the request is issued into ------------------------------------
+
+
+def test_the_output_budget_leaves_the_prompt_room_in_the_context_slot(ontology):
+    """Prompt plus budget never exceeds the slot, at any prompt length.
+
+    The property the fixed 4,096 could not hold. Step 11 issued a request whose prompt was
+    4,211 tokens with a 4,096-token budget against an 8,192-token slot, and the answer was cut
+    mid-object at the slot rather than at the budget.
+    """
+    for length in (0, 1_000, 10_000, 16_713, 20_000, 28_000):
+        budget, estimated = output_budget(
+            "x" * length, ceiling=DEFAULT_MAX_OUTPUT_TOKENS,
+            context_tokens=DEFAULT_CONTEXT_TOKENS)
+        assert estimated + budget <= DEFAULT_CONTEXT_TOKENS, length
+        assert budget <= DEFAULT_MAX_OUTPUT_TOKENS, length
+
+
+def test_the_token_estimate_is_never_lower_than_the_servers_own_count(ontology):
+    """The estimate is only safe if it over-counts, and that is measured, not assumed.
+
+    The ratios measured on the running server over the 13 benchmark prompts run from 3.57 to
+    4.55 characters per token. The estimator divides by 3.5, so the recorded extremes are
+    checked here against the counts the server returned — a tokenizer change that pushed a real
+    prompt below 3.5 characters per token would make the budget able to overflow the slot
+    again, and this is where that shows up. The second pair is the one request that truncates,
+    counted with its chat template (4,311) rather than by `/tokenize` (4,299), because the
+    template is what the estimate has to cover.
+    """
+    for characters, server_tokens in ((17_170, 4_806), (15_618, 4_311), (7_896, 1_906)):
+        _, estimated = output_budget(
+            "x" * characters, ceiling=DEFAULT_MAX_OUTPUT_TOKENS,
+            context_tokens=DEFAULT_CONTEXT_TOKENS)
+        assert estimated >= server_tokens, (characters, server_tokens, estimated)
+
+
+def test_the_budget_is_a_pure_function_of_the_prompt(ontology):
+    """It is digested into the request identity, so a budget that drifted would orphan the
+    store."""
+    first = output_budget("a" * 5_000, ceiling=4096, context_tokens=8192)
+    second = output_budget("a" * 5_000, ceiling=4096, context_tokens=8192)
+    assert first == second
+
+
+def test_the_lane_asks_the_provider_for_the_budget_it_computed(ontology):
+    """Driven through the provider protocol rather than read off the lane."""
+    class BudgetRecordingProvider(StubProvider):
+        def __init__(self):
+            super().__init__()
+            self.max_tokens: list[int] = []
+
+        def generate(self, *, prompt, schema, max_tokens=1024, temperature=0.0):
+            self.max_tokens.append(max_tokens)
+            return super().generate(prompt=prompt, schema=schema, max_tokens=max_tokens,
+                                    temperature=temperature)
+
+    provider = BudgetRecordingProvider()
+    lane = OntologyGuidedNarrativeClaimLane(
+        ontology, FixedScope(), provider, deferred_metric_ids(ontology))
+    run(lane)
+    expected, _ = output_budget(provider.prompts[0], ceiling=DEFAULT_MAX_OUTPUT_TOKENS,
+                                context_tokens=DEFAULT_CONTEXT_TOKENS)
+    assert provider.max_tokens == [expected]
+    assert expected < DEFAULT_MAX_OUTPUT_TOKENS or len(provider.prompts[0]) < 14_000
+
+
+def test_a_request_that_cannot_fit_is_not_issued_at_all(ontology):
+    """Refused before the provider, and said out loud.
+
+    A prompt that leaves less than one claim's worth of room produces a truncated answer with
+    certainty. Issuing it anyway spends the call to learn what the character count already
+    said, and records it as a model result — `MODEL_ANSWER_UNUSABLE` — when no model was
+    involved.
+    """
+    lane, provider = build_lane(ontology)
+    lane_with_a_tiny_slot = OntologyGuidedNarrativeClaimLane(
+        ontology, FixedScope(), provider, deferred_metric_ids(ontology),
+        context_tokens=2048)
+    extraction = lane_with_a_tiny_slot.extract_passage(
+        PASSAGE_TEXT,
+        context=PassageContext(passage_id=PASSAGE_ID, document_type="shareholder_letter"),
+        document_id=DOCUMENT_ID)
+    assert provider.prompts == [], "no request may be issued"
+    assert [i.code for i in extraction.issues] == [PROMPT_EXCEEDS_CONTEXT]
+    assert extraction.claims == []
+    assert str(MIN_OUTPUT_TOKENS) in extraction.issues[0].detail
+
+
+def test_the_refusal_to_issue_is_in_the_declared_vocabulary():
+    assert PROMPT_EXCEEDS_CONTEXT in ISSUE_CODES
 
 
 # -- ambiguity preservation, enforced and not merely requested -----------------------------------
@@ -1042,7 +1216,10 @@ def test_the_schema_offers_only_the_scope_and_the_passages_own_periods(ontology)
     schema = provider.schemas[0]
     item = schema["properties"]["claims"]["items"]["properties"]
     assert set(item["metric_id"]["enum"]) == set(SCOPE_IDS)
-    assert item["period_label"]["enum"] == ["3Q23", "September 30, 2023"]
+    # The passage's own phrases, then the one answer that is not a phrase — see
+    # `test_the_enum_can_say_that_no_printed_phrase_gives_this_figures_period`.
+    assert item["period_label"]["enum"] == [
+        "3Q23", "September 30, 2023", PERIOD_NOT_PRINTED]
     assert item["unit"]["enum"] == ["USD", "homes", "percent"]
     # `evidence_sentence` is generated first: quote, then answer.
     assert list(item)[0] == "evidence_sentence"
@@ -1467,6 +1644,9 @@ def test_the_benchmark_guard_would_notice_a_path_written_any_way(tmp_path):
 NARRATIVE_IMPORT_ALLOWLIST = frozenset({
     "__future__", "dataclasses", "hashlib", "json", "os", "pathlib", "re", "typing",
     "ontology", "pydantic",
+    # `narrative_lane.output_budget` rounds a character count up to a token estimate. Standard
+    # library arithmetic, no socket *(added 2026-08-02 with the prompt-aware output budget)*.
+    "math",
 })
 
 

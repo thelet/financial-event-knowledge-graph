@@ -227,6 +227,63 @@ never false positives. The benchmark annotates a deliberate subset, so an unanno
 is unmeasured rather than wrong — the same reason the table-lane report refuses to call its
 matched-over-emitted ratio precision.
 
+### Narrative lane
+
+`reports/narrative_lane_v1.{json,md}` score `OntologyGuidedNarrativeClaimLane` over the 14
+prose cases — the 13 whose `lane` is `narrative` plus the one whose `lane` is `either` —
+**under both candidate scopes**, on the eight dimensions §4.0 names plus four the prose cases
+made necessary — §7.1's population wording, §7.3's ambiguity codes, and the split of
+"ambiguity" into an abstention-honouring rate and an ambiguity-preservation rate with its own
+denominator. Beyond the dimensions: structured-output validity,
+rejection-versus-abstention, the §8a period attribution, the ontology-warning census, and a
+ten-category failure classification.
+
+```bash
+python -m benchmarks.extraction.v1 narrative-build      # generate, needs the server on 8080
+python -m benchmarks.extraction.v1 narrative-report     # replay-only, offline
+python -m benchmarks.extraction.v1 narrative <case_id>  # one case under both scopes
+```
+
+`narrative-report` never touches the network: it replays `answers/narrative_v1.jsonl` with
+`inner=None`, so a missing answer raises and names the request rather than being scored as a
+silence. `narrative-build` is the only command here that talks to the generation server.
+
+`answers/narrative_v1.jsonl` is committed for the same reason the vectors are: without it the
+report cannot be regenerated offline, and an artifact nobody can rebuild is not evidence. Each
+row is keyed on the digest of (prompt, schema, model id, temperature, output budget) and holds
+no latency, token count or attempt count — those move between two identical requests, so a
+record containing them could never be byte-identical.
+
+**Every score lives in [`reports/narrative_lane_v1.md`](reports/narrative_lane_v1.md) and is
+deliberately not repeated here.** What belongs here is the parts that are not results:
+
+Two of the dimensions are **tautologies under the matching rule**, in this report and in
+the table-lane one. A predicted claim is matched to a gold claim on `(metric_id, period key)`,
+so a matched pair agrees about its metric and its period by construction and `period_accuracy`
+cannot read anything but a perfect score. The real period measurement is the `period_wrong`
+category of the failure classification plus the attribution table, and the table-lane report's
+period accuracy should be read the same way.
+
+The `evidence` dimension is stronger for prose than for tables. For the table lane it means
+the cited `passage_id` resolves; for the narrative lane it means that **and** that the quoted
+span is verbatim inside that passage. Both go through the same `evaluation.compare`, which
+takes the verdict as an argument for exactly this reason.
+
+The failure classifier covers gold observations the lane did not emit, matched observations
+that failed a dimension, and claims that break a silence a case requires. It deliberately does
+**not** classify every unmatched emitted claim: those are unrequired, and categorising them as
+failures would make matched-over-emitted a precision under another name.
+
+Two reviewed cases annotate **one passage**, so anything counted per claim — emitted
+observations, ontology warnings, ontology errors — enters the per-case totals twice. Both
+forms of every affected count are reported, including a second matched-over-emitted taken over
+distinct passages. Gold and matched observations are per case and are unaffected.
+
+Where the lane emits two claims under one `(metric, period)` key, the matcher keeps the
+**first in emission order** and records the collision. Emission order is used because it knows
+nothing about gold: picking the claim that agrees with the case would make value accuracy
+unable to fall.
+
 ## Review status
 
 Every case is marked `reviewed: true` only after its values were checked against the cited

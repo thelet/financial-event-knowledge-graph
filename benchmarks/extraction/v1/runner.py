@@ -567,6 +567,33 @@ def build_report(*, catalog_root: Path | None = None,
 # -- rendering -----------------------------------------------------------------------------------
 
 
+# The two corrections review 2026-08-02 required of this committed artifact. Declared data
+# rather than prose alone, because the Markdown is read by people and the JSON by step 13.
+SCORE_CAVEATS: tuple[dict[str, str], ...] = (
+    {"dimension": "ambiguity",
+     "state": "not scored",
+     "detail": "V1_CLAIM_EXTRACTION §4.0 names eight dimensions scored independently and "
+               "this report scores seven of them: metric_recall, matched_over_emitted and "
+               "the six per-match dimensions. No score, per case or in total, is named for "
+               "ambiguity. The table cases do declare expected abstentions and the "
+               "lane does record AMBIGUOUS_ALIAS, so it is measurable here and simply is not "
+               "measured. narrative_lane_v1.json scores all of them and states each "
+               "denominator."},
+    {"dimension": "period_accuracy",
+     "state": "tautology, not a measurement",
+     "detail": "evaluation.evaluate_case matches a claim to a gold claim on (metric_id, "
+               "period key) and compare then tests claim.period.key == gold.period_key, "
+               "which is true by construction for every matched pair. The number cannot fall "
+               "however the lane dates a figure, and the same holds for the metric half of "
+               "metric_recall's numerator. Left at 1.000 rather than re-matched on metric "
+               "alone: changing the matching key would change which pairs every other "
+               "dimension is computed over, in a committed artifact, to move a number rather "
+               "than to fix a lane. The real period evidence in this report is the 21 "
+               "wrongly dated emitted observations on kpi-table-q4-2023-earnings, which sit "
+               "outside the gold set and are scored by nothing."},
+)
+
+
 def render_json(report: TableLaneReport) -> str:
     payload = {
         "benchmark_version": report.benchmark_version,
@@ -578,6 +605,10 @@ def render_json(report: TableLaneReport) -> str:
         "totals": report.totals,
         "unsupported_table_shapes": [dict(s) for s in report.unsupported_table_shapes],
         "known_misses": [dict(m) for m in report.known_misses],
+        # What this report's own numbers do not say, in the machine-readable half as well as
+        # in the prose. A caveat that lives only in Markdown is a caveat no consumer reads
+        # *(added 2026-08-02, review)*.
+        "score_caveats": [dict(entry) for entry in SCORE_CAVEATS],
     }
     return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
 
@@ -708,6 +739,29 @@ def render_markdown(report: TableLaneReport) -> str:
         "Each case names a deliberate subset of its table's claims \u2014 the Q1 2025 KPI table "
         "has 10 gold entries and 45 correct claims \u2014 so an unmatched claim is usually a "
         "right answer the case did not list (benchmark README, \u00a74.0).",
+        "",
+        "**Seven numbers, not eight, and `ambiguity` is the one missing** *(corrected "
+        "2026-08-02)*. \u00a74.0 names eight dimensions scored independently \u2014 metric identity, "
+        "value, unit, scale, period, subject, evidence, **ambiguity** \u2014 and this report has "
+        "never scored the last of them. What it reports is `metric_recall`, "
+        "`matched_over_emitted` and the six per-match dimensions above; the string "
+        "\"ambiguity\" appears in `table_lane_v1.json` zero times. The table cases do declare "
+        "expected abstentions and this lane does record `AMBIGUOUS_ALIAS`, so the dimension "
+        "is measurable here; it is not measured, and the gap is stated rather than filled, "
+        "because filling it is a change to a committed artifact this stage is not making. "
+        "`narrative_lane_v1.{json,md}` scores it, and states its denominator.",
+        "",
+        "**`period accuracy` is a tautology and is not a measurement** *(corrected "
+        "2026-08-02)*. `evaluation.evaluate_case` matches a predicted claim to a gold claim "
+        "on `(metric_id, period key)`, and `compare` then tests "
+        "`claim.period.key == gold.period_key` \u2014 true by construction for every matched "
+        "pair, so the number cannot fall however the lane dates a figure. The same is true of "
+        "the metric half of `metric_recall`'s numerator. Both reports run through this code "
+        "and both carry the same 1.000; `narrative_lane_v1.md` says so too. The real period "
+        "evidence in this report is the paragraph below, where 21 emitted observations carry "
+        "the wrong period and the score reads 1.000 beside them. Not repaired by re-matching "
+        "on metric alone: that would change which pairs are compared, and therefore every "
+        "other dimension in a committed artifact, to fix a number rather than a lane.",
         "",
         "**Unscored is not the same as verified.** The "
         f"{sum(len(c.unmatched_emitted) for c in report.cases)} unmatched keys below are "
@@ -942,14 +996,19 @@ def write_reports(report: TableLaneReport, directory: Path = REPORTS_DIR) -> tup
     return json_path, markdown_path
 
 
-# Published because the two scope reports in this directory need the same corpus identity, the
+# Published because the other reports in this directory need the same corpus identity, the
 # same commit, the same rounding and the same Markdown escaping. A second implementation of any
 # of them is how two reports in one directory start describing different runs, or rounding to
 # different places, while both look authoritative. `ratio` lives here rather than in
 # `scope_runner` because `RATIO_DIGITS` does: the constant and the only function that applies
 # it belong together.
+#
+# `gold_period_key` joined them at step 11. It is the rule that turns a case file's
+# `instant_date` or `period_start`/`period_end` into the key claims are matched on, and the
+# narrative report matches on exactly the same key or the two reports are not comparable.
 corpus_identity = _corpus_identity
 head_commit = _head_commit
 ratio = _ratio
 anchor = _anchor
 cell = _cell
+gold_period_key = _gold_period_key

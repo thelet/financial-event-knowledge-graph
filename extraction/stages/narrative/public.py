@@ -90,6 +90,13 @@ DEFINITIONAL_NOT_OBSERVATIONAL = "DEFINITIONAL_NOT_OBSERVATIONAL"
 # raised: a transport failure propagates, an unusable answer is data about the model.
 MODEL_ANSWER_UNUSABLE = "MODEL_ANSWER_UNUSABLE"
 
+# The prompt plus a usable output budget does not fit the model's context slot, so no request
+# was issued at all. A lane decision taken before a provider is reached, and therefore not a
+# model result: recorded so a passage that produced nothing says which of the two it was
+# *(added 2026-08-02 after review found the lane issuing a request that structurally could not
+# fit — see `narrative_lane.output_budget`)*.
+PROMPT_EXCEEDS_CONTEXT = "PROMPT_EXCEEDS_CONTEXT"
+
 # What the *model* may choose. Deliberately narrower than `ISSUE_CODES`: every other code is
 # a decision `response_mapping.py` makes about an answer, and offering the model a reason it
 # cannot possibly assess invites it to pick one instead of answering.
@@ -111,7 +118,7 @@ ISSUE_CODES = frozenset(MODEL_ABSTENTION_REASONS) | frozenset({
     PERIOD_TYPE_MISMATCH, INVALID_NUMBER, METRIC_OUT_OF_SCOPE, UNIT_CONTRADICTS_ONTOLOGY,
     SCALE_NOT_APPLICABLE, SCALE_NOT_DECLARED, QUOTED_SPAN_NOT_IN_PASSAGE,
     VALUE_NOT_IN_QUOTED_SPAN, VALUE_CONTRADICTS_QUOTED_TEXT,
-    MISSING_POPULATION_DEFINITION, MODEL_ANSWER_UNUSABLE,
+    MISSING_POPULATION_DEFINITION, MODEL_ANSWER_UNUSABLE, PROMPT_EXCEEDS_CONTEXT,
 })
 
 # -- the answer's own vocabulary ---------------------------------------------------------------
@@ -138,6 +145,23 @@ INSTANT = "instant"
 PERIOD_KINDS: tuple[str, ...] = (DURATION, INSTANT)
 
 SCALES: tuple[str, ...] = ("units", "thousands", "millions", "billions")
+
+# The one `period_label` answer that is not a phrase the passage prints.
+#
+# **Added 2026-08-02 because the enum could not express a true state.** Constraining
+# `period_label` to the printed phrases removed every period the passage does not name, and
+# thereby removed the model's only way to say "none of these is this figure's period". Measured
+# on `q42021formxex992sharehol.htm#p10`: `period_phrases()` yields exactly
+# `['December 31, 2021', '4Q21', '4Q20']`, the letter reports a full year as well as a quarter,
+# and the model labelled "For the year, we delivered Contribution Profit of $525 million" as
+# `4Q21` — producing two values for one deterministic observation id and four
+# `DUPLICATE_OBSERVATION_CONFLICT` errors. Rule 6 already told the model to abstain with
+# `MISSING_PERIOD` in that case, but a grammar that only offers wrong answers gets one.
+#
+# This is a correctness fix and not benchmark tuning: the schema could not express a state the
+# corpus actually has. `response_mapping._resolve_period` maps it to `MISSING_PERIOD`, so
+# choosing it refuses the claim rather than dating it.
+PERIOD_NOT_PRINTED = "(none of the phrases above states this figure's period)"
 
 
 @dataclass(frozen=True)
@@ -217,6 +241,14 @@ class NarrativeExtraction:
     passage_id: str
     claims: list[LaneClaim] = field(default_factory=list)
     issues: list[NarrativeIssue] = field(default_factory=list)
+    # The digest of the request that produced this, or None where no request was issued.
+    #
+    # Deterministic — it is `answer_store.request_identity` over (prompt, schema, model,
+    # sampling parameters) — so it is a property of the run and not a measurement of it, and it
+    # may enter a byte-identical artifact. Recorded because step 11 compares two scopes and had
+    # been inferring "the two runs are the same run" from the metric concepts alone, which is a
+    # weaker statement than the digest makes *(added 2026-08-02, review)*.
+    request_sha256: str | None = None
 
     @property
     def rejected_claims(self) -> tuple[NarrativeIssue, ...]:
@@ -290,10 +322,19 @@ def response_schema(
     passes every check; `response_mapping._resolve_period` states the residual and
     V1_CLAIM_EXTRACTION §8a.12 makes it a dimension step 11 scores.
 
-    **A passage printing no resolvable phrase degenerates this enum to `[""]`**, so every claim
-    on it is refused with `MISSING_PERIOD` by construction. That is the intended behaviour —
-    a figure whose period cannot be read is not extractable — but it means an empty claim list
-    on such a passage is a structural result and not, on its own, evidence about the model.
+    **The enum always carries `PERIOD_NOT_PRINTED` as its last member** *(added 2026-08-02)*.
+    Narrowing the enum to printed phrases left the model no way to say that a printed figure's
+    period is not among them, which is a state the corpus has: a shareholder letter reporting
+    both 4Q21 and the full year prints no phrase resolving to FY2021. Step 11 measured the
+    consequence — the model attached `4Q21` to the full-year figures and two values collided
+    under one observation id. The member is mapped to `MISSING_PERIOD`, so choosing it refuses
+    the claim rather than dating it.
+
+    **A passage printing no resolvable phrase degenerates this enum to `[PERIOD_NOT_PRINTED]`**,
+    so every claim on it is refused with `MISSING_PERIOD` by construction. That is the intended
+    behaviour — a figure whose period cannot be read is not extractable — but it means an empty
+    claim list on such a passage is a structural result and not, on its own, evidence about the
+    model.
     """
     claim_item = {
         "type": "object",
@@ -314,7 +355,8 @@ def response_schema(
             "scale": {"type": "string", "enum": list(SCALES)},
             "unit": {"type": "string", "enum": list(units)},
             "period_kind": {"type": "string", "enum": list(PERIOD_KINDS)},
-            "period_label": {"type": "string", "enum": list(period_phrases) or [""]},
+            "period_label": {"type": "string",
+                             "enum": [*period_phrases, PERIOD_NOT_PRINTED]},
             "population_text": {"type": "string"},
         },
         "required": [

@@ -355,6 +355,22 @@ Eight dimensions are scored independently — metric identity, value, unit, scal
 subject, evidence, ambiguity — because a claim can be right about the metric and wrong about
 the period, and a blended score hides exactly that.
 
+**Two corrections to that sentence, both found by review 2026-08-02 and both about what the
+committed reports actually contain.**
+
+| | What §4.0 said | What is true |
+| --- | --- | --- |
+| the table lane | eight dimensions are scored | **Seven.** `table_lane_v1.json` reports `metric_recall`, `matched_over_emitted` and six per-match dimensions; no score in it, per case or in total, is named for ambiguity. The table cases *do* declare expected abstentions and the lane *does* record `AMBIGUOUS_ALIAS`, so the dimension is measurable there and simply was not measured. The report now says so in its prose and in a `score_caveats` block, and step 6's brief is corrected below. |
+| `period`, in both lanes | a scored dimension | **A tautology under the shared matching rule.** `evaluation.evaluate_case` keys claims on `(metric_id, period key)` and `compare` then tests `claim.period.key == gold.period_key`, so a matched pair agrees about its period by construction and `period_accuracy: 1.000` cannot fall however a lane dates a figure. The same holds for the metric half of a match. Both reports now mark the number as what it is rather than leaving a 1.000 that cannot fail; the real period evidence is `period_wrong` in the narrative failure classification, §8a.12's attribution table, and the 21 wrongly dated observations on `kpi-table-q4-2023-earnings` that sit outside the gold set. |
+
+**The narrative report scores twelve, and the four beyond the eight are corrections rather
+than additions.** §7.1's population wording and §7.3's ambiguity codes were scored by nothing,
+so seven matched `pct_homes_on_market_gt_120_days` pairs that disagreed with gold about the
+denominator all scored clean; and "ambiguity" as implemented was measuring whether a required
+silence was kept for *any* stated reason, over fifteen expectations of which exactly one names
+ambiguity candidates. That one dimension is now three — an abstention-honouring rate, a
+code-agreement rate, and ambiguity preservation over a denominator of 1, stated as 1.
+
 **It is the acceptance instrument for every lane**, and §11's criteria are checked against
 it. Two properties matter more than its size:
 
@@ -859,6 +875,54 @@ resolvable period gets an enum of `[""]`, so *every* claim on it is refused with
 and a run must say whether the model declined or the schema did before reporting it as evidence
 that the lane recognises a definition.
 
+## 8a.13 Step 11 measured it, the residual had a different shape, and the schema was fixed *(2026-08-02)*
+
+`benchmarks/extraction/v1/reports/narrative_lane_v1.{json,md}`, both scopes, replayed from a
+committed answer store. §8a.12 asked for the rate at which a claim takes a *comparative*
+period. That is not where the failures were.
+
+| | Lexical | Hybrid |
+| --- | --- | --- |
+| claims emitted | 23 | 24 |
+| period phrase inside the quoted evidence sentence | 5 | 6 |
+| period resolved to something other than the reporting period | 1 | 1 |
+| greatest distance from the evidence sentence | 1,354 characters | 1,354 characters |
+
+**The comparative count is an upper bound.** `reporting_period_keys` is the latest printed end
+date of each type, and `event-credit-facility-established-2022` prints a *maturity* date as its
+latest, so a correctly dated claim counts as comparative there.
+
+**The model reaches a long way.** Only 5 of 23 claims took the phrase from their own evidence
+sentence; the rest reached backwards, up to 1,354 characters.
+
+**The real residual was an unrepresentable period, and it is now closed.** On
+`q42021formxex992sharehol.htm#p10` the letter reports both 4Q21 and the full year;
+`period_phrases()` yields exactly `['December 31, 2021', '4Q21', '4Q20']`, so the enum could
+not express FY2021 at all — and the model attached `4Q21` to the full-year figures rather than
+abstaining. That produced `contribution_profit` at both $152M and $525M for 2021Q4 and
+`contribution_margin` at both 4.0 and 6.5: four `DUPLICATE_OBSERVATION_CONFLICT` errors, and
+§11 criterion 1 failing.
+
+The fix is a schema member, not a prompt tweak: `narrative.public.PERIOD_NOT_PRINTED` is the
+last member of the `period_label` enum on every passage, rule 6 names it, and
+`response_mapping._resolve_period` maps it to `MISSING_PERIOD` — checked before the
+period-type test, because a model declining to name a period has not also made a claim about
+that period's kind. `PROMPT_VERSION` is 1.2.0 and the answer store was regenerated whole.
+**After the rebuild: zero ontology errors under both scopes.** This is a correctness fix — the
+schema could not express a state the corpus has — and STAGE_11 §12.1 records it with the
+mechanism.
+
+**Two of the four `period_wrong` failures are this shape, not three.** *(Corrected
+2026-08-02; this section and STAGE_11 both said three.)* The four are
+`adjusted_gross_margin@FY2021` and `adjusted_gross_profit@FY2021`, which are the
+unrepresentable-FY2021 shape; `adjusted_gross_profit@2020Q4`, where `4Q20` **is** printed and
+resolvable, making it a plain comparative miss; and
+`pct_homes_on_market_gt_120_days@2022-12-31`, which is on a different passage entirely.
+
+The enum still does **not** make a wrong period unrepresentable: a comparative paragraph
+prints its prior-period phrase and the enum offers it. What is now representable is "none of
+these".
+
 ---
 
 # 9. Implementation sequence
@@ -878,7 +942,7 @@ The authoritative order. Each step ends with a green offline suite and its own n
 | 8 | Lexical candidate scoping | §4.2a | **done** `e97ad5a` | `LexicalOntologyCandidateScope` never removes a protected candidate |
 | 9 | Embedding index and hybrid scoping | §4.2a | **done** (uncommitted) | Cache keyed by `definition_hash`, model id, dimensions, renderer version; §7 rule applied, **default deferred to step 13** |
 | 10 | Narrative metric extraction | §4.3 | **done** (uncommitted) | Marked `live`; offline suite green at 1,499, live at 49. See [STAGE_10_NARRATIVE_LANE.md](STAGE_10_NARRATIVE_LANE.md) §12a for what review corrected |
-| 11 | Narrative benchmark evaluation | §4.0 | not started | Same eight dimensions as the table lane, **plus period attribution (§8a.12) and rejection-versus-abstention**, run under **both** scopes — lexical and hybrid — so step 13 has extraction evidence and not only reachability |
+| 11 | Narrative benchmark evaluation | §4.0 | **done** (uncommitted) | `reports/narrative_lane_v1.{json,md}`, both scopes, replayed offline from `answers/narrative_v1.jsonl`; offline suite 1,537, live 49. See [STAGE_11_NARRATIVE_EVALUATION.md](STAGE_11_NARRATIVE_EVALUATION.md) §8–§11 for the scores, the step 13 recommendation and four corrections to that brief |
 | 12 | Representative event and relationship extraction | §4.4 | not started | The benchmark's 4 events and 2 relationships |
 | 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping **decided here**, on step 11's extraction evidence |
 
@@ -949,9 +1013,39 @@ from naive matching; setting a target before the table lane runs would be invent
 measurement.
 
 **Met so far**, against the table lane: criterion 2 (evidence accuracy 1.000), criterion 3
-(no claim uses a forbidden or deferred lane), criterion 7 for the table half. Criteria 1, 4
-and 5 need `assemble` and `catalog` wired into a run; criterion 6 is answered by §7 and
-tested.
+(no claim uses a forbidden or deferred lane), criterion 7 for the table half. Criteria 4 and 5
+need `catalog` wired into a run; criterion 6 is answered by §7 and tested.
+
+**Criterion 1 held for the narrative lane on the second measurement at step 11**
+*(2026-08-02)*. It did not on the first: four `DUPLICATE_OBSERVATION_CONFLICT` errors, two
+distinct — on `q42021formxex992sharehol.htm#p10` the lane emitted `contribution_profit` at
+both $152 million and $525 million for 2021Q4, and `contribution_margin` at both 4.0 and 6.5,
+so two different values collided under one deterministic observation id. The cause was
+§8a.13's unrepresentable-period residual, not a defect in the id scheme; the id was doing
+exactly what it exists to do, which is to make the collision visible. §8a.13 gave the schema a
+member for "no printed phrase gives this figure's period", the model uses it, the full-year
+figures are refused rather than misdated, and the rebuilt report carries **zero ontology
+validation errors under both scopes**. No `assemble`-level §7 policy rejected any claim, and
+criterion 7 is met for the narrative half under both candidate scopes.
+
+**Criterion 7's "all eight dimensions" was only ever seven for the table lane, and twelve is
+what the narrative half needed.** `table_lane_v1.json` reports `metric_recall`,
+`matched_over_emitted` and six per-match dimensions; it never scored `ambiguity`, which §4.0
+names as one of the eight, and it now carries a `score_caveats` block saying so.
+`narrative_lane_v1.json` scores twelve: the eight, plus §7.1's population wording and §7.3's
+ambiguity codes — neither of which any report scored until review found it — plus the split of
+"ambiguity" into an abstention-honouring rate, a code-agreement rate, and ambiguity
+preservation over a denominator of 1. Each denominator is stated. Two of the twelve are
+tautologies under the shared matching rule — claims are matched on `(metric_id, period key)`,
+so `period_accuracy: 1.000` is a property of the matcher rather than a measurement of either
+lane, and both reports now say so.
+
+**Population wording is 0.000 and it is the result criterion 7 was worth having.** Every
+matched `pct_homes_on_market_gt_120_days` pair disagrees with gold about the filed denominator
+— gold carries the whole clause, the lane carries the noun phrase inside it — and until
+2026-08-02 the dimension scored 1.000 by not existing. §7.1 says verbatim; whether the
+reviewers want the clause or the phrase is a founder decision, and the disagreement is now
+visible either way.
 
 ---
 
@@ -1014,6 +1108,27 @@ tested.
    the right runtime `top_k`. `scoping.strategy` therefore stays `lexical`, step 11 runs the
    narrative benchmark under **both** scopes, and **step 13 decides the default** on that
    evidence.
+
+   **Step 11 has now produced that evidence, and it is narrow** *(2026-08-02,
+   `reports/narrative_lane_v1.md`)*. The two scopes issue the **identical request** — measured
+   as the digest the answer store is keyed on, not inferred from the concept lists — on **13 of
+   the 14** prose cases, so the comparison rests on one case. On it, the concept only hybrid
+   supplies produces a gold claim (metric identity 0.526 → 0.579) that is correct on value,
+   unit, scale, period, subject and evidence and **wrong on population wording**: gold declares
+   `5% of our homes were listed on the market for more than 120 days` and the claim carries
+   `our homes`. No gold observation is clean under one scope and not the other.
+
+   **Recommendation for step 13, restated: hybrid reaches more and is not clean on what it
+   reaches.** The first pass of step 11 recommended "hybrid, on narrow evidence" on the
+   strength of a claim it called correct on every dimension. That was true of the six
+   dimensions then being scored and false of the claim — §7.1's population wording was scored
+   by nothing. The recommendation is restated on the fuller set rather than preserved.
+
+   Two things not to read into the numbers: `value_accuracy` and `metric_identity_accuracy` are
+   both higher under hybrid and neither means hybrid corrected anything — adding one matched
+   claim moves the denominator, 8/10 → 9/11. And the §16.1 wording gap is *not* closed: the
+   second paraphrase is unreached under both scopes, because it ranks 2 in its passage and
+   `top_k` is 2. `scoping.strategy` is still `lexical` and step 11 did not change it.
 2. **Settled, not open — recorded because an earlier draft said otherwise.** This plan no
    longer covers `metric_observation` only. **V1 includes the benchmark's representative 4
    event claims and 2 relationship claims** (step 12), as a bounded proof that the same claim

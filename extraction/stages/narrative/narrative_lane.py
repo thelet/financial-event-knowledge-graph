@@ -27,17 +27,20 @@ pointless at temperature 0 and the adapter says so.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from ...core.periods import period_phrases
 from ...core.units import unit_for_metric
 from ...providers.public import ProviderResponseError, ProviderSchemaError
 from ..tables.public import UNRESOLVED_METRIC
+from .answer_store import request_identity
 from .prompt import PROMPT_VERSION, PassageContext, build_prompt
 from .public import (
     LANE_NAME,
     LANE_VERSION,
     MODEL_ANSWER_UNUSABLE,
+    PROMPT_EXCEEDS_CONTEXT,
     NarrativeExtraction,
     NarrativeIssue,
     ambiguous_surfaces_for,
@@ -54,12 +57,59 @@ from .response_mapping import MappingContext, map_answer
 # 3,072 truncated it again once the prompt began asking for whole-sentence spans, because a
 # passage with sixteen findings repeats a long sentence sixteen times (8,925 characters).
 #
-# 4,096 against the validated 8,192-token slot. The largest prompt measured is 3,529 tokens —
-# a 2,031-character letter passage with 17 candidate concepts and their ambiguity notes — so
-# the worst case is 7,625 of 8,192. A prompt longer than that produces a truncated answer, and
-# a truncated answer is already a recorded `MODEL_ANSWER_UNUSABLE` rather than a silent one:
-# the failure is visible, which is what makes this number safe to set from a measurement.
+# 4,096 against the validated 8,192-token slot. This is now a **ceiling**, not the budget: the
+# budget is `output_budget()` below, which subtracts the prompt.
+#
+# **The reasoning this comment used to carry was wrong, and the correction matters more than
+# the number** *(2026-08-02)*. It said "the largest prompt measured is 3,529 tokens ... so the
+# worst case is 7,625 of 8,192", and step 11 read the one truncated answer
+# (`negative-ambiguous-alias-bare-gross-profit`, 4,211 prompt + 3,981 completion) as a prompt
+# that had outgrown that worst case. Re-measured over all 13 benchmark prompts, that is not the
+# discriminator: `letter-prose-run-together-kpi-row-q1-2025` is **larger** — 4,806 prompt
+# tokens against that passage's 4,299 — and conforms. The prompts that truncate are the ones
+# whose *completions* are long. A fixed budget cannot express that, but it can at least
+# guarantee it never asks for more room than the slot has, which is what `output_budget` does;
+# re-issued under the prompt-aware budget the same request stops at 4,311 + 3,601 = 7,912 of
+# 8,192, which is a completion-length failure and now says so.
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
+
+# The validated slot (`config/extraction.yaml` `provider.context_tokens`, `n_ctx_slot` 8192 on
+# the recorded runtime). A default rather than a required argument for the same reason
+# `max_output_tokens` is one: a caller holding a `ProviderConfig` passes its value, and a test
+# driving the lane with a stub does not have to invent one.
+DEFAULT_CONTEXT_TOKENS = 8192
+
+# Characters per token, deliberately **below** every measured value so the estimate can only
+# over-count *(measured 2026-08-02 by tokenizing all 13 benchmark prompts on the running
+# server)*: the ratios run 3.57 to 4.55, the minimum being
+# `letter-prose-run-together-kpi-row-q1-2025` at 17,170 characters and 4,806 tokens. A
+# character count is used rather than the server's `/tokenize` because the budget is part of
+# the request identity the answer store is keyed on, and an identity that needs a network call
+# to compute cannot be recomputed offline.
+_CHARACTERS_PER_TOKEN = 3.5
+
+# Chat template, BOS, and slack on the estimate above.
+_REQUEST_OVERHEAD_TOKENS = 128
+
+# Below this an answer cannot hold even one claim object — eleven required fields, one of them
+# a quoted sentence — so the request is refused rather than issued to be truncated.
+MIN_OUTPUT_TOKENS = 512
+
+
+def output_budget(prompt: str, *, ceiling: int, context_tokens: int) -> tuple[int, int]:
+    """`(budget, estimated prompt tokens)` for one request. Pure, and part of the identity.
+
+    Returns a budget that cannot make the request exceed the slot: whatever the prompt costs,
+    prompt plus budget is at most `context_tokens`. A budget at or below `MIN_OUTPUT_TOKENS`
+    means the request structurally cannot fit and the caller must not issue it.
+
+    Deterministic on purpose. `max_tokens` is one of the fields `request_identity` digests, so
+    a budget that varied with anything but the prompt would make every stored answer
+    unreachable on the next run.
+    """
+    estimated = math.ceil(len(prompt) / _CHARACTERS_PER_TOKEN) + _REQUEST_OVERHEAD_TOKENS
+    return min(ceiling, context_tokens - estimated), estimated
+
 
 # Not a tuning knob. STAGE_10 §7 fixes it, and the persisted answers are keyed on it, so a
 # different value is a different request and a different record.
@@ -99,6 +149,7 @@ class OntologyGuidedNarrativeClaimLane:
         deferred_metric_ids: frozenset[str],
         *,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        context_tokens: int = DEFAULT_CONTEXT_TOKENS,
     ) -> None:
         self._ontology = ontology
         self._scope = scope
@@ -108,6 +159,7 @@ class OntologyGuidedNarrativeClaimLane:
         # sentence names it.
         self._deferred = deferred_metric_ids
         self._max_output_tokens = max_output_tokens
+        self._context_tokens = context_tokens
         self._stats: list[GenerationStats] = []
 
     @property
@@ -176,16 +228,38 @@ class OntologyGuidedNarrativeClaimLane:
             text=text, concepts=concepts, context=context, schema=schema,
             ambiguous_surfaces=surfaces, period_phrases=phrases)
 
+        # The budget is computed from the prompt rather than fixed, so a request can never ask
+        # for more room than the slot has left. Step 11 issued one that could not fit and read
+        # the truncation as a prompt-length problem; it was not, and a fixed budget could not
+        # say either way. See `output_budget`.
+        budget, estimated_prompt_tokens = output_budget(
+            rendered, ceiling=self._max_output_tokens,
+            context_tokens=self._context_tokens)
+        if budget < MIN_OUTPUT_TOKENS:
+            return NarrativeExtraction(
+                passage_id=passage_id,
+                issues=[NarrativeIssue(
+                    PROMPT_EXCEEDS_CONTEXT,
+                    f"an estimated {estimated_prompt_tokens} prompt tokens leave {budget} of "
+                    f"the {self._context_tokens}-token slot for an answer, below the "
+                    f"{MIN_OUTPUT_TOKENS} one claim needs; no request was issued",
+                    passage_id, metric_ids=metric_ids)],
+            )
+
+        identity = request_identity(
+            prompt=rendered, schema=schema, model_id=str(self._provider.model_id),
+            temperature=TEMPERATURE, max_tokens=budget)
         try:
             answer = self._provider.generate(
                 prompt=rendered, schema=schema,
-                max_tokens=self._max_output_tokens, temperature=TEMPERATURE)
+                max_tokens=budget, temperature=TEMPERATURE)
         except (ProviderResponseError, ProviderSchemaError) as error:
             return NarrativeExtraction(
                 passage_id=passage_id,
                 issues=[NarrativeIssue(
                     MODEL_ANSWER_UNUSABLE, str(error), passage_id,
                     metric_ids=metric_ids)],
+                request_sha256=identity,
             )
 
         self._stats.append(GenerationStats(
@@ -199,7 +273,7 @@ class OntologyGuidedNarrativeClaimLane:
             replayed=bool(answer.metadata.get("replayed")),
         ))
 
-        return map_answer(
+        mapped = map_answer(
             answer.content,
             ontology=self._ontology,
             context=MappingContext(
@@ -222,6 +296,8 @@ class OntologyGuidedNarrativeClaimLane:
                 },
             ),
         )
+        mapped.request_sha256 = identity
+        return mapped
 
     # -- what the scope offered ------------------------------------------------------------------
 

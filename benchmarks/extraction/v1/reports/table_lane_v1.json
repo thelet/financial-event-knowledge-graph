@@ -12873,7 +12873,7 @@
       ]
     }
   ],
-  "implementation_commit": "7d9d6a95715a060953164c9916ef665e2e10ef62",
+  "implementation_commit": "76c80798242193e56373d41988aff73100b039c2",
   "known_misses": [
     {
       "candidate_concept_ids": [
@@ -12932,6 +12932,18 @@
     "table_passages": 1935
   },
   "ontology_definition_hash": "3372c5777c1d474ce932a16bb60faa04b92f97562ce2c733f271a0763adf4ddb",
+  "score_caveats": [
+    {
+      "detail": "V1_CLAIM_EXTRACTION §4.0 names eight dimensions scored independently and this report scores seven of them: metric_recall, matched_over_emitted and the six per-match dimensions. No score, per case or in total, is named for ambiguity. The table cases do declare expected abstentions and the lane does record AMBIGUOUS_ALIAS, so it is measurable here and simply is not measured. narrative_lane_v1.json scores all of them and states each denominator.",
+      "dimension": "ambiguity",
+      "state": "not scored"
+    },
+    {
+      "detail": "evaluation.evaluate_case matches a claim to a gold claim on (metric_id, period key) and compare then tests claim.period.key == gold.period_key, which is true by construction for every matched pair. The number cannot fall however the lane dates a figure, and the same holds for the metric half of metric_recall's numerator. Left at 1.000 rather than re-matched on metric alone: changing the matching key would change which pairs every other dimension is computed over, in a committed artifact, to move a number rather than to fix a lane. The real period evidence in this report is the 21 wrongly dated emitted observations on kpi-table-q4-2023-earnings, which sit outside the gold set and are scored by nothing.",
+      "dimension": "period_accuracy",
+      "state": "tautology, not a measurement"
+    }
+  ],
   "totals": {
     "cases": 11,
     "emitted_observations": 410,

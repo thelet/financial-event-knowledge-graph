@@ -26,13 +26,18 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from .public import PERIOD_NOT_PRINTED
+
 # Bumped from 1.0.0 at review *(2026-08-02)*. Three rules named `quoted_span`, a field the
 # schema has never had — it is `evidence_sentence` — rule 6 said the period phrases were listed
 # "below" when they are rendered above, and rule 4 stated a scale rule stricter than the one
 # `response_mapping._resolve_scale` applies. The prompt string is itself part of the request
 # identity, so old answers become unreachable rather than silently re-used; this constant is
 # what makes the *recorded* answers say which wording produced them.
-PROMPT_VERSION = "1.1.0"
+# Bumped to 1.2.0 *(2026-08-02)*: `period_label` gained `public.PERIOD_NOT_PRINTED` as its last
+# enum member and rule 6 now names it. The enum is rendered into the prompt, so every stored
+# answer produced under 1.1.0 is unreachable rather than silently re-used.
+PROMPT_VERSION = "1.2.0"
 
 # Anything longer is a heading path that has swallowed a page of table of contents; the corpus
 # has several. Truncated rather than dropped because the first entries are the informative
@@ -154,7 +159,10 @@ def build_prompt(
         "PERIOD PHRASES THIS PASSAGE STATES — period_label must be one of these:",
         ("\n".join(f'- "{phrase}"' for phrase in period_phrases)
          if period_phrases else
-         "  (none — this passage states no resolvable period, so report no figures)"),
+         "  (none — this passage states no resolvable period)"),
+        # The escape hatch the enum lacked until 2026-08-02. Rendered as a listed choice rather
+        # than described in the rules, because the model picks `period_label` off this block.
+        f'- "{PERIOD_NOT_PRINTED}"',
         "",
         "RULES",
         "  1. Report only figures printed in the passage below. Never compute, convert,",
@@ -187,8 +195,12 @@ def build_prompt(
         "     is the period the figure is reported for. Do not write dates: the phrase is",
         "     resolved for you. The phrase does NOT have to sit beside the figure — a run of",
         "     figures at the end of a letter and a heading are as valid a source as the",
-        "     sentence itself. If none of the listed phrases is the figure's period, abstain",
-        "     with MISSING_PERIOD instead of reporting it.",
+        "     sentence itself. If none of the listed phrases is the figure's period — a",
+        "     full-year total in a letter that prints only quarter labels, for instance —",
+        f'     answer "{PERIOD_NOT_PRINTED}"',
+        "     and do NOT reach for the nearest phrase that is printed. A figure carrying that",
+        "     answer is dropped, which is the correct outcome: a wrong period is worse than a",
+        "     missing figure. Abstaining with MISSING_PERIOD says the same thing.",
         "  7. statement_type: reported_level for a figure that IS the measure for its",
         "     period; period_over_period_change for an increase, a decrease, or a 'versus'",
         "     difference; definition_only where the passage explains the metric instead of",

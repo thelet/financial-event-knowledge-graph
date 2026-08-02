@@ -1029,7 +1029,11 @@ def test_the_benchmark_readme_does_not_restate_the_hybrid_results(report):
     claim about the report's contents is true.
     """
     readme = (runner.PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
-    section = readme[readme.index("### Hybrid scope"):readme.index("## Review status")]
+    # Ends at the next section rather than at "## Review status": step 11 added a narrative
+    # section between them, and a slice that swallowed it would fail this test on numbers that
+    # are not the hybrid scope's. The narrative section is held to the same rule by
+    # `test_narrative_lane_report.py`.
+    section = readme[readme.index("### Hybrid scope"):readme.index("### Narrative lane")]
 
     for verdict in ("hybrid becomes the default", "lexical stays the default",
                     "founder gate"):

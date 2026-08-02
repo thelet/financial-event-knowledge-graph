@@ -1,6 +1,6 @@
 """CLI for the extraction benchmark v1.
 
-Ten subcommands, four of which write anything:
+Thirteen subcommands, six of which write anything:
 
     python -m benchmarks.extraction.v1 report                regenerate the table-lane reports
     python -m benchmarks.extraction.v1 evaluate              print totals, write nothing
@@ -15,16 +15,22 @@ Ten subcommands, four of which write anything:
     python -m benchmarks.extraction.v1 hybrid-build          fill the vector caches, then above
     python -m benchmarks.extraction.v1 hybrid <case_id>      one case's hybrid scope
 
+    python -m benchmarks.extraction.v1 narrative-build       generate, needs the server
+    python -m benchmarks.extraction.v1 narrative-report      replay-only, offline
+    python -m benchmarks.extraction.v1 narrative <case_id>   one case, both scopes
+
 `evaluate` exists because the common question during development is "did a number move",
 and answering it should not require a dirty working tree. The scope commands are separated
 from the lane commands rather than folded into `case`: they cover all 26 cases while the lane
 covers 11, and one command that silently answered about a different set depending on its
 argument would be worse than two.
 
-`hybrid-build` is the only command in this file that touches a network. It is separate from
-`hybrid-report` on purpose: the report must be regenerable offline from the committed vector
-caches, and a single command that quietly reached for a server on a cache miss would make
-"the committed report reproduces" an untested claim.
+`hybrid-build` and `narrative-build` are the only commands in this file that touch a network.
+Each is separate from its report command on purpose: a report must be regenerable offline from
+committed artifacts — the vector caches for one, the answer store for the other — and a single
+command that quietly reached for a server on a miss would make "the committed report
+reproduces" an untested claim. `narrative-build` is also where the operational statistics live:
+tokens, latency and rate are printed here and enter no artifact (STAGE_09 §11.2).
 """
 
 from __future__ import annotations
@@ -35,12 +41,13 @@ import sys
 import time
 from pathlib import Path
 
-from . import hybrid_scope_runner, scope_runner
-from .runner import MATCH_DIMENSIONS, build_report, write_reports
+from . import hybrid_scope_runner, narrative_runner, scope_runner
+from .runner import MATCH_DIMENSIONS, REPO_ROOT, build_report, write_reports
 
 LANE_COMMANDS = ("report", "evaluate", "case", "claims")
 SCOPE_COMMANDS = ("scope-report", "scope", "scope-diff")
 HYBRID_COMMANDS = ("hybrid-report", "hybrid-build", "hybrid")
+NARRATIVE_COMMANDS = ("narrative-report", "narrative-build", "narrative")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,15 +64,22 @@ def main(argv: list[str] | None = None) -> int:
         "hybrid-report", help="regenerate reports/hybrid_scope_v1.{json,md}, offline")
     subcommands.add_parser(
         "hybrid-build", help="fill the vector caches from the embedding server, then report")
+    subcommands.add_parser(
+        "narrative-report", help="regenerate reports/narrative_lane_v1.{json,md}, offline")
+    subcommands.add_parser(
+        "narrative-build", help="generate the narrative answers from the generation server")
     for name, help_text in (("case", "one table case in detail"),
                             ("claims", "every emitted observation for one case"),
                             ("scope", "the candidate scope for one case"),
                             ("scope-diff", "expected vs included concepts for one case"),
-                            ("hybrid", "the hybrid candidate scope for one case")):
+                            ("hybrid", "the hybrid candidate scope for one case"),
+                            ("narrative", "one narrative case under both scopes")):
         sub = subcommands.add_parser(name, help=help_text)
         sub.add_argument("case_id")
 
     args = parser.parse_args(argv)
+    if args.command in NARRATIVE_COMMANDS:
+        return _run_narrative_command(args)
     if args.command in HYBRID_COMMANDS:
         return _run_hybrid_command(args)
     if args.command in SCOPE_COMMANDS:
@@ -313,6 +327,183 @@ def _print_hybrid(report, case) -> None:
     print()
     for candidate in case.scope.concepts:
         print(f"  {candidate.concept_id:36} {','.join(candidate.reasons)}")
+
+
+# -- the narrative lane ---------------------------------------------------------------------
+
+
+def _run_narrative_command(args) -> int:
+    if args.command == "narrative-build":
+        return _build_narrative_answers()
+
+    started = time.perf_counter()
+    report = narrative_runner.build_report()
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+
+    if args.command == "narrative-report":
+        json_path, markdown_path = narrative_runner.write_reports(report)
+        for path in (json_path, markdown_path):
+            print(f"wrote {_display(path)}")
+        print(f"replay: {report.answer_store['answers']} stored answers, both scopes, "
+              f"{elapsed_ms:.0f} ms, no network")
+        _print_narrative_totals(report)
+        return 0
+
+    if report.case(args.case_id) is None:
+        print(f"no narrative case {args.case_id!r}. Known cases:", file=sys.stderr)
+        for known in report.views["lexical"].cases:
+            print(f"  {known.case_id}", file=sys.stderr)
+        return 2
+    _print_narrative_case(report, args.case_id)
+    return 0
+
+
+def _build_narrative_answers() -> int:
+    """Generate once per distinct request, write the store, then report from the store alone.
+
+    The report is built a second time, replay-only, rather than reused from the generating run.
+    That is the point of the command split: if the written file is not sufficient to rebuild
+    the report, this command fails here rather than a test failing later.
+
+    Timings and token counts are printed here and enter no artifact. STAGE_09 §11.2 settled
+    that rule, and step 10 measured the same passage at 1,850 and 1,182 completion tokens on
+    two runs whose claims were byte-identical.
+    """
+    import yaml
+
+    from extraction.providers import LocalOpenAICompatibleGenerationProvider, ProviderConfig
+    from extraction.stages.narrative import AnswerStore, ReplayingGenerationProvider
+    from extraction.stages.narrative.prompt import PROMPT_VERSION
+
+    config = ProviderConfig.from_config(yaml.safe_load(
+        (REPO_ROOT / "config" / "extraction.yaml").read_text(encoding="utf-8")))
+    provider = LocalOpenAICompatibleGenerationProvider(config)
+    health = provider.health()
+    print(f"generation server {config.base_url}: {health.status}"
+          + (f" ({health.detail})" if health.detail else ""))
+    if not health.ok:
+        provider.close()
+        return 2
+
+    store = AnswerStore(narrative_runner.ANSWER_STORE)
+    recording = ReplayingGenerationProvider(
+        store, provider, model_id=config.model, prompt_version=PROMPT_VERSION)
+    print(f"answer store holds {len(store)} answers before this run")
+
+    started = time.perf_counter()
+    try:
+        narrative_runner.build_report(provider=recording)
+    finally:
+        provider.close()
+    elapsed = time.perf_counter() - started
+
+    path = store.write(narrative_runner.ANSWER_STORE)
+    print(f"wrote {_display(path)}  {len(store)} answers, "
+          f"{path.stat().st_size:,} bytes")
+    print(f"generation: {elapsed:.0f} s wall clock for both scopes "
+          "(session-dependent, recorded nowhere)")
+
+    report = narrative_runner.build_report()
+    json_path, markdown_path = narrative_runner.write_reports(report)
+    for path in (json_path, markdown_path):
+        print(f"wrote {_display(path)}")
+    _print_narrative_totals(report)
+    return 0
+
+
+def _print_narrative_totals(report) -> None:
+    lexical = report.views["lexical"].totals
+    hybrid = report.views["hybrid"].totals
+    print(f"benchmark                   {report.benchmark_version}")
+    print(f"implementation commit       {report.implementation_commit}")
+    print(f"model                       {report.model['identity']}")
+    print(f"{'':28}{'lexical':>10}{'hybrid':>10}")
+    for name, key, _ in narrative_runner.DIMENSIONS:
+        print(f"{name:28}{lexical['scores'][key]:>10.3f}"
+              f"{hybrid['scores'][key]:>10.3f}"
+              f"   n={lexical['score_denominators'][key]}/"
+              f"{hybrid['score_denominators'][key]}")
+    print(f"{'matched/emitted':28}{lexical['scores']['matched_over_emitted']:>10.3f}"
+          f"{hybrid['scores']['matched_over_emitted']:>10.3f}"
+          "   (not precision: gold is a deliberate subset)")
+    for label, key in (("gold observations", "gold_observations"),
+                       ("emitted observations", "emitted_observations"),
+                       ("matched observations", "matched_observations"),
+                       ("unrequired emitted", "unrequired_observations"),
+                       ("rejected claims", "rejected_claims"),
+                       ("model abstentions", "model_abstentions"),
+                       ("ontology warnings", "ontology_warnings"),
+                       ("ontology errors", "ontology_errors"),
+                       ("assembly rejections", "assembly_rejections"),
+                       ("classified failures", "failures")):
+        print(f"{label:28}{lexical[key]:>10}{hybrid[key]:>10}")
+    print("failures by category        " + ", ".join(
+        f"{category}={lexical['failures_by_category'][category]}/"
+        f"{hybrid['failures_by_category'][category]}"
+        for category in narrative_runner.FAILURE_CATEGORIES
+        if lexical['failures_by_category'][category]
+        or hybrid['failures_by_category'][category]) or "none")
+    print("issues by code              " + ", ".join(
+        f"{code}={lexical['issues_by_code'].get(code, 0)}/"
+        f"{hybrid['issues_by_code'].get(code, 0)}"
+        for code in sorted(set(lexical["issues_by_code"]) | set(hybrid["issues_by_code"]))))
+    print(f"scopes identical on         {report.comparison['cases_with_identical_scope']}"
+          f" of {report.comparison['cases']} cases")
+
+
+def _print_narrative_case(report, case_id: str) -> None:
+    entry = report.case_index[case_id]
+    print(f"case        {case_id}")
+    print(f"category    {entry['category']}  lane {entry['lane']}  "
+          f"(cases/{entry['source_file']})")
+    for scope in narrative_runner.SCOPES:
+        case = report.case(case_id, scope)
+        print()
+        print(f"-- {scope} scope " + "-" * 60)
+        print(f"passage     {case.passage_id}")
+        print("counts      " + "  ".join(f"{k}={v}" for k, v in case.counts.items()))
+        print("scores      " + "  ".join(
+            f"{k}={v:.3f}" for k, v in sorted(case.scores.items())))
+        print("scope       " + ", ".join(case.scope_concept_ids))
+        matched = {(m.metric_id, m.period_key): m for m in case.matched}
+        print("gold observations")
+        for gold in case.gold:
+            match = matched.get((gold.metric_id, gold.period_key))
+            if match is None:
+                print(f"  MISS  {gold.metric_id}@{gold.period_key}"
+                      f"  expected {gold.value} {gold.unit}")
+                continue
+            failed = match.failed_dimensions
+            verdict = "ok  " if not failed else "WRONG"
+            print(f"  {verdict}  {gold.metric_id}@{gold.period_key}"
+                  f"  expected {gold.value} {gold.unit}"
+                  f"  emitted {match.emitted_value} {match.emitted_unit}"
+                  + (f"  failed: {', '.join(failed)}" if failed else ""))
+        if case.unrequired:
+            print(f"emitted but not annotated ({len(case.unrequired)}) - unrequired, "
+                  "not errors")
+            for metric_id, period_key in case.unrequired:
+                print(f"        {metric_id}@{period_key}")
+        if case.failures:
+            print("failures")
+            for failure in case.failures:
+                print(f"  {failure.category:24} {failure.metric_id}"
+                      f"@{failure.period_key or '-'}  {failure.detail}")
+        if case.abstentions:
+            print("expected abstentions")
+            for verdict in case.abstentions:
+                print(f"  {'ok  ' if verdict.honoured else 'MISS'}  {verdict.reason:32}"
+                      f" concepts={list(verdict.concept_ids)}"
+                      f" claimed={list(verdict.claimed_concept_ids)}")
+        if case.issues_by_code:
+            print("issues      " + ", ".join(
+                f"{code}={count}" for code, count in case.issues_by_code.items()))
+        for attribution in case.attributions:
+            print(f"  period    {attribution.metric_id}@{attribution.period_key}"
+                  f"  label={attribution.period_label!r}"
+                  f"  in_evidence={attribution.in_evidence}"
+                  f"  distance={attribution.distance}"
+                  f"  comparative={attribution.chose_comparative}")
 
 
 # -- shared -------------------------------------------------------------------------------

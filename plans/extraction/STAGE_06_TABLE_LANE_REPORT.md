@@ -68,7 +68,7 @@ Deterministic ordering everywhere: cases by `case_id`, observations by
 | `cases[].gold[]` | all 49, with metric, value, unit, scale, period, subject |
 | `cases[].emitted[]` | all 410, with the same fields plus evidence and raw text |
 | `cases[].matched[]` / `missed[]` / `unmatched_emitted[]` | keyed by `(metric, period)` |
-| `cases[].scores` | the eight dimensions |
+| `cases[].scores` | **seven** dimensions — see the correction below |
 | `cases[].issues[]` | code, row index, raw label, candidates, required lane |
 | `totals` | the same scores aggregated, plus counts |
 | `unsupported_table_shapes` | the four from §8a.7, as declared data |
@@ -82,7 +82,7 @@ commit.
 
 Readable without running Python. Must let a reader go from a number to the filing:
 
-- header block: counts, all eight scores, generation identity;
+- header block: counts, all **seven** scores, generation identity;
 - a totals table;
 - per-case section: case id, passage id, table id, gold/emitted/matched counts, scores;
 - a per-case table of **every gold observation** with expected vs emitted vs verdict;
@@ -129,3 +129,27 @@ python -m benchmarks.extraction.v1 claims <case_id>  # every emitted observation
 - Improving recall.
 - Narrative lane, provider, scoping, catalogs, run manifests.
 - HTML, charts, or a diffing tool.
+
+---
+
+# 9. Corrections *(2026-08-02, found by review during step 11)*
+
+Two, both about what the committed report contains rather than about how it was built. Neither
+changes a number; both change what a number may be read as.
+
+| § | What this brief said | What is true |
+| --- | --- | --- |
+| §3, §4 | `cases[].scores` and the header block carry "the eight dimensions" | **Seven.** They carry `metric_recall`, `matched_over_emitted` and the six per-match dimensions. `ambiguity`, which V1 §4.0 names among the eight, is scored by nothing here — no score in `table_lane_v1.json`, per case or in total, is named for it. The table cases *do* declare expected abstentions and the lane *does* record `AMBIGUOUS_ALIAS`, so it is measurable in this lane and was simply not measured. |
+| §7 | "six dimensions 1.000" is an acceptance gate | One of the six cannot be anything else. `evaluation.evaluate_case` matches a claim to a gold claim on `(metric_id, period key)` and `compare` then tests `claim.period.key == gold.period_key` — true by construction — so `period_accuracy: 1.000` is a property of the matcher, not a measurement of the lane. The same holds for the metric half of a match. |
+
+**Neither is repaired by changing this report's numbers**, and the reason is the one this brief
+already gives for everything else in it: re-matching on metric alone to make `period_accuracy`
+able to fall would change which pairs *every* dimension is computed over, in a committed
+artifact, to move a number rather than to fix a lane. What is repaired is the claim: the report
+now carries a `score_caveats` block naming both, its Markdown states both in prose, and
+`tests/extraction/test_table_lane_report.py` fails if either caveat is dropped while the
+condition it describes still holds.
+
+The real period evidence in this report was always the paragraph under Totals: 21 emitted
+observations on `kpi-table-q4-2023-earnings` carry the wrong period, sit outside the gold set,
+and are scored by nothing — beside a `period_accuracy` of 1.000.

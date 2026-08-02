@@ -251,6 +251,52 @@ def test_per_observation_verdicts_agree_with_the_aggregate_scores(report):
                 accuracy * case.counts["matched"]), (case.case_id, dimension)
 
 
+def test_the_report_states_which_of_the_eight_dimensions_it_does_not_score(report):
+    """§4.0 names eight and this report scores seven, which nothing said until 2026-08-02.
+
+    The absence is checked as an absence — no score here is named for ambiguity — so that
+    adding one would fail this test and force the caveat to be removed with it, rather than
+    leaving a report claiming a gap it no longer has.
+    """
+    import json
+
+    # Rendered from the run, not read off disk: a caveat checked only against the committed
+    # file is a caveat the generator can drop without a test noticing until regeneration.
+    payload = json.loads(runner.render_json(report))
+    caveats = {entry["dimension"]: entry for entry in payload["score_caveats"]}
+    assert "ambiguity" in caveats
+    assert caveats["ambiguity"]["state"] == "not scored"
+
+    scored = set(payload["totals"]["scores"])
+    for case in payload["cases"]:
+        scored |= set(case["scores"])
+    assert not any("ambig" in name for name in scored), scored
+    assert {"metric_recall", "matched_over_emitted"} <= scored
+    assert len(scored) == 8, sorted(scored)
+
+    assert "Seven numbers, not eight" in runner.render_markdown(report)
+
+
+def test_the_report_marks_period_accuracy_as_the_tautology_it_is(report):
+    """`evaluate_case` keys `by_key` on `(metric_id, period.key)` and `compare` then tests
+    `claim.period.key == gold.period_key`. Demonstrated, not asserted: every matched pair
+    agrees by construction, so the number cannot fall."""
+    import json
+
+    payload = json.loads(runner.render_json(report))
+    caveats = {entry["dimension"]: entry for entry in payload["score_caveats"]}
+    assert caveats["period_accuracy"]["state"] == "tautology, not a measurement"
+    assert payload["totals"]["scores"]["period_accuracy"] == 1.0
+
+    matches = [m for case in report.cases for m in case.matched]
+    assert matches
+    assert all(m.period_ok for m in matches), (
+        "a matched pair that disagreed about its period would mean the matching key changed")
+    assert all(m.metric_id == m.metric_id for m in matches)
+
+    assert "is a tautology and is not a measurement" in runner.render_markdown(report)
+
+
 def test_the_markdown_names_every_case_and_every_issue_code(report):
     markdown = COMMITTED_MARKDOWN.read_text(encoding="utf-8")
     for case in report.cases:

@@ -26,10 +26,13 @@ from .answer_store import (
     request_identity,
 )
 from .narrative_lane import (
+    DEFAULT_CONTEXT_TOKENS,
     DEFAULT_MAX_OUTPUT_TOKENS,
+    MIN_OUTPUT_TOKENS,
     TEMPERATURE,
     GenerationStats,
     OntologyGuidedNarrativeClaimLane,
+    output_budget,
 )
 from .prompt import PROMPT_VERSION, PassageContext, build_prompt, render_concept
 from .public import (
@@ -37,6 +40,8 @@ from .public import (
     LANE_NAME,
     LANE_VERSION,
     MODEL_ABSTENTION_REASONS,
+    PERIOD_NOT_PRINTED,
+    PROMPT_EXCEEDS_CONTEXT,
     AmbiguousSurface,
     NarrativeExtraction,
     NarrativeIssue,
@@ -51,12 +56,13 @@ from .response_mapping import (
 )
 
 __all__ = [
-    "AmbiguousSurface", "AnswerStore", "DEFAULT_MAX_OUTPUT_TOKENS", "GenerationStats",
-    "IDENTITY_VERSION", "INLINE_PROSE", "ISSUE_CODES", "LANE_NAME", "LANE_VERSION",
-    "MODEL_ABSTENTION_REASONS", "MappingContext", "MissingAnswerError", "NarrativeExtraction",
-    "NarrativeIssue", "OntologyGuidedNarrativeClaimLane", "PRECEDING_CONTEXT",
-    "PROMPT_VERSION", "PassageContext", "ReplayingGenerationProvider", "StoredAnswer",
-    "TEMPERATURE", "ambiguous_surfaces_for", "build_prompt", "map_answer", "period_phrases",
-    "printed_magnitude", "render_concept", "request_identity", "resolve_period_phrase",
-    "response_schema",
+    "AmbiguousSurface", "AnswerStore", "DEFAULT_CONTEXT_TOKENS", "DEFAULT_MAX_OUTPUT_TOKENS",
+    "GenerationStats", "IDENTITY_VERSION", "INLINE_PROSE", "ISSUE_CODES", "LANE_NAME",
+    "LANE_VERSION", "MIN_OUTPUT_TOKENS", "MODEL_ABSTENTION_REASONS", "MappingContext",
+    "MissingAnswerError", "NarrativeExtraction", "NarrativeIssue",
+    "OntologyGuidedNarrativeClaimLane", "PERIOD_NOT_PRINTED", "PRECEDING_CONTEXT",
+    "PROMPT_EXCEEDS_CONTEXT", "PROMPT_VERSION", "PassageContext",
+    "ReplayingGenerationProvider", "StoredAnswer", "TEMPERATURE", "ambiguous_surfaces_for",
+    "build_prompt", "map_answer", "output_budget", "period_phrases", "printed_magnitude",
+    "render_concept", "request_identity", "resolve_period_phrase", "response_schema",
 ]
