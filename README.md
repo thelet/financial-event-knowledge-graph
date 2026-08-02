@@ -26,6 +26,7 @@ executable ontology. Claim extraction is planned and not yet built.
 | [docs/02_COMPONENT_OPTIONS.md](docs/02_COMPONENT_OPTIONS.md) | Candidate tools and projects per interface — acquisition, parsing, extraction references, graph engines, graph repositories, visualization, models, embeddings, retrieval — with advantages, limitations, and fit. |
 | [docs/03_TARGET_COMBINATIONS.md](docs/03_TARGET_COMBINATIONS.md) | Two concrete prototype combinations (simple modular vs. temporal graph framework), their milestones and tradeoffs, and the recommended route. |
 | [docs/04_DATA_ACQUISITION.md](docs/04_DATA_ACQUISITION.md) | Acquisition design for the first anchor company (Opendoor): sources, wave model, tool selection, storage layout, and first-milestone scope. |
+| [docs/05_LOCAL_NEO4J_ENVIRONMENT.md](docs/05_LOCAL_NEO4J_ENVIRONMENT.md) | The one service this project runs locally: Neo4j 5.26 LTS Community in Docker, its credentials, and the checks that prove Bolt and Browser answer. |
 
 ## Plans
 

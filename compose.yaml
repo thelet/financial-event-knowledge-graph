@@ -1,0 +1,70 @@
+# Local Neo4j for the graph layer. The only container this project runs.
+#
+# Neo4j 5.26 is the 5-series LTS (released 2024-12-06, hotfixes until 2028-06-06)
+# and is the version `plans/graph/V1_GRAPH_PROTOTYPE.md` §5 is designed against:
+# Community Edition, uniqueness constraints only, one database. Pinned to an exact
+# patch rather than `5-community` or `latest` so a rebuild cannot silently move the
+# server underneath a graph run's manifest.
+#
+#   docker compose up -d          # start
+#   docker compose down           # stop, keep data
+#   docker compose down -v        # stop, DELETE the database
+#
+# Credentials come from .env (gitignored). Copy .env.example and choose a password.
+
+# Pinned, not derived from the directory name. Compose defaults the project name to the
+# containing folder, which would make the volumes of a worktree and of the main working tree
+# different volumes with the same role — the database would look empty after a move rather
+# than fail, which is the worse of the two outcomes. (Found the hard way on first start:
+# the volumes came up as `fkg-env-neo4j_neo4j_data`.)
+name: fkg
+
+services:
+  neo4j:
+    image: neo4j:5.26.28-community
+    container_name: fkg-neo4j
+    restart: unless-stopped
+    ports:
+      # Bound to the loopback interface, not 0.0.0.0. Published without the prefix, Docker
+      # Desktop forwards these onto every host interface: a review of this file reached both
+      # ports over the LAN and over a tailnet, where the unauthenticated 7474 discovery
+      # endpoint hands out the exact patch version to anyone who asks. Nothing here needs
+      # remote access — every documented address is localhost.
+      - "127.0.0.1:7474:7474"   # Browser (HTTP)
+      - "127.0.0.1:7687:7687"   # Bolt
+    environment:
+      # One source of truth for the credentials: the driver reads NEO4J_USER /
+      # NEO4J_PASSWORD from the same .env, so the two cannot drift apart.
+      NEO4J_AUTH: ${NEO4J_USER:?set NEO4J_USER in .env}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+
+      # Conservative for a local prototype: this graph is thousands of nodes, not
+      # millions, and the machine also runs a local llama.cpp server during extraction.
+      # Neo4j 5 setting names: '_' is a '.', '__' is a literal '_'. So the heap settings —
+      # server.memory.heap.initial_size — need the doubled underscore, and the page cache —
+      # server.memory.pagecache.size — must not have one. Writing `pagecache__size` here
+      # crash-looped the container against strict config validation on first start.
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+    volumes:
+      # Named volumes, not a bind mount into the repository. The working tree lives on
+      # /mnt/c (NTFS through the WSL 9p layer), where Neo4j's store files hit file-locking
+      # and ownership problems. The plan's requirement is that the data is persistent and
+      # never committed; a named volume satisfies both and survives `docker compose down`.
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      # Browser's HTTP port answering is the cheapest liveness signal, and unlike a
+      # cypher-shell probe it does not add a second place the password appears. It does not
+      # hide the password: NEO4J_AUTH is in `docker inspect .Config.Env` in cleartext either
+      # way, readable by any local member of the `docker` group. Docker secrets are the only
+      # real fix and are out of proportion for a local prototype.
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
