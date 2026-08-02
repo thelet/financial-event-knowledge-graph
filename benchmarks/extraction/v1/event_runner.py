@@ -31,7 +31,7 @@ from typing import Any
 import yaml
 
 from extraction.core.assembly import assemble_events
-from extraction.core.identifiers import event_id
+from extraction.core.identifiers import event_id, relationship_instance_id
 from extraction.core.validation import ONTOLOGY_WARNING, validate
 from extraction.stages.narrative import (
     DEFAULT_CONTEXT_TOKENS,
@@ -643,7 +643,12 @@ def _case_json(case: CaseScore) -> dict[str, Any]:
             for e, resolves in zip(case.events, case.event_evidence_resolves)
         ],
         "emitted_relationships": [
-            {"relationship_id": r.relationship_id, "source_id": r.source_id,
+            # The edge's deterministic identity, for the same reason the event carries one:
+            # Stage 13's catalogs are keyed on it, and an edge serialized without an id cannot
+            # be joined to anything or checked for collision.
+            {"relationship_instance_id": relationship_instance_id(
+                r.relationship_id, r.source_id, r.target_id, r.passage_id),
+             "relationship_id": r.relationship_id, "source_id": r.source_id,
              "source_type": r.source_type, "target_id": r.target_id,
              "target_type": r.target_type, "raw_text": r.raw_text,
              "evidence": {"passage_id": r.passage_id, "resolves": resolves}}

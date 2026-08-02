@@ -801,11 +801,14 @@ def test_every_relationship_dimension_is_false_when_the_pair_disagrees_about_it(
     assert ungrounded.failed_dimensions == ("relationship_evidence",)
 
 
+#: Every (case, category) pair the run produces, pinned by name.
+#:
+#: Was five pairs. Four of them — two `properties_wrong`, one `participant_wrong`, one
+#: `endpoint_wrong` — were **gold defects, not lane defects**, and the founder decisions of
+#: 2026-08-02 removed them: entity ids carry no date, and a property value is the minimal
+#: contiguous verbatim span. In each case the lane's answer had been right and the gold was
+#: scoring it down. The list shrinks rather than the assertion weakening.
 NAMED_FAILURES = (
-    ("event-executive-change-ceo-2025", event_evaluation.PROPERTIES_WRONG),
-    ("event-credit-facility-established-2022", event_evaluation.PARTICIPANT_WRONG),
-    ("event-credit-facility-established-2022", event_evaluation.ENDPOINT_WRONG),
-    ("event-workforce-reduction-2020", event_evaluation.PROPERTIES_WRONG),
     ("event-workforce-reduction-2020", event_evaluation.SILENCE_BROKEN),
 )
 
@@ -813,7 +816,7 @@ NAMED_FAILURES = (
 @pytest.mark.parametrize("case_id,category", NAMED_FAILURES,
                          ids=[f"{c}-{k}" for c, k in NAMED_FAILURES])
 def test_a_named_failure_keeps_its_named_category(report, case_id, category):
-    """Five (case, category) pairs pinned by name.
+    """Each (case, category) pair pinned by name.
 
     Without these the classifier could redistribute every failure and the totals would still
     add up. Step 11 found exactly that: reversing the decision order changed the artifact and
@@ -821,6 +824,21 @@ def test_a_named_failure_keeps_its_named_category(report, case_id, category):
     """
     case = report.case(case_id)
     assert category in {failure.category for failure in case.failures}
+
+
+def test_the_named_failures_are_all_the_failures_there_are(report):
+    """The list above is exhaustive, so a *new* failure cannot appear unremarked.
+
+    Pinning only known pairs catches redistribution but not addition — a regression that
+    invented a sixth failure would leave every pinned pair intact. Added 2026-08-02 when the
+    list shrank from five to one and the shrinking, not the pinning, was the interesting
+    event.
+    """
+    observed = {(case.case_id, failure.category)
+                for view in report.views.values()
+                for case in view.cases
+                for failure in case.failures}
+    assert observed == set(NAMED_FAILURES)
 
 
 # -- the scored claims, driven ---------------------------------------------------------------------
@@ -1094,3 +1112,52 @@ def test_every_emitted_event_carries_a_unique_deterministic_id(report):
                 if entry["announced_on"]:
                     assert entry["announced_on"] not in entry["event_id"], (
                         "the announcement date reached the occurrence segment")
+
+
+def test_every_emitted_relationship_carries_a_unique_deterministic_id(report):
+    """The edge identity, present and distinct in the artifact.
+
+    Added with the Stage 13 repair 2026-08-02. `emitted_relationships` serialized no id at
+    all, so an edge could not be joined to anything downstream and a collision would have been
+    invisible — the same gap the event id had, in the payload the graph is actually made of.
+    """
+    from extraction.core.identifiers import relationship_instance_id
+
+    committed = json.loads(COMMITTED_JSON.read_text(encoding="utf-8"))
+    for scope in event_runner.SCOPES:
+        edges = [r for case in committed["views"][scope]["cases"]
+                 for r in case["emitted_relationships"]]
+        assert edges, scope
+        ids = [r["relationship_instance_id"] for r in edges]
+        assert len(set(ids)) == len(ids), f"{scope}: colliding relationship ids {ids}"
+        for edge in edges:
+            assert edge["relationship_instance_id"] == relationship_instance_id(
+                edge["relationship_id"], edge["source_id"], edge["target_id"],
+                edge["evidence"]["passage_id"]), edge
+
+
+def test_no_accepted_payload_is_serialized_without_its_identity(report):
+    """The rule, not the two instances of it.
+
+    Written to fail if a *new* accepted-payload collection is added to the report without an
+    id, rather than only if one of the two known ones loses theirs. An accepted claim with no
+    identity is a row Stage 13 cannot key, join, or dedupe, and the failure is silent.
+    """
+    committed = json.loads(COMMITTED_JSON.read_text(encoding="utf-8"))
+    required = {"emitted_events": "event_id",
+                "emitted_relationships": "relationship_instance_id"}
+    for scope in event_runner.SCOPES:
+        for case in committed["views"][scope]["cases"]:
+            for collection, id_field in required.items():
+                for payload in case[collection]:
+                    assert payload.get(id_field), (
+                        f"{scope}/{case['case_id']}/{collection}: serialized without "
+                        f"{id_field}")
+            # Any other list of accepted payloads must declare an identity too. Gold and
+            # match records are expectations and verdicts, not accepted payloads, so they are
+            # named here rather than swept in by a heuristic that would guess wrong.
+            unknown = [k for k, v in case.items()
+                       if k.startswith("emitted_") and k not in required]
+            assert unknown == [], (
+                f"{case['case_id']}: {unknown} is a new accepted-payload collection; give it "
+                f"a deterministic id and add it to this test")

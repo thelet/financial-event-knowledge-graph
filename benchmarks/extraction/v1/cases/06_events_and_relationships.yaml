@@ -21,6 +21,26 @@
 #   4. The `holds_position_at` gold carried a `properties` mapping. `RelationshipInstance` has
 #      no `properties` field at all — it has `valid_from`/`valid_to` and nothing else — so
 #      that mapping was unrepresentable. Removed; the title lives on the event's `position`.
+#
+# **Two further founder decisions, 2026-08-02, both settling a convention rather than a fact.**
+#
+#   5. *Entity ids are derived from the printed name, and carry no date.* The facility was
+#      `asset_backed_senior_revolving_2022_10`, which encodes a year-month the passage never
+#      prints — the same defect class as dating an event by its filing. It is now
+#      `asset_backed_senior_revolving_credit_facility`, from "a new asset-backed senior
+#      revolving credit facility". **When the facility was established stays on the event**,
+#      where `occurred_on: 2022-10-19` is evidenced by "On October 19, 2022". An identity is
+#      not a place to store a fact.
+#
+#   6. *A property value is the **minimal contiguous verbatim span** that expresses it.*
+#      `position` was "Chairman of the Board" where the passage prints "taking on the role of
+#      Chairman"; it is now `Chairman`. `reason` was "following the outbreak of the COVID-19
+#      pandemic"; the leading preposition links the clause rather than naming the reason, so
+#      it is now "outbreak of the COVID-19 pandemic". Both are what the lane already emitted —
+#      the gold was carrying the wider span, and scoring the lane down for the narrower one.
+#      This is the same question §4.0a raised about `population.definition_raw` and leaves
+#      open; settling it there is a separate decision and is **not** implied by settling it
+#      here.
 
 cases:
   - case_id: event-executive-change-ceo-2025
@@ -87,7 +107,7 @@ cases:
             entity_id: keith_rabois
             entity_type: person
         properties:
-          position: Chairman of the Board
+          position: Chairman
         announced_on: "2025-09-10"
         announced_on_quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
         note: '"Rabois taking on the role of Chairman".'
@@ -157,7 +177,7 @@ cases:
             entity_id: opendoor_unnamed_subsidiary
             entity_type: subsidiary
           - role: facility
-            entity_id: asset_backed_senior_revolving_2022_10
+            entity_id: asset_backed_senior_revolving_credit_facility
             entity_type: asset_backed_debt_facility
         properties:
           maturity_date: "2023-10-31"
@@ -185,7 +205,7 @@ cases:
       - relationship_id: BORROWS_UNDER
         source_id: opendoor_unnamed_subsidiary
         source_type: subsidiary
-        target_id: asset_backed_senior_revolving_2022_10
+        target_id: asset_backed_senior_revolving_credit_facility
         target_type: asset_backed_debt_facility
     abstentions:
       - reason: UNNAMED_ENTITY
@@ -217,7 +237,7 @@ cases:
             entity_id: opendoor
             entity_type: public_company
         properties:
-          reason: following the outbreak of the COVID-19 pandemic
+          reason: outbreak of the COVID-19 pandemic
         note: >-
           "On April 15, 2020, we carried out a reduction in workforce following the outbreak
           of the COVID-19 pandemic." Filed 2021-03-04 - nearly eleven months later.
