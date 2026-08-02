@@ -158,8 +158,8 @@
     }
   ],
   "header": {
-    "cache_key": "10e1a5add28c43223fd2c50849e90618714695f855a053e4e9c9b3a8e4285fca",
-    "definition_hash": "3372c5777c1d474ce932a16bb60faa04b92f97562ce2c733f271a0763adf4ddb",
+    "cache_key": "f6af53bb252ddd834b6b14f667f11a1ad460b56567e3f1c00402527b30d04c0f",
+    "definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
     "dimensions": 1024,
     "format": "embedding-cache-v1",
     "model_id": "Qwen3-Embedding-0.6B-f16.gguf",

@@ -13,7 +13,7 @@ indexed), **35 external mappings**, all verified.
 from ontology import load_ontology
 
 ontology = load_ontology()                      # loads, validates, indexes, hashes
-ontology.definition_hash                        # 3372c5777c1d…  stable across runs
+ontology.definition_hash                        # e8d4af709be2…  stable across runs
 
 registry = ontology.registry
 registry.metric("contribution_profit").reconciles_to          # 'gaap_gross_profit'

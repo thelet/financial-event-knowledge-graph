@@ -689,10 +689,28 @@ def check_event_participants(
 def check_event_temporal(
     event: EventInstance, definition: EventTypeDefinition, result: ValidationResult
 ) -> None:
+    """Every `required_temporal_fields` entry, and at least one `required_temporal_any_of`.
+
+    The alternative form exists because an unconditional `occurred_on` made a true answer
+    unrepresentable *(2026-08-02)*. An executive change is announced before it takes effect,
+    and a press release that says "today announced that X has been appointed" dates the
+    announcement and nothing else. Requiring `occurred_on` there left a correct lane two
+    choices, both wrong: invent an effective date, or emit no event for a change the passage
+    plainly reports.
+
+    Nothing here infers one field from the other, and nothing may: the announcement date and
+    the occurrence date are different facts about different days.
+    """
     for attribute in definition.required_temporal_fields:
         if not getattr(event, attribute, None):
             result.add(E_EVENT_TEMPORAL, f"event/{event.event_id}",
                        f"{definition.concept_id} requires {attribute}")
+
+    alternatives = definition.required_temporal_any_of
+    if alternatives and not any(getattr(event, a, None) for a in alternatives):
+        result.add(E_EVENT_TEMPORAL, f"event/{event.event_id}",
+                   f"{definition.concept_id} requires at least one of "
+                   f"{list(alternatives)}")
 
 
 def check_relationship_instance(

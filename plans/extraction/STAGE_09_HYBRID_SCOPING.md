@@ -154,7 +154,8 @@ design above stands for the composition root that fills it (step 10).
 ontology definition_hash | model_id | dimensions | renderer_version | text_normalization_version
 ```
 
-`3372c5777c1d…` is the current `definition_hash`; §13 open decision 0 exists precisely
+`e8d4af709be2…` is the current `definition_hash` (`3372c5777c1d…` until the 2026-08-02
+temporal-model change, §11.8); §13 open decision 0 exists precisely
 because editing `aliases.yaml` moves it and invalidates this cache, which is the intended
 behaviour. A cache whose header `cache_key` does not match the computed one is **rejected as
 stale**, never silently reused and never partially reused.
@@ -578,3 +579,42 @@ a hand-copied number inside the criterion's prose — the §6 defect, surviving 
 **The general rule this stage keeps relearning:** a constant that *describes a measurement*
 goes stale the moment the measurement moves, and it goes stale silently. Transcribe a number
 only when nothing can recompute it. Here, everything could.
+
+## 11.8 The vector cache was rebuilt, and the rebuild is the proof it did not matter
+
+*(2026-08-02, with the `announced_on` temporal-model change.)*
+
+`cache_key` is a hash over `definition_hash | model_id | dimensions | renderer_version |
+text_normalization_version`, so changing one event type's temporal requirement invalidated
+the committed vectors and 25 hybrid-scoping tests went red at once. That is the cache
+behaving correctly — §1.1a clause 4 says a cache whose key disagrees is rejected outright,
+never partially reused.
+
+**It was rebuilt against the running server rather than re-keyed**, and the comparison is
+worth recording because it separates two things a single hash change conflates.
+
+| | Result |
+| --- | --- |
+| rendered text, all 132 concepts and 26 texts | **identical**, character for character |
+| `definition_hash` | `3372c5777c1d…` → `e8d4af709be2…` |
+| `cache_key` | `10e1a5add28c…` → `f6af53bb252d…` |
+| byte-identical concept vectors | **128 of 132** |
+| worst disagreement among the other 4 | 1 − cosine = **1.544e-05**, i.e. cosine 0.999985 |
+| byte-identical text vectors | **26 of 26** |
+| selected candidates, all 26 cases × 3 views | **identical** |
+| semantic-only additions | **identical**, all 13 rows |
+| every score in every view | **unchanged** |
+| verdict | `lexical stays the default`, unchanged |
+
+Renderer `v1` composes `label | category | alias… | description` and reads no temporal field,
+so no rendered string could have moved — and none did. The four vectors that differ are the
+server's own non-request-independence, measured at §11.1 and bounded by clause 2's
+cosine ≥ 0.9999; they clear it by two orders of magnitude and change no ranking.
+
+**This is what the five-clause contract was written for.** Under the original claim — "two
+identical requests returned bit-identical vectors" — this rebuild would have read as a
+regression, and the honest response would have been to hunt a difference that is the
+scheduler's rather than the ontology's. Clause 1 concedes byte identity, clause 2 bounds the
+disagreement, and clause 3 asserts the thing that actually matters: selection did not move.
+Only clause 3 is load-bearing for a decision, and it held exactly.
+

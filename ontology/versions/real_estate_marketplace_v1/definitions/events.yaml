@@ -197,6 +197,24 @@ event_types:
     allowed_properties: [change_kind, position, effective_date]
     allowed_relationships: [HOLDS_POSITION_AT]
     sec_item_codes: ["5.02"]
+    required_temporal_fields: []
+    required_temporal_any_of: [announced_on, occurred_on]
+    notes: >-
+      The one event type that does not require `occurred_on` *(changed 2026-08-02, founder
+      decision)*. An executive change is announced before it takes effect, and the filing
+      that announces it usually dates only the announcement: "SAN FRANCISCO, Sept. 10, 2025
+      ... today announced that Kaz Nejatian ... has been appointed Chief Executive Officer"
+      states when Opendoor said it, not when the appointment became effective. Requiring
+      `occurred_on` there made the true answer unrepresentable — a correct lane could only
+      invent an effective date or emit nothing.
+
+      `announced_on` OR `occurred_on`, never one inferred from the other. A dateline or an
+      "announced today" supports `announced_on` alone. `occurred_on` needs the passage to say
+      the change occurred, became effective, or was effective on that date. Both are recorded
+      when both are stated. A document's `filing_date` or `report_date` populates neither
+      unless the passage itself gives that date that meaning — dating an appointment to the
+      8-K that reports it is the failure this rule exists to prevent, and it is the failure
+      the benchmark's own executive-change gold committed until 2026-08-02.
 
   # ------------------------------------------------------------------ disclosure
   - concept_id: earnings_release

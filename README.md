@@ -13,7 +13,7 @@ executable ontology. Claim extraction is planned and not yet built.
 | --- | --- |
 | `acquisition/` | 109 filings, 2,019 artifacts, 739.6 MiB |
 | `normalization/` | 294 documents, 12,442 passages (1,935 table), catalogs and reports |
-| `ontology/` | `real_estate_marketplace_v1`, `definition_hash 3372c5777c1d…`, 26 metrics |
+| `ontology/` | `real_estate_marketplace_v1`, `definition_hash e8d4af709be2…`, 26 metrics |
 | extraction | **planned only** — see the plan below |
 
 `pytest -m "not live"` runs 717 tests offline.
@@ -133,7 +133,7 @@ vocabulary. `real_estate_marketplace_v1` is declared entirely in YAML under
 from ontology import load_ontology
 
 ontology = load_ontology()            # <LoadedOntology real_estate_marketplace_v1 v1.0.0>
-ontology.definition_hash              # 3372c5777c1d… — changes only when the YAML does
+ontology.definition_hash              # e8d4af709be2… — changes only when the YAML does
 ontology.registry.resolve_alias("Adjusted Gross Margin")
 ontology.validate_claim(claim)        # -> ValidationResult
 ```

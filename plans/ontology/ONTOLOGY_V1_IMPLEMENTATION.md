@@ -379,8 +379,8 @@ Full suite: **677 passed, 5 live deselected** (was 561 before this work).
 The package loads, validates, resolves, queries and validates example claims end to end.
 
 ```
-<LoadedOntology real_estate_marketplace_v1 v1.0.0 3372c5777c1d>
-definition_hash: 3372c5777c1d474ce932a16bb60faa04b92f97562ce2c733f271a0763adf4ddb
+<LoadedOntology real_estate_marketplace_v1 v1.0.0 e8d4af709be2>
+definition_hash: e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc
 snapshot:        89,548 bytes, byte-identical across loads
 definition validation: OK — 0 errors, 0 warnings, 7 info
 ```

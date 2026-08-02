@@ -455,6 +455,44 @@ failing to preserve population wording.
 changes scoring across five pairs, and §7.1's meaning is the founder's to set. Recorded, with
 the evidence, exactly as the annotation defect above was.
 
+## 4.0b Announcement is not occurrence *(founder decision, 2026-08-02)*
+
+`EventInstance` carries **two** dates, and they are different facts about different days:
+
+| field | populated from |
+| --- | --- |
+| `occurred_on` | evidence saying the event *happened*, *became effective*, or *was effective on* that date |
+| `announced_on` | a press-release dateline, an "announced today" — evidence dating the *disclosure* |
+
+**Neither is ever inferred from the other**, and a document's `filing_date` or `report_date`
+populates neither unless the passage itself gives that date that meaning. Both are recorded
+when both are stated; only the supported one is recorded when only one is.
+
+`executive_change` now declares `required_temporal_any_of: [announced_on, occurred_on]` in
+place of `required_temporal_fields: [occurred_on]`. Every other event type is unchanged and
+still requires `occurred_on` — this is a narrow evolution, not an event redesign.
+
+**Why the change was needed.** The benchmark's executive-change gold was dated `2025-09-11`,
+the 8-K's filing date, which appears nowhere in its passage; the passage prints a dateline,
+"SAN FRANCISCO, Sept. 10, 2025 … today announced". Removing the invented date left the gold
+**unrepresentable**: `validate_event` rejected an executive change with no `occurred_on`, so
+the true answer was not a valid payload and a correct lane had only two moves, both wrong —
+invent an effective date, or emit nothing about a change the passage plainly reports. This is
+the same shape as §8a.13's finding that the period enum could not state a true period, and it
+is the second time a contract has been unable to express a fact the corpus states.
+
+The gold now reads `announced_on: 2025-09-10`, no `occurred_on`, and a lane is correct here
+when it identifies the change, extracts participants, roles and evidence, and **abstains from
+an occurrence date**.
+
+**Cost, measured rather than assumed.** The `definition_hash` moved
+`3372c5777c1d…` → `e8d4af709be2…`, which invalidated the embedding cache key and forced a
+rebuild. Renderer `v1` reads no temporal field, so no rendered string changed and none did:
+selected candidates were identical across all 26 cases in all three views, every score
+unchanged, verdict unchanged. [STAGE_09 §11.8](STAGE_09_HYBRID_SCOPING.md) records the full
+comparison.
+
+
 ## 4.1 `select` — typed candidate selection
 
 Emits a `CandidatePassage` per (passage, lane) with a recorded reason code, so a passage's
@@ -579,7 +617,7 @@ restatement case §7.5 has to decide about, and an ID scheme that collapsed them
 it.
 
 A run writes an immutable manifest with config hash, code commit, ontology
-`definition_hash` (`3372c5777c1d…`), and the normalization run id it consumed. Staged into
+`definition_hash` (`e8d4af709be2…`), and the normalization run id it consumed. Staged into
 a temporary directory, completion marker written last, renamed into place.
 
 **Acceptance test:** two runs over the same corpus produce byte-identical catalogs.

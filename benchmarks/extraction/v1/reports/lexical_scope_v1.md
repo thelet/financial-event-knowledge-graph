@@ -9,9 +9,9 @@ The scope never removes anything. There is no threshold, no top-k and no filter 
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `6e1a4006dcd6655dab1696d76f6fe8aebb97c277` |
+| implementation commit | `1a96c228009d694d4d4617c023e0b142d3c55426` |
 | scope | `lexical` v`1.0.0` |
-| ontology definition hash | `3372c5777c1d474ce932a16bb60faa04b92f97562ce2c733f271a0763adf4ddb` |
+| ontology definition hash | `e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc` |
 | normalized documents | 294 |
 | normalized passages | 12442 |
 | `documents.jsonl` sha256 | `c2baa5373a5161967a1311458874318801338d39b298df82f6af78a249dbe5e3` |

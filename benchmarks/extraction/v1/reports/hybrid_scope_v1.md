@@ -11,14 +11,14 @@ Durations are deliberately absent: this artifact is byte-identical on regenerati
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `6e1a4006dcd6655dab1696d76f6fe8aebb97c277` |
+| implementation commit | `1a96c228009d694d4d4617c023e0b142d3c55426` |
 | scope | `hybrid` v`1.0.0` |
-| ontology definition hash | `3372c5777c1d474ce932a16bb60faa04b92f97562ce2c733f271a0763adf4ddb` |
+| ontology definition hash | `e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc` |
 | embedding model | `Qwen3-Embedding-0.6B-f16.gguf` |
 | dimensions | 1024 |
 | renderer | `v1` |
 | text normalization | `v1` |
-| `cache_key` | `10e1a5add28c43223fd2c50849e90618714695f855a053e4e9c9b3a8e4285fca` |
+| `cache_key` | `f6af53bb252ddd834b6b14f667f11a1ad460b56567e3f1c00402527b30d04c0f` |
 | concepts indexed | 131 |
 | concept cache entries | 132 |
 | text cache entries | 26 |
@@ -95,9 +95,9 @@ For completeness, and not as a recommendation: at `top_k` 3 both paraphrases are
 | Pooled over | pairs | mean | sd | p50 | p90 | p95 | p99 | max |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | all 32 texts | 4192 | 0.3245 | 0.1286 | 0.3030 | 0.5075 | 0.5528 | 0.6895 | 0.8695 |
-| 26 case passages | 3406 | 0.3000 | 0.1158 | 0.2818 | 0.4803 | 0.5202 | 0.5924 | 0.6990 |
+| 26 case passages | 3406 | 0.3001 | 0.1158 | 0.2818 | 0.4803 | 0.5202 | 0.5924 | 0.6990 |
 | 6 probes | 786 | 0.4305 | 0.1275 | 0.4092 | 0.5875 | 0.6808 | 0.8147 | 0.8695 |
-| 26 distinct texts | 3406 | 0.3279 | 0.1293 | 0.3083 | 0.5088 | 0.5558 | 0.6989 | 0.8695 |
+| 26 distinct texts | 3406 | 0.3279 | 0.1292 | 0.3083 | 0.5088 | 0.5558 | 0.6989 | 0.8695 |
 
 **32 texts are 26 distinct texts.** The 26 cases sit on 20 distinct passages — three of them read different columns of one Q1 2025 KPI table — so six passages are pooled twice or three times in every figure above. Both counts are stated because the difference is real. **The statistics below are weighted by case: all 32 texts, so the six passages carrying more than one case are pooled once per case.** That is the honest default for a benchmark whose unit is the case, and it is a choice rather than an absence of one.
 
@@ -113,7 +113,7 @@ The pool is an argument, not a detail: two of the four candidates below round to
 | --- | --- | --- | --- | --- | --- | --- |
 | all 32 texts (as shipped) | 32 | 4192 | 0.3245 | 0.1286 | 0.4531 | **0.45** |
 | minus the two paraphrase probes | 30 | 3930 | 0.3211 | 0.1292 | 0.4504 | **0.45** |
-| 26 case passages only | 26 | 3406 | 0.3000 | 0.1158 | 0.4159 | 0.42 |
+| 26 case passages only | 26 | 3406 | 0.3001 | 0.1158 | 0.4159 | 0.42 |
 | 20 distinct case passages | 20 | 2620 | 0.2971 | 0.1129 | 0.4100 | 0.41 |
 
 The shipped pool is **all texts, case-weighted**, for the same reason the statistics are: the benchmark's unit is the case, the floor exists to describe the background against which *cases* are scored, and a pool that dropped the probes would describe a background the report does not measure against. The case-passage-only pools are reported because they are the defensible alternative and they move the answer by 0.03-0.04.
@@ -135,7 +135,7 @@ The honest limitation: a fixed pair approximates a per-text z-threshold that thi
 | `drift-adjusted-gross-profit-2020-vs-2021` | case_passage | 2423 | `contribution_profit` | 0.6912 | 0.0192 | 0.3066 | 0.1300 | 5 | 0 |
 | `event-credit-facility-established-2022` | case_passage | 1045 | `credit_facility_terminated` | 0.4765 | 0.0195 | 0.2715 | 0.0679 | 6 | 1 |
 | `event-executive-change-ceo-2025` | case_passage | 365 | `common_stock` | 0.5643 | 0.0692 | 0.3342 | 0.0659 | 3 | 1 |
-| `event-workforce-reduction-2020` | case_passage | 1597 | `holding_costs` | 0.5708 | 0.1097 | 0.2569 | 0.0812 | 7 | 1 |
+| `event-workforce-reduction-2020` | case_passage | 1597 | `holding_costs` | 0.5708 | 0.1097 | 0.2570 | 0.0812 | 7 | 1 |
 | `kpi-table-10k-fy2023-three-year` | case_passage | 2262 | `homes_sold` | 0.6062 | 0.0003 | 0.3395 | 0.1254 | 4 | 0 |
 | `kpi-table-10q-q1-2025-two-column` | case_passage | 1918 | `homes_sold` | 0.5953 | 0.0011 | 0.3255 | 0.1280 | 3 | 0 |
 | `kpi-table-q1-2025-current-column` | case_passage | 2657 | `contribution_profit_v1` | 0.5989 | 0.0059 | 0.3320 | 0.1231 | 4 | 0 |
@@ -147,7 +147,7 @@ The honest limitation: a fixed pair approximates a per-text z-threshold that thi
 | `letter-prose-multiple-metrics-q4-2021` | case_passage | 2322 | `resale_cohort` | 0.5642 | 0.0191 | 0.3065 | 0.1040 | 6 | 0 |
 | `letter-prose-run-together-kpi-row-q1-2025` | case_passage | 2504 | `homes_sold` | 0.5722 | 0.0229 | 0.3411 | 0.1115 | 1 | 0 |
 | `negative-ambiguous-alias-bare-gross-profit` | case_passage | 1991 | `contribution_profit` | 0.6884 | 0.0217 | 0.2911 | 0.1296 | 6 | 1 |
-| `negative-forward-looking-outlook` | case_passage | 118 | `housing_inventory_homes` | 0.6990 | 0.0034 | 0.3268 | 0.1213 | 6 | 2 |
+| `negative-forward-looking-outlook` | case_passage | 118 | `housing_inventory_homes` | 0.6990 | 0.0034 | 0.3269 | 0.1213 | 6 | 2 |
 | `negative-material-agreement-recital` | case_passage | 2381 | `subsidiary` | 0.3656 | 0.0192 | 0.2144 | 0.0512 | 4 | 0 |
 | `negative-risk-factor-partnership-boilerplate` | case_passage | 3896 | `pct_homes_on_market_gt_120_days` | 0.4337 | 0.0066 | 0.2443 | 0.0748 | 7 | 0 |
 | `paraphrase-1` | probe | 64 | `pct_homes_on_market_gt_120_days` | 0.8126 | 0.1972 | 0.3611 | 0.1033 | 8 | 1 |

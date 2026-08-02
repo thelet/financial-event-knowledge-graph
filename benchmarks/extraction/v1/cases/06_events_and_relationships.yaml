@@ -9,7 +9,8 @@
 # integrity check read the field:
 #
 #   1. Both `executive_change` events were dated `2025-09-11`, which is the 8-K's *filing
-#      date* and appears nowhere in the passage. `occurred_on` is now absent. See the case.
+#      date* and appears nowhere in the passage. They now carry `announced_on: 2025-09-10`,
+#      the date the passage's own dateline states, and no `occurred_on` at all. See the case.
 #   2. Relationship predicates were written as concept ids (`holds_position_at`). The registry
 #      keys relationships by `relationship_id`, which is upper-case, so `validate_relationship`
 #      rejected the gold's own ids with `unknown_relationship_predicate`. Now `HOLDS_POSITION_AT`
@@ -43,12 +44,10 @@ cases:
       passage states no effective date at all. A filing date is not evidence of occurrence,
       and neither is the passage's `report_date` metadata (2025-09-06, a third value).
 
-      So `occurred_on` is absent, and 2025-09-10 is preserved below as announcement context
-      rather than promoted into the payload. `EventInstance` has no announcement or
-      disclosure date field and `executive_change` does not declare one in
-      `allowed_properties`, so there is nowhere in the contract for it to go that would not
-      be an ontology expansion - and expanding the ontology to satisfy one benchmark case is
-      a separate founder gate that has not been opened.
+      So `occurred_on` is absent and `announced_on` is 2025-09-10 - the date the dateline
+      states, recorded as what it actually is. A lane must not promote it to `occurred_on`:
+      the two are different facts about different days, and the passage supports only one of
+      them.
 
       **A lane is correct here when it identifies the executive change, extracts the
       participants, roles and evidence, and abstains from an exact occurrence date.** The
@@ -56,12 +55,15 @@ cases:
       ... and is not the filing date, which is the common failure" - and this case had been
       breaking it.
 
-      **Known consequence, recorded rather than resolved:** `executive_change` declares
+      **The contract was changed so the true answer is expressible** *(founder decision,
+      2026-08-02)*. `executive_change` used to declare
       `required_temporal_fields: ('occurred_on',)`, so an `EventInstance` built from this
-      gold fails `validate_event` with `event_missing_required_temporal_field`. The correct
-      answer is currently not expressible as a valid payload. This is the same shape as
-      STAGE_10's finding that the period enum could not state a true period, and it is
-      recorded in STAGE_12 §2.1 as an open ontology question, not worked around here.
+      gold failed `validate_event` outright — the correct answer was not a valid payload, the
+      same shape as STAGE_10's finding that the period enum could not state a true period.
+      `EventInstance` now carries `announced_on` beside `occurred_on`, and the event type
+      requires `announced_on` **or** `occurred_on` rather than `occurred_on` unconditionally.
+      Neither is ever inferred from the other. So this gold is now both true and valid, and
+      `announced_on: 2025-09-10` is a payload field rather than benchmark-side scaffolding.
     gold_events:
       - event_type_id: executive_change
         participants:
@@ -73,15 +75,8 @@ cases:
             entity_type: person
         properties:
           position: Chief Executive Officer
-        occurrence_date: unsupported_by_passage
-        announcement_context:
-          announced_on: "2025-09-10"
-          quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
-          note: >-
-            Benchmark-side context only. Not an `EventInstance` field, not in
-            `executive_change.allowed_properties`, and **not gold to emit**. It records what
-            the passage does date, so that a later reader can tell "no date was printed" from
-            "a date was printed and we declined to use it as the occurrence date".
+        announced_on: "2025-09-10"
+        announced_on_quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
         note: '"Kaz Nejatian ... has been appointed Chief Executive Officer and member of the Board of Directors".'
       - event_type_id: executive_change
         participants:
@@ -93,12 +88,8 @@ cases:
             entity_type: person
         properties:
           position: Chairman of the Board
-        occurrence_date: unsupported_by_passage
-        announcement_context:
-          announced_on: "2025-09-10"
-          quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
-          note: >-
-            As above. The passage dates the announcement and not the change of role.
+        announced_on: "2025-09-10"
+        announced_on_quoted_text: "SAN FRANCISCO, Sept. 10, 2025"
         note: '"Rabois taking on the role of Chairman".'
     gold_relationships:
       - relationship_id: HOLDS_POSITION_AT

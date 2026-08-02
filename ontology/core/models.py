@@ -235,7 +235,15 @@ class EventParticipant(_Frozen):
 class EventTypeDefinition(ConceptDefinition):
     category: Literal[ConceptCategory.EVENT_TYPE] = ConceptCategory.EVENT_TYPE
     participants: tuple[EventParticipant, ...] = ()
+    #: Every field here must be present. The default stays `occurred_on` because most event
+    #: types are reported by evidence that dates the event itself.
     required_temporal_fields: tuple[str, ...] = ("occurred_on",)
+    #: **At least one** of these must be present. For an event type whose evidence may date
+    #: either the announcement or the occurrence — an executive change is announced before it
+    #: takes effect — requiring `occurred_on` unconditionally forces a lane to invent a date
+    #: or to emit nothing *(added 2026-08-02)*. Declaring the alternatives lets the lane
+    #: record what the passage actually states. Empty means no alternative requirement.
+    required_temporal_any_of: tuple[str, ...] = ()
     allowed_properties: tuple[str, ...] = ()
     evidence_required: bool = True
     allowed_metric_relationships: tuple[str, ...] = ()
@@ -403,7 +411,16 @@ class EventInstance(BaseModel):
 
     event_id: str
     event_type_id: str
+    #: When the underlying event happened or took effect. Populated only from evidence that
+    #: says the change *occurred*, *became effective*, or *was effective on* that date.
     occurred_on: str | None = None
+    #: When the event was publicly announced or disclosed — a press-release dateline, an
+    #: "announced today". **Not interchangeable with `occurred_on`, and never inferred from
+    #: it or into it** *(added 2026-08-02)*. A filing announcing an appointment dates the
+    #: announcement; it does not date the appointment, and the two are routinely days or
+    #: months apart. Neither field may be populated from a document's `filing_date` or
+    #: `report_date` unless the passage itself gives that date that meaning.
+    announced_on: str | None = None
     period_start: str | None = None
     period_end: str | None = None
     participants: tuple[EventParticipantRef, ...] = ()

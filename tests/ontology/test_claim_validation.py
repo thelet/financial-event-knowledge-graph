@@ -8,6 +8,7 @@ from ontology.core.errors import (
     E_CALC_WITHOUT_INPUTS,
     E_CONFIDENCE_RANGE,
     E_DISCOVERY_ONLY_AS_CANONICAL,
+    E_EVENT_TEMPORAL,
     E_EVIDENCE_OFFSETS,
     E_MISSING_CURRENCY,
     E_MISSING_EVIDENCE,
@@ -206,3 +207,109 @@ def test_baseline_and_comparison_are_two_observations_of_one_definition(ontology
     assert ontology.validate_observation(baseline).ok
     assert ontology.validate_observation(comparison).ok
     assert baseline.population.role != comparison.population.role
+
+
+# -- announced_on versus occurred_on -------------------------------------------------------
+#
+# Added 2026-08-02 with the temporal-model change (founder decision). `executive_change` used
+# to require `occurred_on` unconditionally, which made a true answer unrepresentable: a press
+# release that says "today announced that X has been appointed" dates the announcement and
+# never the effective date, so a correct lane could only invent a date or emit nothing. The
+# event type now requires `announced_on` OR `occurred_on`. These tests hold the distinction —
+# the danger of two date fields is that something quietly copies one into the other, and then
+# every appointment is dated to the day it was announced.
+
+
+def _executive_change(**overrides):
+    from ontology.core.models import EventInstance, EventParticipantRef
+
+    fields = dict(
+        event_id="evt:executive-change:test",
+        event_type_id="executive_change",
+        participants=(
+            EventParticipantRef(role="employer", entity_id="opendoor",
+                                entity_type="public_company"),
+            EventParticipantRef(role="officer", entity_id="a_person", entity_type="person"),
+        ),
+        properties={"position": "Chief Executive Officer"},
+        evidence=(evidence(),),
+    )
+    fields.update(overrides)
+    return EventInstance(**fields)
+
+
+def test_an_executive_change_with_only_an_announcement_date_validates(ontology):
+    """The case the change exists for: the passage dates the announcement and nothing else."""
+    assert ontology.validate_event(_executive_change(announced_on="2025-09-10")).ok
+
+
+def test_an_executive_change_with_only_an_occurrence_date_validates(ontology):
+    """Still valid the other way round — a filing that says an appointment "became effective
+    on" a date supports `occurred_on` and may say nothing about when it was announced."""
+    assert ontology.validate_event(_executive_change(occurred_on="2025-09-15")).ok
+
+
+def test_an_executive_change_with_both_dates_validates_and_keeps_both(ontology):
+    """Both stated, both preserved. Neither collapses into the other."""
+    event = _executive_change(announced_on="2025-09-10", occurred_on="2025-09-15")
+    assert ontology.validate_event(event).ok
+    assert event.announced_on == "2025-09-10"
+    assert event.occurred_on == "2025-09-15"
+
+
+def test_an_executive_change_with_neither_date_is_rejected(ontology):
+    """`any_of` is a requirement, not a suggestion. Dropping `occurred_on` from the required
+    list must not have made an undated executive change acceptable."""
+    result = ontology.validate_event(_executive_change())
+    assert not result.ok
+    assert E_EVENT_TEMPORAL in result.codes
+    assert "at least one of" in " ".join(i.message for i in result.issues)
+
+
+def test_an_event_type_that_requires_occurred_on_still_does(ontology):
+    """The change is narrow. `workforce_reduction` and `credit_facility_established` are
+    reported by evidence that dates the event itself, and they still require it — a blanket
+    relaxation would have been the broader redesign this deliberately is not."""
+    from ontology.core.models import EventInstance, EventParticipantRef
+
+    undated = EventInstance(
+        event_id="evt:workforce-reduction:test",
+        event_type_id="workforce_reduction",
+        participants=(EventParticipantRef(role="operator", entity_id="opendoor",
+                                          entity_type="public_company"),),
+        evidence=(evidence(),),
+    )
+    result = ontology.validate_event(undated)
+    assert not result.ok
+    assert E_EVENT_TEMPORAL in result.codes
+    # And an announcement date does not satisfy a requirement for an occurrence date.
+    assert not ontology.validate_event(
+        undated.model_copy(update={"announced_on": "2021-03-04"})).ok
+
+
+def test_nothing_copies_one_date_into_the_other(ontology):
+    """The failure mode two date fields invite, checked on the model rather than trusted.
+
+    Validation must not populate, default, or mirror either field. If it ever did, an
+    announcement-only event would silently acquire an occurrence date equal to it — which is
+    exactly the inference the founder decision forbids, arriving through the back door.
+    """
+    announced = _executive_change(announced_on="2025-09-10")
+    assert ontology.validate_event(announced).ok
+    assert announced.occurred_on is None, "validation invented an occurrence date"
+
+    occurred = _executive_change(occurred_on="2025-09-15")
+    assert ontology.validate_event(occurred).ok
+    assert occurred.announced_on is None, "validation invented an announcement date"
+
+
+def test_the_two_date_fields_are_distinct_on_the_model(ontology):
+    """A cheap guard with a real target: if `announced_on` were ever aliased to `occurred_on`
+    — a validation_alias, a property, a shared default — every test above would still pass
+    while the distinction had been erased."""
+    from ontology.core.models import EventInstance
+
+    fields = EventInstance.model_fields
+    assert "announced_on" in fields and "occurred_on" in fields
+    event = _executive_change(announced_on="2025-09-10", occurred_on="2025-09-15")
+    assert event.model_dump()["announced_on"] != event.model_dump()["occurred_on"]

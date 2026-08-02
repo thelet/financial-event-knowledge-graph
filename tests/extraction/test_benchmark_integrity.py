@@ -334,45 +334,67 @@ def test_gold_event_participant_entity_types_are_accepted_by_the_role(case, onto
 
 
 @pytest.mark.parametrize("case", CASES, ids=case_ids())
-def test_an_undated_gold_event_says_why_and_quotes_the_date_it_does_have(case, passages):
-    """`occurred_on` may be absent only deliberately, and the absence must be evidenced.
+def test_every_gold_event_carries_a_date_its_own_event_type_accepts(case, ontology, passages):
+    """The temporal requirement asked of the definition, not written down here.
 
-    The executive-change events carry no `occurred_on` because their passage states no
-    effective date *(founder decision, 2026-08-02)*. That is a claim about the passage, so it
-    is checked against the passage: the announcement date recorded as context must be printed
-    there, and the case must name a reason rather than leaving the field quietly missing.
+    `executive_change` requires `announced_on` **or** `occurred_on`; every other event type
+    requires `occurred_on` *(the alternative form was added 2026-08-02, founder decision,
+    because an executive change is announced before it takes effect and requiring an
+    occurrence date made the true answer unrepresentable)*. Asking the definition means a
+    later event type that declares a different rule is covered without editing this test into
+    agreement with it.
 
-    A silently undated event is indistinguishable from a forgotten one, which is the whole
-    reason the old `occurred_on: 2025-09-11` — the filing date — survived review.
+    Whichever date a gold event does state must be printed in its passage — that is the whole
+    point of the change, and a gold that satisfied the requirement with an unevidenced date
+    would satisfy the letter of it while restoring the defect.
     """
     text = passages[case["passage_id"]]["text"]
     for event in case.get("gold_events") or []:
-        if event.get("occurred_on"):
-            assert not event.get("occurrence_date"), (
-                f"{case['case_id']}: an event states occurred_on and also declares it "
-                f"unsupported")
-            continue
-        assert event.get("occurrence_date") == "unsupported_by_passage", (
-            f"{case['case_id']}/{event['event_type_id']}: no occurred_on and no stated "
-            f"reason for its absence")
-        context = event.get("announcement_context") or {}
-        quoted = context.get("quoted_text")
-        assert quoted, f"{case['case_id']}: undated event records no announcement context"
-        assert quoted in text, (
-            f"{case['case_id']}: announcement_context.quoted_text is not verbatim in "
-            f"{case['passage_id']}")
-        # The date the passage does carry must not be smuggled in as the occurrence date.
-        assert context.get("announced_on") not in {
-            event.get("occurred_on"), event.get("period_start"), event.get("period_end")}
+        definition = ontology.registry.event_type(event["event_type_id"])
+        for field in definition.required_temporal_fields:
+            assert event.get(field), (
+                f"{case['case_id']}/{event['event_type_id']}: {field} is required")
+        alternatives = definition.required_temporal_any_of
+        if alternatives:
+            present = [f for f in alternatives if event.get(f)]
+            assert present, (
+                f"{case['case_id']}/{event['event_type_id']}: needs at least one of "
+                f"{list(alternatives)}")
+        if event.get("announced_on"):
+            quoted = event.get("announced_on_quoted_text")
+            assert quoted, (
+                f"{case['case_id']}: announced_on without the wording that supports it")
+            assert quoted in text, (
+                f"{case['case_id']}: announced_on_quoted_text is not verbatim in "
+                f"{case['passage_id']}")
 
 
-def test_no_gold_event_is_dated_by_its_filings_metadata(passages):
+@pytest.mark.parametrize("case", CASES, ids=case_ids())
+def test_no_gold_event_copies_one_date_into_the_other(case):
+    """`announced_on` and `occurred_on` are different facts about different days.
+
+    Equal values are not automatically wrong — a change can be announced the day it takes
+    effect — but they are only right when the passage says both, so the gold must say so
+    deliberately rather than by a copy. None of the current cases states both, and this fails
+    if one starts to without a note explaining it.
+    """
+    for event in case.get("gold_events") or []:
+        announced, occurred = event.get("announced_on"), event.get("occurred_on")
+        if announced and occurred and announced == occurred:
+            assert "same day" in (event.get("note") or "").lower(), (
+                f"{case['case_id']}/{event['event_type_id']}: announced_on and occurred_on "
+                f"are identical; say why in the note or one was copied from the other")
+
+
+def test_no_gold_event_date_comes_from_the_documents_own_metadata(passages):
     """The failure the workforce case names and the CEO case committed.
 
-    `occurred_on` must never equal the passage's `filing_date` or `report_date` unless the
-    passage prints that date in its own text. Filing metadata records when a document was
-    submitted, not when the thing it describes happened, and 2025-09-11 reached gold as an
-    occurrence date precisely because nothing compared the two.
+    Neither `occurred_on` nor `announced_on` may equal the passage's `filing_date` or
+    `report_date` unless the passage prints that date in its own text. Filing metadata records
+    when a document was submitted, not when the thing it describes happened or was announced,
+    and 2025-09-11 reached gold as an occurrence date precisely because nothing compared the
+    two. Checked over both fields, because widening the temporal model widened the ways this
+    can go wrong.
     """
     offenders = []
     for case in CASES:
@@ -381,11 +403,12 @@ def test_no_gold_event_is_dated_by_its_filings_metadata(passages):
             continue
         metadata = {row.get("filing_date"), row.get("report_date")} - {None}
         for event in case.get("gold_events") or []:
-            occurred = event.get("occurred_on")
-            if occurred and occurred in metadata and occurred not in row["text"]:
-                offenders.append(
-                    f"{case['case_id']}/{event['event_type_id']}: occurred_on {occurred} is "
-                    f"the document's own metadata and is not printed in the passage")
+            for field in ("occurred_on", "announced_on"):
+                value = event.get(field)
+                if value and value in metadata and value not in row["text"]:
+                    offenders.append(
+                        f"{case['case_id']}/{event['event_type_id']}: {field} {value} is the "
+                        f"document's own metadata and is not printed in the passage")
     assert offenders == [], offenders
 
 
