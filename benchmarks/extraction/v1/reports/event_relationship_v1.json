@@ -1,0 +1,2516 @@
+{
+  "answer_store": {
+    "answers": 3,
+    "bytes": 9497,
+    "path": "answers/event_v1.jsonl",
+    "sha256": "1b1b6212d1380c20c1541fc045417be8880cc9f00c95359380260b4987759e39"
+  },
+  "benchmark_version": "v1",
+  "cases": {
+    "event-credit-facility-established-2022": {
+      "category": "event_or_relationship",
+      "lane": "narrative",
+      "notes": "A facility established by \"a subsidiary of the Company\", not by Opendoor itself. The ontology's borrower role accepts `subsidiary`, and the filing does not name which one - so the borrower is an unresolved subsidiary rather than the parent. A lane that defaults the borrower to Opendoor records a debt obligation against the wrong entity. Unlike the executive-change case, this event **is** dated by its own evidence: \"On October 19, 2022, a subsidiary of the Company entered into...\" states the occurrence date in the sentence that reports it. **Properties reconciled to the declared vocabulary** *(2026-08-02)*. `final_maturity_date` is now `maturity_date`, which is a rename and not a meaning change. `borrowing_capacity_usd` is **removed rather than renamed**: the declared vocabulary offers `committed_capacity` and `uncommitted_capacity`, and this passage says \"borrowing capacity\" unqualified - it distinguishes \"aggregate borrowing capacity of $12.6 billion\" from \"committed borrowing capacity of $7.3 billion\" two sentences later, so calling the facility's $525 million *committed* would assert something the filing does not. The figure is not lost: it is already gold as the `borrowing_capacity` metric observation below, and `EventInstance.reported_metric_observation_ids` is the contract's own mechanism for tying an event to the observations reported with it.",
+      "source_file": "06_events_and_relationships.yaml"
+    },
+    "event-executive-change-ceo-2025": {
+      "category": "event_or_relationship",
+      "lane": "narrative",
+      "notes": "Three distinct changes in two sentences - an incoming CEO who also joins the board, and two co-founders returning to the board with one taking the chair. The passage names a prior employer (\"Chief Operating Officer of Shopify\") that is a fact about the person and not about Opendoor, which is the trap: a lane keyed on \"Chief Operating Officer\" will attach a Shopify role to the wrong employer. **The occurrence date is unsupported and must not be inferred** *(founder decision, 2026-08-02)*. Both events used to state `occurred_on: 2025-09-11`. That is the 8-K's filing date; the string does not occur in the passage, and neither does \"September 11\". What the passage prints is a dateline - \"SAN FRANCISCO, Sept. 10, 2025 ... today announced\" - which dates the *announcement*, not the appointment's effective date. The passage states no effective date at all. A filing date is not evidence of occurrence, and neither is the passage's `report_date` metadata (2025-09-06, a third value). So `occurred_on` is absent and `announced_on` is 2025-09-10 - the date the dateline states, recorded as what it actually is. A lane must not promote it to `occurred_on`: the two are different facts about different days, and the passage supports only one of them. **A lane is correct here when it identifies the executive change, extracts the participants, roles and evidence, and abstains from an exact occurrence date.** The third case in this file already states the principle - \"the event date is in the text ... and is not the filing date, which is the common failure\" - and this case had been breaking it. **The contract was changed so the true answer is expressible** *(founder decision, 2026-08-02)*. `executive_change` used to declare `required_temporal_fields: ('occurred_on',)`, so an `EventInstance` built from this gold failed `validate_event` outright — the correct answer was not a valid payload, the same shape as STAGE_10's finding that the period enum could not state a true period. `EventInstance` now carries `announced_on` beside `occurred_on`, and the event type requires `announced_on` **or** `occurred_on` rather than `occurred_on` unconditionally. Neither is ever inferred from the other. So this gold is now both true and valid, and `announced_on: 2025-09-10` is a payload field rather than benchmark-side scaffolding.",
+      "source_file": "06_events_and_relationships.yaml"
+    },
+    "event-workforce-reduction-2020": {
+      "category": "event_or_relationship",
+      "lane": "narrative",
+      "notes": "A workforce reduction reported retrospectively in a footnote to a reconciliation table, a year after it happened. The event date is in the text (\"On April 15, 2020\") and is not the filing date, which is the common failure - dating an event to the document that mentions it. The executive-change case in this file was doing exactly that until 2026-08-02. `stated_cause` is now `reason` *(2026-08-02)*, the name `workforce_reduction` declares. A rename, not a meaning change.",
+      "source_file": "06_events_and_relationships.yaml"
+    }
+  },
+  "comparison": {
+    "cases": 3,
+    "cases_with_identical_payloads": 3,
+    "cases_with_identical_requests": 3,
+    "gold_event_types_reached_by_any_scope": 0,
+    "scope_reachability": [
+      {
+        "case_id": "event-credit-facility-established-2022",
+        "gold_event_types": [
+          "credit_facility_established"
+        ],
+        "gold_event_types_the_hybrid_scope_offers": [],
+        "gold_event_types_the_lexical_scope_offers": [],
+        "hybrid_scope_concepts": 10,
+        "lexical_scope_concepts": 9
+      },
+      {
+        "case_id": "event-executive-change-ceo-2025",
+        "gold_event_types": [
+          "executive_change"
+        ],
+        "gold_event_types_the_hybrid_scope_offers": [],
+        "gold_event_types_the_lexical_scope_offers": [],
+        "hybrid_scope_concepts": 7,
+        "lexical_scope_concepts": 5
+      },
+      {
+        "case_id": "event-workforce-reduction-2020",
+        "gold_event_types": [
+          "workforce_reduction"
+        ],
+        "gold_event_types_the_hybrid_scope_offers": [],
+        "gold_event_types_the_lexical_scope_offers": [],
+        "hybrid_scope_concepts": 14,
+        "lexical_scope_concepts": 14
+      }
+    ],
+    "score_delta_hybrid_minus_lexical": {
+      "abstention_code_agreement": 0.0,
+      "abstention_honoured_rate": 0.0,
+      "announcement_date_accuracy": 0.0,
+      "event_evidence_accuracy": 0.0,
+      "event_type_identity": 0.0,
+      "matched_over_emitted_events": 0.0,
+      "matched_over_emitted_relationships": 0.0,
+      "occurrence_date_accuracy": 0.0,
+      "participant_entity_accuracy": 0.0,
+      "participant_entity_type_accuracy": 0.0,
+      "participant_role_accuracy": 0.0,
+      "predicate_identity": 0.0,
+      "properties_accuracy": 0.0,
+      "relationship_evidence_accuracy": 0.0,
+      "source_id_accuracy": 0.0,
+      "source_type_accuracy": 0.0,
+      "target_id_accuracy": 0.0,
+      "target_type_accuracy": 0.0
+    }
+  },
+  "dimensions": [
+    {
+      "denominator": "matched gold events / gold events",
+      "name": "event type identity",
+      "score_key": "event_type_identity"
+    },
+    {
+      "denominator": "occurrence_date_ok / matched events",
+      "name": "occurrence date (incl. correct abstention)",
+      "score_key": "occurrence_date_accuracy"
+    },
+    {
+      "denominator": "announcement_date_ok / matched events",
+      "name": "announcement date (incl. correct abstention)",
+      "score_key": "announcement_date_accuracy"
+    },
+    {
+      "denominator": "roles found / gold participants in matched events",
+      "name": "participant role",
+      "score_key": "participant_role_accuracy"
+    },
+    {
+      "denominator": "entity ids equal / gold participants whose role was found",
+      "name": "participant entity id",
+      "score_key": "participant_entity_accuracy"
+    },
+    {
+      "denominator": "entity types equal / gold participants whose role was found",
+      "name": "participant entity type",
+      "score_key": "participant_entity_type_accuracy"
+    },
+    {
+      "denominator": "every gold property present and equal / matched events declaring any",
+      "name": "event properties",
+      "score_key": "properties_accuracy"
+    },
+    {
+      "denominator": "anchor resolves and span is verbatim / matched events",
+      "name": "event evidence",
+      "score_key": "event_evidence_accuracy"
+    },
+    {
+      "denominator": "matched gold relationships / gold relationships",
+      "name": "relationship predicate identity",
+      "score_key": "predicate_identity"
+    },
+    {
+      "denominator": "source_id_ok / matched relationships",
+      "name": "relationship source id",
+      "score_key": "source_id_accuracy"
+    },
+    {
+      "denominator": "target_id_ok / matched relationships",
+      "name": "relationship target id",
+      "score_key": "target_id_accuracy"
+    },
+    {
+      "denominator": "source_type_ok / matched relationships",
+      "name": "relationship source type",
+      "score_key": "source_type_accuracy"
+    },
+    {
+      "denominator": "target_type_ok / matched relationships",
+      "name": "relationship target type",
+      "score_key": "target_type_accuracy"
+    },
+    {
+      "denominator": "anchor resolves and span is verbatim / matched relationships",
+      "name": "relationship evidence",
+      "score_key": "relationship_evidence_accuracy"
+    },
+    {
+      "denominator": "honoured expected abstentions / expected abstentions",
+      "name": "expected abstentions honoured",
+      "score_key": "abstention_honoured_rate"
+    },
+    {
+      "denominator": "expectations whose own code the lane recorded / expected abstentions",
+      "name": "abstention code agreement",
+      "score_key": "abstention_code_agreement"
+    }
+  ],
+  "failure_categories": [
+    "schema_or_parse_failure",
+    "evidence_ungrounded",
+    "event_not_identified",
+    "predicate_not_identified",
+    "participant_wrong",
+    "endpoint_wrong",
+    "occurrence_date_wrong",
+    "announcement_date_wrong",
+    "properties_wrong",
+    "silence_broken"
+  ],
+  "failure_decision_order": [
+    "schema_or_parse_failure",
+    "evidence_ungrounded",
+    "event_not_identified",
+    "predicate_not_identified",
+    "participant_wrong",
+    "endpoint_wrong",
+    "occurrence_date_wrong",
+    "announcement_date_wrong",
+    "properties_wrong",
+    "silence_broken"
+  ],
+  "implementation_commit": "1f37059b6aa74f9061023a1fb1dc3c61b8648764",
+  "lane": {
+    "name": "normalized_narrative_events",
+    "prompt_version": "1.0.0",
+    "version": "1.0.0"
+  },
+  "model": {
+    "context_tokens": 8192,
+    "identity": "Qwen3.5-9B-Q4_K_M.gguf",
+    "max_output_tokens": 4096,
+    "output_budget": "min(max_output_tokens, context_tokens - estimated prompt tokens)",
+    "replay_only": true,
+    "temperature": 0.0
+  },
+  "normalization_corpus": {
+    "documents": 294,
+    "documents_sha256": "c2baa5373a5161967a1311458874318801338d39b298df82f6af78a249dbe5e3",
+    "passages": 12442,
+    "table_passages": 1935
+  },
+  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "review_questions": [
+    {
+      "case_id": "event-executive-change-ceo-2025",
+      "question": "should a property value be the filing's own words, as `raw_text` and `population_definition_raw` already are, or the reviewers' normalisation of them? The same question decides five rows of the step 11 population table.",
+      "subject": "executive_change.properties.position for the returning chairman",
+      "the_case_says": "position: “Chairman of the Board”, with the note quoting “Rabois taking on the role of Chairman”",
+      "this_run_found": "the passage prints “the role of Chairman” and nowhere prints “Chairman of the Board”, so the lane's printed-value rule cannot produce the gold string and the property scores wrong"
+    },
+    {
+      "case_id": "event-credit-facility-established-2022",
+      "question": "gold's id encodes the establishment year and month. No general rule derives that from a name; either the id convention is a resolution decision that belongs to an entity-resolution pass V1 does not have, or gold should carry the name-derived id. Entity ids are validated by nothing, so this is a naming question and not a validity one.",
+      "subject": "the facility's entity id",
+      "the_case_says": "entity_id: asset_backed_senior_revolving_2022_10",
+      "this_run_found": "the passage names the facility “a new asset-backed senior revolving credit facility” and prints no year-month suffix, so a readable id derived from the printed name cannot reach the gold id"
+    },
+    {
+      "case_id": "event-workforce-reduction-2020",
+      "question": "the same span-convention question step 11 raised about population wording, in a second place: how much of the sentence a quoted attribute should span. Recorded as a containment rather than scored on, because a containment rule is a comparability rule no plan states.",
+      "subject": "workforce_reduction.properties.reason",
+      "the_case_says": "reason: “following the outbreak of the COVID-19 pandemic”",
+      "this_run_found": "the lane records “outbreak of the COVID-19 pandemic” — the same wording without its leading preposition, and a substring of what gold expects"
+    }
+  ],
+  "structured_output": {
+    "conformant_after_retry": 0,
+    "conformant_first_attempt": 3,
+    "distinct_requests": 3,
+    "never_conformant": 0,
+    "provider_calls": 6,
+    "requests_issued": 3,
+    "retries_possible": false
+  },
+  "unusable_answers": [],
+  "views": {
+    "hybrid": {
+      "cases": [
+        {
+          "additional_events": [
+            "workforce_reduction(opendoor)"
+          ],
+          "additional_relationships": [],
+          "case_id": "event-credit-facility-established-2022",
+          "counts": {
+            "additional_events": 1,
+            "additional_property_names": 1,
+            "additional_relationships": 0,
+            "code_agreeing_abstentions": 0,
+            "emitted_events": 2,
+            "emitted_relationships": 1,
+            "expected_abstentions": 1,
+            "failures": 2,
+            "gold_event_types_in_scope": 0,
+            "gold_events": 1,
+            "gold_participants": 2,
+            "gold_relationships": 1,
+            "honoured_abstentions": 1,
+            "matched_events": 1,
+            "matched_relationships": 1,
+            "missed_events": 0,
+            "missed_relationships": 0,
+            "model_abstentions": 1,
+            "model_chosen_abstentions": 1,
+            "ontology_errors": 0,
+            "ontology_warnings": 0,
+            "rejected_payloads": 1,
+            "scope_concepts": 10,
+            "scope_event_types": 2
+          },
+          "emitted_events": [
+            {
+              "announced_on": null,
+              "event_id": "evt:credit-facility-established:2022-10-19:4b384d2ba0fa",
+              "event_type_id": "credit_facility_established",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+                "resolves": true
+              },
+              "occurred_on": "2022-10-19",
+              "participants": [
+                {
+                  "entity_id": "opendoor_unnamed_subsidiary",
+                  "entity_text": "a subsidiary of the Company",
+                  "entity_type": "subsidiary",
+                  "named": false,
+                  "role": "borrower"
+                },
+                {
+                  "entity_id": "asset_backed_senior_revolving_credit_facility",
+                  "entity_text": "asset-backed senior revolving credit facility",
+                  "entity_type": "asset_backed_debt_facility",
+                  "named": true,
+                  "role": "facility"
+                }
+              ],
+              "properties": {
+                "committed_capacity": "$525 million",
+                "maturity_date": "2023-10-31"
+              },
+              "raw_text": "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed senior revolving credit facility with $525 million in borrowing capacity and a final maturity date of October 31, 2023."
+            },
+            {
+              "announced_on": "2022-11-02",
+              "event_id": "evt:workforce-reduction:2022-11-02:3a2153734d24",
+              "event_type_id": "workforce_reduction",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+                "resolves": true
+              },
+              "occurred_on": "2022-11-02",
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "operator"
+                }
+              ],
+              "properties": {
+                "charge_amount": "approximately $15 million",
+                "headcount_reduced": "approximately 550 employees",
+                "percentage_of_workforce": "18%"
+              },
+              "raw_text": "On November 2, 2022, the Company announced a workforce reduction of approximately 550 employees, representing 18% of our workforce at that time."
+            }
+          ],
+          "emitted_relationships": [
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+                "resolves": true
+              },
+              "raw_text": "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed senior revolving credit facility with $525 million in borrowing capacity and a final maturity date of October 31, 2023.",
+              "relationship_id": "BORROWS_UNDER",
+              "source_id": "opendoor_unnamed_subsidiary",
+              "source_type": "subsidiary",
+              "target_id": "asset_backed_senior_revolving_credit_facility",
+              "target_type": "asset_backed_debt_facility"
+            }
+          ],
+          "expected_abstentions": [
+            {
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "code_recorded": false,
+              "detail": "The subsidiary is not named. Resolving it to a specific EX-21.1 entity would be an inference the filing does not support; the placeholder must stay unresolved and be flagged for entity resolution rather than guessed.",
+              "honoured": true,
+              "reason": "UNNAMED_ENTITY",
+              "silence_kept": true
+            }
+          ],
+          "failures": [
+            {
+              "category": "participant_wrong",
+              "detail": "matched event failed participant_entity",
+              "source": "wrong_match",
+              "subject": "credit_facility_established(asset_backed_senior_revolving_2022_10,opendoor_unnamed_subsidiary)"
+            },
+            {
+              "category": "endpoint_wrong",
+              "detail": "matched relationship failed target_id",
+              "source": "wrong_match",
+              "subject": "BORROWS_UNDER"
+            }
+          ],
+          "gold_event_types_in_scope": [],
+          "gold_events": [
+            {
+              "announced_on": null,
+              "event_type_id": "credit_facility_established",
+              "occurred_on": "2022-10-19",
+              "participants": [
+                {
+                  "entity_id": "opendoor_unnamed_subsidiary",
+                  "entity_type": "subsidiary",
+                  "role": "borrower"
+                },
+                {
+                  "entity_id": "asset_backed_senior_revolving_2022_10",
+                  "entity_type": "asset_backed_debt_facility",
+                  "role": "facility"
+                }
+              ],
+              "properties": {
+                "maturity_date": "2023-10-31"
+              }
+            }
+          ],
+          "gold_relationships": [
+            {
+              "relationship_id": "BORROWS_UNDER",
+              "source_id": "opendoor_unnamed_subsidiary",
+              "source_type": "subsidiary",
+              "target_id": "asset_backed_senior_revolving_2022_10",
+              "target_type": "asset_backed_debt_facility"
+            }
+          ],
+          "issues_by_code": {
+            "PARTICIPANT_NOT_NAMED": 1,
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 1
+          },
+          "matched_events": [
+            {
+              "additional_property_names": [
+                "committed_capacity"
+              ],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": true
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": null,
+                "occurred_on": "2022-10-19",
+                "properties": {
+                  "committed_capacity": "$525 million",
+                  "maturity_date": "2023-10-31"
+                }
+              },
+              "event_type_id": "credit_facility_established",
+              "expected": {
+                "announced_on": null,
+                "occurred_on": "2022-10-19",
+                "properties": {
+                  "maturity_date": "2023-10-31"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor_unnamed_subsidiary",
+                  "emitted_entity_text": "a subsidiary of the Company",
+                  "emitted_entity_type": "subsidiary",
+                  "emitted_named": false,
+                  "expected_entity_id": "opendoor_unnamed_subsidiary",
+                  "expected_entity_type": "subsidiary",
+                  "role": "borrower"
+                },
+                {
+                  "dimensions": {
+                    "participant_entity_ok": false,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "asset_backed_senior_revolving_credit_facility",
+                  "emitted_entity_text": "asset-backed senior revolving credit facility",
+                  "emitted_entity_type": "asset_backed_debt_facility",
+                  "emitted_named": true,
+                  "expected_entity_id": "asset_backed_senior_revolving_2022_10",
+                  "expected_entity_type": "asset_backed_debt_facility",
+                  "role": "facility"
+                }
+              ],
+              "shared_entity_ids": 1
+            }
+          ],
+          "matched_relationships": [
+            {
+              "basis": "shared_endpoints",
+              "dimensions": {
+                "relationship_evidence_ok": true,
+                "source_id_ok": true,
+                "source_type_ok": true,
+                "target_id_ok": false,
+                "target_type_ok": true
+              },
+              "emitted": {
+                "source_id": "opendoor_unnamed_subsidiary",
+                "source_type": "subsidiary",
+                "target_id": "asset_backed_senior_revolving_credit_facility",
+                "target_type": "asset_backed_debt_facility"
+              },
+              "expected": {
+                "source_id": "opendoor_unnamed_subsidiary",
+                "source_type": "subsidiary",
+                "target_id": "asset_backed_senior_revolving_2022_10",
+                "target_type": "asset_backed_debt_facility"
+              },
+              "relationship_id": "BORROWS_UNDER"
+            }
+          ],
+          "missed_events": [],
+          "missed_relationships": [],
+          "model_abstentions_by_code": {
+            "PARTICIPANT_NOT_NAMED": 1
+          },
+          "ontology_errors": [],
+          "ontology_warnings": [],
+          "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+          "rejections_by_code": {
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 1
+          },
+          "request_digest": "8daf9f6fd79d05d357c8e37df4849fab50f0daca9bd7b27e6e307f9415805bea",
+          "scope_concept_ids": [
+            "asset_backed_debt_facility",
+            "borrowing_capacity",
+            "company",
+            "credit_facility",
+            "credit_facility_terminated",
+            "opendoor",
+            "public_company",
+            "revolving_credit_facility",
+            "subsidiary",
+            "workforce_reduction"
+          ],
+          "scope_event_type_ids": [
+            "credit_facility_terminated",
+            "workforce_reduction"
+          ],
+          "scores": {
+            "abstention_code_agreement": 0.0,
+            "abstention_honoured_rate": 1.0,
+            "announcement_date_accuracy": 1.0,
+            "event_evidence_accuracy": 1.0,
+            "event_type_identity": 1.0,
+            "matched_over_emitted_events": 0.5,
+            "matched_over_emitted_relationships": 1.0,
+            "occurrence_date_accuracy": 1.0,
+            "participant_entity_accuracy": 0.5,
+            "participant_entity_type_accuracy": 1.0,
+            "participant_role_accuracy": 1.0,
+            "predicate_identity": 1.0,
+            "properties_accuracy": 1.0,
+            "relationship_evidence_accuracy": 1.0,
+            "source_id_accuracy": 1.0,
+            "source_type_accuracy": 1.0,
+            "target_id_accuracy": 0.0,
+            "target_type_accuracy": 1.0
+          }
+        },
+        {
+          "additional_events": [
+            "executive_change(eric_wu,opendoor)"
+          ],
+          "additional_relationships": [
+            "HOLDS_POSITION_AT(eric_wu->opendoor)",
+            "HOLDS_POSITION_AT(keith_rabois->opendoor)"
+          ],
+          "case_id": "event-executive-change-ceo-2025",
+          "counts": {
+            "additional_events": 1,
+            "additional_property_names": 0,
+            "additional_relationships": 2,
+            "code_agreeing_abstentions": 0,
+            "emitted_events": 3,
+            "emitted_relationships": 3,
+            "expected_abstentions": 2,
+            "failures": 1,
+            "gold_event_types_in_scope": 0,
+            "gold_events": 2,
+            "gold_participants": 4,
+            "gold_relationships": 1,
+            "honoured_abstentions": 2,
+            "matched_events": 2,
+            "matched_relationships": 1,
+            "missed_events": 0,
+            "missed_relationships": 0,
+            "model_abstentions": 0,
+            "model_chosen_abstentions": 0,
+            "ontology_errors": 0,
+            "ontology_warnings": 0,
+            "rejected_payloads": 3,
+            "scope_concepts": 7,
+            "scope_event_types": 1
+          },
+          "emitted_events": [
+            {
+              "announced_on": "2025-09-10",
+              "event_id": "evt:executive-change:undated:4c7324fecc42",
+              "event_type_id": "executive_change",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "eric_wu",
+                  "entity_text": "Eric Wu",
+                  "entity_type": "person",
+                  "named": true,
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "member of the Board of Directors"
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman."
+            },
+            {
+              "announced_on": "2025-09-10",
+              "event_id": "evt:executive-change:undated:5f0724b23967",
+              "event_type_id": "executive_change",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "kaz_nejatian",
+                  "entity_text": "Kaz Nejatian",
+                  "entity_type": "person",
+                  "named": true,
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chief Executive Officer"
+              },
+              "raw_text": "Opendoor Technologies Inc. (Nasdaq: OPEN) today announced that Kaz Nejatian, Chief Operating Officer of Shopify, has been appointed Chief Executive Officer and member of the Board of Directors."
+            },
+            {
+              "announced_on": "2025-09-10",
+              "event_id": "evt:executive-change:undated:70ee824c0430",
+              "event_type_id": "executive_change",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "keith_rabois",
+                  "entity_text": "Keith Rabois",
+                  "entity_type": "person",
+                  "named": true,
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chairman"
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman."
+            }
+          ],
+          "emitted_relationships": [
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman.",
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "eric_wu",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            },
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "raw_text": "Opendoor Technologies Inc. (Nasdaq: OPEN) today announced that Kaz Nejatian, Chief Operating Officer of Shopify, has been appointed Chief Executive Officer and member of the Board of Directors.",
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "kaz_nejatian",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            },
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman.",
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "keith_rabois",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            }
+          ],
+          "expected_abstentions": [
+            {
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "code_recorded": false,
+              "detail": "\"Chief Operating Officer of Shopify\" is Nejatian's prior position at another company. If emitted at all it is HOLDS_POSITION_AT(kaz_nejatian, shopify), never a role at Opendoor, and the passage gives no dates for it.",
+              "honoured": true,
+              "reason": "THIRD_PARTY_ROLE",
+              "silence_kept": true
+            },
+            {
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "code_recorded": false,
+              "detail": "The passage dates its own announcement (\"Sept. 10, 2025\") and never states when either appointment takes effect. An `occurred_on` of 2025-09-11 is the filing date and 2025-09-06 is the report date; neither is evidence about when the change happened, and 2025-09-10 dates the announcement rather than the appointment.",
+              "honoured": true,
+              "reason": "EFFECTIVE_DATE_NOT_STATED",
+              "silence_kept": true
+            }
+          ],
+          "failures": [
+            {
+              "category": "properties_wrong",
+              "detail": "matched event failed properties",
+              "source": "wrong_match",
+              "subject": "executive_change(keith_rabois,opendoor)"
+            }
+          ],
+          "gold_event_types_in_scope": [],
+          "gold_events": [
+            {
+              "announced_on": "2025-09-10",
+              "event_type_id": "executive_change",
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "kaz_nejatian",
+                  "entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chief Executive Officer"
+              }
+            },
+            {
+              "announced_on": "2025-09-10",
+              "event_type_id": "executive_change",
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "keith_rabois",
+                  "entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chairman of the Board"
+              }
+            }
+          ],
+          "gold_relationships": [
+            {
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "kaz_nejatian",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            }
+          ],
+          "issues_by_code": {
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 3
+          },
+          "matched_events": [
+            {
+              "additional_property_names": [],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": true
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chief Executive Officer"
+                }
+              },
+              "event_type_id": "executive_change",
+              "expected": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chief Executive Officer"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor",
+                  "emitted_entity_text": "Opendoor Technologies Inc.",
+                  "emitted_entity_type": "public_company",
+                  "emitted_named": true,
+                  "expected_entity_id": "opendoor",
+                  "expected_entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "kaz_nejatian",
+                  "emitted_entity_text": "Kaz Nejatian",
+                  "emitted_entity_type": "person",
+                  "emitted_named": true,
+                  "expected_entity_id": "kaz_nejatian",
+                  "expected_entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "shared_entity_ids": 2
+            },
+            {
+              "additional_property_names": [],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": false
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chairman"
+                }
+              },
+              "event_type_id": "executive_change",
+              "expected": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chairman of the Board"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor",
+                  "emitted_entity_text": "Opendoor Technologies Inc.",
+                  "emitted_entity_type": "public_company",
+                  "emitted_named": true,
+                  "expected_entity_id": "opendoor",
+                  "expected_entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "keith_rabois",
+                  "emitted_entity_text": "Keith Rabois",
+                  "emitted_entity_type": "person",
+                  "emitted_named": true,
+                  "expected_entity_id": "keith_rabois",
+                  "expected_entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "shared_entity_ids": 2
+            }
+          ],
+          "matched_relationships": [
+            {
+              "basis": "shared_endpoints",
+              "dimensions": {
+                "relationship_evidence_ok": true,
+                "source_id_ok": true,
+                "source_type_ok": true,
+                "target_id_ok": true,
+                "target_type_ok": true
+              },
+              "emitted": {
+                "source_id": "kaz_nejatian",
+                "source_type": "person",
+                "target_id": "opendoor",
+                "target_type": "public_company"
+              },
+              "expected": {
+                "source_id": "kaz_nejatian",
+                "source_type": "person",
+                "target_id": "opendoor",
+                "target_type": "public_company"
+              },
+              "relationship_id": "HOLDS_POSITION_AT"
+            }
+          ],
+          "missed_events": [],
+          "missed_relationships": [],
+          "model_abstentions_by_code": {},
+          "ontology_errors": [],
+          "ontology_warnings": [],
+          "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+          "rejections_by_code": {
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 3
+          },
+          "request_digest": "b3eb16f11a538cc645f8ae3d026ac5286fc200c24c91e494a306ddfe9525559d",
+          "scope_concept_ids": [
+            "common_stock",
+            "company",
+            "nasdaq",
+            "opendoor",
+            "operations_pause",
+            "public_company",
+            "stock_exchange"
+          ],
+          "scope_event_type_ids": [
+            "operations_pause"
+          ],
+          "scores": {
+            "abstention_code_agreement": 0.0,
+            "abstention_honoured_rate": 1.0,
+            "announcement_date_accuracy": 1.0,
+            "event_evidence_accuracy": 1.0,
+            "event_type_identity": 1.0,
+            "matched_over_emitted_events": 0.666667,
+            "matched_over_emitted_relationships": 0.333333,
+            "occurrence_date_accuracy": 1.0,
+            "participant_entity_accuracy": 1.0,
+            "participant_entity_type_accuracy": 1.0,
+            "participant_role_accuracy": 1.0,
+            "predicate_identity": 1.0,
+            "properties_accuracy": 0.5,
+            "relationship_evidence_accuracy": 1.0,
+            "source_id_accuracy": 1.0,
+            "source_type_accuracy": 1.0,
+            "target_id_accuracy": 1.0,
+            "target_type_accuracy": 1.0
+          }
+        },
+        {
+          "additional_events": [],
+          "additional_relationships": [],
+          "case_id": "event-workforce-reduction-2020",
+          "counts": {
+            "additional_events": 0,
+            "additional_property_names": 0,
+            "additional_relationships": 0,
+            "code_agreeing_abstentions": 0,
+            "emitted_events": 1,
+            "emitted_relationships": 0,
+            "expected_abstentions": 1,
+            "failures": 2,
+            "gold_event_types_in_scope": 0,
+            "gold_events": 1,
+            "gold_participants": 1,
+            "gold_relationships": 0,
+            "honoured_abstentions": 0,
+            "matched_events": 1,
+            "matched_relationships": 0,
+            "missed_events": 0,
+            "missed_relationships": 0,
+            "model_abstentions": 0,
+            "model_chosen_abstentions": 0,
+            "ontology_errors": 0,
+            "ontology_warnings": 0,
+            "rejected_payloads": 0,
+            "scope_concepts": 14,
+            "scope_event_types": 0
+          },
+          "emitted_events": [
+            {
+              "announced_on": null,
+              "event_id": "evt:workforce-reduction:2020-04-15:0aeb1b251a3a",
+              "event_type_id": "workforce_reduction",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p28",
+                "resolves": true
+              },
+              "occurred_on": "2020-04-15",
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "operator"
+                }
+              ],
+              "properties": {
+                "reason": "outbreak of the COVID-19 pandemic"
+              },
+              "raw_text": "On April 15, 2020, we carried out a reduction in workforce following the outbreak of the COVID-19 pandemic."
+            }
+          ],
+          "emitted_relationships": [],
+          "expected_abstentions": [
+            {
+              "answer_usable": true,
+              "any_issue_recorded": false,
+              "code_recorded": false,
+              "detail": "The passage gives no number of affected employees. The event is real; a headcount property must be absent rather than estimated from the severance figures nearby.",
+              "honoured": false,
+              "reason": "NO_HEADCOUNT_STATED",
+              "silence_kept": true
+            }
+          ],
+          "failures": [
+            {
+              "category": "properties_wrong",
+              "detail": "matched event failed properties",
+              "source": "wrong_match",
+              "subject": "workforce_reduction(opendoor)"
+            },
+            {
+              "category": "silence_broken",
+              "detail": "the case requires this silence and the lane recorded no issue at all: a bare silence, not an abstention",
+              "source": "over_emitted",
+              "subject": "NO_HEADCOUNT_STATED"
+            }
+          ],
+          "gold_event_types_in_scope": [],
+          "gold_events": [
+            {
+              "announced_on": null,
+              "event_type_id": "workforce_reduction",
+              "occurred_on": "2020-04-15",
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_type": "public_company",
+                  "role": "operator"
+                }
+              ],
+              "properties": {
+                "reason": "following the outbreak of the COVID-19 pandemic"
+              }
+            }
+          ],
+          "gold_relationships": [],
+          "issues_by_code": {},
+          "matched_events": [
+            {
+              "additional_property_names": [],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": false
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": null,
+                "occurred_on": "2020-04-15",
+                "properties": {
+                  "reason": "outbreak of the COVID-19 pandemic"
+                }
+              },
+              "event_type_id": "workforce_reduction",
+              "expected": {
+                "announced_on": null,
+                "occurred_on": "2020-04-15",
+                "properties": {
+                  "reason": "following the outbreak of the COVID-19 pandemic"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor",
+                  "emitted_entity_text": "Opendoor Technologies Inc.",
+                  "emitted_entity_type": "public_company",
+                  "emitted_named": true,
+                  "expected_entity_id": "opendoor",
+                  "expected_entity_type": "public_company",
+                  "role": "operator"
+                }
+              ],
+              "shared_entity_ids": 1
+            }
+          ],
+          "matched_relationships": [],
+          "missed_events": [],
+          "missed_relationships": [],
+          "model_abstentions_by_code": {},
+          "ontology_errors": [],
+          "ontology_warnings": [],
+          "passage_id": "norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p28",
+          "rejections_by_code": {},
+          "request_digest": "71414e1fdd9d1d3d11f6bbab79197cad4410262e41e7568853dc451351fc53cf",
+          "scope_concept_ids": [
+            "acquisition_contracts",
+            "company",
+            "cost_of_revenue",
+            "holding_costs",
+            "homes_purchased",
+            "homes_sold",
+            "homes_under_contract",
+            "housing_inventory_homes",
+            "inventory_balance",
+            "inventory_valuation_adjustment",
+            "opendoor",
+            "public_company",
+            "revenue",
+            "revolving_credit_facility"
+          ],
+          "scope_event_type_ids": [],
+          "scores": {
+            "abstention_code_agreement": 0.0,
+            "abstention_honoured_rate": 0.0,
+            "announcement_date_accuracy": 1.0,
+            "event_evidence_accuracy": 1.0,
+            "event_type_identity": 1.0,
+            "matched_over_emitted_events": 1.0,
+            "matched_over_emitted_relationships": 1.0,
+            "occurrence_date_accuracy": 1.0,
+            "participant_entity_accuracy": 1.0,
+            "participant_entity_type_accuracy": 1.0,
+            "participant_role_accuracy": 1.0,
+            "predicate_identity": 1.0,
+            "properties_accuracy": 0.0,
+            "relationship_evidence_accuracy": 1.0,
+            "source_id_accuracy": 1.0,
+            "source_type_accuracy": 1.0,
+            "target_id_accuracy": 1.0,
+            "target_type_accuracy": 1.0
+          }
+        }
+      ],
+      "scope": "hybrid",
+      "totals": {
+        "additional_events": 2,
+        "additional_property_names": 1,
+        "additional_relationships": 2,
+        "cases": 3,
+        "code_agreeing_abstentions": 0,
+        "distinct_gold_event_types": 3,
+        "distinct_passages": 3,
+        "emitted_events": 6,
+        "emitted_relationships": 4,
+        "event_pairs_by_basis": {
+          "event_type_only": 0,
+          "shared_participants": 4
+        },
+        "expected_abstentions": 4,
+        "failures": 5,
+        "failures_by_category": {
+          "announcement_date_wrong": 0,
+          "endpoint_wrong": 1,
+          "event_not_identified": 0,
+          "evidence_ungrounded": 0,
+          "occurrence_date_wrong": 0,
+          "participant_wrong": 1,
+          "predicate_not_identified": 0,
+          "properties_wrong": 2,
+          "schema_or_parse_failure": 0,
+          "silence_broken": 1
+        },
+        "gold_event_types_in_scope": 0,
+        "gold_events": 4,
+        "gold_participants": 7,
+        "gold_relationships": 2,
+        "honoured_abstentions": 3,
+        "issues_by_code": {
+          "PARTICIPANT_NOT_NAMED": 1,
+          "PROPERTY_VALUE_NOT_IN_PASSAGE": 4
+        },
+        "matched_events": 4,
+        "matched_participants": 7,
+        "matched_relationships": 2,
+        "missed_events": 0,
+        "missed_relationships": 0,
+        "model_abstentions": 1,
+        "model_abstentions_by_code": {
+          "PARTICIPANT_NOT_NAMED": 1
+        },
+        "model_chosen_abstentions": 1,
+        "ontology_errors": 0,
+        "ontology_warnings": 0,
+        "rejected_payloads": 4,
+        "rejections_by_code": {
+          "PROPERTY_VALUE_NOT_IN_PASSAGE": 4
+        },
+        "relationship_pairs_by_basis": {
+          "predicate_only": 0,
+          "shared_endpoints": 2
+        },
+        "score_denominators": {
+          "abstention_code_agreement": 4,
+          "abstention_honoured_rate": 4,
+          "announcement_date_accuracy": 4,
+          "event_evidence_accuracy": 4,
+          "event_type_identity": 4,
+          "matched_over_emitted_events": 6,
+          "matched_over_emitted_relationships": 4,
+          "occurrence_date_accuracy": 4,
+          "participant_entity_accuracy": 7,
+          "participant_entity_type_accuracy": 7,
+          "participant_role_accuracy": 7,
+          "predicate_identity": 2,
+          "properties_accuracy": 4,
+          "relationship_evidence_accuracy": 2,
+          "source_id_accuracy": 2,
+          "source_type_accuracy": 2,
+          "target_id_accuracy": 2,
+          "target_type_accuracy": 2
+        },
+        "score_numerators": {
+          "abstention_code_agreement": 0,
+          "abstention_honoured_rate": 3,
+          "announcement_date_accuracy": 4,
+          "event_evidence_accuracy": 4,
+          "event_type_identity": 4,
+          "matched_over_emitted_events": 4,
+          "matched_over_emitted_relationships": 2,
+          "occurrence_date_accuracy": 4,
+          "participant_entity_accuracy": 6,
+          "participant_entity_type_accuracy": 7,
+          "participant_role_accuracy": 7,
+          "predicate_identity": 2,
+          "properties_accuracy": 2,
+          "relationship_evidence_accuracy": 2,
+          "source_id_accuracy": 2,
+          "source_type_accuracy": 2,
+          "target_id_accuracy": 1,
+          "target_type_accuracy": 2
+        },
+        "scores": {
+          "abstention_code_agreement": 0.0,
+          "abstention_honoured_rate": 0.75,
+          "announcement_date_accuracy": 1.0,
+          "event_evidence_accuracy": 1.0,
+          "event_type_identity": 1.0,
+          "matched_over_emitted_events": 0.666667,
+          "matched_over_emitted_relationships": 0.5,
+          "occurrence_date_accuracy": 1.0,
+          "participant_entity_accuracy": 0.857143,
+          "participant_entity_type_accuracy": 1.0,
+          "participant_role_accuracy": 1.0,
+          "predicate_identity": 1.0,
+          "properties_accuracy": 0.5,
+          "relationship_evidence_accuracy": 1.0,
+          "source_id_accuracy": 1.0,
+          "source_type_accuracy": 1.0,
+          "target_id_accuracy": 0.5,
+          "target_type_accuracy": 1.0
+        }
+      }
+    },
+    "lexical": {
+      "cases": [
+        {
+          "additional_events": [
+            "workforce_reduction(opendoor)"
+          ],
+          "additional_relationships": [],
+          "case_id": "event-credit-facility-established-2022",
+          "counts": {
+            "additional_events": 1,
+            "additional_property_names": 1,
+            "additional_relationships": 0,
+            "code_agreeing_abstentions": 0,
+            "emitted_events": 2,
+            "emitted_relationships": 1,
+            "expected_abstentions": 1,
+            "failures": 2,
+            "gold_event_types_in_scope": 0,
+            "gold_events": 1,
+            "gold_participants": 2,
+            "gold_relationships": 1,
+            "honoured_abstentions": 1,
+            "matched_events": 1,
+            "matched_relationships": 1,
+            "missed_events": 0,
+            "missed_relationships": 0,
+            "model_abstentions": 1,
+            "model_chosen_abstentions": 1,
+            "ontology_errors": 0,
+            "ontology_warnings": 0,
+            "rejected_payloads": 1,
+            "scope_concepts": 9,
+            "scope_event_types": 1
+          },
+          "emitted_events": [
+            {
+              "announced_on": null,
+              "event_id": "evt:credit-facility-established:2022-10-19:4b384d2ba0fa",
+              "event_type_id": "credit_facility_established",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+                "resolves": true
+              },
+              "occurred_on": "2022-10-19",
+              "participants": [
+                {
+                  "entity_id": "opendoor_unnamed_subsidiary",
+                  "entity_text": "a subsidiary of the Company",
+                  "entity_type": "subsidiary",
+                  "named": false,
+                  "role": "borrower"
+                },
+                {
+                  "entity_id": "asset_backed_senior_revolving_credit_facility",
+                  "entity_text": "asset-backed senior revolving credit facility",
+                  "entity_type": "asset_backed_debt_facility",
+                  "named": true,
+                  "role": "facility"
+                }
+              ],
+              "properties": {
+                "committed_capacity": "$525 million",
+                "maturity_date": "2023-10-31"
+              },
+              "raw_text": "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed senior revolving credit facility with $525 million in borrowing capacity and a final maturity date of October 31, 2023."
+            },
+            {
+              "announced_on": "2022-11-02",
+              "event_id": "evt:workforce-reduction:2022-11-02:3a2153734d24",
+              "event_type_id": "workforce_reduction",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+                "resolves": true
+              },
+              "occurred_on": "2022-11-02",
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "operator"
+                }
+              ],
+              "properties": {
+                "charge_amount": "approximately $15 million",
+                "headcount_reduced": "approximately 550 employees",
+                "percentage_of_workforce": "18%"
+              },
+              "raw_text": "On November 2, 2022, the Company announced a workforce reduction of approximately 550 employees, representing 18% of our workforce at that time."
+            }
+          ],
+          "emitted_relationships": [
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+                "resolves": true
+              },
+              "raw_text": "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed senior revolving credit facility with $525 million in borrowing capacity and a final maturity date of October 31, 2023.",
+              "relationship_id": "BORROWS_UNDER",
+              "source_id": "opendoor_unnamed_subsidiary",
+              "source_type": "subsidiary",
+              "target_id": "asset_backed_senior_revolving_credit_facility",
+              "target_type": "asset_backed_debt_facility"
+            }
+          ],
+          "expected_abstentions": [
+            {
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "code_recorded": false,
+              "detail": "The subsidiary is not named. Resolving it to a specific EX-21.1 entity would be an inference the filing does not support; the placeholder must stay unresolved and be flagged for entity resolution rather than guessed.",
+              "honoured": true,
+              "reason": "UNNAMED_ENTITY",
+              "silence_kept": true
+            }
+          ],
+          "failures": [
+            {
+              "category": "participant_wrong",
+              "detail": "matched event failed participant_entity",
+              "source": "wrong_match",
+              "subject": "credit_facility_established(asset_backed_senior_revolving_2022_10,opendoor_unnamed_subsidiary)"
+            },
+            {
+              "category": "endpoint_wrong",
+              "detail": "matched relationship failed target_id",
+              "source": "wrong_match",
+              "subject": "BORROWS_UNDER"
+            }
+          ],
+          "gold_event_types_in_scope": [],
+          "gold_events": [
+            {
+              "announced_on": null,
+              "event_type_id": "credit_facility_established",
+              "occurred_on": "2022-10-19",
+              "participants": [
+                {
+                  "entity_id": "opendoor_unnamed_subsidiary",
+                  "entity_type": "subsidiary",
+                  "role": "borrower"
+                },
+                {
+                  "entity_id": "asset_backed_senior_revolving_2022_10",
+                  "entity_type": "asset_backed_debt_facility",
+                  "role": "facility"
+                }
+              ],
+              "properties": {
+                "maturity_date": "2023-10-31"
+              }
+            }
+          ],
+          "gold_relationships": [
+            {
+              "relationship_id": "BORROWS_UNDER",
+              "source_id": "opendoor_unnamed_subsidiary",
+              "source_type": "subsidiary",
+              "target_id": "asset_backed_senior_revolving_2022_10",
+              "target_type": "asset_backed_debt_facility"
+            }
+          ],
+          "issues_by_code": {
+            "PARTICIPANT_NOT_NAMED": 1,
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 1
+          },
+          "matched_events": [
+            {
+              "additional_property_names": [
+                "committed_capacity"
+              ],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": true
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": null,
+                "occurred_on": "2022-10-19",
+                "properties": {
+                  "committed_capacity": "$525 million",
+                  "maturity_date": "2023-10-31"
+                }
+              },
+              "event_type_id": "credit_facility_established",
+              "expected": {
+                "announced_on": null,
+                "occurred_on": "2022-10-19",
+                "properties": {
+                  "maturity_date": "2023-10-31"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor_unnamed_subsidiary",
+                  "emitted_entity_text": "a subsidiary of the Company",
+                  "emitted_entity_type": "subsidiary",
+                  "emitted_named": false,
+                  "expected_entity_id": "opendoor_unnamed_subsidiary",
+                  "expected_entity_type": "subsidiary",
+                  "role": "borrower"
+                },
+                {
+                  "dimensions": {
+                    "participant_entity_ok": false,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "asset_backed_senior_revolving_credit_facility",
+                  "emitted_entity_text": "asset-backed senior revolving credit facility",
+                  "emitted_entity_type": "asset_backed_debt_facility",
+                  "emitted_named": true,
+                  "expected_entity_id": "asset_backed_senior_revolving_2022_10",
+                  "expected_entity_type": "asset_backed_debt_facility",
+                  "role": "facility"
+                }
+              ],
+              "shared_entity_ids": 1
+            }
+          ],
+          "matched_relationships": [
+            {
+              "basis": "shared_endpoints",
+              "dimensions": {
+                "relationship_evidence_ok": true,
+                "source_id_ok": true,
+                "source_type_ok": true,
+                "target_id_ok": false,
+                "target_type_ok": true
+              },
+              "emitted": {
+                "source_id": "opendoor_unnamed_subsidiary",
+                "source_type": "subsidiary",
+                "target_id": "asset_backed_senior_revolving_credit_facility",
+                "target_type": "asset_backed_debt_facility"
+              },
+              "expected": {
+                "source_id": "opendoor_unnamed_subsidiary",
+                "source_type": "subsidiary",
+                "target_id": "asset_backed_senior_revolving_2022_10",
+                "target_type": "asset_backed_debt_facility"
+              },
+              "relationship_id": "BORROWS_UNDER"
+            }
+          ],
+          "missed_events": [],
+          "missed_relationships": [],
+          "model_abstentions_by_code": {
+            "PARTICIPANT_NOT_NAMED": 1
+          },
+          "ontology_errors": [],
+          "ontology_warnings": [],
+          "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+          "rejections_by_code": {
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 1
+          },
+          "request_digest": "8daf9f6fd79d05d357c8e37df4849fab50f0daca9bd7b27e6e307f9415805bea",
+          "scope_concept_ids": [
+            "asset_backed_debt_facility",
+            "borrowing_capacity",
+            "company",
+            "credit_facility",
+            "opendoor",
+            "public_company",
+            "revolving_credit_facility",
+            "subsidiary",
+            "workforce_reduction"
+          ],
+          "scope_event_type_ids": [
+            "workforce_reduction"
+          ],
+          "scores": {
+            "abstention_code_agreement": 0.0,
+            "abstention_honoured_rate": 1.0,
+            "announcement_date_accuracy": 1.0,
+            "event_evidence_accuracy": 1.0,
+            "event_type_identity": 1.0,
+            "matched_over_emitted_events": 0.5,
+            "matched_over_emitted_relationships": 1.0,
+            "occurrence_date_accuracy": 1.0,
+            "participant_entity_accuracy": 0.5,
+            "participant_entity_type_accuracy": 1.0,
+            "participant_role_accuracy": 1.0,
+            "predicate_identity": 1.0,
+            "properties_accuracy": 1.0,
+            "relationship_evidence_accuracy": 1.0,
+            "source_id_accuracy": 1.0,
+            "source_type_accuracy": 1.0,
+            "target_id_accuracy": 0.0,
+            "target_type_accuracy": 1.0
+          }
+        },
+        {
+          "additional_events": [
+            "executive_change(eric_wu,opendoor)"
+          ],
+          "additional_relationships": [
+            "HOLDS_POSITION_AT(eric_wu->opendoor)",
+            "HOLDS_POSITION_AT(keith_rabois->opendoor)"
+          ],
+          "case_id": "event-executive-change-ceo-2025",
+          "counts": {
+            "additional_events": 1,
+            "additional_property_names": 0,
+            "additional_relationships": 2,
+            "code_agreeing_abstentions": 0,
+            "emitted_events": 3,
+            "emitted_relationships": 3,
+            "expected_abstentions": 2,
+            "failures": 1,
+            "gold_event_types_in_scope": 0,
+            "gold_events": 2,
+            "gold_participants": 4,
+            "gold_relationships": 1,
+            "honoured_abstentions": 2,
+            "matched_events": 2,
+            "matched_relationships": 1,
+            "missed_events": 0,
+            "missed_relationships": 0,
+            "model_abstentions": 0,
+            "model_chosen_abstentions": 0,
+            "ontology_errors": 0,
+            "ontology_warnings": 0,
+            "rejected_payloads": 3,
+            "scope_concepts": 5,
+            "scope_event_types": 0
+          },
+          "emitted_events": [
+            {
+              "announced_on": "2025-09-10",
+              "event_id": "evt:executive-change:undated:4c7324fecc42",
+              "event_type_id": "executive_change",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "eric_wu",
+                  "entity_text": "Eric Wu",
+                  "entity_type": "person",
+                  "named": true,
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "member of the Board of Directors"
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman."
+            },
+            {
+              "announced_on": "2025-09-10",
+              "event_id": "evt:executive-change:undated:5f0724b23967",
+              "event_type_id": "executive_change",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "kaz_nejatian",
+                  "entity_text": "Kaz Nejatian",
+                  "entity_type": "person",
+                  "named": true,
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chief Executive Officer"
+              },
+              "raw_text": "Opendoor Technologies Inc. (Nasdaq: OPEN) today announced that Kaz Nejatian, Chief Operating Officer of Shopify, has been appointed Chief Executive Officer and member of the Board of Directors."
+            },
+            {
+              "announced_on": "2025-09-10",
+              "event_id": "evt:executive-change:undated:70ee824c0430",
+              "event_type_id": "executive_change",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "keith_rabois",
+                  "entity_text": "Keith Rabois",
+                  "entity_type": "person",
+                  "named": true,
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chairman"
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman."
+            }
+          ],
+          "emitted_relationships": [
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman.",
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "eric_wu",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            },
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "raw_text": "Opendoor Technologies Inc. (Nasdaq: OPEN) today announced that Kaz Nejatian, Chief Operating Officer of Shopify, has been appointed Chief Executive Officer and member of the Board of Directors.",
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "kaz_nejatian",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            },
+            {
+              "evidence": {
+                "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+                "resolves": true
+              },
+              "raw_text": "Co-Founders Keith Rabois and Eric Wu are returning to the Board of Directors, with Rabois taking on the role of Chairman.",
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "keith_rabois",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            }
+          ],
+          "expected_abstentions": [
+            {
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "code_recorded": false,
+              "detail": "\"Chief Operating Officer of Shopify\" is Nejatian's prior position at another company. If emitted at all it is HOLDS_POSITION_AT(kaz_nejatian, shopify), never a role at Opendoor, and the passage gives no dates for it.",
+              "honoured": true,
+              "reason": "THIRD_PARTY_ROLE",
+              "silence_kept": true
+            },
+            {
+              "answer_usable": true,
+              "any_issue_recorded": true,
+              "code_recorded": false,
+              "detail": "The passage dates its own announcement (\"Sept. 10, 2025\") and never states when either appointment takes effect. An `occurred_on` of 2025-09-11 is the filing date and 2025-09-06 is the report date; neither is evidence about when the change happened, and 2025-09-10 dates the announcement rather than the appointment.",
+              "honoured": true,
+              "reason": "EFFECTIVE_DATE_NOT_STATED",
+              "silence_kept": true
+            }
+          ],
+          "failures": [
+            {
+              "category": "properties_wrong",
+              "detail": "matched event failed properties",
+              "source": "wrong_match",
+              "subject": "executive_change(keith_rabois,opendoor)"
+            }
+          ],
+          "gold_event_types_in_scope": [],
+          "gold_events": [
+            {
+              "announced_on": "2025-09-10",
+              "event_type_id": "executive_change",
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "kaz_nejatian",
+                  "entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chief Executive Officer"
+              }
+            },
+            {
+              "announced_on": "2025-09-10",
+              "event_type_id": "executive_change",
+              "occurred_on": null,
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "entity_id": "keith_rabois",
+                  "entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "properties": {
+                "position": "Chairman of the Board"
+              }
+            }
+          ],
+          "gold_relationships": [
+            {
+              "relationship_id": "HOLDS_POSITION_AT",
+              "source_id": "kaz_nejatian",
+              "source_type": "person",
+              "target_id": "opendoor",
+              "target_type": "public_company"
+            }
+          ],
+          "issues_by_code": {
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 3
+          },
+          "matched_events": [
+            {
+              "additional_property_names": [],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": true
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chief Executive Officer"
+                }
+              },
+              "event_type_id": "executive_change",
+              "expected": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chief Executive Officer"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor",
+                  "emitted_entity_text": "Opendoor Technologies Inc.",
+                  "emitted_entity_type": "public_company",
+                  "emitted_named": true,
+                  "expected_entity_id": "opendoor",
+                  "expected_entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "kaz_nejatian",
+                  "emitted_entity_text": "Kaz Nejatian",
+                  "emitted_entity_type": "person",
+                  "emitted_named": true,
+                  "expected_entity_id": "kaz_nejatian",
+                  "expected_entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "shared_entity_ids": 2
+            },
+            {
+              "additional_property_names": [],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": false
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chairman"
+                }
+              },
+              "event_type_id": "executive_change",
+              "expected": {
+                "announced_on": "2025-09-10",
+                "occurred_on": null,
+                "properties": {
+                  "position": "Chairman of the Board"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor",
+                  "emitted_entity_text": "Opendoor Technologies Inc.",
+                  "emitted_entity_type": "public_company",
+                  "emitted_named": true,
+                  "expected_entity_id": "opendoor",
+                  "expected_entity_type": "public_company",
+                  "role": "employer"
+                },
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "keith_rabois",
+                  "emitted_entity_text": "Keith Rabois",
+                  "emitted_entity_type": "person",
+                  "emitted_named": true,
+                  "expected_entity_id": "keith_rabois",
+                  "expected_entity_type": "person",
+                  "role": "officer"
+                }
+              ],
+              "shared_entity_ids": 2
+            }
+          ],
+          "matched_relationships": [
+            {
+              "basis": "shared_endpoints",
+              "dimensions": {
+                "relationship_evidence_ok": true,
+                "source_id_ok": true,
+                "source_type_ok": true,
+                "target_id_ok": true,
+                "target_type_ok": true
+              },
+              "emitted": {
+                "source_id": "kaz_nejatian",
+                "source_type": "person",
+                "target_id": "opendoor",
+                "target_type": "public_company"
+              },
+              "expected": {
+                "source_id": "kaz_nejatian",
+                "source_type": "person",
+                "target_id": "opendoor",
+                "target_type": "public_company"
+              },
+              "relationship_id": "HOLDS_POSITION_AT"
+            }
+          ],
+          "missed_events": [],
+          "missed_relationships": [],
+          "model_abstentions_by_code": {},
+          "ontology_errors": [],
+          "ontology_warnings": [],
+          "passage_id": "norm:0001801169:0001140361-25-034609:ef20055426_ex99-1.htm#p2",
+          "rejections_by_code": {
+            "PROPERTY_VALUE_NOT_IN_PASSAGE": 3
+          },
+          "request_digest": "b3eb16f11a538cc645f8ae3d026ac5286fc200c24c91e494a306ddfe9525559d",
+          "scope_concept_ids": [
+            "company",
+            "nasdaq",
+            "opendoor",
+            "public_company",
+            "stock_exchange"
+          ],
+          "scope_event_type_ids": [],
+          "scores": {
+            "abstention_code_agreement": 0.0,
+            "abstention_honoured_rate": 1.0,
+            "announcement_date_accuracy": 1.0,
+            "event_evidence_accuracy": 1.0,
+            "event_type_identity": 1.0,
+            "matched_over_emitted_events": 0.666667,
+            "matched_over_emitted_relationships": 0.333333,
+            "occurrence_date_accuracy": 1.0,
+            "participant_entity_accuracy": 1.0,
+            "participant_entity_type_accuracy": 1.0,
+            "participant_role_accuracy": 1.0,
+            "predicate_identity": 1.0,
+            "properties_accuracy": 0.5,
+            "relationship_evidence_accuracy": 1.0,
+            "source_id_accuracy": 1.0,
+            "source_type_accuracy": 1.0,
+            "target_id_accuracy": 1.0,
+            "target_type_accuracy": 1.0
+          }
+        },
+        {
+          "additional_events": [],
+          "additional_relationships": [],
+          "case_id": "event-workforce-reduction-2020",
+          "counts": {
+            "additional_events": 0,
+            "additional_property_names": 0,
+            "additional_relationships": 0,
+            "code_agreeing_abstentions": 0,
+            "emitted_events": 1,
+            "emitted_relationships": 0,
+            "expected_abstentions": 1,
+            "failures": 2,
+            "gold_event_types_in_scope": 0,
+            "gold_events": 1,
+            "gold_participants": 1,
+            "gold_relationships": 0,
+            "honoured_abstentions": 0,
+            "matched_events": 1,
+            "matched_relationships": 0,
+            "missed_events": 0,
+            "missed_relationships": 0,
+            "model_abstentions": 0,
+            "model_chosen_abstentions": 0,
+            "ontology_errors": 0,
+            "ontology_warnings": 0,
+            "rejected_payloads": 0,
+            "scope_concepts": 14,
+            "scope_event_types": 0
+          },
+          "emitted_events": [
+            {
+              "announced_on": null,
+              "event_id": "evt:workforce-reduction:2020-04-15:0aeb1b251a3a",
+              "event_type_id": "workforce_reduction",
+              "evidence": {
+                "passage_id": "norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p28",
+                "resolves": true
+              },
+              "occurred_on": "2020-04-15",
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_text": "Opendoor Technologies Inc.",
+                  "entity_type": "public_company",
+                  "named": true,
+                  "role": "operator"
+                }
+              ],
+              "properties": {
+                "reason": "outbreak of the COVID-19 pandemic"
+              },
+              "raw_text": "On April 15, 2020, we carried out a reduction in workforce following the outbreak of the COVID-19 pandemic."
+            }
+          ],
+          "emitted_relationships": [],
+          "expected_abstentions": [
+            {
+              "answer_usable": true,
+              "any_issue_recorded": false,
+              "code_recorded": false,
+              "detail": "The passage gives no number of affected employees. The event is real; a headcount property must be absent rather than estimated from the severance figures nearby.",
+              "honoured": false,
+              "reason": "NO_HEADCOUNT_STATED",
+              "silence_kept": true
+            }
+          ],
+          "failures": [
+            {
+              "category": "properties_wrong",
+              "detail": "matched event failed properties",
+              "source": "wrong_match",
+              "subject": "workforce_reduction(opendoor)"
+            },
+            {
+              "category": "silence_broken",
+              "detail": "the case requires this silence and the lane recorded no issue at all: a bare silence, not an abstention",
+              "source": "over_emitted",
+              "subject": "NO_HEADCOUNT_STATED"
+            }
+          ],
+          "gold_event_types_in_scope": [],
+          "gold_events": [
+            {
+              "announced_on": null,
+              "event_type_id": "workforce_reduction",
+              "occurred_on": "2020-04-15",
+              "participants": [
+                {
+                  "entity_id": "opendoor",
+                  "entity_type": "public_company",
+                  "role": "operator"
+                }
+              ],
+              "properties": {
+                "reason": "following the outbreak of the COVID-19 pandemic"
+              }
+            }
+          ],
+          "gold_relationships": [],
+          "issues_by_code": {},
+          "matched_events": [
+            {
+              "additional_property_names": [],
+              "basis": "shared_participants",
+              "dimensions": {
+                "announcement_date_ok": true,
+                "event_evidence_ok": true,
+                "occurrence_date_ok": true,
+                "properties_ok": false
+              },
+              "dimensions_applicable": {
+                "announcement_date": true,
+                "event_evidence": true,
+                "occurrence_date": true,
+                "properties": true
+              },
+              "emitted": {
+                "announced_on": null,
+                "occurred_on": "2020-04-15",
+                "properties": {
+                  "reason": "outbreak of the COVID-19 pandemic"
+                }
+              },
+              "event_type_id": "workforce_reduction",
+              "expected": {
+                "announced_on": null,
+                "occurred_on": "2020-04-15",
+                "properties": {
+                  "reason": "following the outbreak of the COVID-19 pandemic"
+                }
+              },
+              "participants": [
+                {
+                  "dimensions": {
+                    "participant_entity_ok": true,
+                    "participant_entity_type_ok": true,
+                    "participant_role_ok": true
+                  },
+                  "dimensions_applicable": {
+                    "participant_entity": true,
+                    "participant_entity_type": true,
+                    "participant_role": true
+                  },
+                  "emitted_entity_id": "opendoor",
+                  "emitted_entity_text": "Opendoor Technologies Inc.",
+                  "emitted_entity_type": "public_company",
+                  "emitted_named": true,
+                  "expected_entity_id": "opendoor",
+                  "expected_entity_type": "public_company",
+                  "role": "operator"
+                }
+              ],
+              "shared_entity_ids": 1
+            }
+          ],
+          "matched_relationships": [],
+          "missed_events": [],
+          "missed_relationships": [],
+          "model_abstentions_by_code": {},
+          "ontology_errors": [],
+          "ontology_warnings": [],
+          "passage_id": "norm:0001801169:0001801169-21-000010:q42020form8-kxexhibit991.htm#p28",
+          "rejections_by_code": {},
+          "request_digest": "71414e1fdd9d1d3d11f6bbab79197cad4410262e41e7568853dc451351fc53cf",
+          "scope_concept_ids": [
+            "acquisition_contracts",
+            "company",
+            "cost_of_revenue",
+            "holding_costs",
+            "homes_purchased",
+            "homes_sold",
+            "homes_under_contract",
+            "housing_inventory_homes",
+            "inventory_balance",
+            "inventory_valuation_adjustment",
+            "opendoor",
+            "public_company",
+            "revenue",
+            "revolving_credit_facility"
+          ],
+          "scope_event_type_ids": [],
+          "scores": {
+            "abstention_code_agreement": 0.0,
+            "abstention_honoured_rate": 0.0,
+            "announcement_date_accuracy": 1.0,
+            "event_evidence_accuracy": 1.0,
+            "event_type_identity": 1.0,
+            "matched_over_emitted_events": 1.0,
+            "matched_over_emitted_relationships": 1.0,
+            "occurrence_date_accuracy": 1.0,
+            "participant_entity_accuracy": 1.0,
+            "participant_entity_type_accuracy": 1.0,
+            "participant_role_accuracy": 1.0,
+            "predicate_identity": 1.0,
+            "properties_accuracy": 0.0,
+            "relationship_evidence_accuracy": 1.0,
+            "source_id_accuracy": 1.0,
+            "source_type_accuracy": 1.0,
+            "target_id_accuracy": 1.0,
+            "target_type_accuracy": 1.0
+          }
+        }
+      ],
+      "scope": "lexical",
+      "totals": {
+        "additional_events": 2,
+        "additional_property_names": 1,
+        "additional_relationships": 2,
+        "cases": 3,
+        "code_agreeing_abstentions": 0,
+        "distinct_gold_event_types": 3,
+        "distinct_passages": 3,
+        "emitted_events": 6,
+        "emitted_relationships": 4,
+        "event_pairs_by_basis": {
+          "event_type_only": 0,
+          "shared_participants": 4
+        },
+        "expected_abstentions": 4,
+        "failures": 5,
+        "failures_by_category": {
+          "announcement_date_wrong": 0,
+          "endpoint_wrong": 1,
+          "event_not_identified": 0,
+          "evidence_ungrounded": 0,
+          "occurrence_date_wrong": 0,
+          "participant_wrong": 1,
+          "predicate_not_identified": 0,
+          "properties_wrong": 2,
+          "schema_or_parse_failure": 0,
+          "silence_broken": 1
+        },
+        "gold_event_types_in_scope": 0,
+        "gold_events": 4,
+        "gold_participants": 7,
+        "gold_relationships": 2,
+        "honoured_abstentions": 3,
+        "issues_by_code": {
+          "PARTICIPANT_NOT_NAMED": 1,
+          "PROPERTY_VALUE_NOT_IN_PASSAGE": 4
+        },
+        "matched_events": 4,
+        "matched_participants": 7,
+        "matched_relationships": 2,
+        "missed_events": 0,
+        "missed_relationships": 0,
+        "model_abstentions": 1,
+        "model_abstentions_by_code": {
+          "PARTICIPANT_NOT_NAMED": 1
+        },
+        "model_chosen_abstentions": 1,
+        "ontology_errors": 0,
+        "ontology_warnings": 0,
+        "rejected_payloads": 4,
+        "rejections_by_code": {
+          "PROPERTY_VALUE_NOT_IN_PASSAGE": 4
+        },
+        "relationship_pairs_by_basis": {
+          "predicate_only": 0,
+          "shared_endpoints": 2
+        },
+        "score_denominators": {
+          "abstention_code_agreement": 4,
+          "abstention_honoured_rate": 4,
+          "announcement_date_accuracy": 4,
+          "event_evidence_accuracy": 4,
+          "event_type_identity": 4,
+          "matched_over_emitted_events": 6,
+          "matched_over_emitted_relationships": 4,
+          "occurrence_date_accuracy": 4,
+          "participant_entity_accuracy": 7,
+          "participant_entity_type_accuracy": 7,
+          "participant_role_accuracy": 7,
+          "predicate_identity": 2,
+          "properties_accuracy": 4,
+          "relationship_evidence_accuracy": 2,
+          "source_id_accuracy": 2,
+          "source_type_accuracy": 2,
+          "target_id_accuracy": 2,
+          "target_type_accuracy": 2
+        },
+        "score_numerators": {
+          "abstention_code_agreement": 0,
+          "abstention_honoured_rate": 3,
+          "announcement_date_accuracy": 4,
+          "event_evidence_accuracy": 4,
+          "event_type_identity": 4,
+          "matched_over_emitted_events": 4,
+          "matched_over_emitted_relationships": 2,
+          "occurrence_date_accuracy": 4,
+          "participant_entity_accuracy": 6,
+          "participant_entity_type_accuracy": 7,
+          "participant_role_accuracy": 7,
+          "predicate_identity": 2,
+          "properties_accuracy": 2,
+          "relationship_evidence_accuracy": 2,
+          "source_id_accuracy": 2,
+          "source_type_accuracy": 2,
+          "target_id_accuracy": 1,
+          "target_type_accuracy": 2
+        },
+        "scores": {
+          "abstention_code_agreement": 0.0,
+          "abstention_honoured_rate": 0.75,
+          "announcement_date_accuracy": 1.0,
+          "event_evidence_accuracy": 1.0,
+          "event_type_identity": 1.0,
+          "matched_over_emitted_events": 0.666667,
+          "matched_over_emitted_relationships": 0.5,
+          "occurrence_date_accuracy": 1.0,
+          "participant_entity_accuracy": 0.857143,
+          "participant_entity_type_accuracy": 1.0,
+          "participant_role_accuracy": 1.0,
+          "predicate_identity": 1.0,
+          "properties_accuracy": 0.5,
+          "relationship_evidence_accuracy": 1.0,
+          "source_id_accuracy": 1.0,
+          "source_type_accuracy": 1.0,
+          "target_id_accuracy": 0.5,
+          "target_type_accuracy": 1.0
+        }
+      }
+    }
+  },
+  "vocabulary": {
+    "declared_property_names": 43,
+    "entity_types": 24,
+    "event_type_ids": [
+      "corporate_acquisition",
+      "credit_facility_amended",
+      "credit_facility_established",
+      "credit_facility_terminated",
+      "earnings_release",
+      "executive_change",
+      "feature_launch",
+      "guidance_issuance",
+      "listing_compliance_event",
+      "market_entry",
+      "market_exit",
+      "operations_pause",
+      "partnership_announcement",
+      "product_discontinuation",
+      "product_launch",
+      "reverse_stock_split",
+      "securities_issuance",
+      "share_repurchase",
+      "workforce_reduction"
+    ],
+    "event_types": 19,
+    "event_types_declaring_an_alias": 0,
+    "participant_roles": 17,
+    "relationship_ids": [
+      "ACQUIRED",
+      "BORROWS_UNDER",
+      "HOLDS_POSITION_AT",
+      "ISSUED",
+      "LENDS_UNDER",
+      "OFFERS",
+      "OPERATES_IN",
+      "PARTNERED_WITH",
+      "REPORTED_IN",
+      "SECURED_BY"
+    ],
+    "relationship_predicates": 10,
+    "routing": {
+      "chosen": "the declared event category, offered whole",
+      "consequence": "the menu is a function of the vocabulary alone, so it is identical under both candidate scopes and both scopes replay one stored answer per case. The two columns below are equal by construction, not by measurement, and the scope comparison this report can make is a different one: whether either scope would have reached the gold event types at all.",
+      "cost": "the whole category is rendered into every prompt. Measured on the reviewed passages: the event-type block is 8,566 characters, the prompts run 4,713–4,940 tokens on the server, and the lane's own estimate leaves 1,793–2,125 tokens of the 8,192-token slot for an answer, against the 512 one event needs. The estimate is deliberately pessimistic — it assumes 3.5 characters per token where the measured ratios are 4.39–4.48 — so the real headroom is larger than the budget it hands out.",
+      "rejected": [
+        {
+          "option": "relax the metric-only filters in typed selection and the narrative lane",
+          "why_not": "necessary and not sufficient. Neither candidate scope offers any gold event type on any of these passages — the run measures it below — so admitting event concepts through those filters admits nothing here."
+        },
+        {
+          "option": "semantic retrieval over the event definitions, using the committed vectors",
+          "why_not": "would require moving `top_k` or `min_similarity`, both derived from a measured similarity distribution and asserted against the committed hybrid-scope report by `tests/extraction/test_hybrid_scoping.py`. Moving a configured threshold until three fixtures are reached is fitting the configuration to the answer sheet, and it would invalidate the committed vector cache the stage 9 report is regenerated from."
+        },
+        {
+          "option": "add aliases to the event types",
+          "why_not": "all three gold event types declare `aliases = ()` and none is in its own case's lexical scope. Transcribing the passages' wording into the vocabulary is fitting the ontology to the fixtures — the forbidden answer, and the one this stage was told not to give."
+        },
+        {
+          "option": "expand protected concepts from detected entities and actions",
+          "why_not": "needs an action lexicon that does not exist. Building one from these three passages is the alias answer at one remove."
+        }
+      ],
+      "summary": "Every declared event type is offered to the lane on every passage, and the relationship menu is derived from those types' own `allowed_relationships`. The mechanism has no threshold, no rank cut and no parameter, which is what makes it the smallest general one available: there is nothing in it that could have been fitted to a passage."
+    }
+  }
+}

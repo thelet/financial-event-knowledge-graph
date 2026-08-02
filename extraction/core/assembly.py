@@ -17,14 +17,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ontology.core.models import (
+    EventInstance,
+    EventParticipantRef,
     EvidenceReference,
     MetricObservation,
     OntologyClaim,
     Population,
+    RelationshipInstance,
 )
 
-from .identifiers import claim_id, observation_id
-from .models import LaneClaim
+from .identifiers import claim_id, event_id, observation_id, relationship_instance_id
+from .models import LaneClaim, LaneEvent, LaneRelationship
 
 # Metrics whose first source lane is `xbrl`, which the normalized corpus does not contain.
 # V1_CLAIM_EXTRACTION §3.1: acquisition fetched 364 XBRL artifacts and normalization
@@ -133,11 +136,17 @@ def population_policy_failure(ontology, claim: LaneClaim) -> str | None:
             "population_definition_raw; two denominators are not one series")
 
 
-def build_evidence(claim: LaneClaim, passage_row: dict | None = None) -> EvidenceReference:
+def build_evidence(
+    claim: LaneClaim | LaneEvent | LaneRelationship, passage_row: dict | None = None
+) -> EvidenceReference:
     """An evidence reference pinned to a real passage.
 
     `table_id` in the corpus is a *block* id (`…#b8`), not a separate namespace, so it and
     `block_ids` legitimately overlap. Callers must not assume they are disjoint.
+
+    One function for all three payload kinds rather than three, because the five fields it
+    reads mean the same thing on each — and an evidence anchor whose shape depended on the
+    payload kind is the one thing `verify` could not check uniformly.
     """
     row = passage_row or {}
     kind = "normalized_table" if claim.source_lane == "normalized_table" else "normalized_passage"
@@ -213,6 +222,126 @@ def to_claim(
         confidence=claim.confidence,
         extractor_metadata=metadata,
     )
+
+
+# -- events and relationships -------------------------------------------------------------------
+#
+# The same shape as the metric path above, one layer thinner. There is no §7 policy that
+# applies to an event, nothing is deferred to a lane this corpus lacks, and the deterministic
+# ids come from `identifiers.py` rather than being minted here.
+#
+# **Validation is not done here, and the symmetry is the point.** `assemble` does not ask the
+# ontology whether its observations are valid either; `core.validation.validate` does, for all
+# three claim kinds at once, through `payload_evidence` and `ontology.validate_claims`. An
+# assembler that adjudicated events and not observations would be two policies wearing one name.
+
+
+def to_event(event: LaneEvent, evidence: EvidenceReference) -> EventInstance:
+    """A lane event as the ontology's own payload. No repair, no defaulting.
+
+    Both dates pass through as read, including `None`. Supplying one here — the filing date is
+    in the passage row, right there — would turn the one honest answer a lane can give about
+    an undated event into a fabricated measurement that every downstream check would pass
+    (V1_CLAIM_EXTRACTION §4.0b).
+
+    **The participant pairs entering the id are sorted, and the payload's order is untouched.**
+    An id is derived from stable identity and structural position; the order a model happened
+    to list two participants in is neither, and leaving it in made `event_id` a function of the
+    answer's formatting — two answers naming the same employer and the same officer in the
+    other order minted two different ids for one event *(found by review 2026-08-02)*.
+    """
+    return EventInstance(
+        event_id=event_id(
+            event.event_type_id,
+            event.occurred_on,
+            event.passage_id,
+            tuple(sorted((p.role, p.entity_id) for p in event.participants)),
+        ),
+        event_type_id=event.event_type_id,
+        occurred_on=event.occurred_on,
+        announced_on=event.announced_on,
+        participants=tuple(
+            EventParticipantRef(role=p.role, entity_id=p.entity_id, entity_type=p.entity_type)
+            for p in event.participants
+        ),
+        properties=dict(event.properties),
+        evidence=(evidence,),
+        assertion_type=event.assertion_type,
+    )
+
+
+def to_relationship(
+    relationship: LaneRelationship, evidence: EvidenceReference
+) -> RelationshipInstance:
+    """A lane edge as the ontology's own payload.
+
+    `RelationshipInstance` has no `properties` field — `valid_from` and `valid_to` are its
+    only temporal slots and there is nowhere else to put an attribute — so anything a lane
+    read about the edge beyond its endpoints belongs on the event, which is where the
+    ontology declares properties.
+    """
+    return RelationshipInstance(
+        relationship_id=relationship.relationship_id,
+        source_id=relationship.source_id,
+        source_type=relationship.source_type,
+        target_id=relationship.target_id,
+        target_type=relationship.target_type,
+        valid_from=relationship.valid_from,
+        valid_to=relationship.valid_to,
+        evidence=(evidence,),
+        assertion_type=relationship.assertion_type,
+    )
+
+
+def to_event_claim(event: LaneEvent, passage_row: dict | None = None) -> OntologyClaim:
+    instance = to_event(event, build_evidence(event, passage_row))
+    return OntologyClaim(
+        claim_id=claim_id("event", instance.event_id),
+        claim_kind="event",
+        event=instance,
+        assertion_type=event.assertion_type,
+        extractor_metadata=dict(event.extractor_metadata),
+    )
+
+
+def to_relationship_claim(
+    relationship: LaneRelationship, passage_row: dict | None = None
+) -> OntologyClaim:
+    instance = to_relationship(relationship, build_evidence(relationship, passage_row))
+    return OntologyClaim(
+        claim_id=claim_id(
+            "relationship",
+            relationship_instance_id(
+                relationship.relationship_id, relationship.source_id,
+                relationship.target_id, relationship.passage_id),
+        ),
+        claim_kind="relationship",
+        relationship=instance,
+        assertion_type=relationship.assertion_type,
+        extractor_metadata=dict(relationship.extractor_metadata),
+    )
+
+
+def assemble_events(
+    events: list[LaneEvent],
+    relationships: list[LaneRelationship],
+    *,
+    passage_rows: dict[str, dict] | None = None,
+) -> AssemblyResult:
+    """Lane events and edges as ontology claims, in the order given.
+
+    Takes no `ontology` because it needs none: nothing here is derived from the vocabulary,
+    unlike `assemble`, whose deferral and population policies are. Adding the parameter for
+    symmetry alone would suggest a policy is applied that is not.
+    """
+    rows = passage_rows or {}
+    result = AssemblyResult()
+    for event in events:
+        result.claims.append(to_event_claim(event, rows.get(event.passage_id)))
+    for relationship in relationships:
+        result.claims.append(
+            to_relationship_claim(relationship, rows.get(relationship.passage_id)))
+    return result
 
 
 def assemble(

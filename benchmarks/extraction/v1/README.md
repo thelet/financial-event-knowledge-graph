@@ -293,6 +293,57 @@ Where the lane emits two claims under one `(metric, period)` key, the matcher ke
 nothing about gold: picking the claim that agrees with the case would make value accuracy
 unable to fall.
 
+### Event and relationship lane
+
+`reports/event_relationship_v1.{json,md}` score `OntologyGuidedEventLane` over the cases that
+annotate an event or a relationship, **under both candidate scopes**, on dimensions scored
+independently: event type identity, occurrence date, announcement date, participant role,
+participant entity id, participant entity type, properties and evidence for events; predicate
+identity, source and target id, source and target type and evidence for relationships; plus
+abstention honouring and code agreement.
+
+```bash
+python -m benchmarks.extraction.v1 event-build      # generate, needs the server on 8080
+python -m benchmarks.extraction.v1 event-report     # replay-only, offline
+python -m benchmarks.extraction.v1 event <case_id>  # one case under both scopes
+```
+
+`answers/event_v1.jsonl` is committed for the same reason `answers/narrative_v1.jsonl` is, and
+under the same rules: keyed on the request digest, holding no latency, token count or attempt
+count.
+
+**Every score lives in [`reports/event_relationship_v1.md`](reports/event_relationship_v1.md)
+and is deliberately not repeated here.** What belongs here is the parts that are not results:
+
+**The two date dimensions score abstention as an answer**, and it is the only place in this
+benchmark where emitting *less* is the scored answer. An event whose gold states no
+`occurred_on` is correct only when the lane states none either: the announcement date and the
+occurrence date are different facts about different days, so filling in the one that happens
+to be available is wrong rather than generous. See `V1_CLAIM_EXTRACTION.md` §4.0b.
+
+**The lane is offered the declared event category whole**, and takes no candidate scope. Every
+declared event type carries no alias, so there is no surface for lexical matching to reach and
+nothing for a ranker tuned on metric text to rank; the category is small enough that offering
+it entire is the retrieval, with no threshold and no parameter that could have been fitted.
+The relationship menu is derived from those types' own `allowed_relationships`. The report
+carries the rejected alternatives with the measurement that rejected each.
+
+Consequently the two scopes build the same prompt on every case, and the report says so rather
+than presenting two identical columns as a comparison. What it compares instead is
+*reachability*: whether either candidate scope would have offered the lane the gold event
+types at all.
+
+**Gold event and relationship payloads are a deliberate subset of their passages**, exactly as
+gold claims are, so an unmatched emitted event is a **non-gold addition** and never a false
+positive. Properties are compared by containment for the same reason: every gold property must
+be present and equal, and a declared property the case does not list is an addition.
+
+**How a gold payload is paired with an emitted one is stated in the report**, because the rule
+decides what some dimensions can say. Within an event type, pairs are ranked by shared
+participant entity ids and taken greedily; edges the same way over their endpoints. A pair
+found by shared participants agrees about at least one participant by construction, so the
+report prints the census of how each pair was found.
+
 ## Review status
 
 Every case is marked `reviewed: true` only after its values were checked against the cited

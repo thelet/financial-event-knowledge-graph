@@ -1056,7 +1056,7 @@ The authoritative order. Each step ends with a green offline suite and its own n
 | 9 | Embedding index and hybrid scoping | §4.2a | **done** (uncommitted) | Cache keyed by `definition_hash`, model id, dimensions, renderer version; §7 rule applied, **default deferred to step 13** |
 | 10 | Narrative metric extraction | §4.3 | **done** (uncommitted) | Marked `live`; offline suite green at 1,499, live at 49. See [STAGE_10_NARRATIVE_LANE.md](STAGE_10_NARRATIVE_LANE.md) §12a for what review corrected |
 | 11 | Narrative benchmark evaluation | §4.0 | **done** (uncommitted) | `reports/narrative_lane_v1.{json,md}`, both scopes, replayed offline from `answers/narrative_v1.jsonl`; offline suite 1,537, live 49. See [STAGE_11_NARRATIVE_EVALUATION.md](STAGE_11_NARRATIVE_EVALUATION.md) §8–§11 for the scores, the step 13 recommendation and four corrections to that brief |
-| 12 | Representative event and relationship extraction | §4.4 | not started | The benchmark's 4 events and 2 relationships |
+| 12 | Representative event and relationship extraction | §4.4 | **done** (uncommitted) | `reports/event_relationship_v1.{json,md}`, both scopes, replayed offline from `answers/event_v1.jsonl`; all 4 gold events and both gold relationships emitted, matched and validated with **zero ontology errors**; offline suite 1,832, live 60. See [STAGE_12_EVENTS_AND_RELATIONSHIPS.md](STAGE_12_EVENTS_AND_RELATIONSHIPS.md) §4 for the routing decision and the options rejected, §6 for the scores and §7 for six corrections to that brief |
 | 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping **decided here**, on step 11's extraction evidence |
 
 Steps 0–6 and 8 are fully offline. Step 7 introduces the only provider; steps 9–13 use it.
@@ -1067,7 +1067,8 @@ only meaningful once both lanes emit.
 **Where reports and catalogs live.** Benchmark evaluation reports are durable artifacts of
 the benchmark, not of a corpus run, so they are committed under
 `benchmarks/extraction/v1/reports/` — `table_lane_v1.{json,md}` at step 6,
-`narrative_lane_v1.{json,md}` at step 11. Run-specific derived catalogs belong to a run and
+`narrative_lane_v1.{json,md}` at step 11, `event_relationship_v1.{json,md}` at step 12.
+Run-specific derived catalogs belong to a run and
 live under `data/extraction_runs/<run_id>/` (step 13), which is gitignored like the rest of
 `data/`. Keeping them apart stops a benchmark result from being mistaken for corpus data, and
 stops a report from being silently overwritten by a run.
@@ -1253,6 +1254,13 @@ visible either way.
    the 64 material agreements, which deserves its own selection policy rather than an
    afterthought in a metrics plan.
 
-   One thing genuinely still open: `select` routes only metric candidates today, so step 12
-   may need the smallest typed routing extension that reaches those six cases. Anything
-   wider than the benchmark subset is a founder gate.
+   One thing that was genuinely open here: `select` routes only metric candidates today, so
+   step 12 was expected to need the smallest typed routing extension that reaches those six
+   cases. **It did not, and the reason is worth recording** *(2026-08-02)*: relaxing that
+   filter is necessary and not sufficient, because neither candidate scope offers any of the
+   three gold event types on any of their passages — 0 across 3 cases and both scopes,
+   measured on every regeneration of `event_relationship_v1.json`. The event lane is offered
+   the declared event category whole and takes no candidate scope at all, which has no
+   threshold and no parameter to fit. `select` is unchanged. STAGE_12 §4 carries the argument
+   and the rejected options. Anything wider than the benchmark subset is still a founder
+   gate.

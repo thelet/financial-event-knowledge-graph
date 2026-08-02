@@ -1,6 +1,6 @@
 """CLI for the extraction benchmark v1.
 
-Thirteen subcommands, six of which write anything:
+Sixteen subcommands, eight of which write anything:
 
     python -m benchmarks.extraction.v1 report                regenerate the table-lane reports
     python -m benchmarks.extraction.v1 evaluate              print totals, write nothing
@@ -19,13 +19,18 @@ Thirteen subcommands, six of which write anything:
     python -m benchmarks.extraction.v1 narrative-report      replay-only, offline
     python -m benchmarks.extraction.v1 narrative <case_id>   one case, both scopes
 
+    python -m benchmarks.extraction.v1 event-build           generate, needs the server
+    python -m benchmarks.extraction.v1 event-report          replay-only, offline
+    python -m benchmarks.extraction.v1 event <case_id>       one event case, both scopes
+
 `evaluate` exists because the common question during development is "did a number move",
 and answering it should not require a dirty working tree. The scope commands are separated
 from the lane commands rather than folded into `case`: they cover all 26 cases while the lane
 covers 11, and one command that silently answered about a different set depending on its
 argument would be worse than two.
 
-`hybrid-build` and `narrative-build` are the only commands in this file that touch a network.
+`hybrid-build`, `narrative-build` and `event-build` are the only commands in this file that
+touch a network.
 Each is separate from its report command on purpose: a report must be regenerable offline from
 committed artifacts — the vector caches for one, the answer store for the other — and a single
 command that quietly reached for a server on a miss would make "the committed report
@@ -41,13 +46,14 @@ import sys
 import time
 from pathlib import Path
 
-from . import hybrid_scope_runner, narrative_runner, scope_runner
+from . import event_runner, hybrid_scope_runner, narrative_runner, scope_runner
 from .runner import MATCH_DIMENSIONS, REPO_ROOT, build_report, write_reports
 
 LANE_COMMANDS = ("report", "evaluate", "case", "claims")
 SCOPE_COMMANDS = ("scope-report", "scope", "scope-diff")
 HYBRID_COMMANDS = ("hybrid-report", "hybrid-build", "hybrid")
 NARRATIVE_COMMANDS = ("narrative-report", "narrative-build", "narrative")
+EVENT_COMMANDS = ("event-report", "event-build", "event")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,16 +74,23 @@ def main(argv: list[str] | None = None) -> int:
         "narrative-report", help="regenerate reports/narrative_lane_v1.{json,md}, offline")
     subcommands.add_parser(
         "narrative-build", help="generate the narrative answers from the generation server")
+    subcommands.add_parser(
+        "event-report", help="regenerate reports/event_relationship_v1.{json,md}, offline")
+    subcommands.add_parser(
+        "event-build", help="generate the event answers from the generation server")
     for name, help_text in (("case", "one table case in detail"),
                             ("claims", "every emitted observation for one case"),
                             ("scope", "the candidate scope for one case"),
                             ("scope-diff", "expected vs included concepts for one case"),
                             ("hybrid", "the hybrid candidate scope for one case"),
-                            ("narrative", "one narrative case under both scopes")):
+                            ("narrative", "one narrative case under both scopes"),
+                            ("event", "one event case under both scopes")):
         sub = subcommands.add_parser(name, help=help_text)
         sub.add_argument("case_id")
 
     args = parser.parse_args(argv)
+    if args.command in EVENT_COMMANDS:
+        return _run_event_command(args)
     if args.command in NARRATIVE_COMMANDS:
         return _run_narrative_command(args)
     if args.command in HYBRID_COMMANDS:
@@ -504,6 +517,190 @@ def _print_narrative_case(report, case_id: str) -> None:
                   f"  in_evidence={attribution.in_evidence}"
                   f"  distance={attribution.distance}"
                   f"  comparative={attribution.chose_comparative}")
+
+
+# -- the event and relationship lane ---------------------------------------------------------
+
+
+def _run_event_command(args) -> int:
+    if args.command == "event-build":
+        return _build_event_answers()
+
+    started = time.perf_counter()
+    report = event_runner.build_report()
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+
+    if args.command == "event-report":
+        json_path, markdown_path = event_runner.write_reports(report)
+        for path in (json_path, markdown_path):
+            print(f"wrote {_display(path)}")
+        print(f"replay: {report.answer_store['answers']} stored answers, both scopes, "
+              f"{elapsed_ms:.0f} ms, no network")
+        _print_event_totals(report)
+        return 0
+
+    if report.case(args.case_id) is None:
+        print(f"no event case {args.case_id!r}. Known cases:", file=sys.stderr)
+        for known in report.views["lexical"].cases:
+            print(f"  {known.case_id}", file=sys.stderr)
+        return 2
+    _print_event_case(report, args.case_id)
+    return 0
+
+
+def _build_event_answers() -> int:
+    """Generate once per distinct request, write the store, then report from the store alone.
+
+    The report is built a second time, replay-only, rather than reused from the generating
+    run. That is the point of the command split: if the written file is not sufficient to
+    rebuild the report, this command fails here rather than a test failing later.
+    """
+    import yaml
+
+    from extraction.providers import LocalOpenAICompatibleGenerationProvider, ProviderConfig
+    from extraction.stages.narrative import (
+        EVENT_PROMPT_VERSION,
+        AnswerStore,
+        ReplayingGenerationProvider,
+    )
+
+    config = ProviderConfig.from_config(yaml.safe_load(
+        (REPO_ROOT / "config" / "extraction.yaml").read_text(encoding="utf-8")))
+    provider = LocalOpenAICompatibleGenerationProvider(config)
+    health = provider.health()
+    print(f"generation server {config.base_url}: {health.status}"
+          + (f" ({health.detail})" if health.detail else ""))
+    if not health.ok:
+        provider.close()
+        return 2
+
+    store = AnswerStore(event_runner.ANSWER_STORE)
+    recording = ReplayingGenerationProvider(
+        store, provider, model_id=config.model, prompt_version=EVENT_PROMPT_VERSION)
+    print(f"answer store holds {len(store)} answers before this run")
+
+    started = time.perf_counter()
+    try:
+        event_runner.build_report(provider=recording)
+    finally:
+        provider.close()
+    elapsed = time.perf_counter() - started
+
+    path = store.write(event_runner.ANSWER_STORE)
+    print(f"wrote {_display(path)}  {len(store)} answers, {path.stat().st_size:,} bytes")
+    print(f"generation: {elapsed:.0f} s wall clock for both scopes "
+          "(session-dependent, recorded nowhere)")
+
+    report = event_runner.build_report()
+    json_path, markdown_path = event_runner.write_reports(report)
+    for path in (json_path, markdown_path):
+        print(f"wrote {_display(path)}")
+    _print_event_totals(report)
+    return 0
+
+
+def _print_event_totals(report) -> None:
+    lexical = report.views["lexical"].totals
+    hybrid = report.views["hybrid"].totals
+    print(f"benchmark                   {report.benchmark_version}")
+    print(f"implementation commit       {report.implementation_commit}")
+    print(f"model                       {report.model['identity']}")
+    print(f"event types offered         {report.vocabulary['event_types']} "
+          f"(aliases declared: {report.vocabulary['event_types_declaring_an_alias']})")
+    print(f"{'':44}{'lexical':>10}{'hybrid':>10}")
+    for name, key, _ in event_runner.DIMENSIONS:
+        print(f"{name:44}{lexical['scores'][key]:>10.3f}{hybrid['scores'][key]:>10.3f}"
+              f"   n={lexical['score_denominators'][key]}/"
+              f"{hybrid['score_denominators'][key]}")
+    for label, key in (("gold events", "gold_events"),
+                       ("emitted events", "emitted_events"),
+                       ("matched events", "matched_events"),
+                       ("non-gold events added", "additional_events"),
+                       ("gold relationships", "gold_relationships"),
+                       ("emitted relationships", "emitted_relationships"),
+                       ("matched relationships", "matched_relationships"),
+                       ("non-gold relationships added", "additional_relationships"),
+                       ("rejected payloads", "rejected_payloads"),
+                       ("model findings", "model_abstentions"),
+                       ("ontology warnings", "ontology_warnings"),
+                       ("ontology errors", "ontology_errors"),
+                       ("classified failures", "failures"),
+                       ("gold event types any scope offers", "gold_event_types_in_scope")):
+        print(f"{label:44}{lexical[key]:>10}{hybrid[key]:>10}")
+    print("failures by category        " + (", ".join(
+        f"{category}={lexical['failures_by_category'][category]}/"
+        f"{hybrid['failures_by_category'][category]}"
+        for category in event_runner.FAILURE_CATEGORIES
+        if lexical['failures_by_category'][category]
+        or hybrid['failures_by_category'][category]) or "none"))
+    print("issues by code              " + (", ".join(
+        f"{code}={lexical['issues_by_code'].get(code, 0)}/"
+        f"{hybrid['issues_by_code'].get(code, 0)}"
+        for code in sorted(set(lexical["issues_by_code"]) | set(hybrid["issues_by_code"])))
+        or "none"))
+
+
+def _print_event_case(report, case_id: str) -> None:
+    entry = report.case_index[case_id]
+    print(f"case        {case_id}")
+    print(f"category    {entry['category']}  lane {entry['lane']}  "
+          f"(cases/{entry['source_file']})")
+    for scope in event_runner.SCOPES:
+        case = report.case(case_id, scope)
+        print()
+        print(f"-- {scope} scope " + "-" * 60)
+        print(f"passage     {case.passage_id}")
+        print(f"request     {case.request_digest}")
+        print("counts      " + "  ".join(f"{k}={v}" for k, v in case.counts.items()))
+        print("gold events")
+        matched = {}
+        for match in case.matched_events:
+            matched.setdefault(match.event_type_id, []).append(match)
+        used = {}
+        for gold in case.gold_events:
+            pool = matched.get(gold.event_type_id) or []
+            index = used.get(gold.event_type_id, 0)
+            used[gold.event_type_id] = index + 1
+            match = pool[index] if index < len(pool) else None
+            if match is None:
+                print(f"  MISS  {gold.event_type_id}  occurred_on={gold.occurred_on} "
+                      f"announced_on={gold.announced_on}")
+                continue
+            failed = match.failed_dimensions
+            print(f"  {'ok  ' if not failed else 'WRONG'}  {gold.event_type_id}"
+                  f"  occurred_on {gold.occurred_on}/{match.emitted_occurred_on}"
+                  f"  announced_on {gold.announced_on}/{match.emitted_announced_on}"
+                  f"  basis={match.basis}"
+                  + (f"  failed: {', '.join(failed)}" if failed else ""))
+            for participant in match.participants:
+                print(f"          {participant.role}: "
+                      f"{participant.expected_entity_id} / "
+                      f"{participant.emitted_entity_id}"
+                      + ("" if participant.emitted_named else "  [unresolved]"))
+        edges = {m.relationship_id: m for m in case.matched_relationships}
+        for gold in case.gold_relationships:
+            match = edges.get(gold.relationship_id)
+            if match is None:
+                print(f"  MISS  {gold.relationship_id}  {gold.source_id}->{gold.target_id}")
+                continue
+            failed = match.failed_dimensions
+            print(f"  {'ok  ' if not failed else 'WRONG'}  {gold.relationship_id}"
+                  f"  {gold.source_id}->{gold.target_id}"
+                  f"  emitted {match.emitted_source_id}->{match.emitted_target_id}"
+                  + (f"  failed: {', '.join(failed)}" if failed else ""))
+        if case.additional_events or case.additional_relationships:
+            print("non-gold additions (unscored, not errors)")
+            for key in case.additional_events:
+                print(f"        event {key}")
+            for key in case.additional_relationships:
+                print(f"        edge  {key}")
+        if case.failures:
+            print("failures")
+            for failure in case.failures:
+                print(f"  {failure.category:26} {failure.subject}  {failure.detail}")
+        if case.issues_by_code:
+            print("issues      " + ", ".join(
+                f"{code}={count}" for code, count in case.issues_by_code.items()))
 
 
 # -- shared -------------------------------------------------------------------------------

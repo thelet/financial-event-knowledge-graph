@@ -1647,6 +1647,11 @@ NARRATIVE_IMPORT_ALLOWLIST = frozenset({
     # `narrative_lane.output_budget` rounds a character count up to a token estimate. Standard
     # library arithmetic, no socket *(added 2026-08-02 with the prompt-aware output budget)*.
     "math",
+    # `core.periods.parse_printed_date` validates a printed day against its month through
+    # `datetime.date`, so "February 31, 2022" is refused rather than formatted. The calendar
+    # is standard library and opens nothing *(added 2026-08-02 with the event lane's date
+    # reader; the guard caught it, which is what an allowlist that fails closed is for)*.
+    "datetime",
 })
 
 

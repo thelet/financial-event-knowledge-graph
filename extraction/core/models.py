@@ -173,8 +173,10 @@ class CandidatePassage(BaseModel):
 class LaneAbstention(BaseModel):
     """A claim a lane deliberately did not make, and why.
 
-    First-class rather than a log line. The benchmark's expected behaviour for 24 of its
-    cases is an abstention, so a lane that cannot express one cannot be scored.
+    First-class rather than a log line. A large minority of the benchmark's cases expect an
+    abstention rather than a claim, so a lane that cannot express one cannot be scored. The
+    count is deliberately not written here: it was `24` until a 2026-08-02 gold correction
+    made it 23, and a number in a docstring is a number nothing regenerates.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -222,6 +224,85 @@ class LaneClaim(BaseModel):
     population_definition_raw: str | None = None
     ambiguity_codes: tuple[str, ...] = ()
     confidence: float | None = None
+    extractor_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LaneEventParticipant(BaseModel):
+    """One entity taking part in an event, in a role the event type declares.
+
+    `entity_text` is the passage's own words for the participant, kept for the same reason
+    `LaneClaim.raw_text` is: an id derived from a printed name is auditable only beside the
+    name it was derived from.
+
+    `named` records whether the filing actually named the entity. "a subsidiary of the
+    Company" is a real participant that the filing never names, and an unresolved placeholder
+    and a resolved id must not look alike — the first is a flag for entity resolution and the
+    second is an answer.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: str
+    entity_id: str
+    entity_type: str
+    entity_text: str
+    named: bool = True
+
+
+class LaneEvent(BaseModel):
+    """What a lane read about one event, before it becomes an ontology claim.
+
+    **Both dates are optional here and neither is ever derived from the other.** `occurred_on`
+    is populated only from evidence saying the event happened or took effect;`announced_on`
+    only from a dateline or an explicit statement that it was announced on that day. A
+    document's `filing_date` or `report_date` populates neither. Which of them an event type
+    requires is the event type's declaration to make (`required_temporal_fields`,
+    `required_temporal_any_of`) and this model deliberately encodes no answer to it — the
+    lane asks the definition (V1_CLAIM_EXTRACTION §4.0b).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type_id: str
+    occurred_on: str | None = None
+    announced_on: str | None = None
+    participants: tuple[LaneEventParticipant, ...] = ()
+    properties: dict[str, str] = Field(default_factory=dict)
+    passage_id: str
+    document_id: str
+    raw_text: str
+    source_lane: str
+    assertion_type: str = "reported"
+    extractor_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LaneRelationship(BaseModel):
+    """A typed edge a lane read out of one passage.
+
+    Endpoints carry both an id and a type because the ontology validates only the second:
+    `check_relationship_instance` reads `source_type` and `target_type` against the
+    predicate's declarations and never looks at an id. The ids are carried, and are
+    deterministic, because the graph is built from them.
+
+    `relationship_id` is the **uppercase** predicate the registry is keyed by
+    (`HOLDS_POSITION_AT`), not the concept id (`holds_position_at`). The two indexes exist and
+    only one of them is the one `validate_relationship` asks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    relationship_id: str
+    source_id: str
+    source_type: str
+    target_id: str
+    target_type: str
+    valid_from: str | None = None
+    valid_to: str | None = None
+    passage_id: str
+    document_id: str
+    raw_text: str
+    source_lane: str
+    assertion_type: str = "reported"
     extractor_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

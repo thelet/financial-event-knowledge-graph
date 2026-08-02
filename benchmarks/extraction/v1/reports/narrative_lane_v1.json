@@ -251,7 +251,7 @@
     "scale_wrong",
     "value_wrong"
   ],
-  "implementation_commit": "1a96c228009d694d4d4617c023e0b142d3c55426",
+  "implementation_commit": "1f37059b6aa74f9061023a1fb1dc3c61b8648764",
   "lane": {
     "name": "normalized_narrative",
     "prompt_version": "1.2.0",

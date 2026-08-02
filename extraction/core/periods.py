@@ -19,6 +19,7 @@ sit in tables whose other rows are flows.
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from .models import PeriodRef
 
@@ -215,6 +216,75 @@ def period_phrases(text: str) -> tuple[str, ...]:
             if any(resolve_period_phrase(phrase, period_type=kind) is not None
                    for kind in (DURATION, INSTANT)):
                 found[phrase] = match.start()
+    return tuple(sorted(found, key=lambda phrase: (found[phrase], phrase)))
+
+
+# -- the calendar dates a passage prints -------------------------------------------------------
+#
+# A period is not a date. `period_phrases` above answers "which reporting period is this figure
+# for"; the two functions below answer "which day does this sentence say something happened on",
+# which is what an event needs and what no reader here could produce *(added at step 12)*.
+#
+# **They are deliberately separate patterns rather than a widening of `_FULL_DATE`.** Widening
+# it would change `period_phrases` on every passage in the corpus, which changes the narrative
+# lane's `period_label` enum, which changes its prompt, which makes every stored answer
+# unreachable — a large, invisible cost for a reader that no metric observation needs.
+#
+# The abbreviations are here because SEC press-release datelines use them and the full-month
+# pattern above cannot read one: "SAN FRANCISCO, Sept. 10, 2025 (GLOBE NEWSWIRE)" is the
+# standard form, and a date reader that only accepts "September" reads no dateline at all.
+_MONTH_ABBREVIATIONS: dict[str, int] = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+_ALL_MONTH_WORDS = "|".join(
+    sorted(set(MONTHS) | set(_MONTH_ABBREVIATIONS), key=len, reverse=True))
+
+# "October 19, 2022", "Sept. 10, 2025", "Apr 15 2020". The trailing full stop is optional
+# because both spellings occur, and the comma is optional for the same reason.
+_PRINTED_DATE = re.compile(
+    rf"\b({_ALL_MONTH_WORDS})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})\b", re.I)
+
+
+def parse_printed_date(text: str) -> str | None:
+    """One printed calendar date as `YYYY-MM-DD`, or None when the text prints none.
+
+    Validates the day against the month rather than formatting whatever was matched: "February
+    31, 2022" is a typo, not a date, and emitting it would put a day that does not exist into an
+    event's `occurred_on`. Leap years are handled by `datetime.date` rather than by the
+    `_LAST_DAY` table above, which is a table of table-header month lengths and says 28 for
+    February.
+    """
+    match = _PRINTED_DATE.search(text or "")
+    if match is None:
+        return None
+    word = match.group(1).lower().rstrip(".")
+    month = MONTHS.get(word) or _MONTH_ABBREVIATIONS.get(word)
+    if month is None:
+        return None
+    try:
+        return date(int(match.group(3)), month, int(match.group(2))).isoformat()
+    except ValueError:
+        return None
+
+
+def date_phrases(text: str) -> tuple[str, ...]:
+    """Every calendar date this passage prints, as printed, in the order printed.
+
+    Ordered by first occurrence and de-duplicated on the phrase, the same rule
+    `period_phrases` follows and for the same reason: the vocabulary is read by a human
+    reviewing a prompt, and document order is how the passage reads.
+
+    A phrase enters only if `parse_printed_date` actually resolves it, so the vocabulary and
+    the resolution can never disagree about what is readable.
+    """
+    found: dict[str, int] = {}
+    for match in _PRINTED_DATE.finditer(text or ""):
+        phrase = " ".join(match.group(0).split())
+        if phrase in found or parse_printed_date(phrase) is None:
+            continue
+        found[phrase] = match.start()
     return tuple(sorted(found, key=lambda phrase: (found[phrase], phrase)))
 
 
