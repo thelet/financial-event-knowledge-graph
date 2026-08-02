@@ -87,10 +87,22 @@ VIEWS = ("lexical", "embedding_only", "hybrid")
 # make the artifact unreadable without answering anything the head does not.
 HEAD_RANKS = 5
 
-# STAGE_09 §7's numbers, transcribed. Stated here rather than in prose so the decision block is
-# computed against them and cannot drift from the sentence that describes it.
-LEXICAL_REQUIRED_RECALL_BASELINE = 0.959
-LEXICAL_SCOPE_SIZE_BASELINE = 17.9
+# STAGE_09 §7's numbers as measured on 2026-08-01, kept for provenance and **not** used as a
+# live threshold.
+#
+# `LEXICAL_REQUIRED_RECALL_BASELINE = 0.959` used to be criterion 1's bar. The 2026-08-02
+# benchmark correction to `population-portfolio-mdna-fy2023-10k` added a gold claim, which
+# moved lexical's own recall to 0.960 — so the frozen number stopped being lexical's number
+# while the criterion's prose still said "strictly greater than 0.959". A constant that
+# describes a measurement goes stale the moment the measurement moves, and here it would have
+# gone stale silently in the direction that flatters hybrid. Criterion 1 now compares against
+# the lexical view computed in the same run, which is what "improves on lexical" means and
+# cannot drift; the Stage 9 figure is reported beside it as history.
+#
+# `LEXICAL_SCOPE_SIZE_BASELINE = 17.9` went the same way and is deleted rather than renamed:
+# criterion 3 already computed its ratio from the same-run lexical mean, so the constant was
+# read by nothing and only appeared, hand-copied, inside the criterion's prose.
+STAGE_09_LEXICAL_RECALL = 0.959
 SCOPE_SIZE_BUDGET = 1.25
 
 # The two wordings stage 8 measured as unreachable lexically, as sentences. They are probes as
@@ -332,7 +344,7 @@ def run_hybrid(
         ablation=_ablation(ontology, concept_cache, scope),
         sensitivity=_sensitivity(
             cases, views, rankings, scope, instance_ids=instance_ids),
-        decision=_decision(views, neighbours),
+        decision=_decision(views, neighbours, ontology),
     )
 
 
@@ -725,7 +737,7 @@ def _sensitivity(cases, views, rankings, scope, *, instance_ids) -> list[dict[st
 # -- the decision rule ------------------------------------------------------------------------------
 
 
-def _decision(views, neighbours) -> dict[str, Any]:
+def _decision(views, neighbours, ontology) -> dict[str, Any]:
     """STAGE_09 §7, applied criterion by criterion and computed, never narrated.
 
     The verdict is derived from the four booleans by the rule §7 states in advance: all four
@@ -764,16 +776,20 @@ def _decision(views, neighbours) -> dict[str, Any]:
 
     criteria = [
         {"criterion": 1,
-         "statement": "required-concept recall strictly greater than 0.959, and both "
-                      "`pct_homes_on_market_gt_120_days` paraphrases recovered",
+         "statement": "required-concept recall strictly greater than lexical's "
+                      f"{lexical['scores']['required_concept_recall']:.3f} measured in this "
+                      "same run, and both `pct_homes_on_market_gt_120_days` paraphrases "
+                      "recovered",
          "measured": {
              "required_concept_recall": scores["required_concept_recall"],
              "lexical_required_concept_recall":
                  lexical["scores"]["required_concept_recall"],
+             "stage_09_lexical_recall_as_measured": STAGE_09_LEXICAL_RECALL,
              "paraphrases_recovered": sorted(recovered),
              "paraphrases_missed": missed_paraphrases},
          "holds": bool(
-             scores["required_concept_recall"] > LEXICAL_REQUIRED_RECALL_BASELINE
+             scores["required_concept_recall"]
+             > lexical["scores"]["required_concept_recall"]
              and not missed_paraphrases)},
         {"criterion": 2,
          "statement": "critical-concept recall 1.000 and ambiguity preservation 1.000, "
@@ -784,7 +800,9 @@ def _decision(views, neighbours) -> dict[str, Any]:
          "holds": bool(scores["critical_concept_recall"] == 1.0
                        and scores["ambiguity_preservation"] == 1.0)},
         {"criterion": 3,
-         "statement": "scope size mean no worse than +25% over lexical's 17.9 of 131",
+         "statement": "scope size mean no worse than +25% over lexical's "
+                      f"{lexical['scope_size']['mean']:.1f} of "
+                      f"{len(ontology.registry.definitions.concepts)} measured in this same run",
          "measured": {
              "lexical_mean": lexical["scope_size"]["mean"],
              "hybrid_mean": hybrid["scope_size"]["mean"],

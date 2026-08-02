@@ -23,7 +23,8 @@ re-scored here.
 **Both scopes, same lane, same prompt, same model.** `LexicalOntologyCandidateScope` and
 `HybridOntologyCandidateScope` are injected in turn. This is the comparison §9 step 13
 decides the runtime default on, and step 9 deliberately left open because reachability alone
-could not settle it: hybrid reached required-concept recall 0.980 against lexical's 0.959,
+could not settle it: hybrid reached required-concept recall 0.980 against lexical's 0.959
+(0.980 against 0.960 after the 2026-08-02 benchmark correction — the gap is unchanged),
 critical-concept recall and ambiguity preservation were 1.000 under both, and the +25% cost
 budget did not discriminate anywhere in `top_k` 1–8. Extraction quality is the better
 instrument, and this is where it is taken.

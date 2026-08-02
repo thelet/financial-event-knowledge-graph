@@ -22,6 +22,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 
 from benchmarks.extraction.v1 import hybrid_scope_runner, runner, scope_runner
 from extraction.contracts import EmbeddingProvider, OntologyCandidateScope
@@ -1085,9 +1086,31 @@ def test_the_benchmark_readme_lexical_gates_match_the_committed_report():
 
 
 def test_the_three_views_are_all_scored_over_every_case(report):
+    """The denominator is derived from the gold rather than written down.
+
+    It used to read `== 49`, which is the number the benchmark happened to carry on the day
+    it was written. The 2026-08-02 correction to `population-portfolio-mdna-fy2023-10k`
+    added one gold claim and this test failed with `50 == 49` — the right thing to happen,
+    but the wrong reason to have to edit a test, because a literal cannot distinguish "the
+    gold changed" from "a view silently stopped scoring a case". Recomputing it from the
+    case files tests the claim in the name: every view is scored over the whole population,
+    and all three agree on what that population is.
+    """
+    cases = _load_case_files()
+    expected_cases = len(cases)
+    expected_concepts = len({(c["case_id"], claim["metric_id"])
+                             for c in cases for claim in (c.get("gold_claims") or [])})
     for view in hybrid_scope_runner.VIEWS:
-        assert len(report.views[view].cases) == 26
-        assert report.views[view].totals["denominators"]["required_concepts"] == 49
+        assert len(report.views[view].cases) == expected_cases
+        assert (report.views[view].totals["denominators"]["required_concepts"]
+                == expected_concepts), view
+
+
+def _load_case_files() -> list[dict]:
+    cases: list[dict] = []
+    for path in sorted((runner.PACKAGE_ROOT / "cases").glob("*.yaml")):
+        cases.extend(yaml.safe_load(path.read_text(encoding="utf-8"))["cases"])
+    return cases
 
 
 def test_the_embedding_only_view_is_a_diagnostic_that_fails_ambiguity(report):

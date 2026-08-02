@@ -118,7 +118,12 @@ python -m benchmarks.extraction.v1 scope-diff <case_id>  # expected vs included
 - [x] Critical-concept recall **1.000** and ambiguity preservation **1.000**. These are
       genuine gates: a confusable pair or an ambiguous surface that lexical matching drops is
       a defect, because the surface is *there* to be matched.
-- [x] Required-concept recall **0.959 (47/49)** — *gate corrected after measurement*.
+- [x] Required-concept recall **0.959 (47/49)** as measured 2026-08-01 — *gate corrected
+      after measurement*. **Now 0.960 (48/50)** *(verified 2026-08-02)*: the founder
+      correction to `population-portfolio-mdna-fy2023-10k` added one required concept, and
+      the lexical scope already reached it via `normalized_alias`, so numerator and
+      denominator both rose by one. **The two misses below are unchanged** — the correction
+      moved the denominator, not the shortfall, and the gate still fails.
 
   I set 1.000 before measuring, on the assumption that whole-phrase alias matching could
   reach every gold metric. It cannot, and the two misses show why. Both are
@@ -137,8 +142,12 @@ python -m benchmarks.extraction.v1 scope-diff <case_id>  # expected vs included
   Sold" read as `contribution_profit`).
 
   **This is the measurement that motivates stage 9.** Semantic retrieval that may only *add*
-  candidates is precisely the mechanism for a paraphrase no declared surface covers. 0.959 is
-  the lexical baseline hybrid scoping must beat; if it does not, lexical stays the default.
+  candidates is precisely the mechanism for a paraphrase no declared surface covers. The
+  lexical recall measured in the same run is the baseline hybrid scoping must beat; if it does
+  not, lexical stays the default. It was **0.959** here and is **0.960** after the 2026-08-02
+  benchmark correction — which is exactly why the criterion is now computed against the
+  same-run lexical view rather than against a transcribed constant
+  ([STAGE_09_HYBRID_SCOPING.md](STAGE_09_HYBRID_SCOPING.md) §11.7).
 
   **Stage 9 measured it and did not settle the default** —
   [STAGE_09_HYBRID_SCOPING.md](STAGE_09_HYBRID_SCOPING.md) §11.3c. Hybrid reaches 0.980 at the

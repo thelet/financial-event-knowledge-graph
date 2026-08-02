@@ -5,6 +5,15 @@ the normalized passage it cites**, on 2026-08-01, against the corpus produced af
 encoding correction (`V1_DOCUMENT_NORMALIZATION.md` §16b). No value is inferred, computed,
 or copied from a model's output.
 
+**One case has been corrected since.** On 2026-08-02 a founder decision changed
+`population-portfolio-mdna-fy2023-10k` from an expected `DEFINITIONAL_NOT_OBSERVATIONAL`
+abstention to a gold observation: its passage both defines the 120-day metric *and* reports
+18% for 2023-12-31, and the annotation's stated grounds were false about the passage it
+cited. Gold claims 68 → 69, expected abstentions 24 → 23. The case's own `notes` carry the
+full reasoning, `tests/extraction/test_benchmark_integrity.py` pins it, and the affected
+reports were regenerated with no change to any lane. A benchmark correction is a founder
+decision, never a lane's — see `plans/extraction/V1_CLAIM_EXTRACTION.md` §4.0a.
+
 The point of this benchmark is to make "the parser emitted claims" an inadmissible proof.
 A lane is scored on eight dimensions independently, because a claim can be right about the
 metric and wrong about the period, and a scorer that collapses that into one number hides
@@ -16,10 +25,10 @@ exactly the failures that matter for an evidence-linked graph.
 | --- | --- |
 | documents | 15 |
 | cases | 26 |
-| gold claims | 68 |
+| gold claims | 69 |
 | gold events | 4 |
 | gold relationships | 2 |
-| expected abstentions | 24 |
+| expected abstentions | 23 |
 | distinct metrics covered | 15 of the 20 in scope |
 
 Coverage is deliberate, not proportional: the ambiguous and adversarial cases are
@@ -158,7 +167,7 @@ would be unrecoverable is the opposite, so the numbers that matter are recalls.
 
 | Gate (STAGE_08 §8) | Required | Measured |
 | --- | --- | --- |
-| required-concept recall | 1.000 | **0.959** (47/49) — **FAIL** |
+| required-concept recall | 1.000 | **0.960** (48/50) — **FAIL** |
 | critical-concept recall | 1.000 | 1.000 (23/23) |
 | ambiguity preservation | 1.000 | 1.000 (1/1) |
 

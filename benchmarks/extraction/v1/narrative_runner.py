@@ -83,6 +83,7 @@ from .narrative_evaluation import (
     CaseScore,
     ExpectedAbstention,
     GoldObservation,
+    MatchRecord,
     score_case,
     totals,
 )
@@ -127,11 +128,15 @@ TABLE_PASSAGE_CASE = "negative-ambiguous-alias-bare-gross-profit"
 # The two wordings step 8 measured as lexically unreachable and step 9 measured semantically.
 # This is the first stage that can say whether *reaching* the concept produced a correct claim,
 # which is the question STAGE_11 §5 asks these probes to answer.
-# One disagreement between the lane and a reviewed case that looks like a case error rather
-# than a lane error. Recorded and **not acted on**: STAGE_11 forbids changing the benchmark,
-# and a stage that edited a case because its own lane disagreed would have stopped measuring
-# anything. It is stated so the reviewers can settle it, with the passage's own words as the
-# evidence.
+# Disagreements between the lane and a reviewed case that looked like case errors rather than
+# lane errors. Stage 11 recorded them and **did not act on them**: STAGE_11 forbids changing
+# the benchmark, and a stage that edited a case because its own lane disagreed would have
+# stopped measuring anything. They are stated with the passage's own words so a founder can
+# settle them, and the `resolution` field is where that answer lands.
+#
+# The entry below is kept **after** being settled rather than deleted, because the record of a
+# lane and a benchmark disagreeing — and of which one turned out to be wrong — is worth more
+# than a report that only ever shows agreement.
 REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
     {"case_id": "population-portfolio-mdna-fy2023-10k",
      "the_case_says": "gold_claims: [] with an expected DEFINITIONAL_NOT_OBSERVATIONAL "
@@ -143,10 +148,15 @@ REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
                        "for the broader market”",
      "question": "the paragraph both defines the metric and states a value for the period. "
                  "If the sentence above is observational, the case's expected abstention is "
-                 "wrong and this claim is gold; if it is not, the lane is mining a definition. "
-                 "Nothing here decides it — the lane, the prompt and the case are all "
-                 "unchanged, and the claim is counted as a broken required silence, which is "
-                 "the harsher of the two readings."},
+                 "wrong and this claim is gold; if it is not, the lane is mining a definition.",
+     "resolution": "**Settled 2026-08-02 — the case was wrong and the lane was right.** "
+                   "Founder decision: the passage is observational. The case now carries the "
+                   "18% observation as gold with population.definition_raw “such homes "
+                   "represented 18% of our portfolio”, and the "
+                   "DEFINITIONAL_NOT_OBSERVATIONAL abstention is gone. The comparison figure "
+                   "21% stays unscored — the broader market is not a subject V1 can carry. "
+                   "Nothing in the lane changed: the answer store is byte-identical and this "
+                   "report was rebuilt by replay. See V1_CLAIM_EXTRACTION §4.0a."},
 )
 
 PARAPHRASE_PROBE_CONCEPT = "pct_homes_on_market_gt_120_days"
@@ -1350,9 +1360,77 @@ def render_markdown(report: NarrativeLaneReport) -> str:
     lines += _warning_census_markdown(report)
     lines += _comparison_markdown(report)
     lines += _probe_markdown(report)
+    lines += _population_span_markdown(report)
     lines += _review_questions_markdown()
     lines += _per_case_markdown(report)
     return "\n".join(lines) + "\n"
+
+
+def _population_span_markdown(report: NarrativeLaneReport) -> list[str]:
+    """Why `population_accuracy` reads 0.000, computed rather than asserted.
+
+    §7.1 scoring arrived in step 11 and immediately read zero, which invites being read as
+    "the lane loses the denominator". Every emitted and expected wording is laid out here
+    instead, because the pattern across them says something different and a reader should be
+    able to check it rather than take this report's word for it. Nothing here is a hand-copied
+    number: the rows, the counts and the sentence that follows them are all derived from the
+    matches, so a run where the pattern stops holding says so.
+    """
+    rows: list[tuple[str, str, MatchRecord]] = []
+    for scope in SCOPES:
+        for case in report.views[scope].cases:
+            for match in case.matched:
+                if match.applies("population"):
+                    rows.append((scope, case.case_id, match))
+
+    if not rows:
+        return []
+
+    failing = [r for r in rows if not r[2].population_ok]
+    contained = [r for r in failing if r[2].population_contained_in_expected]
+
+    lines = [
+        "## Why `population_accuracy` is 0.000",
+        "",
+        f"{len(rows)} matched observations across both scopes declare a population; "
+        f"**{len(failing)}** disagree with gold. Of those, "
+        f"**{len(contained)}** emit a string that is a *substring* of what gold expects.",
+        "",
+        "| scope | case | lane emitted | gold expects | emitted ⊂ expected |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for scope, case_id, match in rows:
+        mark = "yes" if match.population_contained_in_expected else "**no**"
+        lines.append(
+            f"| {scope} | [`{case_id}`](#{case_id}) | {_cell(match.emitted_population)} | "
+            f"{_cell(match.expected_population)} | {mark} |")
+
+    lines += [""]
+    if len(contained) == len(failing) and failing:
+        lines += [
+            "**Every disagreement has the same shape, and it is not a lost denominator.** "
+            "Both sides quote the passage verbatim; they disagree about how much of the "
+            "sentence `population.definition_raw` should span — the lane records the "
+            "denominator phrase, the gold records the whole clause containing it. The "
+            "requirement §7.1 exists to protect still holds under the lane's wordings: "
+            "`our homes`, `our portfolio` and `our homes in inventory` remain distinct, so "
+            "no two series are merged. Read this 0.000 as a span convention that has not "
+            "been settled, **not** as evidence that population wording was dropped.",
+            "",
+            "**Which convention is right is a founder decision, not this stage's.** Changing "
+            "either side moves the score on every row above. Recorded, unacted on, exactly "
+            "like the annotation question below. See `V1_CLAIM_EXTRACTION.md` §4.0a.",
+            "",
+        ]
+    elif failing:
+        lines += [
+            "**The disagreements no longer share one shape** — at least one emitted wording "
+            "is not contained in the expected one, so the span-convention reading above does "
+            "not cover this run. Each `no` row is a candidate lost denominator and should be "
+            "read on its own.",
+            "",
+        ]
+    return lines
 
 
 def _review_questions_markdown() -> list[str]:
@@ -1360,10 +1438,11 @@ def _review_questions_markdown() -> list[str]:
         "## What this run puts back to the reviewers",
         "",
         "Disagreements between the lane and a reviewed case that look like case errors rather "
-        "than lane errors. **Recorded and not acted on.** STAGE_11 forbids changing the "
+        "than lane errors. **A stage never acts on these.** STAGE_11 forbids changing the "
         "benchmark, and a stage that edited a case because its own lane disagreed with it "
-        "would have stopped measuring anything. Each is scored under the case as written, "
-        "which is the harsher reading.",
+        "would have stopped measuring anything. Until a founder answers, each is scored under "
+        "the case as written, which is the harsher reading. Answers are recorded in place "
+        "rather than by deleting the question.",
         "",
     ]
     for entry in REVIEW_QUESTIONS:
@@ -1372,9 +1451,10 @@ def _review_questions_markdown() -> list[str]:
             "",
             "| | |",
             "| --- | --- |",
-            f"| the case says | {_cell(entry['the_case_says'])} |",
+            f"| the case said | {_cell(entry['the_case_says'])} |",
             f"| this run found | {_cell(entry['this_run_found'])} |",
             f"| the question | {_cell(entry['question'])} |",
+            f"| resolution | {_cell(entry.get('resolution', 'open — not yet settled'))} |",
             "",
         ]
     return lines

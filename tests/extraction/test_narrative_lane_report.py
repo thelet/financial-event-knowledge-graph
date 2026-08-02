@@ -16,6 +16,7 @@ exists because a committed report that nobody diffs is a screenshot.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -1008,3 +1009,88 @@ def test_the_two_scopes_are_scored_over_the_same_cases(report):
     assert lexical == hybrid
     assert len(lexical) == 14
     assert report.comparison["cases"] == 14
+
+
+def test_the_population_span_table_is_the_matches_it_claims_to_render(report):
+    """The 0.000 explanation is a Markdown table, and the Stage 11 review found three of
+    those checked by nothing. This one is checked against the matches it is derived from.
+
+    Added 2026-08-02 with the `population-portfolio-mdna-fy2023-10k` correction, which took
+    the population denominator from 4 to 5 while the score stayed 0.000 — a number that
+    invites being read as "the lane loses the denominator" and means something else. The
+    report now says what it means, so the saying has to be true.
+    """
+    markdown = narrative_runner.render_markdown(report)
+    section = markdown[markdown.index("## Why `population_accuracy` is 0.000"):
+                       markdown.index("## What this run puts back to the reviewers")]
+
+    rows = [(scope, case.case_id, match)
+            for scope in narrative_runner.SCOPES
+            for case in report.views[scope].cases
+            for match in case.matched if match.applies("population")]
+    assert rows, "the section renders nothing if no match declares a population"
+
+    # Every row is present, with the lane's wording and gold's, in that order.
+    for _scope, case_id, match in rows:
+        assert case_id in section
+        assert match.emitted_population in section, match.emitted_population
+        assert match.expected_population in section, match.expected_population
+
+    # The counts in the prose are the counts in the data, not three hand-typed integers.
+    failing = [r for r in rows if not r[2].population_ok]
+    contained = [r for r in failing if r[2].population_contained_in_expected]
+    assert (f"{len(rows)} matched observations across both scopes declare a population; "
+            f"**{len(failing)}** disagree with gold. Of those, "
+            f"**{len(contained)}** emit a string") in section
+
+    # And the aggregate it is explaining agrees with the rows explaining it.
+    for scope in narrative_runner.SCOPES:
+        scope_rows = [r for r in rows if r[0] == scope]
+        score = report.views[scope].totals["scores"]["population_accuracy"]
+        ok = len([r for r in scope_rows if r[2].population_ok])
+        assert score == pytest.approx(ok / len(scope_rows))
+
+
+def test_the_span_reading_is_stated_only_while_every_disagreement_has_that_shape(report):
+    """The section's claim — "a span convention, not a lost denominator" — is true because
+    every emitted wording is a substring of the expected one. If one ever is not, the claim
+    stops being true and the report must stop making it.
+
+    Verified by mutation rather than by reading: flipping one match's containment flips the
+    prose to the other branch. Without this, the reassuring sentence would survive the very
+    situation that makes it false, which is the failure mode the whole report is written
+    against.
+    """
+    rows = [match for scope in narrative_runner.SCOPES
+            for case in report.views[scope].cases
+            for match in case.matched if match.applies("population")]
+    failing = [m for m in rows if not m.population_ok]
+    assert failing, "nothing to explain if every population matches"
+
+    span_reading = "**Every disagreement has the same shape, and it is not a lost denominator.**"
+    other_reading = "**The disagreements no longer share one shape**"
+
+    assert all(m.population_contained_in_expected for m in failing), (
+        "this run's populations are no longer all substrings; the report must now take the "
+        "other branch and this test's premise has genuinely changed")
+    assert span_reading in narrative_runner.render_markdown(report)
+
+    # `report` is frozen dataclasses all the way down, so the mutation rebuilds the chain
+    # rather than assigning into it — which also proves the renderer reads the match records
+    # and not some cached prose.
+    rendered = narrative_runner.render_markdown(
+        _with_containment(report, failing[0], False))
+    assert other_reading in rendered
+    assert span_reading not in rendered
+
+
+def _with_containment(report, target, value):
+    views = {
+        scope: dataclasses.replace(view, cases=tuple(
+            dataclasses.replace(case, matched=tuple(
+                dataclasses.replace(m, population_contained_in_expected=value)
+                if m is target else m
+                for m in case.matched))
+            for case in view.cases))
+        for scope, view in report.views.items()}
+    return dataclasses.replace(report, views=views)

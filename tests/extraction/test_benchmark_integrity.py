@@ -247,3 +247,108 @@ def test_every_abstention_states_a_reason(case):
         assert re.fullmatch(r"[A-Z][A-Z_]+", abstention["reason"]), (
             f"{case['case_id']}: reason {abstention['reason']!r} should be an upper snake-case code"
         )
+
+
+@pytest.mark.parametrize("case", CASES, ids=case_ids())
+def test_capture_instead_text_is_quoted_from_the_passage(case, passages):
+    """An abstention that names what to capture instead must name it in the passage's words.
+
+    Added 2026-08-02 with the `population-portfolio-mdna-fy2023-10k` correction, which is
+    what it would have caught: that case's `capture_instead.text` read "... greater than 120
+    days (as measured from initial listing date)", parenthesised, which is the FY2021 10-K
+    wording the ontology carries as `source_evidence` for the metric — not the FY2023
+    passage the case cites, which prints the clause without parentheses. The quote was from
+    a different filing and nothing noticed, because `capture_instead` was the one annotation
+    field no integrity check read. Gold claims' `population.definition_raw` was already held
+    to this rule; abstentions were not.
+    """
+    text = passages[case["passage_id"]]["text"]
+    for abstention in case.get("abstentions") or []:
+        capture = abstention.get("capture_instead") or {}
+        quoted = capture.get("text")
+        if quoted:
+            assert quoted in text, (
+                f"{case['case_id']}: capture_instead.text is not verbatim in "
+                f"{case['passage_id']}"
+            )
+
+
+def test_the_fy2023_mdna_paragraph_is_observational_not_merely_definitional():
+    """The founder decision of 2026-08-02, pinned to the passage that settles it.
+
+    The case used to expect a `DEFINITIONAL_NOT_OBSERVATIONAL` abstention on the grounds
+    that "the value for the period is reported in the KPI table at open-20231231.htm#p105,
+    not here". That is false about this passage, and this test states why in the only terms
+    that matter: the sentence supplies all four things an observation needs — metric,
+    subject, instant and value — in the passage the case cites. A figure also appearing in a
+    KPI table does not withdraw the prose evidence; two passages may independently support
+    one reported observation.
+
+    Parametrised over nothing on purpose. This is not a shape rule that should hold for
+    every case; it is one adjudicated reading, and it is written down so that reverting the
+    annotation without revisiting the passage fails.
+    """
+    case = next(c for c in CASES if c["case_id"] == "population-portfolio-mdna-fy2023-10k")
+    rows = {}
+    catalog = Path(__file__).resolve().parents[2] / "data" / "normalization_catalog"
+    if not (catalog / "passages.jsonl").is_file():
+        pytest.skip("no normalized corpus")
+    for line in (catalog / "passages.jsonl").read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = json.loads(line)
+            rows[row["passage_id"]] = row
+    text = rows[case["passage_id"]]["text"]
+
+    # The sentence itself, verbatim. Metric ("such homes", anaphoric to the 120-day metric
+    # named in the sentence before), instant ("As of December 31, 2023"), value ("18%") and
+    # denominator ("our portfolio") are all printed here.
+    assert ("As of December 31, 2023, such homes represented 18% of our portfolio" in text)
+    assert "One such metric is our percentage of homes" in text, (
+        "the antecedent of \"such homes\" must be in the same passage or the sentence is "
+        "not self-contained evidence")
+
+    reasons = {a["reason"] for a in (case.get("abstentions") or [])}
+    assert "DEFINITIONAL_NOT_OBSERVATIONAL" not in reasons, (
+        "the passage reports a value; expecting silence here scores a correct lane as wrong")
+
+    claims = _gold_claims(case)
+    assert len(claims) == 1, f"expected exactly one gold claim, found {len(claims)}"
+    claim = claims[0]
+    assert claim["metric_id"] == "pct_homes_on_market_gt_120_days"
+    assert claim["value"] == 18
+    assert claim["unit"] == "percent"
+    assert claim["instant_date"] == "2023-12-31"
+    assert claim["subject_entity_id"] == "opendoor"
+
+    # §7.1: the wording, not a normalisation of it. "our portfolio" is one of the three
+    # unreconciled denominators, and the shareholder letter reports the same 18% for the
+    # same date as "our homes" — so a definition_raw that lost the wording would merge two
+    # series the filings never reconciled.
+    raw = claim["population"]["definition_raw"]
+    assert "our portfolio" in raw, raw
+    assert raw in text
+
+
+def test_the_broader_market_figure_is_neither_gold_nor_a_scored_abstention(ontology):
+    """21% belongs to the MLS, and V1 has nowhere to put it.
+
+    The founder's condition was that the comparison figure becomes a second gold claim only
+    if the ontology, the subject model and the benchmark schema *already* support the
+    broader market as a distinct subject. They do not, and this records the three checks
+    that establish it rather than leaving the omission to look like an oversight.
+    """
+    metric = ontology.registry.metric("pct_homes_on_market_gt_120_days")
+    assert metric.subject_types == ("company",), metric.subject_types
+    assert metric.population.comparison_population, (
+        "the market side is modelled as comparison context on the population, which is "
+        "where it stays until an entity model exists for it")
+
+    subjects = {c["subject_entity_id"] for case in CASES for c in _gold_claims(case)}
+    assert subjects == {"opendoor"}, (
+        f"the benchmark has never scored a non-Opendoor subject; found {sorted(subjects)}")
+
+    case = next(c for c in CASES if c["case_id"] == "population-portfolio-mdna-fy2023-10k")
+    values = {c["value"] for c in _gold_claims(case)}
+    assert 21 not in values, "21% is the broader market's, not Opendoor's"
+    assert (case.get("abstentions") or []) == [], (
+        "left unscored for V1, so it is not an expected abstention either")

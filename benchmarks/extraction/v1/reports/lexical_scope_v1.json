@@ -5781,9 +5781,15 @@
       },
       "critical_checks": [],
       "document_id": "norm:0001801169:0001801169-24-000016:open-20231231.htm",
-      "gold_instance_ids": [],
-      "gold_metric_ids": [],
-      "known_instance_ids": [],
+      "gold_instance_ids": [
+        "opendoor"
+      ],
+      "gold_metric_ids": [
+        "pct_homes_on_market_gt_120_days"
+      ],
+      "known_instance_ids": [
+        "opendoor"
+      ],
       "lane": "narrative",
       "missed_instance_ids": [],
       "missed_metric_ids": [],
@@ -7433,7 +7439,7 @@
       "homes_purchased"
     ]
   ],
-  "implementation_commit": "0b1ca18b16a8868565ea459b0b0b2da7faeedbaa",
+  "implementation_commit": "7f28364cf24add8c5e5cf11517aad3230c36e4ef",
   "known_misses": [
     {
       "case_id": "letter-prose-inventory-and-120d-q2-2022",
@@ -7761,8 +7767,8 @@
     "denominators": {
       "ambiguity_cases": 1,
       "critical_checks": 23,
-      "known_instances": 21,
-      "required_concepts": 49
+      "known_instances": 22,
+      "required_concepts": 50
     },
     "scope_size": {
       "max": 22,
@@ -7774,7 +7780,7 @@
       "ambiguity_preservation": 1.0,
       "critical_concept_recall": 1.0,
       "known_instance_recall": 1.0,
-      "required_concept_recall": 0.959184
+      "required_concept_recall": 0.96
     }
   }
 }

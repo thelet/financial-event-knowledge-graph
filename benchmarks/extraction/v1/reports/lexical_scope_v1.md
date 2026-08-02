@@ -9,7 +9,7 @@ The scope never removes anything. There is no threshold, no top-k and no filter 
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `0b1ca18b16a8868565ea459b0b0b2da7faeedbaa` |
+| implementation commit | `7f28364cf24add8c5e5cf11517aad3230c36e4ef` |
 | scope | `lexical` v`1.0.0` |
 | ontology definition hash | `3372c5777c1d474ce932a16bb60faa04b92f97562ce2c733f271a0763adf4ddb` |
 | normalized documents | 294 |
@@ -22,10 +22,10 @@ STAGE_08 §8 sets three gates. Two hold; one does not, and is reported as a fail
 
 | Gate | Required | Measured | Denominator | |
 | --- | --- | --- | --- | --- |
-| required-concept recall | 1.000 | **0.959** | 49 | **FAIL** |
+| required-concept recall | 1.000 | **0.960** | 50 | **FAIL** |
 | critical-concept recall | 1.000 | **1.000** | 23 | PASS |
 | ambiguity preservation | 1.000 | **1.000** | 1 | PASS |
-| known-instance recall | — | 1.000 | 21 | reported |
+| known-instance recall | — | 1.000 | 22 | reported |
 
 `known-instance recall` carries no gate because it cannot fail as posed: the only ontology instance any gold annotation names is `opendoor`, and `opendoor` is one of the three stable-core concepts every scope contains unconditionally. It is reported so the denominator is visible rather than implied — the `known_instance` reason code's own count below is the number that would move if instance matching broke.
 
@@ -159,7 +159,7 @@ Scored separately because an aggregate hides them. A check exists for every case
 | [`negative-risk-factor-partnership-boilerplate`](#negative-risk-factor-partnership-boilerplate) | narrative | 13 | 0 | 0 | 3 |
 | [`population-our-homes-in-inventory-q1-2023`](#population-our-homes-in-inventory-q1-2023) | narrative | 19 | 2 | 1 | 6 |
 | [`population-our-homes-q4-2021`](#population-our-homes-q4-2021) | narrative | 22 | 1 | 0 | 3 |
-| [`population-portfolio-mdna-fy2023-10k`](#population-portfolio-mdna-fy2023-10k) | narrative | 22 | 0 | 0 | 6 |
+| [`population-portfolio-mdna-fy2023-10k`](#population-portfolio-mdna-fy2023-10k) | narrative | 22 | 1 | 0 | 6 |
 | [`population-two-wordings-one-passage-q4-2023`](#population-two-wordings-one-passage-q4-2023) | narrative | 12 | 2 | 0 | 3 |
 | [`recon-q1-2021-holding-costs-split-rows`](#recon-q1-2021-holding-costs-split-rows) | tables | 20 | 2 | 0 | 3 |
 | [`recon-q1-2021-thousands-in-table`](#recon-q1-2021-thousands-in-table) | tables | 20 | 4 | 0 | 3 |
@@ -796,7 +796,7 @@ Confusion-group expansions: `homes_purchased` → `acquisition_contracts`, `home
 - passage: `norm:0001801169:0001801169-24-000016:open-20231231.htm#p114`
 - scope size 22 · all 22 protected · 6 confusion-group expansions
 - reasons: `ambiguous_alias` 11, `canonical_label` 2, `confusion_sibling` 3, `exact_alias` 6, `known_instance` 1, `normalized_alias` 1, `stable_core` 3
-- gold metrics: none
+- gold metrics: `pct_homes_on_market_gt_120_days`
 - missed: none
 
 | Concept | Reasons | Surfaces |

@@ -8,6 +8,10 @@
 > and specifically recover the two `pct_homes_on_market_gt_120_days` paraphrases, without
 > unacceptable candidate-set expansion or ambiguity degradation?
 
+*(0.959 is the figure this stage was scoped against, measured 2026-08-01. The 2026-08-02
+benchmark correction moved it to 0.960 and hybrid's to 0.980; the answer is unchanged and the
+verdict still reads "lexical stays the default". See §11.7.)*
+
 **Hybrid is not the expected answer.** "Lexical stays the default" is a legitimate result and
 must be reported as readily as the other one. §7 states the decision rule in advance so the
 numbers cannot be read backwards into it.
@@ -281,8 +285,10 @@ Additionally, hybrid only:
 
 Hybrid becomes the default **only if all four hold**:
 
-1. required-concept recall strictly greater than **0.959**, and both
-   `pct_homes_on_market_gt_120_days` paraphrases recovered;
+1. required-concept recall strictly greater than **the lexical view measured in the same
+   run**, and both `pct_homes_on_market_gt_120_days` paraphrases recovered. *(Was the
+   transcribed constant **0.959** until 2026-08-02; see §11.7 for why a transcribed baseline
+   was the wrong instrument.)*
 2. critical-concept recall **1.000** and ambiguity preservation **1.000** — unchanged, not
    merely non-catastrophic;
 3. scope size mean no worse than **+25%** over lexical's 17.9 of 131 concepts;
@@ -537,3 +543,38 @@ unrecognised value is rejected at load — the config comment says both.
   `HybridOntologyCandidateScope`'s own `ranked_for`, `select` and `merge`. Both previously
   re-implemented part of the scope inside the runner — the ablation with its own rounding
   constant, equal to the scope's by coincidence.
+
+## 11.7 The decision's baseline was a transcribed constant, and it went stale
+
+*(Corrected 2026-08-02, after the founder correction to
+`population-portfolio-mdna-fy2023-10k`. The correction is the finding.)*
+
+§7 criterion 1 read *"required-concept recall strictly greater than 0.959"* and the runner
+computed it against `LEXICAL_REQUIRED_RECALL_BASELINE = 0.959`, a literal transcribed from §7
+so "the decision block is computed against [the numbers] and cannot drift from the sentence
+that describes it". That reasoning was half right. The block could not drift from the
+*sentence*; both could drift from the *measurement*, together and silently.
+
+The benchmark correction added one gold claim. Lexical's own required-concept recall moved to
+**0.960** while the constant, the criterion's prose and the committed report all still said
+lexical was 0.959. Hybrid measured 0.980 in the same run, so criterion 1's arithmetic would
+have kept returning the same answer — the comparison would simply no longer have been *to
+lexical*. It would have been to a superseded number, in the direction that flatters hybrid,
+with nothing failing.
+
+The verdict did not move (criterion 1 also requires both paraphrases recovered, and hybrid
+still misses `population-our-homes-in-inventory-q1-2023`, so it held `false` before and
+after). That is luck, not a safeguard.
+
+**What changed.** Criteria 1 and 3 now compare against the lexical view computed in the same
+run, which is what "improves on lexical" and "no worse than +25% over lexical" actually mean,
+and both statements are rendered from those same-run figures instead of carrying hand-copied
+ones. `STAGE_09_LEXICAL_RECALL = 0.959` survives as provenance, reported beside criterion 1
+as `stage_09_lexical_recall_as_measured` and read by no comparison.
+`LEXICAL_SCOPE_SIZE_BASELINE = 17.9` was deleted outright: criterion 3 had always computed its
+ratio from the same-run lexical mean, so the constant was read by nothing and existed only as
+a hand-copied number inside the criterion's prose — the §6 defect, surviving in a third place.
+
+**The general rule this stage keeps relearning:** a constant that *describes a measurement*
+goes stale the moment the measurement moves, and it goes stale silently. Transcribe a number
+only when nothing can recompute it. Here, everything could.

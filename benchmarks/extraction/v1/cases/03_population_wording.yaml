@@ -127,18 +127,58 @@ cases:
     document_id: norm:0001801169:0001801169-24-000016:open-20231231.htm
     passage_id: norm:0001801169:0001801169-24-000016:open-20231231.htm#p114
     notes: >-
-      Wording three, the MD&A form - "our percentage of homes 'on the market' for greater
-      than 120 days (as measured from initial listing date)". It is the only wording that
-      states a measurement basis, and it is the wording the 10-K uses every year. This is a
-      definitional passage: it explains the metric rather than reporting a value for it, and
-      a lane must be able to tell those apart.
-    gold_claims: []
-    abstentions:
-      - reason: DEFINITIONAL_NOT_OBSERVATIONAL
-        detail: >-
-          The passage defines the metric and names the measurement basis. The value for the
-          period is reported in the KPI table at open-20231231.htm#p105, not here. A lane
-          that mines a number out of this paragraph is attaching a value to a definition.
-        capture_instead:
-          field: population.definition_raw
-          text: 'our percentage of homes “on the market” for greater than 120 days (as measured from initial listing date)'
+      Wording three, the MD&A form - "our portfolio", the wording the 10-K uses every year.
+      The paragraph both defines the metric ("as measured from initial listing date", the
+      only wording that states a measurement basis) and reports a value for the period in
+      the same breath: "As of December 31, 2023, such homes represented 18% of our
+      portfolio". Defining a metric and reporting it are not mutually exclusive, and this
+      case is here to keep a lane from treating a definition as a licence to ignore the
+      sentence after it.
+
+      **Corrected 2026-08-02 (founder decision).** This case previously carried
+      `gold_claims: []` and an expected `DEFINITIONAL_NOT_OBSERVATIONAL` abstention. Two
+      independent readings and the narrative lane disagreed with it, and the annotation was
+      wrong on its face for two separate reasons, both checkable against the passage:
+
+      1. Its stated grounds were false. It said "the value for the period is reported in the
+         KPI table at open-20231231.htm#p105, not here", but this passage states the metric,
+         the subject, the instant date and the value itself. A figure appearing in a KPI
+         table does not stop the prose from independently supporting the same observation;
+         multiple passages may each carry evidence for one reported fact.
+      2. Its `capture_instead.text` was not verbatim from this passage. It read "... greater
+         than 120 days (as measured from initial listing date)", which is the FY2021 10-K's
+         wording carried in the ontology's `source_evidence` for this metric (accession
+         0001801169-22-000027). This passage prints the clause without parentheses. Nothing
+         checked `capture_instead` against the passage it cited;
+         `test_capture_instead_text_is_quoted_from_the_passage` now does.
+
+      The comparison figure - "compared to 21% for the broader market when filtered for the
+      types of homes we are able to underwrite and acquire" - is deliberately **neither gold
+      nor an expected abstention**. It is not an observation about Opendoor and must never
+      be emitted with `subject_entity_id: opendoor`, but the broader market is not a subject
+      this benchmark can score: the metric declares `subject_types: ('company',)`, every one
+      of the benchmark's gold claims has subject `opendoor`, and the ontology already models
+      the market side as `population.comparison_population` rather than as an entity. It is
+      recorded here as comparison context and left unscored for V1. The identical pattern
+      *is* scored, as an abstention, on `population-our-homes-q4-2021`, where the same
+      sentence carries both an Opendoor figure and a market figure.
+    gold_claims:
+      - metric_id: pct_homes_on_market_gt_120_days
+        value: 18
+        unit: percent
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_narrative
+        assertion_type: reported
+        population:
+          definition_raw: "such homes represented 18% of our portfolio"
+        ambiguity_codes: [pct_120_days_denominator]
+        note: >-
+          §7.1: the wording is preserved verbatim and this observation is not the same series
+          as the shareholder letter's "18% of our homes had been listed on the market for
+          more than 120 days" for the same metric, subject and instant date
+          (population-two-wordings-one-passage-q4-2023). Same value, same date, different
+          stated denominator - which is the whole of ontology §16.1's open question, and the
+          sharpest illustration of it in the corpus.
+    abstentions: []

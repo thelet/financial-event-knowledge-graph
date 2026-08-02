@@ -76,7 +76,7 @@
     "population-portfolio-mdna-fy2023-10k": {
       "category": "population_wording",
       "lane": "narrative",
-      "notes": "Wording three, the MD&A form - \"our percentage of homes 'on the market' for greater than 120 days (as measured from initial listing date)\". It is the only wording that states a measurement basis, and it is the wording the 10-K uses every year. This is a definitional passage: it explains the metric rather than reporting a value for it, and a lane must be able to tell those apart.",
+      "notes": "Wording three, the MD&A form - \"our portfolio\", the wording the 10-K uses every year. The paragraph both defines the metric (\"as measured from initial listing date\", the only wording that states a measurement basis) and reports a value for the period in the same breath: \"As of December 31, 2023, such homes represented 18% of our portfolio\". Defining a metric and reporting it are not mutually exclusive, and this case is here to keep a lane from treating a definition as a licence to ignore the sentence after it. **Corrected 2026-08-02 (founder decision).** This case previously carried `gold_claims: []` and an expected `DEFINITIONAL_NOT_OBSERVATIONAL` abstention. Two independent readings and the narrative lane disagreed with it, and the annotation was wrong on its face for two separate reasons, both checkable against the passage: 1. Its stated grounds were false. It said \"the value for the period is reported in the KPI table at open-20231231.htm#p105, not here\", but this passage states the metric, the subject, the instant date and the value itself. A figure appearing in a KPI table does not stop the prose from independently supporting the same observation; multiple passages may each carry evidence for one reported fact. 2. Its `capture_instead.text` was not verbatim from this passage. It read \"... greater than 120 days (as measured from initial listing date)\", which is the FY2021 10-K's wording carried in the ontology's `source_evidence` for this metric (accession 0001801169-22-000027). This passage prints the clause without parentheses. Nothing checked `capture_instead` against the passage it cited; `test_capture_instead_text_is_quoted_from_the_passage` now does. The comparison figure - \"compared to 21% for the broader market when filtered for the types of homes we are able to underwrite and acquire\" - is deliberately **neither gold nor an expected abstention**. It is not an observation about Opendoor and must never be emitted with `subject_entity_id: opendoor`, but the broader market is not a subject this benchmark can score: the metric declares `subject_types: ('company',)`, every one of the benchmark's gold claims has subject `opendoor`, and the ontology already models the market side as `population.comparison_population` rather than as an entity. It is recorded here as comparison context and left unscored for V1. The identical pattern *is* scored, as an abstention, on `population-our-homes-q4-2021`, where the same sentence carries both an Opendoor figure and a market figure.",
       "source_file": "03_population_wording.yaml"
     },
     "population-two-wordings-one-passage-q4-2023": {
@@ -147,15 +147,15 @@
       "ambiguity_codes_accuracy": 0.0,
       "ambiguity_preserved_rate": 0.0,
       "evidence_accuracy": 0.0,
-      "matched_over_distinct_emitted": 0.022876,
-      "matched_over_emitted": 0.02355,
-      "metric_identity_accuracy": 0.052631,
+      "matched_over_distinct_emitted": 0.019608,
+      "matched_over_emitted": 0.021739,
+      "metric_identity_accuracy": 0.05,
       "period_accuracy": 0.0,
       "population_accuracy": 0.0,
       "scale_accuracy": 0.0,
       "subject_accuracy": 0.0,
       "unit_accuracy": 0.0,
-      "value_accuracy": 0.018182
+      "value_accuracy": 0.015151
     },
     "score_ratios_higher_under_hybrid": [
       "matched_over_distinct_emitted",
@@ -251,7 +251,7 @@
     "scale_wrong",
     "value_wrong"
   ],
-  "implementation_commit": "76c80798242193e56373d41988aff73100b039c2",
+  "implementation_commit": "7f28364cf24add8c5e5cf11517aad3230c36e4ef",
   "lane": {
     "name": "normalized_narrative",
     "prompt_version": "1.2.0",
@@ -351,7 +351,8 @@
   "review_questions": [
     {
       "case_id": "population-portfolio-mdna-fy2023-10k",
-      "question": "the paragraph both defines the metric and states a value for the period. If the sentence above is observational, the case's expected abstention is wrong and this claim is gold; if it is not, the lane is mining a definition. Nothing here decides it — the lane, the prompt and the case are all unchanged, and the claim is counted as a broken required silence, which is the harsher of the two readings.",
+      "question": "the paragraph both defines the metric and states a value for the period. If the sentence above is observational, the case's expected abstention is wrong and this claim is gold; if it is not, the lane is mining a definition.",
+      "resolution": "**Settled 2026-08-02 — the case was wrong and the lane was right.** Founder decision: the passage is observational. The case now carries the 18% observation as gold with population.definition_raw “such homes represented 18% of our portfolio”, and the DEFINITIONAL_NOT_OBSERVATIONAL abstention is gone. The comparison figure 21% stays unscored — the broader market is not a subject V1 can carry. Nothing in the lane changed: the answer store is byte-identical and this report was rebuilt by replay. See V1_CLAIM_EXTRACTION §4.0a.",
       "the_case_says": "gold_claims: [] with an expected DEFINITIONAL_NOT_OBSERVATIONAL abstention, on the grounds that “the value for the period is reported in the KPI table at open-20231231.htm#p105, not here”",
       "this_run_found": "the lane emitted pct_homes_on_market_gt_120_days = 18 percent at 2023-12-31, quoting the passage's own sentence “As of December 31, 2023, such homes represented 18% of our portfolio, compared to 21% for the broader market”"
     }
@@ -2622,11 +2623,11 @@
             "code_agreeing_abstentions": 0,
             "duplicate_claim_keys": 0,
             "emitted": 1,
-            "expected_abstentions": 1,
+            "expected_abstentions": 0,
             "failures": 1,
-            "gold": 0,
+            "gold": 1,
             "honoured_abstentions": 0,
-            "matched": 0,
+            "matched": 1,
             "missed": 0,
             "model_abstentions": 4,
             "model_chosen_abstentions": 4,
@@ -2634,7 +2635,7 @@
             "ontology_warnings": 0,
             "rejected_claims": 1,
             "scope_concepts": 17,
-            "unrequired": 1
+            "unrequired": 0
           },
           "duplicate_claim_keys": [],
           "emitted": [
@@ -2656,36 +2657,82 @@
               "value": 18.0
             }
           ],
-          "expected_abstentions": [
-            {
-              "ambiguity_candidates": [],
-              "answer_usable": true,
-              "any_issue_recorded": true,
-              "claimed_anyway": [],
-              "code_recorded": false,
-              "concept_ids": [],
-              "honoured": false,
-              "reason": "DEFINITIONAL_NOT_OBSERVATIONAL",
-              "silence_kept": false
-            }
-          ],
+          "expected_abstentions": [],
           "failures": [
             {
               "category": "metric_misidentified",
-              "detail": "the case requires DEFINITIONAL_NOT_OBSERVATIONAL and the lane emitted claims on a case that annotates none",
-              "metric_id": "—",
-              "period_key": null,
-              "source": "over_emitted"
+              "detail": "matched observation failed population",
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "source": "wrong_match"
             }
           ],
-          "gold": [],
+          "gold": [
+            {
+              "currency": null,
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "population_definition_raw": "such homes represented 18% of our portfolio",
+              "scale_applied": "units",
+              "subject_entity_id": "opendoor",
+              "unit": "percent",
+              "value": 18
+            }
+          ],
           "issues_by_code": {
             "DEFERRED_REQUIRED_SOURCE_LANE": 1,
             "DERIVED_COMPARISON": 1,
             "GUIDANCE_NOT_REPORTED": 1,
             "MISSING_PERIOD": 2
           },
-          "matched": [],
+          "matched": [
+            {
+              "dimensions": {
+                "ambiguity_codes_ok": true,
+                "evidence_ok": true,
+                "period_ok": true,
+                "population_ok": false,
+                "scale_ok": true,
+                "subject_ok": true,
+                "unit_ok": true,
+                "value_ok": true
+              },
+              "dimensions_applicable": {
+                "ambiguity_codes": true,
+                "evidence": true,
+                "period": true,
+                "population": true,
+                "scale": true,
+                "subject": true,
+                "unit": true,
+                "value": true
+              },
+              "emitted": {
+                "ambiguity_codes": [
+                  "pct_120_days_denominator"
+                ],
+                "lane_claim_ambiguity_codes": [],
+                "population_definition_raw": "our portfolio",
+                "scale": "units",
+                "subject_entity_id": "opendoor",
+                "unit": "percent",
+                "value": 18.0
+              },
+              "expected": {
+                "ambiguity_codes": [
+                  "pct_120_days_denominator"
+                ],
+                "population_definition_raw": "such homes represented 18% of our portfolio",
+                "scale": "units",
+                "subject_entity_id": "opendoor",
+                "unit": "percent",
+                "value": 18
+              },
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "population_contained_in_expected": true
+            }
+          ],
           "missed": [],
           "model_abstentions_by_code": {
             "DERIVED_COMPARISON": 1,
@@ -2701,7 +2748,7 @@
               "chose_comparative": false,
               "distance_from_evidence": -1354,
               "in_evidence": false,
-              "matched_gold": false,
+              "matched_gold": true,
               "metric_id": "pct_homes_on_market_gt_120_days",
               "period_key": "2023-12-31",
               "period_label": "December 31, 2023",
@@ -2735,27 +2782,22 @@
             "pct_homes_on_market_gt_120_days"
           ],
           "scores": {
-            "abstention_code_agreement": 0.0,
-            "abstention_honoured_rate": 0.0,
+            "abstention_code_agreement": 1.0,
+            "abstention_honoured_rate": 1.0,
             "ambiguity_codes_accuracy": 1.0,
             "ambiguity_preserved_rate": 1.0,
             "evidence_accuracy": 1.0,
-            "matched_over_distinct_emitted": 0.0,
-            "matched_over_emitted": 0.0,
+            "matched_over_distinct_emitted": 1.0,
+            "matched_over_emitted": 1.0,
             "metric_identity_accuracy": 1.0,
             "period_accuracy": 1.0,
-            "population_accuracy": 1.0,
+            "population_accuracy": 0.0,
             "scale_accuracy": 1.0,
             "subject_accuracy": 1.0,
             "unit_accuracy": 1.0,
             "value_accuracy": 1.0
           },
-          "unrequired_emitted": [
-            {
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31"
-            }
-          ]
+          "unrequired_emitted": []
         },
         {
           "assembly_rejections": [],
@@ -3356,7 +3398,7 @@
         "duplicate_claim_keys": 0,
         "emitted_observations": 24,
         "emitted_observations_distinct": 18,
-        "expected_abstentions": 15,
+        "expected_abstentions": 14,
         "failures": 15,
         "failures_by_category": {
           "ambiguity_collapsed": 0,
@@ -3370,7 +3412,7 @@
           "unit_wrong": 0,
           "value_wrong": 1
         },
-        "gold_observations": 19,
+        "gold_observations": 20,
         "honoured_abstentions": 13,
         "issues_by_code": {
           "AMBIGUOUS_ALIAS": 2,
@@ -3386,7 +3428,7 @@
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
         "matched_carrying_undeclared_ambiguity_codes": 1,
-        "matched_observations": 11,
+        "matched_observations": 12,
         "missed_observations": 8,
         "model_abstentions": 43,
         "model_abstentions_by_code": {
@@ -3419,54 +3461,54 @@
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
         "score_denominators": {
-          "abstention_code_agreement": 15,
-          "abstention_honoured_rate": 15,
-          "ambiguity_codes_accuracy": 3,
+          "abstention_code_agreement": 14,
+          "abstention_honoured_rate": 14,
+          "ambiguity_codes_accuracy": 4,
           "ambiguity_preserved_rate": 1,
-          "evidence_accuracy": 11,
+          "evidence_accuracy": 12,
           "matched_over_distinct_emitted": 18,
           "matched_over_emitted": 24,
-          "metric_identity_accuracy": 19,
-          "period_accuracy": 11,
-          "population_accuracy": 4,
-          "scale_accuracy": 11,
-          "subject_accuracy": 11,
-          "unit_accuracy": 11,
-          "value_accuracy": 11
+          "metric_identity_accuracy": 20,
+          "period_accuracy": 12,
+          "population_accuracy": 5,
+          "scale_accuracy": 12,
+          "subject_accuracy": 12,
+          "unit_accuracy": 12,
+          "value_accuracy": 12
         },
         "score_numerators": {
           "abstention_code_agreement": 1,
           "abstention_honoured_rate": 13,
-          "ambiguity_codes_accuracy": 3,
+          "ambiguity_codes_accuracy": 4,
           "ambiguity_preserved_rate": 0,
-          "evidence_accuracy": 11,
-          "matched_over_distinct_emitted": 11,
-          "matched_over_emitted": 11,
-          "metric_identity_accuracy": 11,
-          "period_accuracy": 11,
+          "evidence_accuracy": 12,
+          "matched_over_distinct_emitted": 12,
+          "matched_over_emitted": 12,
+          "metric_identity_accuracy": 12,
+          "period_accuracy": 12,
           "population_accuracy": 0,
-          "scale_accuracy": 11,
-          "subject_accuracy": 11,
-          "unit_accuracy": 11,
-          "value_accuracy": 9
+          "scale_accuracy": 12,
+          "subject_accuracy": 12,
+          "unit_accuracy": 12,
+          "value_accuracy": 10
         },
         "scores": {
-          "abstention_code_agreement": 0.066667,
-          "abstention_honoured_rate": 0.866667,
+          "abstention_code_agreement": 0.071429,
+          "abstention_honoured_rate": 0.928571,
           "ambiguity_codes_accuracy": 1.0,
           "ambiguity_preserved_rate": 0.0,
           "evidence_accuracy": 1.0,
-          "matched_over_distinct_emitted": 0.611111,
-          "matched_over_emitted": 0.458333,
-          "metric_identity_accuracy": 0.578947,
+          "matched_over_distinct_emitted": 0.666667,
+          "matched_over_emitted": 0.5,
+          "metric_identity_accuracy": 0.6,
           "period_accuracy": 1.0,
           "population_accuracy": 0.0,
           "scale_accuracy": 1.0,
           "subject_accuracy": 1.0,
           "unit_accuracy": 1.0,
-          "value_accuracy": 0.818182
+          "value_accuracy": 0.833333
         },
-        "unrequired_observations": 13
+        "unrequired_observations": 12
       }
     },
     "lexical": {
@@ -5633,11 +5675,11 @@
             "code_agreeing_abstentions": 0,
             "duplicate_claim_keys": 0,
             "emitted": 1,
-            "expected_abstentions": 1,
+            "expected_abstentions": 0,
             "failures": 1,
-            "gold": 0,
+            "gold": 1,
             "honoured_abstentions": 0,
-            "matched": 0,
+            "matched": 1,
             "missed": 0,
             "model_abstentions": 4,
             "model_chosen_abstentions": 4,
@@ -5645,7 +5687,7 @@
             "ontology_warnings": 0,
             "rejected_claims": 1,
             "scope_concepts": 17,
-            "unrequired": 1
+            "unrequired": 0
           },
           "duplicate_claim_keys": [],
           "emitted": [
@@ -5667,36 +5709,82 @@
               "value": 18.0
             }
           ],
-          "expected_abstentions": [
-            {
-              "ambiguity_candidates": [],
-              "answer_usable": true,
-              "any_issue_recorded": true,
-              "claimed_anyway": [],
-              "code_recorded": false,
-              "concept_ids": [],
-              "honoured": false,
-              "reason": "DEFINITIONAL_NOT_OBSERVATIONAL",
-              "silence_kept": false
-            }
-          ],
+          "expected_abstentions": [],
           "failures": [
             {
               "category": "metric_misidentified",
-              "detail": "the case requires DEFINITIONAL_NOT_OBSERVATIONAL and the lane emitted claims on a case that annotates none",
-              "metric_id": "—",
-              "period_key": null,
-              "source": "over_emitted"
+              "detail": "matched observation failed population",
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "source": "wrong_match"
             }
           ],
-          "gold": [],
+          "gold": [
+            {
+              "currency": null,
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "population_definition_raw": "such homes represented 18% of our portfolio",
+              "scale_applied": "units",
+              "subject_entity_id": "opendoor",
+              "unit": "percent",
+              "value": 18
+            }
+          ],
           "issues_by_code": {
             "DEFERRED_REQUIRED_SOURCE_LANE": 1,
             "DERIVED_COMPARISON": 1,
             "GUIDANCE_NOT_REPORTED": 1,
             "MISSING_PERIOD": 2
           },
-          "matched": [],
+          "matched": [
+            {
+              "dimensions": {
+                "ambiguity_codes_ok": true,
+                "evidence_ok": true,
+                "period_ok": true,
+                "population_ok": false,
+                "scale_ok": true,
+                "subject_ok": true,
+                "unit_ok": true,
+                "value_ok": true
+              },
+              "dimensions_applicable": {
+                "ambiguity_codes": true,
+                "evidence": true,
+                "period": true,
+                "population": true,
+                "scale": true,
+                "subject": true,
+                "unit": true,
+                "value": true
+              },
+              "emitted": {
+                "ambiguity_codes": [
+                  "pct_120_days_denominator"
+                ],
+                "lane_claim_ambiguity_codes": [],
+                "population_definition_raw": "our portfolio",
+                "scale": "units",
+                "subject_entity_id": "opendoor",
+                "unit": "percent",
+                "value": 18.0
+              },
+              "expected": {
+                "ambiguity_codes": [
+                  "pct_120_days_denominator"
+                ],
+                "population_definition_raw": "such homes represented 18% of our portfolio",
+                "scale": "units",
+                "subject_entity_id": "opendoor",
+                "unit": "percent",
+                "value": 18
+              },
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "population_contained_in_expected": true
+            }
+          ],
           "missed": [],
           "model_abstentions_by_code": {
             "DERIVED_COMPARISON": 1,
@@ -5712,7 +5800,7 @@
               "chose_comparative": false,
               "distance_from_evidence": -1354,
               "in_evidence": false,
-              "matched_gold": false,
+              "matched_gold": true,
               "metric_id": "pct_homes_on_market_gt_120_days",
               "period_key": "2023-12-31",
               "period_label": "December 31, 2023",
@@ -5746,27 +5834,22 @@
             "pct_homes_on_market_gt_120_days"
           ],
           "scores": {
-            "abstention_code_agreement": 0.0,
-            "abstention_honoured_rate": 0.0,
+            "abstention_code_agreement": 1.0,
+            "abstention_honoured_rate": 1.0,
             "ambiguity_codes_accuracy": 1.0,
             "ambiguity_preserved_rate": 1.0,
             "evidence_accuracy": 1.0,
-            "matched_over_distinct_emitted": 0.0,
-            "matched_over_emitted": 0.0,
+            "matched_over_distinct_emitted": 1.0,
+            "matched_over_emitted": 1.0,
             "metric_identity_accuracy": 1.0,
             "period_accuracy": 1.0,
-            "population_accuracy": 1.0,
+            "population_accuracy": 0.0,
             "scale_accuracy": 1.0,
             "subject_accuracy": 1.0,
             "unit_accuracy": 1.0,
             "value_accuracy": 1.0
           },
-          "unrequired_emitted": [
-            {
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31"
-            }
-          ]
+          "unrequired_emitted": []
         },
         {
           "assembly_rejections": [],
@@ -6367,7 +6450,7 @@
         "duplicate_claim_keys": 0,
         "emitted_observations": 23,
         "emitted_observations_distinct": 17,
-        "expected_abstentions": 15,
+        "expected_abstentions": 14,
         "failures": 15,
         "failures_by_category": {
           "ambiguity_collapsed": 0,
@@ -6381,7 +6464,7 @@
           "unit_wrong": 0,
           "value_wrong": 1
         },
-        "gold_observations": 19,
+        "gold_observations": 20,
         "honoured_abstentions": 13,
         "issues_by_code": {
           "AMBIGUOUS_ALIAS": 3,
@@ -6397,7 +6480,7 @@
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
         "matched_carrying_undeclared_ambiguity_codes": 1,
-        "matched_observations": 10,
+        "matched_observations": 11,
         "missed_observations": 9,
         "model_abstentions": 43,
         "model_abstentions_by_code": {
@@ -6430,54 +6513,54 @@
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
         "score_denominators": {
-          "abstention_code_agreement": 15,
-          "abstention_honoured_rate": 15,
-          "ambiguity_codes_accuracy": 2,
+          "abstention_code_agreement": 14,
+          "abstention_honoured_rate": 14,
+          "ambiguity_codes_accuracy": 3,
           "ambiguity_preserved_rate": 1,
-          "evidence_accuracy": 10,
+          "evidence_accuracy": 11,
           "matched_over_distinct_emitted": 17,
           "matched_over_emitted": 23,
-          "metric_identity_accuracy": 19,
-          "period_accuracy": 10,
-          "population_accuracy": 3,
-          "scale_accuracy": 10,
-          "subject_accuracy": 10,
-          "unit_accuracy": 10,
-          "value_accuracy": 10
+          "metric_identity_accuracy": 20,
+          "period_accuracy": 11,
+          "population_accuracy": 4,
+          "scale_accuracy": 11,
+          "subject_accuracy": 11,
+          "unit_accuracy": 11,
+          "value_accuracy": 11
         },
         "score_numerators": {
           "abstention_code_agreement": 1,
           "abstention_honoured_rate": 13,
-          "ambiguity_codes_accuracy": 2,
+          "ambiguity_codes_accuracy": 3,
           "ambiguity_preserved_rate": 0,
-          "evidence_accuracy": 10,
-          "matched_over_distinct_emitted": 10,
-          "matched_over_emitted": 10,
-          "metric_identity_accuracy": 10,
-          "period_accuracy": 10,
+          "evidence_accuracy": 11,
+          "matched_over_distinct_emitted": 11,
+          "matched_over_emitted": 11,
+          "metric_identity_accuracy": 11,
+          "period_accuracy": 11,
           "population_accuracy": 0,
-          "scale_accuracy": 10,
-          "subject_accuracy": 10,
-          "unit_accuracy": 10,
-          "value_accuracy": 8
+          "scale_accuracy": 11,
+          "subject_accuracy": 11,
+          "unit_accuracy": 11,
+          "value_accuracy": 9
         },
         "scores": {
-          "abstention_code_agreement": 0.066667,
-          "abstention_honoured_rate": 0.866667,
+          "abstention_code_agreement": 0.071429,
+          "abstention_honoured_rate": 0.928571,
           "ambiguity_codes_accuracy": 1.0,
           "ambiguity_preserved_rate": 0.0,
           "evidence_accuracy": 1.0,
-          "matched_over_distinct_emitted": 0.588235,
-          "matched_over_emitted": 0.434783,
-          "metric_identity_accuracy": 0.526316,
+          "matched_over_distinct_emitted": 0.647059,
+          "matched_over_emitted": 0.478261,
+          "metric_identity_accuracy": 0.55,
           "period_accuracy": 1.0,
           "population_accuracy": 0.0,
           "scale_accuracy": 1.0,
           "subject_accuracy": 1.0,
           "unit_accuracy": 1.0,
-          "value_accuracy": 0.8
+          "value_accuracy": 0.818182
         },
-        "unrequired_observations": 13
+        "unrequired_observations": 12
       }
     }
   }

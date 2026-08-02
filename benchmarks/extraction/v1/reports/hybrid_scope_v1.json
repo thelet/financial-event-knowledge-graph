@@ -6086,8 +6086,16 @@
       "case_id": "population-portfolio-mdna-fy2023-10k",
       "category": "population_wording",
       "document_id": "norm:0001801169:0001801169-24-000016:open-20231231.htm",
-      "gold_metric_ids": [],
-      "gold_metric_ranks": [],
+      "gold_metric_ids": [
+        "pct_homes_on_market_gt_120_days"
+      ],
+      "gold_metric_ranks": [
+        {
+          "concept_id": "pct_homes_on_market_gt_120_days",
+          "rank": 3,
+          "similarity": 0.44572
+        }
+      ],
       "lane": "narrative",
       "missed_metric_ids": [],
       "passage_id": "norm:0001801169:0001801169-24-000016:open-20231231.htm#p114",
@@ -7830,7 +7838,7 @@
         "criterion": 1,
         "holds": false,
         "measured": {
-          "lexical_required_concept_recall": 0.959184,
+          "lexical_required_concept_recall": 0.96,
           "paraphrases_missed": [
             [
               "population-our-homes-in-inventory-q1-2023",
@@ -7843,9 +7851,10 @@
               "pct_homes_on_market_gt_120_days"
             ]
           ],
-          "required_concept_recall": 0.979592
+          "required_concept_recall": 0.98,
+          "stage_09_lexical_recall_as_measured": 0.959
         },
-        "statement": "required-concept recall strictly greater than 0.959, and both `pct_homes_on_market_gt_120_days` paraphrases recovered"
+        "statement": "required-concept recall strictly greater than lexical's 0.960 measured in this same run, and both `pct_homes_on_market_gt_120_days` paraphrases recovered"
       },
       {
         "criterion": 2,
@@ -7865,7 +7874,7 @@
           "hybrid_mean": 18.461538,
           "lexical_mean": 17.923077
         },
-        "statement": "scope size mean no worse than +25% over lexical's 17.9 of 131"
+        "statement": "scope size mean no worse than +25% over lexical's 17.9 of 131 measured in this same run"
       },
       {
         "criterion": 4,
@@ -8407,7 +8416,7 @@
     "text_cache_entries": 26,
     "text_normalization_version": "v1"
   },
-  "implementation_commit": "e97ad5aeaa04a21b5e789877be60492aefeb0dbe",
+  "implementation_commit": "7f28364cf24add8c5e5cf11517aad3230c36e4ef",
   "normalization_corpus": {
     "documents": 294,
     "documents_sha256": "c2baa5373a5161967a1311458874318801338d39b298df82f6af78a249dbe5e3",
@@ -8853,7 +8862,7 @@
       "critical_concept_recall": 1.0,
       "known_instance_recall": 1.0,
       "paraphrases_recovered": 0,
-      "required_concept_recall": 0.959184,
+      "required_concept_recall": 0.96,
       "scope_size_growth": 0.015021,
       "scope_size_mean": 18.192308,
       "top_k": 1,
@@ -8867,7 +8876,7 @@
       "critical_concept_recall": 1.0,
       "known_instance_recall": 1.0,
       "paraphrases_recovered": 1,
-      "required_concept_recall": 0.979592,
+      "required_concept_recall": 0.98,
       "scope_size_growth": 0.030043,
       "scope_size_mean": 18.461538,
       "top_k": 2,
@@ -9484,8 +9493,12 @@
             "stable_core": 0,
             "table_label": 0
           },
-          "missed_instance_ids": [],
-          "missed_metric_ids": [],
+          "missed_instance_ids": [
+            "opendoor"
+          ],
+          "missed_metric_ids": [
+            "pct_homes_on_market_gt_120_days"
+          ],
           "scope_size": 2
         },
         {
@@ -9652,8 +9665,8 @@
         "denominators": {
           "ambiguity_cases": 1,
           "critical_checks": 23,
-          "known_instances": 21,
-          "required_concepts": 49
+          "known_instances": 22,
+          "required_concepts": 50
         },
         "scope_size": {
           "max": 2,
@@ -9665,7 +9678,7 @@
           "ambiguity_preservation": 0.0,
           "critical_concept_recall": 0.0,
           "known_instance_recall": 0.0,
-          "required_concept_recall": 0.22449
+          "required_concept_recall": 0.22
         }
       }
     },
@@ -10187,8 +10200,8 @@
         "denominators": {
           "ambiguity_cases": 1,
           "critical_checks": 23,
-          "known_instances": 21,
-          "required_concepts": 49
+          "known_instances": 22,
+          "required_concepts": 50
         },
         "scope_size": {
           "max": 23,
@@ -10200,7 +10213,7 @@
           "ambiguity_preservation": 1.0,
           "critical_concept_recall": 1.0,
           "known_instance_recall": 1.0,
-          "required_concept_recall": 0.979592
+          "required_concept_recall": 0.98
         }
       }
     },
@@ -10697,8 +10710,8 @@
         "denominators": {
           "ambiguity_cases": 1,
           "critical_checks": 23,
-          "known_instances": 21,
-          "required_concepts": 49
+          "known_instances": 22,
+          "required_concepts": 50
         },
         "scope_size": {
           "max": 22,
@@ -10710,7 +10723,7 @@
           "ambiguity_preservation": 1.0,
           "critical_concept_recall": 1.0,
           "known_instance_recall": 1.0,
-          "required_concept_recall": 0.959184
+          "required_concept_recall": 0.96
         }
       }
     }
