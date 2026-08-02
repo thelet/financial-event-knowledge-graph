@@ -50,6 +50,12 @@ class LanePolicy:
     passage_kinds: frozenset[str]
     document_types: frozenset[str]
     carry_preceding_passage: bool
+    # None means "whatever the policy's global signal rule says". A lane sets it only when its
+    # own routing disagrees with that rule, and today exactly one does: the event lane offers
+    # the declared event category entire, every event type carries `aliases = ()`, and so
+    # requiring a *metric* alias hit would exclude an event passage for having no metric in it
+    # — the routing gap STAGE_12 §1.2 named *(added 2026-08-02, step 13)*.
+    require_alias_evidence: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +77,9 @@ class SelectionPolicy:
                 passage_kinds=frozenset(spec["passage_kinds"]),
                 document_types=frozenset(spec["document_types"]),
                 carry_preceding_passage=bool(spec.get("carry_preceding_passage", False)),
+                require_alias_evidence=(
+                    None if spec.get("require_alias_evidence") is None
+                    else bool(spec["require_alias_evidence"])),
             )
             for name, spec in selection["lanes"].items()
         )
@@ -212,7 +221,10 @@ class TypedCandidateSelector:
             return AMBIGUOUS_ALIAS
         if has_heading_prior:
             return HEADING_PRIOR
-        if not self._policy.require_alias_evidence:
+        require = (self._policy.require_alias_evidence
+                   if lane.require_alias_evidence is None
+                   else lane.require_alias_evidence)
+        if not require:
             return DOCUMENT_TYPE_PRIOR
         return NO_CANDIDATE_SIGNAL
 

@@ -8,6 +8,36 @@ paths:
   data_root: data
   normalization_catalog: data/normalization_catalog
   manifests_root: extraction_manifests
+  # One directory per run, named deterministically from the config hash, the corpus identity
+  # and the ontology's definition hash — never from a timestamp, or two runs of the same
+  # inputs could not be compared by path. Gitignored with the rest of `data/`.
+  extraction_runs: data/extraction_runs
+
+# What an integrated run may reach.
+#
+# `answer_stores` is the whole of the run's provider policy and it is deliberately declarative.
+# A run **regenerates no provider answer**: it replays what was recorded, and a candidate whose
+# request digest has no recorded answer is written down as `NO_STORED_ANSWER` rather than
+# skipped. The corpus is far larger than the set of recorded answers, so most candidates are
+# exactly that, and a bounded run that says so is the alternative to one that looks complete
+# because it only visited what was cheap (STAGE_13 §1.1).
+#
+# **Why the paths point where they do, and what would be wrong about hiding it.** These files
+# hold *answers* — what the model returned for a request digest — and hold no expected claim,
+# no expected abstention and no case. They are the only recorded answers this repository has,
+# and STAGE_13 §1.1 says the run replays them. The path is stated here, in configuration, and
+# nowhere in code: four AST guards assert that nothing under `extraction/` imports or names the
+# directory, and `tests/extraction/test_integrated_run.py` asserts that what a run loads
+# contains no gold field of any kind. STAGE_13 §1's flat "the run must not read that directory
+# for anything" and §1.1's "the committed answer stores replay" contradict each other; the
+# contradiction is recorded in the plan and settled in favour of §1.1, narrowed to answers.
+#
+# A run with this list empty is a legal run. It extracts through the table lane, which needs no
+# provider, and records `NO_STORED_ANSWER` for every model-backed candidate.
+run:
+  answer_stores:
+    - benchmarks/extraction/v1/answers/narrative_v1.jsonl
+    - benchmarks/extraction/v1/answers/event_v1.jsonl
 
 # The local generation provider. Every value is the runtime validated on 2026-08-01 and
 # recorded in plans/extraction/LOCAL_RUNTIME_VALIDATED.md §1, not a guess.
@@ -49,16 +79,27 @@ embedding:
 
 # Which concepts a lane may consider for a passage.
 #
-# `strategy` stays `lexical`, and is the one key here with **no consumer yet**: step 10's
-# composition root is what reads it to choose a scope. It is validated at load anyway — an
-# unrecognised value raises rather than falling through to a default — so the key fails where
-# it is written instead of at the first passage.
+# `strategy` is read by `extraction/context.py`, the composition root, to choose a scope. It is
+# validated at load — an unrecognised value raises rather than falling through to a default —
+# so the key fails where it is written instead of at the first passage.
 #
-# Why `lexical`: STAGE_09 §7 sets four conditions for hybrid to become the default and the
-# committed report `reports/hybrid_scope_v1.md` does not meet the first. Step 9's evidence is
-# about *reachability* only; the lexical-vs-hybrid default is deferred to step 13, which
-# decides it on step 11's narrative-extraction evidence. Changing this line is a founder
-# decision that the report is written to inform, not a tuning knob.
+# **`lexical` is step 13's decision, and it is a weak decision that says so.** Recorded in
+# `reports/scoping_decision_v1.{json,md}`, which is computed from the four committed evaluation
+# reports by reporting code that no pipeline module can reach. The numbers behind it:
+#
+#   - the two scopes issue identical request digests on 13 of 14 narrative cases and on 3 of 3
+#     event cases, so the whole extraction comparison rests on **1 of 17 reviewed cases**;
+#   - hybrid reaches 1 required concept lexical misses, of 50 — 0.980 against 0.960 — and the
+#     one gold claim it adds is **not clean**: it fails the population-wording dimension;
+#   - hybrid causes no per-claim regression, so this is not a decision against hybrid on
+#     quality; it is a decision that one unclean case is not enough evidence to move a default;
+#   - hybrid cannot be run over the corpus offline at all. It embeds every candidate passage,
+#     and this repository commits 26 case vectors and no corpus-scale cache.
+#
+# Changing this line is a founder decision, and the report is written to inform it rather than
+# to close it. Raising `scoping.hybrid.top_k` to 3 takes required-concept recall to 1.000 in the
+# committed sensitivity sweep and has never been scored against extraction quality; that, not
+# the strategy switch, is the measurement most likely to change this answer.
 #
 # Both numbers below come from the measured similarity distribution and from no gold answer.
 # The distribution is a mixture whose location moves with the text, so an absolute threshold
@@ -101,6 +142,27 @@ selection:
       # prose or it is nothing.
       document_types: [earnings_release, shareholder_letter, narrative_primary]
       carry_preceding_passage: false
+
+    # The event and relationship lane. Same passages as the narrative lane, and one rule
+    # different: it requires **no metric alias evidence**.
+    #
+    # This closes the routing gap STAGE_12 §1.2 named and did not close. The narrative policy
+    # requires a metric alias hit, which is the right rule for a lane that reads metric
+    # observations and the wrong one for a lane whose menu is the declared event category
+    # entire — all nineteen event types carry `aliases = ()`, so there is no surface for an
+    # alias rule to match and requiring one excludes an event passage for having no metric in
+    # it. Measured 2026-08-02: `ef20055426_ex99-1.htm#p2`, an 8-K reporting two executive
+    # changes, scored `no_candidate_signal` under the narrative policy and was never offered to
+    # any lane.
+    #
+    # `excluded_document_types` still applies, so contract and governance filings stay out.
+    # That is deliberate and it is the plan's own bound: V1 §9 scopes events to a
+    # representative subset and explicitly not to a sweep of the 64 material agreements.
+    events:
+      passage_kinds: [narrative]
+      document_types: [earnings_release, shareholder_letter, narrative_primary]
+      carry_preceding_passage: false
+      require_alias_evidence: false
 
   # Excluded from the table lane. This is semantic routing, not a cost argument: contract
   # recitals and governance schedules carry no operating or non-GAAP metric, and admitting

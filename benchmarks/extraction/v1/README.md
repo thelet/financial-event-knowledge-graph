@@ -344,6 +344,31 @@ participant entity ids and taken greedily; edges the same way over their endpoin
 found by shared participants agrees about at least one participant by construction, so the
 report prints the census of how each pair was found.
 
+### The scoping decision
+
+`reports/scoping_decision_v1.{json,md}` answer one question — lexical or hybrid — and answer it
+**from the four reports above and from nothing else**. No lane runs, no request is issued, no
+ontology is loaded and no server is touched, which is what makes the decision reproducible by
+anyone holding the repository.
+
+```bash
+python -m benchmarks.extraction.v1 scoping-decision   # regenerate the two files, offline
+python -m benchmarks.extraction.v1 scoping-verdict    # print the verdict, write nothing
+```
+
+**It lives here and not under `extraction/` because the pipeline may not make it.** Four AST
+guards forbid anything under `extraction/` from importing or even naming this directory, so a
+run cannot reach a gold annotation or a score; the decision still has to rest on measurements,
+and this is where the two requirements meet.
+
+**The verdict is in the file and is deliberately not repeated here.** What belongs here is the
+shape of the argument: two adoption criteria, both answered from a committed number, and the
+*width* of the comparison stated beside its result — because the two scopes issue identical
+request digests on all but one reviewed case, and a decision resting on one case is a weak
+decision whichever way it goes.
+
+`config/extraction.yaml` records the outcome, and a test asserts the two agree.
+
 ## Review status
 
 Every case is marked `reviewed: true` only after its values were checked against the cited

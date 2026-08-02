@@ -31,9 +31,13 @@ def ontology():
 
 
 @pytest.fixture(scope="module")
-def selector(ontology):
-    policy = SelectionPolicy.from_config(
+def policy():
+    return SelectionPolicy.from_config(
         yaml.safe_load((REPO / "config" / "extraction.yaml").read_text(encoding="utf-8")))
+
+
+@pytest.fixture(scope="module")
+def selector(ontology, policy):
     return TypedCandidateSelector(policy, AliasIndex.from_ontology(ontology), ontology)
 
 
@@ -69,13 +73,21 @@ def gold() -> list[GoldCase]:
 # -- the corrected corpus baseline -----------------------------------------------------------
 
 
-def test_selection_runs_over_the_corrected_corpus(rows, result):
-    """294 documents, 12,442 passages, 1,935 table passages, PARSER_FALLBACK 0."""
+def test_selection_runs_over_the_corrected_corpus(rows, result, policy):
+    """294 documents, 12,442 passages, 1,935 table passages, PARSER_FALLBACK 0.
+
+    **Three lanes now, not two** *(2026-08-02, step 13)*. `config/extraction.yaml` gained an
+    `events` lane: the narrative policy requires a *metric* alias hit, which is right for a lane
+    reading metric observations and wrong for a lane whose menu is the declared event category
+    entire — all nineteen event types carry no alias, so requiring one excludes an event passage
+    for having no metric in it. The count is asserted against the policy's own lane list rather
+    than against a literal, so adding a fourth lane does not need an edit here.
+    """
     assert len(rows) == 12_442
     assert sum(1 for r in rows if r["passage_kind"] == "table") == 1_935
     assert len({r["document_id"] for r in rows}) == 294
-    # One decision per (passage, lane), both lanes.
-    assert len(result.candidates) == 12_442 * 2
+    # One decision per (passage, lane), every lane.
+    assert len(result.candidates) == 12_442 * len(policy.lanes)
 
 
 def test_every_passage_gets_exactly_one_reason_per_lane(result):
@@ -89,6 +101,39 @@ def test_every_passage_gets_exactly_one_reason_per_lane(result):
 
 def test_every_reason_is_a_declared_code(result):
     assert {c.reason for c in result.candidates} <= REASON_CODES
+
+
+def test_the_event_lane_reaches_a_passage_the_metric_alias_rule_excludes(result):
+    """The routing gap STAGE_12 §1.2 named, closed by a lane policy rather than by code.
+
+    An 8-K announcing two executive changes carries no metric alias, so the narrative policy
+    scores it `no_candidate_signal` and no lane ever sees it. The event lane's menu is the
+    declared event category entire — all nineteen event types carry no alias — so a metric alias
+    rule excludes an event passage for having no metric in it. Driven through the real selector
+    against a real passage rather than asserted about the config, because the config could say
+    the right thing and the precedence order could still drop it.
+    """
+    by_lane: dict[str, dict[str, str]] = {}
+    for candidate in result.candidates:
+        by_lane.setdefault(candidate.passage_id, {})[candidate.lane] = candidate.reason
+    excluded = [
+        passage_id for passage_id, reasons in by_lane.items()
+        if reasons.get("narrative") == "no_candidate_signal"
+        and reasons.get("events") == "document_type_prior"
+    ]
+    assert excluded, "no passage distinguishes the two policies; the events lane is redundant"
+    for passage_id in excluded:
+        selected = [c for c in result.candidates
+                    if c.passage_id == passage_id and c.selected]
+        assert {c.lane for c in selected} == {"events"}
+
+
+def test_the_event_lane_still_honours_the_document_type_exclusions(result):
+    """V1 §9 bounds events to a representative subset and *not* to the 64 material agreements,
+    so relaxing the alias rule must not relax the routing rule beside it."""
+    offenders = [c for c in result.by_lane("events")
+                 if c.document_type in {"material_agreement", "governance", "other"}]
+    assert offenders == []
 
 
 # -- typing by all four axes ------------------------------------------------------------------
@@ -199,7 +244,7 @@ def test_ambiguity_cases_survive_selection(result, gold):
 
 def test_evaluation_reports_every_dimension_the_plan_asks_for(result, gold):
     evaluation = evaluate(result.candidates, gold)
-    assert evaluation.candidates_by_lane.keys() == {"tables", "narrative"}
+    assert evaluation.candidates_by_lane.keys() == {"tables", "narrative", "events"}
     assert evaluation.candidates_by_document_type
     assert evaluation.exclusions_by_reason
     assert set(evaluation.exclusions_by_reason) <= EXCLUSION_REASONS

@@ -58,7 +58,24 @@ class MissingAnswerError(LookupError):
     An error rather than a fall-through to generation. A replay that quietly reaches for a
     server is not a replay, and the failure would present as a slow run rather than a missing
     record.
+
+    **It carries the digest it missed on** *(added at step 13)*. A run over the whole corpus
+    misses far more often than it hits, and every miss has to be recorded with the request it
+    would have issued — the same rule this module already applies to a hit. Reading the digest
+    back out of the message string was the alternative, and a record whose key has to be parsed
+    out of prose is not a record.
     """
+
+    def __init__(
+        self, message: str, *, request_sha256: str = "", scope_size: int | None = None
+    ) -> None:
+        super().__init__(message)
+        self.request_sha256 = request_sha256
+        # How many concepts the candidate scope offered the passage whose request missed. The
+        # store cannot know it and never sets it; the lane re-raises with it attached, because
+        # a bounded run's corpus-cost number is exactly "what did the scope offer the passages
+        # we did not ask about" and every one of those leaves through this exception.
+        self.scope_size = scope_size
 
 
 def request_identity(
@@ -174,6 +191,15 @@ class AnswerStore:
     def get(self, request_sha256: str) -> StoredAnswer | None:
         return self._answers.get(request_sha256)
 
+    def answers(self) -> tuple[StoredAnswer, ...]:
+        """Every row, ordered by request digest. The order `render` writes them in.
+
+        Public because a caller that merges several files into one store needs to read them out
+        of each, and reaching into the private dict to do it is how a composition root ends up
+        depending on this class's internals *(added at step 13)*.
+        """
+        return tuple(self._answers[key] for key in sorted(self._answers))
+
     def identity_model_id(self) -> str | None:
         """The model identifier every row was keyed under, or None if the rows disagree.
 
@@ -262,7 +288,8 @@ class ReplayingGenerationProvider:
         if self._inner is None:
             raise MissingAnswerError(
                 f"no stored answer for request {identity[:12]}…; this store holds "
-                f"{len(self._store)}")
+                f"{len(self._store)}",
+                request_sha256=identity)
         result = self._inner.generate(
             prompt=prompt, schema=schema, max_tokens=max_tokens, temperature=temperature)
         self._store.put(StoredAnswer.from_result(

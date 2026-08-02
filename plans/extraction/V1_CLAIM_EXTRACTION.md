@@ -1,9 +1,11 @@
 # v1 — Claim Extraction
 
-**Status:** partially implemented. The provider-independent half is built and green — shared
-contracts, deterministic identities, assembly, validation, typed candidate selection and the
-deterministic table lane. The narrative lane and its local provider are next; the runtime for
-them is built and gated but unused. **1,405 tests pass offline.**
+**Status:** implemented through step 13. All three lanes run over the whole normalized corpus
+into a deterministic run directory with rebuilt catalogs, an immutable manifest, five run-level
+self-verifications and a durable report; the lexical-versus-hybrid default is decided and
+recorded. **1,913 tests pass offline, 60 live.** Two of the five self-verifications fail on the
+real corpus and they found a genuine table-lane defect —
+[STAGE_13_INTEGRATED_RUN.md](STAGE_13_INTEGRATED_RUN.md) §13.1, open for a founder decision.
 
 **Scope:** turn the normalized corpus into validated `OntologyClaim` objects carrying
 evidence that points back into that corpus, for the 20 metrics the corpus can actually
@@ -14,13 +16,14 @@ support.
 | This plan | written, then corrected twice against measurement | `4af55ae`, `7b063a6` |
 | Encoding prerequisite (§8) | **done** | `a0eb6bc`, `928e806` |
 | Reviewed benchmark (§4.0) | **done** — 26 cases, 69 gold claims *(68 at `0cc3678`; +1 by the 2026-08-02 founder correction below)* | `0cc3678` |
-| Local runtime probe and build | **done** — gated, unused so far | `0dbcc11`, `614f1ac` |
+| Local runtime probe and build | **done** | `0dbcc11`, `614f1ac` |
+| Local generation provider (§4.3) | **done** — behind its own adapter | `0b1ca18` |
 | `core/` + `contracts.py` + assembly + validation (§4.4, §4.5, §5, §6) | **done** | `f92533a` |
-| `select` (§4.1) | **done** — 503 table, 3,072 narrative candidates | `614f1ac` |
+| `select` (§4.1) | **done** — 503 table, 3,072 narrative candidates; +8,273 event candidates at step 13 | `614f1ac` |
 | `tables` lane (§4.2) | **done** — recall 0.939, six dimensions at 1.000 | `22aafa4` |
-| `narrative` lane (§4.3) | not started | — |
+| `narrative` lane (§4.3) | **done** — metric lane, plus the event and relationship lane beside it | `a986321`, `4482982` |
 | candidate scoping (§4.2a) | **done** — lexical `e97ad5a`; hybrid measured, uncommitted | `e97ad5a` |
-| `catalog` (§4.6) | not started | — |
+| `catalog` (§4.6) + the integrated run, the CLI and the scoping decision | **done** — 2,725 claims over the whole corpus, catalogs byte-identical across two runs | uncommitted |
 
 Sections 1–3 are measurement. Sections 4–7 are durable design decisions. Section 8a records
 what implementation measured and changed. Section 9 is the remaining sequence.
@@ -1051,13 +1054,13 @@ The authoritative order. Each step ends with a green offline suite and its own n
 | 4 | Typed candidate selection | §4.1 | **done** `614f1ac` | One reason code per (passage, lane); benchmark recall 1.000 |
 | 5 | Deterministic table lane | §4.2 | **done** `22aafa4` | Recall ≥0.93; six dimensions at 1.000 |
 | 6 | Table-lane benchmark evaluation report | §4.0 | **done** `1d37eba` | `benchmarks/extraction/v1/reports/table_lane_v1.{json,md}`; two regenerations byte-identical |
-| 7 | Local Qwen runtime and real provider | §4.3 | runtime **done** `614f1ac`; provider not started | Provider defaults to `enable_thinking: false`; config test |
+| 7 | Local Qwen runtime and real provider | §4.3 | runtime **done** `614f1ac`; provider **done** `0b1ca18` | Provider defaults to `enable_thinking: false`; config test |
 | 8 | Lexical candidate scoping | §4.2a | **done** `e97ad5a` | `LexicalOntologyCandidateScope` never removes a protected candidate |
 | 9 | Embedding index and hybrid scoping | §4.2a | **done** (uncommitted) | Cache keyed by `definition_hash`, model id, dimensions, renderer version; §7 rule applied, **default deferred to step 13** |
 | 10 | Narrative metric extraction | §4.3 | **done** (uncommitted) | Marked `live`; offline suite green at 1,499, live at 49. See [STAGE_10_NARRATIVE_LANE.md](STAGE_10_NARRATIVE_LANE.md) §12a for what review corrected |
 | 11 | Narrative benchmark evaluation | §4.0 | **done** (uncommitted) | `reports/narrative_lane_v1.{json,md}`, both scopes, replayed offline from `answers/narrative_v1.jsonl`; offline suite 1,537, live 49. See [STAGE_11_NARRATIVE_EVALUATION.md](STAGE_11_NARRATIVE_EVALUATION.md) §8–§11 for the scores, the step 13 recommendation and four corrections to that brief |
 | 12 | Representative event and relationship extraction | §4.4 | **done** (uncommitted) | `reports/event_relationship_v1.{json,md}`, both scopes, replayed offline from `answers/event_v1.jsonl`; all 4 gold events and both gold relationships emitted, matched and validated with **zero ontology errors**; offline suite 1,832, live 60. See [STAGE_12_EVENTS_AND_RELATIONSHIPS.md](STAGE_12_EVENTS_AND_RELATIONSHIPS.md) §4 for the routing decision and the options rejected, §6 for the scores and §7 for six corrections to that brief |
-| 13 | Full benchmark comparison and recommendation | §4.0 | not started | Lexical vs hybrid scoping **decided here**, on step 11's extraction evidence |
+| 13 | Integrated run, catalogs, self-verification, scoping decision | §4.6 §5 §4.0 | **done** (uncommitted) | `extract-v1-lexical-2422c4252c07`: 11,848 candidates, 2,725 claims, catalogs and `report.md` byte-identical across two runs; 3 of 5 self-verifications pass and the 2 that fail found a real table-lane defect; default stays **lexical**, weak, on a comparison 1 case wide. See [STAGE_13_INTEGRATED_RUN.md](STAGE_13_INTEGRATED_RUN.md) §12 for the numbers, §13 for the defects and §14 for four corrections to that brief |
 
 Steps 0–6 and 8 are fully offline. Step 7 introduces the only provider; steps 9–13 use it.
 
@@ -1126,9 +1129,26 @@ Criterion 5 is deliberately "a stated count", not a coverage threshold. §1.5 gi
 from naive matching; setting a target before the table lane runs would be inventing a
 measurement.
 
-**Met so far**, against the table lane: criterion 2 (evidence accuracy 1.000), criterion 3
-(no claim uses a forbidden or deferred lane), criterion 7 for the table half. Criteria 4 and 5
-need `catalog` wired into a run; criterion 6 is answered by §7 and tested.
+**Met over the whole corpus at step 13** *(2026-08-02, run `extract-v1-lexical-2422c4252c07`)*:
+
+| # | Criterion | Result |
+| --- | --- | --- |
+| 1 | zero ontology validation errors | **met** — 0 errors over 2,725 claims, all three kinds; 186 `unpreferred_source_lane` warnings, relayed rather than dropped |
+| 2 | every evidence reference resolves | **met** — 2,725 anchors, 0 unresolved |
+| 3 | no forbidden source lane | **met** — 2,715 observations, 0; the 6 xbrl-first metrics emitted nothing and 358 refusals were recorded against them |
+| 4 | two runs produce byte-identical catalogs | **met** — all seven catalogs, `lane_outputs.jsonl` and `report.md` byte-identical; `manifest.json` differs in `created_at` alone |
+| 5 | a count per in-scope metric and a reason per empty candidate | **met** — all 20 listed including three zeros, all 11,694 empty candidates coded |
+| 6 | the six §16 questions answered or deferred with a reason | **met** — §7, tested |
+| 7 | every lane scored on the reviewed benchmark | **met** — steps 6, 11, 12 |
+
+**Two run-level checks fail and they found a real defect, not a false alarm.** Duplicate
+identities (105) and conflicting duplicates (9) both trace to one table-lane gap: a header group
+phrase that spans only part of a header is applied to every period column, so quarter-end columns
+come out dated as the group's duration. 21 passages, 138 observations, 10 provably misdated. The
+11 reviewed table cases all score `period_accuracy 1.000` and none exercises the shape. Recorded
+in [STAGE_13_INTEGRATED_RUN.md](STAGE_13_INTEGRATED_RUN.md) §13.1 as a founder decision about
+re-opening stage 6, and **not fixed at step 13**, whose charter is to run what exists and verify
+it.
 
 **Criterion 1 held for the narrative lane on the second measurement at step 11**
 *(2026-08-02)*. It did not on the first: four `DUPLICATE_OBSERVATION_CONFLICT` errors, two
@@ -1244,6 +1264,18 @@ visible either way.
    claim moves the denominator, 8/10 → 9/11. And the §16.1 wording gap is *not* closed: the
    second paraphrase is unreached under both scopes, because it ranks 2 in its passage and
    `top_k` is 2. `scoping.strategy` is still `lexical` and step 11 did not change it.
+
+   **Decided at step 13 *(2026-08-02)*: the default stays `lexical`, and the decision is
+   labelled weak.** Recorded in `reports/scoping_decision_v1.{json,md}`, computed from the four
+   committed evaluation reports by code no pipeline module can reach. The width is stated beside
+   the result: identical request digests on 13 of 14 narrative cases and 3 of 3 event cases, so
+   the comparison is **1 of 17 reviewed cases** wide and the reachability gap is **1 of 50**
+   required concepts. Adoption needed two conditions — a *clean* added gold claim, and a
+   comparison wider than one case — and neither holds. This is not a decision against hybrid on
+   quality: it causes no per-claim regression. It is a decision that one unclean case cannot
+   move a default. A fourth fact was added at step 13 and is operational rather than scored:
+   hybrid cannot be run over the corpus offline at all, because it embeds every candidate
+   passage and this repository commits 26 case vectors and no corpus-scale cache.
 2. **Settled, not open — recorded because an earlier draft said otherwise.** This plan no
    longer covers `metric_observation` only. **V1 includes the benchmark's representative 4
    event claims and 2 relationship claims** (step 12), as a bounded proof that the same claim

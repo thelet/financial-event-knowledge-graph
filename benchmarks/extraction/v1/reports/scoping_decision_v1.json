@@ -1,0 +1,107 @@
+{
+  "benchmark_version": "v1",
+  "corpus_cost": {
+    "committed_text_vectors": 26,
+    "corpus_passages": 12442,
+    "hybrid_runs_offline": false,
+    "lexical_runs_offline": true,
+    "why": "The hybrid scope ranks a passage against concept vectors, so a corpus-scale run needs an embedding of every candidate passage. This repository commits the reviewed cases' vectors and no corpus-scale cache, and `config/extraction.yaml` deliberately declares no cache root for one. Hybrid's corpus cost is therefore unmeasured, and stated as unmeasured rather than estimated."
+  },
+  "criteria": [
+    {
+      "criterion": "adds_a_clean_gold_claim",
+      "holds": false,
+      "statement": "hybrid reaches at least one gold claim that lexical misses and is clean on every scored dimension"
+    },
+    {
+      "criterion": "no_per_claim_regression",
+      "holds": true,
+      "statement": "no claim is clean under lexical and not clean under hybrid"
+    },
+    {
+      "criterion": "comparison_is_wider_than_one_case",
+      "holds": false,
+      "statement": "more than one reviewed case can distinguish the two scopes at all"
+    },
+    {
+      "criterion": "corpus_cost_is_reproducible_offline",
+      "holds": false,
+      "statement": "hybrid's corpus-scale cost can be measured from committed artifacts, with no server"
+    }
+  ],
+  "event_extraction": {
+    "cases": 3,
+    "cases_with_identical_payloads": 3,
+    "cases_with_identical_requests": 3,
+    "gold_event_types_reached_by_any_scope": 0,
+    "score_deltas_that_are_nonzero": {}
+  },
+  "implementation_commit": "14f3ad64a7383ae4ee657701d344c7fc3461ce61",
+  "metric_extraction": {
+    "cases": 14,
+    "cases_with_a_difference": 1,
+    "cases_with_identical_scope": 13,
+    "cases_without_a_request": 1,
+    "differences": [
+      {
+        "case_id": "letter-prose-inventory-and-120d-q2-2022",
+        "claims_only_hybrid": [
+          "pct_homes_on_market_gt_120_days@2022-06-30"
+        ],
+        "claims_only_hybrid_that_are_gold": [
+          "pct_homes_on_market_gt_120_days@2022-06-30"
+        ],
+        "claims_only_lexical": [],
+        "claims_only_lexical_that_are_gold": [],
+        "concepts_only_hybrid": [
+          "pct_homes_on_market_gt_120_days"
+        ],
+        "concepts_only_lexical": [],
+        "gold": [
+          "housing_inventory_homes@2022-06-30",
+          "pct_homes_on_market_gt_120_days@2022-06-30"
+        ]
+      }
+    ],
+    "gold_claims_added_clean": 0,
+    "gold_claims_added_not_clean": 1,
+    "gold_claims_only_hybrid_reached": 1,
+    "gold_claims_only_lexical_reached": 0,
+    "per_claim_regressions": 0,
+    "verdict_recorded_at_step_11": "hybrid reaches more and is not clean on what it reaches"
+  },
+  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "open_questions": [
+    "Population wording is the dimension the one added claim fails, and whether gold's whole clause or the lane's noun phrase is right is a founder decision that would change this verdict if it went the other way.",
+    "The second paraphrase probe is unreached under *both* scopes because the concept sits at rank 2 and `top_k` is 2. Raising `top_k` to 3 takes required-concept recall to 1.000 in the committed sensitivity sweep and is not tested against extraction quality at all.",
+    "Hybrid's corpus-scale cost is unmeasured. Measuring it needs an embedding cache this repository does not commit, which is a build decision rather than a scoring one."
+  ],
+  "reachability": {
+    "denominator": 50,
+    "hybrid_required_concept_recall": 0.98,
+    "hybrid_scope_size_mean": 18.461538,
+    "hybrid_stage_09_criterion_1_holds": false,
+    "lexical_only_report_recall": 0.96,
+    "lexical_required_concept_recall": 0.96,
+    "lexical_scope_size_mean": 17.923077
+  },
+  "sources": {
+    "event_relationship_v1.json": "a986321833afcfc4f264602a34507c92ec48fb3e",
+    "hybrid_scope_v1.json": "a986321833afcfc4f264602a34507c92ec48fb3e",
+    "lexical_scope_v1.json": "a986321833afcfc4f264602a34507c92ec48fb3e",
+    "narrative_lane_v1.json": "a986321833afcfc4f264602a34507c92ec48fb3e"
+  },
+  "verdict": {
+    "adoption_conditions_met": false,
+    "default": "lexical",
+    "strength": "weak",
+    "why_weak": "The two scopes issue identical request digests on 13 of 14 narrative cases and on 3 of 3 event cases — the event lane takes no scope at all — so the whole extraction comparison rests on 1 of 17 reviewed cases. A decision resting on one case is a weak decision whichever way it goes."
+  },
+  "width": {
+    "required_concepts_compared": 50,
+    "required_concepts_only_lexical_reaches": 0,
+    "required_concepts_that_distinguish_the_scopes": 1,
+    "reviewed_cases_compared": 17,
+    "reviewed_cases_that_could_distinguish_the_scopes": 1
+  }
+}

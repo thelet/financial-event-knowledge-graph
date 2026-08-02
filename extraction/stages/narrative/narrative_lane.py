@@ -34,7 +34,7 @@ from ...core.periods import period_phrases
 from ...core.units import unit_for_metric
 from ...providers.public import ProviderResponseError, ProviderSchemaError
 from ..tables.public import UNRESOLVED_METRIC
-from .answer_store import request_identity
+from .answer_store import MissingAnswerError, request_identity
 from .prompt import PROMPT_VERSION, PassageContext, build_prompt
 from .public import (
     LANE_NAME,
@@ -213,6 +213,7 @@ class OntologyGuidedNarrativeClaimLane:
                     UNRESOLVED_METRIC,
                     f"the {self.scope_name} scope offered no metric concept for this passage",
                     passage_id)],
+                scope_size=0,
             )
 
         metric_ids = tuple(concept.concept_id for concept in concepts)
@@ -244,6 +245,7 @@ class OntologyGuidedNarrativeClaimLane:
                     f"the {self._context_tokens}-token slot for an answer, below the "
                     f"{MIN_OUTPUT_TOKENS} one claim needs; no request was issued",
                     passage_id, metric_ids=metric_ids)],
+                scope_size=len(concepts),
             )
 
         identity = request_identity(
@@ -253,6 +255,15 @@ class OntologyGuidedNarrativeClaimLane:
             answer = self._provider.generate(
                 prompt=rendered, schema=schema,
                 max_tokens=budget, temperature=TEMPERATURE)
+        except MissingAnswerError as miss:
+            # Re-raised, not handled. "No answer was recorded for this request" is a statement
+            # about a *run's* bounds and not about this passage, so the lane refuses to turn it
+            # into an issue code it does not own — but it is the only thing that knows what the
+            # scope offered, and a bounded run has to be able to report that
+            # *(added 2026-08-02, step 13)*.
+            raise MissingAnswerError(
+                str(miss), request_sha256=miss.request_sha256 or identity,
+                scope_size=len(concepts)) from miss
         except (ProviderResponseError, ProviderSchemaError) as error:
             return NarrativeExtraction(
                 passage_id=passage_id,
@@ -260,6 +271,7 @@ class OntologyGuidedNarrativeClaimLane:
                     MODEL_ANSWER_UNUSABLE, str(error), passage_id,
                     metric_ids=metric_ids)],
                 request_sha256=identity,
+                scope_size=len(concepts),
             )
 
         self._stats.append(GenerationStats(
@@ -297,6 +309,7 @@ class OntologyGuidedNarrativeClaimLane:
             ),
         )
         mapped.request_sha256 = identity
+        mapped.scope_size = len(concepts)
         return mapped
 
     # -- what the scope offered ------------------------------------------------------------------

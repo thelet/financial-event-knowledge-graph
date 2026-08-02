@@ -241,6 +241,11 @@ class NarrativeExtraction:
     passage_id: str
     claims: list[LaneClaim] = field(default_factory=list)
     issues: list[NarrativeIssue] = field(default_factory=list)
+    # How many metric concepts the injected scope offered this passage, or None where the lane
+    # never got as far as asking. Recorded because scope size is the corpus-cost half of the
+    # step 13 scoping evidence, and recomputing it outside the lane would mean running the
+    # scope twice and hoping the two agree *(added 2026-08-02, step 13)*.
+    scope_size: int | None = None
     # The digest of the request that produced this, or None where no request was issued.
     #
     # Deterministic — it is `answer_store.request_identity` over (prompt, schema, model,

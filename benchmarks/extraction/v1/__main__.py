@@ -46,7 +46,13 @@ import sys
 import time
 from pathlib import Path
 
-from . import event_runner, hybrid_scope_runner, narrative_runner, scope_runner
+from . import (
+    event_runner,
+    hybrid_scope_runner,
+    narrative_runner,
+    scope_runner,
+    scoping_decision,
+)
 from .runner import MATCH_DIMENSIONS, REPO_ROOT, build_report, write_reports
 
 LANE_COMMANDS = ("report", "evaluate", "case", "claims")
@@ -54,6 +60,9 @@ SCOPE_COMMANDS = ("scope-report", "scope", "scope-diff")
 HYBRID_COMMANDS = ("hybrid-report", "hybrid-build", "hybrid")
 NARRATIVE_COMMANDS = ("narrative-report", "narrative-build", "narrative")
 EVENT_COMMANDS = ("event-report", "event-build", "event")
+# Step 13's decision. Reads the four committed reports and writes a fifth; it runs no lane and
+# touches no server, so it belongs beside the reports rather than beside the runners.
+DECISION_COMMANDS = ("scoping-decision", "scoping-verdict")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,6 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         "event-report", help="regenerate reports/event_relationship_v1.{json,md}, offline")
     subcommands.add_parser(
         "event-build", help="generate the event answers from the generation server")
+    subcommands.add_parser(
+        "scoping-decision", help="regenerate reports/scoping_decision_v1.{json,md}, offline")
+    subcommands.add_parser(
+        "scoping-verdict", help="print the lexical-versus-hybrid verdict; write nothing")
     for name, help_text in (("case", "one table case in detail"),
                             ("claims", "every emitted observation for one case"),
                             ("scope", "the candidate scope for one case"),
@@ -89,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("case_id")
 
     args = parser.parse_args(argv)
+    if args.command in DECISION_COMMANDS:
+        return _run_decision_command(args)
     if args.command in EVENT_COMMANDS:
         return _run_event_command(args)
     if args.command in NARRATIVE_COMMANDS:
@@ -98,6 +113,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in SCOPE_COMMANDS:
         return _run_scope_command(args)
     return _run_lane_command(args)
+
+
+# -- the scoping decision -------------------------------------------------------------------
+
+
+def _run_decision_command(args) -> int:
+    """STAGE_13 §6, made from committed reports by reporting code and never by the pipeline."""
+    decision = scoping_decision.build_decision()
+
+    if args.command == "scoping-decision":
+        for path in scoping_decision.write_reports(decision):
+            print(f"wrote {_display(path)}")
+        return 0
+
+    verdict = decision.verdict
+    print(f"default: {verdict['default']}   strength: {verdict['strength']}")
+    print(f"  {verdict['why_weak']}")
+    for entry in decision.criteria:
+        print(f"  {'holds    ' if entry['holds'] else 'DOES NOT '} {entry['criterion']}")
+    return 0
 
 
 # -- the table lane -------------------------------------------------------------------------
