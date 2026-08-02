@@ -1,7 +1,9 @@
 # v1 — Graph Prototype
 
-**Status:** planned, nothing implemented. Written 2026-08-02 against commit `a986321`, while
-extraction step 13 is still in progress in another working tree.
+**Status:** G0 complete, nothing implemented. Written 2026-08-02 against `a986321` while
+extraction step 13 was still running, then **corrected at G0 against the finalized run**
+(`b1d55f4`, run `extract-v1-lexical-2422c4252c07`). §2 now records measurements, not
+assumptions; §0b lists what the real run contradicted.
 
 **Scope:** project the finalized extraction run into a rebuildable Neo4j graph that can be
 inspected in Neo4j Browser, and stop there. The deliverable is a graph a founder can open,
@@ -16,14 +18,18 @@ data/extraction_runs/<run_id>/*.jsonl   (Stage 13, pending)
         → later: bounded subgraph retrieval for LLM post generation (contract only)
 ```
 
-**The single most important input fact:** the extraction run this plan consumes **does not
-exist yet** *(verified 2026-08-02: `data/extraction_runs/` is absent, and `extraction/` has no
-`catalog` stage, no `context.py`, no `pipeline.py` and no `cli.py`)*. Everything this plan says
-about claim *payloads* is read off committed, typed, `extra="forbid"` pydantic models and is
-firm. Everything it says about catalog *files* — names, row shapes, which payloads live in
-which file — is a proposal that §2 marks pending and stage G0 confirms.
-[STAGE13_GRAPH_INPUT_HANDOFF.md](STAGE13_GRAPH_INPUT_HANDOFF.md) is the checklist for that
-confirmation.
+**The single most important input fact, as of G0:** the run exists, is complete, and is
+**not** shaped the way this plan first assumed. `data/extraction_runs/extract-v1-lexical-2422c4252c07/`
+holds eleven files; all ten content digests in its `run.complete` marker verify
+*(`sha256sum -c run.complete` → 10× OK, 2026-08-02)*. But **no catalog row is a `model_dump()`
+of any ontology model** — every row is a hand-built flat projection
+(`extraction/stages/catalog/jsonl_catalog.py:176-300`), adding fields the typed models forbid
+and dropping fields they declare. A reader written against `ontology.core.models` with
+`extra="forbid"` fails on all 2,717 claim rows. The graph layer needs its own row models, and
+§2.3 gives them.
+
+[STAGE13_GRAPH_INPUT_HANDOFF.md](STAGE13_GRAPH_INPUT_HANDOFF.md) now records the answers rather
+than the questions.
 
 Facts marked *(verified)* were read on 2026-08-02 by the command or file:line recorded beside
 them — from the committed repository at `a986321`, **except** the corpus counts and catalog
@@ -53,6 +59,46 @@ once.
 Two smaller ones: the ban-list attribution in §1.6 named the wrong test for three of four
 modules, and §4.1 gave `:Document` the passage-id grammar. Both corrected in place.
 
+## 0b. What the finalized Stage 13 run contradicted *(G0, 2026-08-02)*
+
+Measured against `data/extraction_runs/extract-v1-lexical-2422c4252c07/`, produced by
+extraction at `b1d55f4`. Seven working assumptions were wrong. Each is corrected in place
+below; listed here because a plan whose assumptions were silently overwritten teaches nothing.
+
+| # | The plan assumed | The run shows |
+| --- | --- | --- |
+| 1 | catalog rows are `claim.model_dump()` (P3) | **Hand-built flat dicts.** `claims.jsonl` adds `document_id`, `document_type`, `lane`, `passage_id`, `payload_id` and **omits the payload and the evidence entirely**. The full `OntologyClaim` exists nowhere on disk; reconstructing one is a three-file join on `claim_id`. §2.3 |
+| 2 | four catalog files (P1) | **Eleven files**, including `events.jsonl`, `relationships.jsonl`, `rejected_claims.jsonl`, `lane_outputs.jsonl` (31,706 rows), `report.md` and the `run.complete` marker |
+| 3 | events and relationships live in `claims.jsonl` *or* their own files (P2) | **Both.** `claims.jsonl` carries the 6 event and 4 relationship claim rows; the payload files carry the payloads *plus two fields computed nowhere else* — `dates_equal` and `review_flag`. Neither file alone is sufficient. |
+| 4 | observations may duplicate or contradict claims (P4) | A genuine derived index: all seven shared fields agree byte-for-byte on all 2,707 rows, and 2,717 − 2,707 = exactly the 6 events + 4 relationships |
+| 5 | the projection mints `:Issue` ids (§4.3) | **`issues.jsonl` already carries `issue_id`**, unique across all 17,127 rows. The minting rule is deleted, as §4.3 said it would be if Stage 13 supplied one. |
+| 6 | per-claim validation warnings are recorded (P6) | **They are not.** 186 `unpreferred_source_lane` warnings exist only as a manifest aggregate; `CheckFinding.claim_id` is discarded before anything is written (`extraction/stages/verify/public.py:70-80`). Resolved by re-derivation, not by reading — §5.5. |
+| 7 | observations carry a `period_key` | **No such field.** Periods are `period_start`/`period_end`/`instant_date`. The key must be recomputed with `extraction/core/models.py:134-149`, and cross-checked against the segment already inside `observation_id`. §4.1 |
+
+**An independent review of G0 then found 25 further problems in this document** — 10 wrong
+statements, 6 misleading ones, 9 risks — all corrected in place above and below. The two that
+mattered most were both places where the plan would have manufactured data: §5.4 promised to
+project `population_role` and `population_confidence`, which exist in no catalog and would have
+been emitted as pydantic defaults; and §7.4 reasoned about the graph's size from 153 passages
+when the real figure, once issue-cited passages are counted, is **8,776**. Two more were
+corrections in the plan's favour: every `observation_id` *is* recomputable from the catalogs
+(§4.1), and the `issues`↔`rejected_claims` join *does* exist at id level (§2.2 P5). One was an
+argument built on a superseded fixture (§1.4b), which the repository had already decided the
+other way.
+
+Two further facts that change what the graph must *not* do, neither of which the plan had
+anticipated at all:
+
+- **A refusal is per-reading or per-property, never per-node.** `PARTICIPANT_NOT_NAMED`
+  (severity `refusal`) *kept* its event and recorded a placeholder; `PROPERTY_VALUE_NOT_IN_PASSAGE`
+  (severity `rejection`, `rejected_claim: true`) *kept* its event and dropped one property.
+  Suppressing a fact because an issue names its passage would silently delete legitimate graph
+  facts. §10 criterion 5 is rewritten around this.
+- **10,852 of the 17,127 issues are `NO_STORED_ANSWER`** — the narrative and event lanes replayed
+  15 recorded provider answers with `provider_calls_permitted: 0`, so most candidates were never
+  attempted. That is a coverage fact about the *run*, not a finding about the corpus, and §3.1
+  gives it its own label so it cannot be read as one.
+
 ---
 
 # 1. What the repository already decides
@@ -72,8 +118,8 @@ a different direction and different endpoint types, and eight are not declared a
 
 | Proposed | Verdict | What this plan uses |
 | --- | --- | --- |
-| `HOLDS_POSITION_AT` | declared, `person → company` | as proposed |
-| `BORROWS_UNDER` | declared, `company\|subsidiary → facility` | as proposed |
+| `HOLDS_POSITION_AT` | declared, `person → [company, public_company]` | as proposed |
+| `BORROWS_UNDER` | declared, `company\|public_company\|subsidiary → ` five **agreement types** (`credit_facility`, `revolving_credit_facility`, `asset_backed_debt_facility`, `term_debt_facility`, `credit_agreement`) — note `credit_agreement` is not a facility | as proposed |
 | `HAS_OBSERVATION` | declared — but **`metric_definition → metric_observation`**, not company → observation | as declared; the company side is `OBSERVATION_OF_SUBJECT` |
 | `OBSERVES_METRIC` | not declared; it is `HAS_OBSERVATION` reversed | dropped — one direction, the declared one |
 | `SUPPORTED_BY` | not declared; the citation edge is `EVIDENCED_BY` | `EVIDENCED_BY` |
@@ -94,26 +140,38 @@ from claims. `DISTINCT_FROM` carries the research's most load-bearing finding �
 must never be merged — and putting it in the graph makes an accidental merge visible as a
 contradiction rather than invisible as a missing rule.
 
-## 1.2 There is no extraction run, no catalog stage, and no orchestrator *(verified)*
+## 1.2 The extraction run exists and is complete *(verified at G0)*
 
-| Expected by `V1_CLAIM_EXTRACTION` §4 | Present at `a986321`? |
-| --- | --- |
-| `extraction/stages/{select,tables,narrative,scoping}` | yes |
-| `extraction/core/{models,identifiers,assembly,validation,periods,numbers,…}` | yes |
-| `extraction/stages/assemble/`, `stages/verify/`, `stages/catalog/` | **no** — assembly and validation live in `core/`, and no catalog writer exists |
-| `extraction/context.py`, `pipeline.py`, `cli.py`, `__main__.py` | **no** |
-| `data/extraction_runs/<run_id>/` | **no** — the directory does not exist |
-| `extraction_manifests/` | **no** — but `config/extraction.yaml` already declares `paths.manifests_root: "extraction_manifests"` |
+`data/extraction_runs/extract-v1-lexical-2422c4252c07/`, eleven files, produced by the
+pipeline at `extraction/pipeline.py:102`.
 
-Step 13 folds `catalog` and the run manifest into itself (`V1_CLAIM_EXTRACTION` §9). So the
-graph layer's entire input surface is produced by the step that is running now. That is the
-reason G0 exists and the reason §2 is split into confirmed and pending.
+**`run.complete` is a real completion marker, not a flag.** It is `sha256sum` format — one
+`{digest}  {filename}` line per file, sorted by name, covering all ten other files including
+`manifest.json` (`extraction/core/run_directory.py:66-68`, written last at `:129-130`, then
+`os.replace(staging, final)` at `:131-134`). `RunDirectory.__init__` refuses a directory
+without it (`:141-147`). Verified 2026-08-02: `sha256sum -c run.complete` → 10 × OK.
 
-What *is* firm today is the payload shape, because it is typed and frozen:
-`OntologyClaim`, `MetricObservation`, `EventInstance`, `RelationshipInstance`,
-`EvidenceReference` and `Population` are all pydantic models with `extra="forbid"`
-(`ontology/core/models.py:333-476`). A catalog can rename its files; it cannot add a field to
-an observation without changing that module.
+**But complete does not mean verified**, and the graph loader must not confuse them:
+`pipeline.py:126` runs verification and `pipeline.py:174` finalizes unconditionally, so a run
+with failing checks still produces a marked directory. The signal is
+`manifest["verification"][*]["passed"]`. For this run all five checks passed —
+`evidence_resolution` 2,717/0, `ontology_validation` 2,717/0 errors + **186 warnings**,
+`forbidden_lanes` 2,707/0, `duplicate_identities` 25,324/0, `conflicting_duplicates` 2,707/0.
+
+**The payload models are still the vocabulary's, and still frozen** — `OntologyClaim`,
+`MetricObservation`, `EventInstance`, `RelationshipInstance`, `EvidenceReference` and
+`Population` are `extra="forbid"` pydantic models (`ontology/core/models.py:333-476`). What
+changed at G0 is that the *catalogs are not those models serialized*. §2.3.
+
+**One provenance imprecision, recorded rather than propagated.** The manifest records
+`code_commit: 4d3ae1e`, one commit before the finalized `b1d55f4`. The data is nonetheless
+`b1d55f4`'s output: that commit's own message states the numbers this run carries — 2,707
+observations ("down 8"), 2,717 claims, 186 warnings, 25,324 duplicate identities — and
+`code_commit` is read from `git rev-parse HEAD` at run time
+(`extraction/core/manifest.py:44-51`), so a run executed from a working tree that was committed
+afterwards attributes itself to the previous commit. The graph manifest will record **both**
+the manifest's `code_commit` and the repository HEAD it was projected at, rather than silently
+carrying a commit that does not contain the guard which produced the data.
 
 ## 1.3 Claims are already validated, and validation state is not binary *(verified)*
 
@@ -126,7 +184,7 @@ prose).
 
 So a claim that reaches a catalog is error-free by construction, and may still carry a
 warning. The graph must be able to say which (§5.5) — "0 errors" and "clean" are different
-statements, and `validation.py:152-181` exists because they were once conflated.
+statements, and `extraction/core/validation.py:192-221` exists because they were once conflated (the reasoning is in its docstring at `:197-203`, the relay at `:216-220`).
 
 Separately, three things a run produces are **not** claims and must never load as facts:
 `LaneAbstention` (a lane's recorded silence), `PolicyRejection` (a §7 policy refusing a lane
@@ -141,28 +199,61 @@ properties become *graph* problems the moment ids are used as node keys.
 **(a) Every unnamed subsidiary in the corpus collapses into one node.**
 `unresolved_entity_id(subject_entity_id, entity_type)` returns
 `f"{entity_id(subject)}_unnamed_{entity_id(entity_type)}"` — no passage, no event, no
-counter (`extraction/core/identifiers.py:93-101`). The committed benchmark shows the result:
-the 2022 credit facility's borrower is `opendoor_unnamed_subsidiary`
-(`benchmarks/extraction/v1/reports/event_relationship_v1.json`, case
-`event-credit-facility-established-2022`). Every other filing that says "a subsidiary of the
-Company" mints that same string. Keyed naively, **one Neo4j node would accumulate the debt
-obligations of every unnamed Opendoor subsidiary in the corpus** — which is precisely the
-mis-attribution the placeholder was invented to prevent. §4.2 is the fix and §14.1 is the
-decision behind it.
+counter (`extraction/core/identifiers.py:125-133`). In the finalized run it appears once, as the
+borrower of `evt:credit-facility-established:2022-10-19:4b384d2ba0fa` and as the `source_id` of
+`rel:borrows-under:opendoor-unnamed-subsidiary:asset-backed-senior-revolving-credit-facility:a129a14c7956`
+*(verified at G0)*. One occurrence is not a refutation: every future filing that says "a
+subsidiary of the Company" mints that same string, and keyed naively **one Neo4j node would
+accumulate the debt obligations of every unnamed Opendoor subsidiary in the corpus** — the
+mis-attribution the placeholder was invented to prevent. §4.2 is the fix and §14.1 the decision.
+
+**The catalogs make this harder than the lane models did**, and G0 measured it: the catalog's
+participant object is exactly `{role, entity_id, entity_type}`
+(`jsonl_catalog.py:224-261`), so `LaneEventParticipant.named` and `entity_text` — both of which
+exist on the lane model (`extraction/core/models.py:230-249`) — **do not survive into any
+catalog**. The `_unnamed_` substring in the id is the only placeholder signal that reaches the
+graph. Detecting placeholders by id shape is therefore not a convenience; it is the sole
+available mechanism, which is exactly what the extraction docstring says the uniform
+placeholder exists to provide. The printed description survives only for *relationship*
+endpoints, as `extractor_metadata.source_name` / `target_name` on the 4 relationship claims.
 
 **(b) Named entities are name-slugs, and the same name is the same node.**
 `_resolve_entity` (`extraction/stages/narrative/event_mapping.py:458-483`) returns a declared
 ontology instance id when the whole printed name folds to one, and otherwise `entity_id(name)`
-— the slug of whatever the passage printed. Entity resolution is explicitly not attempted. Two
-directions of error follow, and the same benchmark case shows both: the lane emitted the
-facility as `asset_backed_senior_revolving_credit_facility` (from the generic phrase) while the
-reviewed gold calls it `asset_backed_senior_revolving_2022_10`. Generic descriptions **over**-
-merge distinct facilities; varied spellings **under**-merge one facility. V1 accepts this and
-measures it (§10, criterion 8) rather than resolving it.
+— the slug of whatever the passage printed. Entity resolution is explicitly not attempted.
+
+**The draft argued this from a superseded annotation, and the correction cuts the other way**
+*(found by review, 2026-08-02)*. It cited the benchmark gold calling the 2022 facility
+`asset_backed_senior_revolving_2022_10` against the lane's
+`asset_backed_senior_revolving_credit_facility`. That gold was **changed by a founder decision
+before this plan was written**: `benchmarks/extraction/v1/cases/06_events_and_relationships.yaml:27-33`
+records that the old id "encodes a year-month the passage never prints", and the live gold at
+`:180` and `:208` now uses the lane's id. So the repository decided in favour of the printed
+name, and citing the retired id as evidence of an over-merge was wrong.
+
+**The hazard is real anyway, and the argument for it is structural rather than anecdotal.**
+`entity_id` is a pure function of the printed string, so two filings describing one facility in
+different words mint two nodes, and two different facilities described in the same generic words
+mint one. Nothing in the pipeline can tell either case from a correct answer. V1 accepts that
+and *measures* it (§10, criterion 8) rather than resolving it — which is the same position, now
+resting on the mechanism instead of on a stale fixture.
 
 **(c) Two filings reporting one fact are two observations, on purpose.**
-`observation_id` ends in a digest of the passage id (`identifiers.py:53-67`), so a letter
-rounding to `$38 million` and a reconciliation table stating `38,228` thousand stay distinct.
+`observation_id` ends in `digest(passage_id, *structural_position)` — the passage plus, for a
+table reading, its grid coordinates (`identifiers.py:69-99`, fed from
+`LaneClaim.structural_position` at `extraction/core/models.py:248-265`). So a letter rounding to
+`$38 million` and a reconciliation table stating `38,228` thousand stay distinct, and so do two
+cells of one table.
+
+**That discriminator is precisely why the conflict guard cannot key on the id**, and Stage 13's
+last commit turns on the distinction. `DeterministicTableClaimLane._refuse_rows_that_disagree_with_themselves`
+(`extraction/stages/tables/deterministic_lane.py:174-229`) keys on the *structural* identity
+`(metric_id, subject_entity_id, period.key, source_lane, passage_id)` — grid position
+deliberately excluded — and refuses **both** cells when one row yields two different values for
+one identity. Keyed on `observation_id`, the two cells would look like two legitimate readings
+and the contradiction would be invisible. The graph inherits the result, not the mechanism: the
+refused readings are absent from `observations.jsonl` and present in `issues.jsonl` as
+`AMBIGUOUS_COLUMN_ALIGNMENT`, verified at G0 to be a complete refusal (§2.4).
 `SUPERSEDES` is declared in the ontology and is deliberately **not** emitted by extraction —
 `V1_CLAIM_EXTRACTION` §7.5 defers it to "a graph-layer policy over a complete set of
 observations". This plan **also does not emit it** (§12): a policy that decides which filing
@@ -206,9 +297,14 @@ package violates none of them. §11 adds the mirror-image tests so it stays that
 
 ---
 
-# 2. Inputs from Stage 13 — confirmed and pending
+# 2. Inputs from Stage 13 — measured at G0
 
-## 2.1 Confirmed, because it is committed and typed
+Every P-item of the pre-run draft is now answered against
+`data/extraction_runs/extract-v1-lexical-2422c4252c07/`. §2.1 is the part fixed by typed code;
+§2.2 is the answer table; §2.3 is the row contract the readers implement; §2.4 records the
+refusal check.
+
+## 2.1 Fixed by committed, typed code
 
 | Input | Where it is fixed | Note |
 | --- | --- | --- |
@@ -223,31 +319,80 @@ package violates none of them. §11 adds the mirror-image tests so it stays that
 | Entity, role, instrument, agreement types | `entities.yaml`, `roles.yaml`, `instruments.yaml` | §3.1 |
 | Ontology `definition_hash` | `e8d4af709be2…` | goes in the graph manifest |
 | Passage / document catalog schema | `data/normalization_catalog/*.jsonl` — **not committed** (`.gitignore:3` is `data/`), so this row was measured against the working corpus on 2026-08-02, not against `a986321` | 31 and 35 fields (`{31: 12442}` — every row); ordering deterministic, keys sorted; passages 12,442, documents 294 |
-| Manifest root for extraction | `config/extraction.yaml` → `paths.manifests_root: "extraction_manifests"` | file naming still pending |
-| Run-id format used by the other two layers | `{UTC}Z-{config_hash[:8]}`, `normalization/core/runmeta.py:24-26` | extraction is expected to match |
-| Atomic finalization convention | temp dir → completion marker last → rename (`normalization/core/storage.py:62-87`) | the graph run reuses it |
+| Atomic finalization | staging `<run_id>.partial/` → digests → `run.complete` last → `os.replace` (`extraction/core/run_directory.py:82-135`) | the graph run reuses the pattern |
 
-## 2.2 Pending — G0 must confirm each against the finalized run
+## 2.2 P1–P11, answered *(G0, 2026-08-02)*
 
-| # | Question | This plan's working assumption | Blast radius if wrong |
-| --- | --- | --- | --- |
-| P1 | Catalog file names and directory | `data/extraction_runs/<run_id>/{claims,observations,evidence,issues}.jsonl` per §4.6 | reader only |
-| P2 | Are events and relationships in `claims.jsonl`, or in files of their own? | one `claims.jsonl` holding all three `claim_kind`s | reader only |
-| P3 | Row shape: a serialized `OntologyClaim`, or a flattened projection? | `claim.model_dump()`, keys sorted | reader only |
-| P4 | Does `observations.jsonl` duplicate the payload inside `claims.jsonl` or index it? | derived index; `claims.jsonl` is authoritative | projection reads claims, not observations |
-| P5 | What is a row of `issues.jsonl`? Abstentions, policy rejections, deferrals, validation warnings — one file or several? | one file, each row carrying a `code`, a `passage_id` where it has one, and a discriminator | `:Issue` node properties, query Q9 |
-| P6 | Is per-claim validation state recorded, or only run-level? | warnings recorded per `claim_id` | §5.5; if absent, `has_warning` cannot be set and Q9 loses a slice |
-| P7 | Which `extractor_metadata` keys survive into the catalog? | at least `ambiguity_codes`, `scale`, `scale_location`, `row_label`, `column_label`; narrative adds `period_label*` | §5.4 property whitelist |
-| P8 | Manifest filename, and does it carry ontology `definition_hash`, code commit, config hash, normalization run id, scoping strategy and counts? | yes, all six | graph manifest provenance |
-| P9 | Final `scoping.strategy` — step 13 decides lexical vs hybrid | recorded, not assumed | provenance only |
-| P10 | Are `deferred` metrics and `rejected` claims written at all? | yes, into `issues.jsonl` | Q9, acceptance criterion 5 |
-| P11 | Real counts: observations, events, relationships, cited passages | unknown; the table lane emitted 410 observations over 11 benchmark cases, and selection produced 503 table + 3,072 narrative candidates | §7.4 hairball thresholds |
+| # | Answer |
+| --- | --- |
+| **P1** | `data/extraction_runs/extract-v1-lexical-2422c4252c07/`. **Eleven files**: `claims`, `observations`, `evidence`, `events`, `relationships`, `issues`, `rejected_claims`, `lane_outputs` (all `.jsonl`), `manifest.json`, `report.md`, `run.complete`. The run id is `extract-v1-lexical-{hash12}` — digested from `(RUN_LAYOUT_VERSION, config_hash, corpus_id, ontology_definition_hash)` (`run_directory.py:58`); `strategy` appears in the readable prefix only and is called "redundant by design" at `:49-52`, **not** the other layers' `{UTC}Z-{hash8}`. It contains no clock, which is why two runs produce one directory name. |
+| **P2** | **Both.** `claims.jsonl` holds all 2,717 claim rows including 6 `event` and 4 `relationship`. `events.jsonl` / `relationships.jsonl` hold the payloads. `{claims.payload_id}` equals `{events.event_id}` and `{relationships.relationship_instance_id}` exactly, both directions. |
+| **P3** | **Not `model_dump()`.** Hand-built dicts, `jsonl_catalog.py:176-300`. §2.3 gives every field. |
+| **P4** | `observations.jsonl` is a genuine **derived index**: all seven shared fields agree byte-for-byte across all 2,707 rows; the 10-row gap from `claims.jsonl` is exactly the 6 events + 4 relationships. But it is not redundant — it carries 17 fields `claims.jsonl` lacks. Read both. |
+| **P5** | One file, 13 keys, uniform across all 17,127 rows, **already carrying a unique `issue_id`**. The four categories are discriminated by `severity`: `not_attempted` 10,852, `refusal` 6,228, `rejection` 46, `diagnostic` 1. `rejected_claim` (bool) is the join flag to `rejected_claims.jsonl`, and **there is an id-level join after all** *(corrected by review)*: `issue_id` and `rejection_id` are both `_ordinal_id` over the same parts tuple (`jsonl_catalog.py:84-96`), so they share a hex — **46 of 46 verified**. The join holds only for `refused_by: "lane"` rejections; an `assemble`-origin rejection writes no mirroring issue row at all (`:98-121`), and this run happens to have none. Still: do not sum the two files. |
+| **P6** | **Not recorded.** The 186 `unpreferred_source_lane` warnings survive only as a manifest aggregate; `CheckFinding.claim_id` is discarded at `extraction/stages/verify/public.py:70-80`. Resolved by re-derivation — §5.5. |
+| **P7** | **38 distinct keys in 8 shapes.** All four §8a.12 period fields are present on the 17 narrative claims. Keys are **omitted, not nulled**, when absent — 84 table claims carry `scale_source` but no `scale` key at all. §5.4. |
+| **P8** | `manifest.json` inside the run directory (not `extraction_manifests/`). Carries `run_id`, `created_at`, `config_hash`, `code_commit`, `extractor_version`, `layout_version`, `ontology_id` + `ontology_definition_hash`, `corpus` (content-addressed `corpus_id`, **no upstream normalization run id**), `scope`, `lanes`, `provider`, `bounds`, `counts`, `verification`, `catalog_digests`, `environment`, `dependencies`. **No `finished_at`.** |
+| **P9** | `lexical` — `scope: {strategy: lexical, scope_name: lexical, scope_version: 1.0.0}`. |
+| **P10** | Deferred metrics: yes, 358 `DEFERRED_REQUIRED_SOURCE_LANE` issues. Rejections: yes, 46 rows in **`rejected_claims.jsonl`**, mirrored as 46 `severity: rejection` rows in `issues.jsonl`. **Do not sum them — one finding, two files, two different ids.** |
+| **P11** | 2,707 observations · 2,717 claims · 2,717 evidence rows (one per claim, `evidence_index` always 0) · 6 events · 4 relationships · 17,127 issues · 46 rejections · **17 distinct metrics** · **1 subject** (`opendoor`) · **153 cited passages** · **49 cited documents** · 144 table ids · 2 source lanes (`normalized_table` 2,690, `normalized_narrative` 17) · 75 distinct period triples. |
 
-**Rule for handling a pending field: fail loudly, never default.** The reader (§11, G1) is a
-pydantic model with `extra="forbid"` over each catalog row. An unexpected field stops the
-projection with the field name, rather than being silently dropped into a graph that then
-looks complete. A field this plan expects and does not find is reported the same way. Nothing
-in the projection substitutes a default for a missing input.
+**The rule survives the corrections: fail loudly, never default.** The readers (§11, G1) are
+`extra="forbid"` models over each row *as the catalog actually writes it*. An unexpected field
+stops the projection by name. Nothing substitutes a default for a missing input.
+
+## 2.3 The row contract the readers implement
+
+**Seven** row models, because there are seven row shapes *(the draft said six and omitted
+`rejected_claims.jsonl`; corrected by review)*. Field lists are exact
+(`extraction/stages/catalog/jsonl_catalog.py`, line ranges beside each).
+
+| File | Rows | Keys |
+| --- | --- | --- |
+| `claims.jsonl` `:176-189` | 2,717 | `claim_id`, `claim_kind`, `payload_id`, `lane`, `passage_id`, `document_id`, `document_type`, `assertion_type`, `confidence`, `extractor_metadata` |
+| `observations.jsonl` `:192-221` | 2,707 | **24 keys, not "claims plus"** — it drops `claim_kind`, `payload_id` and `extractor_metadata`. Seven shared with `claims.jsonl` (`claim_id`, `lane`, `passage_id`, `document_id`, `document_type`, `assertion_type`, `confidence`) plus `observation_id`, `metric_id`, `subject_entity_id`, `subject_type`, `value`, `unit`, `currency`, `period_start`, `period_end`, `instant_date`, `population_definition_raw`, `source_lane`, `ambiguity_codes`, `scale`, `scale_location`, `row_label`, `column_label` |
+| `events.jsonl` `:224-261` | 6 | `event_id`, `claim_id`, `event_type_id`, `occurred_on`, `announced_on`, `occurrence_date_text`, `announcement_date_text`, `dates_equal`, `review_flag`, `participants[{role,entity_id,entity_type}]`, `properties`, `assertion_type`, `passage_id`, `document_id`, `document_type`, `evidence_quoted_text`, `lane` |
+| `relationships.jsonl` `:264-282` | 4 | `relationship_instance_id`, `claim_id`, `relationship_id`, `source_id`, `source_type`, `target_id`, `target_type`, `valid_from`, `valid_to`, `assertion_type`, `passage_id`, `document_id`, `document_type`, `lane` |
+| `evidence.jsonl` `:285-300` | 2,717 | `claim_id`, `claim_kind`, `evidence_index`, `evidence_kind`, `passage_id`, `document_id`, `table_id`, `block_ids`, `source_url`, `quoted_text` |
+| `issues.jsonl` `:86-90` | 17,127 | `issue_id`, `code`, `severity`, `lane`, `passage_id`, `document_id`, `document_type`, `concept_ids`, `row_label`, `quoted_span`, `request_sha256`, `rejected_claim`, `detail` |
+| `rejected_claims.jsonl` `:92-121` | 46 | the 12 issue fields minus `issue_id`, plus `rejection_id`, `refused_by`, `raw_finding` — **a seventh shape** *(added by review; the draft said six)*. Projected as `:Issue:Rejected`, carrying `raw_finding` only as an opaque `raw_finding_json` string: it is the **pre-validation model output** and its `value`/`unit`/`scale` are frequently the reason the claim was refused. It must never be read as fact. |
+
+Five traps the readers must encode, all measured:
+
+1. **`lane` and `source_lane` are different vocabularies for one claim.** `lane` is the routing
+   lane (`tables` / `narrative` / `events`, `jsonl_catalog.py:141-151`); `source_lane` is the
+   ontology's (`normalized_table` / `normalized_narrative`). The graph carries both and never
+   maps one to the other.
+2. **`passage_id`, `document_id`, `document_type` can be empty strings, not null**
+   (`jsonl_catalog.py:170-173`) — legal for a calculated observation. Zero occurrences in this
+   run; the reader still must not treat `""` as a valid node key.
+3. **No char offsets in `evidence.jsonl`.** `char_start`/`char_end` are dropped. Spans survive
+   only as `extractor_metadata.span_char_start`/`span_char_end` on 23 claims — **17 narrative +
+   6 event**, which is every narrative claim in the run — and on none of the 2,690 table claims. §7.2's highlighting is therefore narrative-only.
+4. **`evidence.jsonl`'s identity is `(claim_id, passage_id)`**, not `claim_id` alone
+   (`catalog/public.py:49`). One evidence row per claim today; do not build on that.
+5. **`confidence` is null on all 2,717 rows**, and `value` is a float on all 2,707 — including
+   counts like `market_count`. The graph stores the float and does not re-type it.
+
+## 2.4 The conflict guard, verified complete *(G0)*
+
+The refusal is recorded as `AMBIGUOUS_COLUMN_ALIGNMENT` — 5 issue rows, of which **4 are the
+same-identity-different-value guard** and 1 is an unrelated whole-table refusal for
+`group_assignment_ambiguous`. The four are two metrics × two nine-month periods on
+`…q32023formxex991earningsre.htm#p29`, e.g. `adjusted_ebitda` at `2023-01-01_2023-09-30`
+holding both −49,000,000 and −558,000,000.
+
+**Checked at G0, and clean:** for each of the four refused identities, zero observations exist
+in `observations.jsonl` with that `(metric, subject, period, lane, passage)`, and zero carry the
+refused values. The whole-table refusal's passage has no observations at all. Passage `#p29`
+retains 6 observations — two metrics × three **nine-month rolling** durations
+(`2022-04-01_2022-12-31`, `2022-07-01_2023-03-31`, `2022-10-01_2023-06-30`), which are not the
+periods that collided.
+
+**The graph inherits a clean input and must not re-litigate it.** No projection rule filters
+observations by issue; the refusal already happened upstream. What the graph *does* add is
+criterion 10 (§10), which re-runs the membership check after loading, so a projection bug that
+resurrected a refused reading would fail the build rather than ship a contradiction.
 
 ---
 
@@ -261,19 +406,34 @@ readable Cypher use.
 
 | Base label | Concrete labels | Key property | Source |
 | --- | --- | --- | --- |
-| `:Entity` | `:Company`, `:PublicCompany`, `:Subsidiary`, `:Person`, `:Facility`, `:Agreement`, `:Instrument`, `:GeographicMarket`, `:Product`, `:Feature`, `:Regulator`, `:StockExchange`, `:DisclosureChannel` | `entity_id` | ontology `instances` (4) + claim participants and relationship endpoints |
+| `:Entity` | the PascalCase of the payload's own `entity_type` **plus its `is_a` ancestors** — so `:PublicCompany:Company`, `:Subsidiary:Company`, `:Person`, `:AssetBackedDebtFacility:CreditFacility:CreditAgreement:Agreement`, … | `entity_id` | ontology `instances` (4) + claim participants and relationship endpoints |
 | `:Observation` | — | `observation_id` | `claim_kind: metric_observation` |
 | `:Event` | — | `event_id` | `claim_kind: event` |
 | `:Metric` | — | `metric_id` | ontology `metric_definition` (26) |
-| `:Passage` | — | `passage_id` | `passages.jsonl`, **only passages some claim or issue cites** |
-| `:Document` | — | `document_id` | `documents.jsonl`, only documents of cited passages |
-| `:Issue` | — | `issue_id` (projection-minted, §4.3) | `issues.jsonl` |
+| `:Passage` | — | `passage_id` | `passages.jsonl`, only passages some claim or issue cites — **8,776** *(153 by claims, 8,757 by issues; measured at G0)* |
+| `:Document` | — | `document_id` | `documents.jsonl`, only documents of cited passages — **185** *(49 by claims; measured at G0)* |
+| `:Issue` | `:NotAttempted` on the 10,852 `NO_STORED_ANSWER` rows | `issue_id` (**supplied by the run**, §4.3) | `issues.jsonl` |
 
 Concrete entity labels are derived from the payload's own `entity_type` / `subject_type`
 string, PascalCased, **with the ontology's `is_a` ancestors added** — so `opendoor` is
 `:Entity:PublicCompany:Company` and a subsidiary is `:Entity:Subsidiary:Company`. That makes
 `MATCH (c:Company)` find every company without the query needing to know the subtype list,
-which is what `registry.ancestors()` already exists to answer.
+which is what `registry.ancestors()` exists to answer.
+
+**Two corrections from review, either of which would have broken the builder:**
+
+1. **`ancestors()` takes a concept id, not an instance id.** `ancestors('public_company')` →
+   `('company',)`, but `ancestors('opendoor')` → `()`. The builder must resolve an instance to
+   its `concept_id` first, then ask for ancestors.
+2. **`entity_type` is not always an `entity_type` concept.** The 13 declared entity types
+   include no facility and no instrument: the run's facility participant carries
+   `entity_type: asset_backed_debt_facility`, which is an **`agreement_type`**, and
+   `financial_instrument` is a `financial_instrument_type`. The draft's `:Facility`,
+   `:Agreement` and `:Instrument` labels named no declared type at all. The rule is therefore
+   stated over *whatever category the concept belongs to*: the label is the concept id, and
+   `is_a` chains resolve inside `agreement_type` and `financial_instrument_type` exactly as
+   inside `entity_type`. A type the registry does not know is an `UNDECLARED_ENDPOINT_TYPE`
+   rejection (§6.4), never a guessed label.
 
 A second, non-exclusive label `:Unresolved` marks any entity node the filing did not name
 (§4.2). Styling it distinctly in Browser is the cheapest possible guard against reading a
@@ -294,6 +454,14 @@ placeholder as an answer.
 **Ontology-declared** — name, direction and endpoint types come from `relationships.yaml`.
 The projection reads them from the registry rather than hard-coding a list, so a vocabulary
 edit cannot silently disagree with the code (the same rule `deferred_metric_ids` follows).
+
+**One wrinkle review found in that plan:** five endpoint type names in `relationships.yaml` —
+`metric_definition`, `metric_observation`, `event_type`, `relationship_type`, `metric_formula` —
+are **category** names, not registry concepts, and `registry.concept(...)` raises
+`ConceptNotFoundError` for each. They are exactly the structural predicates §1.1 is built on
+(`HAS_OBSERVATION`, `EVIDENCED_BY`, `PARTICIPATES_IN`, `SUPERSEDES`). So the endpoint validator
+resolves a name as *either* a concept *or* a `ConceptCategory`, and only a name that is neither
+raises `UNDECLARED_ENDPOINT_TYPE`. Without that, the projection would reject its own backbone.
 
 | Edge | From → To | Emitted from |
 | --- | --- | --- |
@@ -338,7 +506,7 @@ without consulting this document. Three mechanisms, all cheap:
 
 | Node | Key | Grammar |
 | --- | --- | --- |
-| `:Observation` | `observation_id` | `obs:{metric}:{subject}:{period_key}:{lane}:{passage_digest12}` |
+| `:Observation` | `observation_id` | `obs:{metric}:{subject}:{period_key}:{lane}:{digest12(passage_id, *structural_position)}` |
 | `:Event` | `event_id` | `evt:{type}:{occurred_on\|undated}:{digest12(passage, sorted participants)}` |
 | `:Metric` | `metric_id` | ontology concept id |
 | `:Passage` | `passage_id` | `norm:{cik}:{accession}:{file}#p{n}` |
@@ -349,11 +517,23 @@ Readable ids are the point, not an accident — they surface in evidence panels 
 Browser's node captions, and a graph keyed on UUIDs would be unusable in exactly the tool this
 plan is optimising for.
 
-Relationship edges are keyed for idempotence on
-`relationship_instance_id = rel:{predicate}:{source}:{target}:{digest12(passage)}`, which
-`extraction/core/identifiers.py:141-161` already mints. The loader `MERGE`s on that property,
-never on the endpoint pair alone — two filings asserting `BORROWS_UNDER` between the same pair
-are two evidenced assertions, and collapsing them would discard a citation.
+Relationship edges are keyed for idempotence on `relationship_instance_id`, which the run
+supplies as a first-class column. The loader `MERGE`s on that property, never on the endpoint
+pair alone — two filings asserting `BORROWS_UNDER` between the same pair are two evidenced
+assertions, and collapsing them would discard a citation.
+
+**`period_key` is computed, not read** *(corrected at G0)*. No catalog carries it; observations
+carry `period_start` / `period_end` / `instant_date` only. The projection recomputes it with
+`PeriodRef.key`'s algorithm (`extraction/core/models.py:134-149` — `FY2023`, `2023Q4`,
+`2023-12-31`, else `{start}_{end}`). 75 distinct period triples; 2,304 durations, 403 instants.
+
+**And the check is the whole id, not just the period segment** *(strengthened at G0)*. Because
+the id-bearing grid coordinates survive into `extractor_metadata` (§5.4 point 3), G1 recomputes
+every `observation_id` end to end — metric, subject, recomputed period key, lane, and
+`digest(passage_id, "row=…", "column=…")` — and asserts it equals the id the catalog supplied.
+**Verified at G0: 2,707 of 2,707, zero mismatches.** That check subsumes the period check and
+turns any divergence between the graph's reading of an observation and extraction's own identity
+rule into a build failure, rather than a node quietly keyed on a stale id.
 
 ## 4.2 Unresolved entities are never merged
 
@@ -385,12 +565,19 @@ docstring says the uniform placeholder exists to provide.
 This is §14.1, a founder decision, and it is the one place this plan deviates from an
 extraction id.
 
-## 4.3 Issue ids
+## 4.3 Issue ids — supplied, not minted *(corrected at G0)*
 
-`issues.jsonl` rows have no id today (P5). The projection mints
-`issue:{code_slug}:{digest12(passage_id, code, detail, sorted candidate ids)}` — deterministic,
-readable, and stable across rebuilds of the same run. If Stage 13 turns out to write an id of
-its own, G0 adopts it and this rule is deleted rather than kept alongside.
+The draft minted an issue id and said the rule would be deleted if Stage 13 supplied one. It
+does: `issue_id` (`issue:{12 hex}`), unique across all 17,127 rows. **The minting rule is
+deleted.** The projection uses `issue_id` as the `:Issue` key.
+
+One property to record rather than rely on: `issue_id` and `rejection_id` are *ordinal* ids —
+`digest(code, lane, passage_id, row_label, detail, occurrence_number)` where the occurrence
+number counts position within `lane_outputs.jsonl` (`jsonl_catalog.py:45-55`, `:81-96`). They
+are stable for a given run and are **not content addresses**: inserting an unrelated issue
+earlier in the same group renumbers later ones. So they are valid node keys within a rebuild of
+one run — which is all V1 needs — and must not be used to diff issues across two different
+runs. §12's exclusion of incremental loading is what keeps that safe.
 
 ## 4.4 Determinism
 
@@ -459,13 +646,33 @@ stated policy:
 | Field | Policy |
 | --- | --- |
 | `EventInstance.properties` — declared `dict[str, Any]` (`models.py:427`), though the lane's own `LaneEvent.properties` is `dict[str, str]` and the values are verbatim filed strings | one property per declared key, prefixed: `prop_committed_capacity: "$525 million"`. Plus `property_names: ["committed_capacity", "maturity_date"]` so a query can find events carrying a property without knowing its name. **The projection coerces to string and never parses a number** — `"$525 million"` and `"approximately 550 employees"` are the filing's words, and a graph that silently typed them would assert a measurement the extractor refused to make. The `Any` matters: the type does not guarantee a string, so this is an enforcement the projection performs rather than one it inherits. A non-scalar value is a `MALFORMED_EVENT_PROPERTY` rejection (§6.4), not a silent `str()`. |
-| `MetricObservation.population` — **four** fields (`models.py:364-370`) | all four projected: `population_definition_raw`, `population_definition_normalized`, `population_role`, `population_confidence`. §7.1's whole point is that two differing `definition_raw` values are **not one series**, so it must be a first-class property, and Q2 filters on it. `definition_normalized` is projected even though V1 never populates it — dropping a declared field quietly is the failure §2.2's "fail loudly, never default" rule exists to prevent, and it would be this section doing it. |
-| `extractor_metadata` | a whitelist of scalar keys promoted to properties (`scale`, `scale_location`, `row_label`, `column_label`, `period_label`, `period_label_char_start`, `period_label_in_evidence`, `period_label_distance_from_evidence` — all four period fields of `V1_CLAIM_EXTRACTION` §8a.12, since `period_label_char_start` is exactly what §7.2's evidence highlighting needs), `ambiguity_codes` as a string list, and everything else preserved as `extractor_metadata_json` so nothing is lost. |
+| `MetricObservation.population` — four model fields, **one of which reaches the catalogs** | **Only `population_definition_raw` is projected**, because only it exists in the run (89 non-null of 2,707). `population_role` and `population_confidence` appear in no catalog, and reconstructing them would emit the model defaults `baseline` and `medium` on every observation — inventing a provenance the extractor never wrote, in the section that invokes "fail loudly, never default". `definition_normalized` is likewise absent and likewise not projected. `V1_CLAIM_EXTRACTION` §7.1's whole point is that two differing `definition_raw` values are **not one series**, so that field is first-class and Q2 filters on it. *(Corrected by review: the draft promised all four, which for two of them meant fabricating a default.)* |
+| `extractor_metadata` — **38 keys in 8 shapes** *(measured at G0: shape sizes 16/17/14/18/11/20/19/9, counts 2397/209/84/9/6/4/4/4)* | `observations.jsonl` already promotes `scale`, `scale_location`, `row_label`, `column_label`, `ambiguity_codes` to columns, so the graph reads them there. From `claims.extractor_metadata` the projection additionally promotes all four §8a.12 period fields (`period_label`, `period_label_char_start`, `period_label_in_evidence`, `period_label_distance_from_evidence`), the grid coordinates (`row_index`, `value_column_index`, `period_header_row_index`, `period_header_column_index`, `metric_label_row_index`), `subject_basis`, `scale_source`, `prompt_version`, `provider_model_id`, `scope`, and `source_name`/`target_name` on relationship claims. Everything else is preserved as `extractor_metadata_json`. |
 
-Values: `MetricObservation.value` is `float \| int \| str \| bool`. It is stored under its own
-type in `value`, with `value_text` holding the printed form from `quoted_text`/`raw_text` where
-one exists. Scale is already applied by the lane — claims carry absolute USD — and the graph
-does not re-scale anything.
+**Three properties of `extractor_metadata` the readers must encode, all measured at G0:**
+
+1. **Keys are omitted, not nulled.** 84 table claims carry `scale_source` but no `scale` key at
+   all; `ambiguity_codes` appears only when non-empty (213 of 2,717). Every promoted field must
+   be optional-with-default, or the reader breaks on a shape it should accept.
+2. **Three names for one concept across lanes.** The table lane writes `scale_source`; the
+   narrative lane writes `scale_declaration_location` and `scale_declared_in`. The projection
+   carries all three under their own names and does **not** unify them — collapsing them would
+   assert an equivalence nobody has established, and `observations.scale_location` is the field
+   the graph actually queries.
+3. **The id-bearing coordinates *are* in `extractor_metadata`, and the draft said they were not.**
+   `deterministic_lane.py:365-366` mints the id from `(row_index, column.column_index)` and
+   `:382-383` writes those same two values as `metric_label_row_index` and
+   `period_header_column_index`. *Verified at G0 by recomputation:* feeding
+   `structural_position = (f"row={metric_label_row_index}", f"column={period_header_column_index}")`
+   into `observation_id` reproduces **2,707 of 2,707 ids exactly, zero mismatches**. Note
+   `value_column_index` is a *different* column and reproduces only 582 — the two are not
+   interchangeable. This makes §4.1's determinism check far stronger than planned.
+
+Values: `MetricObservation.value` is `float \| int \| str \| bool` in the model and **a float on
+all 2,707 rows** in this run, including counts like `market_count`. It is stored as given, with
+`value_text` holding the printed form where `extractor_metadata` supplies one (17 narrative
+claims). Scale is already applied by the lane — claims carry absolute USD — and the graph does
+not re-scale anything.
 
 ## 5.5 Temporal, provenance and validation properties
 
@@ -474,6 +681,16 @@ what byte-identity is checked against: `period_start`, `period_end`, `instant_da
 `period_key`, `occurred_on`, `announced_on`, `valid_from`, `valid_to`. Typed `date()` twins are
 added *only* where range queries need them — `occurred_on_date`, `announced_on_date`,
 `period_end_date` — and are derived, never authoritative.
+
+**The five event fields that exist only in `events.jsonl` are carried, not dropped** *(added by
+review, which caught the projection spec silently discarding what §0b called load-bearing)*:
+`dates_equal`, `review_flag`, `occurrence_date_text`, `announcement_date_text` and
+`evidence_quoted_text` all become `:Event` properties. `review_flag` is the **only** carrier of
+`ANNOUNCEMENT_EQUALS_OCCURRENCE` — one event in this run — and an event whose two dates coincide
+is exactly the case a reader must be able to see rather than infer. The two `*_date_text` fields
+hold the filing's own wording for each date, including the honest
+`"(the passage does not state this date)"`, which is what makes an absent date legible instead
+of merely blank.
 
 **Announcement is not occurrence, in the graph too.** Both dates are stored, either may be
 null, and **neither is ever filled from the other or from a document's `filing_date`**
@@ -499,11 +716,39 @@ null, and **neither is ever filled from the other or from a document's `filing_d
 | `source_lane` | on observations: `normalized_table` / `normalized_narrative` |
 | `claim_id` | on observations, events, and relationship edges |
 
-**Validation state.** `validation_state` ∈ `{clean, warned}` plus `warning_codes: [...]`, and a
-non-exclusive `:Warned` label for Browser styling. A run's errors never reach the graph, because
-a claim with an error never reaches a catalog — but `unpreferred_source_lane` and
-`QUOTED_TEXT_NOT_IN_PASSAGE` do, and §1.3 is the reason they must be visible rather than
-averaged away. Depends on P6.
+**Validation state — re-derived, because the run does not record it** *(G0)*.
+
+`validation_state` ∈ `{clean, warned}`, `warning_codes: [...]`, and a non-exclusive `:Warned`
+label. The run's 186 `unpreferred_source_lane` warnings exist **only** as a manifest aggregate:
+`CheckFinding` carries a `claim_id` (`extraction/stages/verify/public.py:49-53`) and
+`as_row()` writes counts, discarding the findings (`:70-80`). Nothing in the run directory
+associates a warning with a claim.
+
+**The projection therefore re-derives it, and proves the derivation.** It reconstructs each
+`MetricObservation` from `observations.jsonl` + `evidence.jsonl` and calls the ontology's own
+`validate_observation()` — the same validator the run used, not a reimplementation of its rule —
+then asserts the resulting warning count equals
+`manifest.verification[ontology_validation].warnings`.
+
+*Verified at G0*: replaying all 2,707 observations reproduces **exactly 186 warnings, all
+`unpreferred_source_lane`** — `market_count` 176, `housing_inventory_homes` 3, and seven other
+metrics at one each. The manifest says 186. The counts agree, so the derivation is checked
+rather than asserted, and **G1 fails the build if they ever disagree**.
+
+**The derivation is robust, and its equality check is not.** Independent review re-ran the
+reconstruction with `population`, `evidence`, `reported_at`, `dimensions`, `reporting_basis` and
+`confidence` varied, and with `assertion_type='calculated'`: every variant returned 186, because
+`_warn_on_unpreferred_lane` (`ontology/validation.py:287-306`) reads only `source_lane` and the
+metric definition. **But the manifest's 186 comes from `validate_claims` over all 2,717 claims**,
+including the 6 events and 4 relationships (`extraction/stages/verify/public.py:38`). The two
+agree today only because no event- or relationship-level warning exists in this ontology. G1
+therefore asserts the equality **and** records that its denominators differ, so that a future
+event-level warning fails the build for a stated reason rather than an apparently mysterious one.
+
+This is derivation, not invention: no new fact is created, the rule belongs to the ontology, and
+the answer is cross-checked against the run's own recorded total. Had the counts disagreed, the
+correct move would have been to carry no per-node warning state and record the aggregate —
+which is what §14.2 now says explicitly.
 
 ---
 
@@ -644,17 +889,29 @@ one selected thing.
 
 ## 7.4 Avoiding the hairball
 
-The corpus is single-company, so the hairball is structural: potentially thousands of
-observations all one hop from `opendoor` via `OBSERVATION_OF_SUBJECT`. Three rules:
+Now a measured problem rather than a predicted one *(G0)*. **Every one of the 2,707
+observations hangs off a single `:Entity` — there is exactly one `subject_entity_id` in the
+whole run** — so `opendoor` has degree ≥2,707 before any event or relationship edge. And
+`:Issue` outnumbers every other node type six to one: 17,127 issues against 2,707 observations,
+of which 10,852 are `NO_STORED_ANSWER`.
+
+Three rules:
 
 1. **never** `MATCH (n) RETURN n` — the pack has no unbounded query, and Browser's node limit
    is set in the saved settings;
 2. every observation query is filtered by metric, period or document, and `LIMIT`ed;
 3. `OBSERVATION_OF_SUBJECT` is the edge to *not* traverse when exploring. The interesting fan-out
-   is `Metric → Observation → Passage → Document`, which is narrow at every step.
-
-If P11 comes back with more observations than expected, G5 records the real counts and adjusts
-the limits — it does not redesign the model.
+   is `Metric → Observation → Passage → Document`, which is narrow at every step **on the
+   evidence side**: 17 metrics, **153** claim-cited passages, **49** claim-cited documents.
+   *(Corrected by review)* the graph as a whole holds **8,776 passages and 185 documents**,
+   because issues cite 8,757 passages the claims never touch. Almost all of that mass hangs off
+   `:NotAttempted`. Q6 and Q7 traverse from a claim and so stay in the 153/49 neighbourhood; only
+   an issue-first query reaches the rest, which is rule 4's job.
+4. **`:NotAttempted` is excluded from every default view.** The 10,852 `NO_STORED_ANSWER` issues
+   record that the run never asked the model, because it replayed 15 stored answers with
+   `provider_calls_permitted: 0`. That is a fact about this run's bounds, not about the corpus,
+   and mixing it into an issues view would drown the 6,228 real refusals. They are loaded — the
+   count must reconcile — and labelled so they can be left out.
 
 ---
 
@@ -667,7 +924,7 @@ the row count (which depends on the run).
 | # | View | Sketch |
 | --- | --- | --- |
 | Q1 | Company overview | `MATCH (c:Entity {entity_id:'opendoor'})<-[:OBSERVATION_OF_SUBJECT]-(o:Observation)<-[:HAS_OBSERVATION]-(m:Metric) RETURN m.metric_id, count(o), min(o.period_key), max(o.period_key) ORDER BY m.metric_id` |
-| Q2 | Metric timeline | `MATCH (m:Metric {metric_id:$metric})-[:HAS_OBSERVATION]->(o:Observation) RETURN o.period_key, o.value, o.unit, o.source_lane, o.population_definition_raw, o.validation_state ORDER BY o.period_key` — **grouped by `population_definition_raw`**, because §7.1 forbids presenting two denominators as one series |
+| Q2 | Metric timeline | `MATCH (m:Metric {metric_id:$metric})-[:HAS_OBSERVATION]->(o:Observation) RETURN o.period_key, o.value, o.unit, o.source_lane, o.population_definition_raw, o.validation_state ORDER BY o.period_key` — **grouped by `population_definition_raw`**, because `V1_CLAIM_EXTRACTION` §7.1 forbids presenting two denominators as one series |
 | Q3 | Events over time | `MATCH (e:Event) RETURN e.event_type_id, e.occurred_on, e.announced_on, CASE WHEN e.occurred_on IS NULL THEN 'announced' ELSE 'occurred' END AS dated_by ORDER BY coalesce(e.occurred_on, e.announced_on)` |
 | Q4 | Event participants | `MATCH (x:Entity)-[p:PARTICIPATES_IN]->(e:Event {event_id:$id}) RETURN e, p.role, x, x.resolved` |
 | Q5 | Credit facilities and borrowers | `MATCH (b:Entity)-[r:BORROWS_UNDER]->(f:Entity) OPTIONAL MATCH (l:Entity)-[:LENDS_UNDER]->(f) RETURN f.entity_id, b.entity_id, b.resolved, collect(l.entity_id), r.passage_id` |
@@ -733,10 +990,17 @@ A build is accepted when all of the following hold, each with an executable chec
    and every ontology-declared edge carries a non-null `claim_id`, `extraction_run_id`,
    `ontology_definition_hash` and at least one resolvable `passage_id`; every `passage_id` in
    the graph exists in `data/normalization_catalog/passages.jsonl`.
-5. **Nothing unsupported loads as an accepted fact.** Abstentions, policy rejections and
-   deferred metrics appear only as `:Issue`, with no edge into the fact graph; the count of
-   `:Issue` nodes equals the row count of `issues.jsonl`; no `:Observation` exists whose
-   `claim_id` is absent from `claims.jsonl`.
+5. **Nothing unsupported loads as an accepted fact — and nothing supported is suppressed.**
+   Abstentions, refusals, rejections and deferrals appear only as `:Issue`, with no edge into
+   the fact graph; `count(:Issue)` equals the 17,127 rows of `issues.jsonl`; no `:Observation`
+   exists whose `claim_id` is absent from `claims.jsonl`.
+   **The converse is equally a criterion**, because G0 measured that a refusal is per-reading or
+   per-property and never per-node: the event carrying `PARTICIPANT_NOT_NAMED` and the **four**
+   events carrying `PROPERTY_VALUE_NOT_IN_PASSAGE` (across two passages — three on
+   `…ef20055426_ex99-1.htm#p2`, one on `…open-20220930.htm#p117`; *review corrected the draft's
+   "three"*) **must be present** as `:Event` nodes. A
+   projection that dropped a fact because an issue names its passage would fail this criterion,
+   not satisfy it.
 6. **Announcement stays distinct from occurrence.** No `:Event` has `occurred_on` equal to a
    value that appears only in `announced_on` in the catalog, and no query in the pack collapses
    the two into an unlabelled date. Executable: for every event, the projected pair equals the
@@ -751,7 +1015,15 @@ A build is accepted when all of the following hold, each with an executable chec
    report.
 9. **The query pack runs.** All ten queries execute against the loaded graph and return the
    declared shape.
-10. **No custom frontend.** The graph is inspectable through Browser using only the committed
+10. **No refused reading is resurrected.** For each of the four `AMBIGUOUS_COLUMN_ALIGNMENT`
+    conflict-guard identities recorded in `issues.jsonl` (§2.4), zero `:Observation` nodes carry
+    that `(metric_id, subject_entity_id, period_key, source_lane, passage_id)`. Checked after
+    loading, not assumed from the input — the input is clean, and this catches a projection bug
+    that manufactured a node the extractor refused.
+11. **Warned nodes match the run's own count.** The re-derived warning set (§5.5) has exactly
+    `manifest.verification[ontology_validation].warnings` members — 186 for this run — and every
+    one is attached to an `:Observation` that exists.
+12. **No custom frontend.** The graph is inspectable through Browser using only the committed
     stylesheet and query pack.
 
 ---
@@ -787,9 +1059,16 @@ Dependency: the official `neo4j` Python driver. It removes real work — Bolt fr
 pooling, transaction retry on transient failures — that would otherwise be hand-rolled. Nothing
 else is added; no APOC (§6.3), no OGM, no graph library.
 
+**Two environment prerequisites, neither satisfied today** *(verified 2026-08-02)*: the `neo4j`
+driver is **not installed** (`pyproject.toml` declares only `httpx`, `pydantic`, `PyYAML`), and
+**`docker` is not on PATH in this WSL environment**. Neither blocks G0 or G1, which are
+database-free by design and are where the graph model is actually tested. Both must be resolved
+before G2, and how — Docker Desktop with WSL integration, a native Neo4j install, or a different
+local runtime — is an environment decision to take at that point rather than now.
+
 | Stage | Work | Gate |
 | --- | --- | --- |
-| **G0** | Inspect the finalized Stage 13 run and **freeze the graph input contract**. Answer every P-item in §2.2 in [STAGE13_GRAPH_INPUT_HANDOFF.md](STAGE13_GRAPH_INPUT_HANDOFF.md); copy a small committed fixture (a handful of claims of all three kinds, their passages, a manifest) into `tests/fixtures/graph/`. Correct this plan where reality contradicts it, with the reason. | Every P-item answered or explicitly still-open with a named owner; fixture committed; no plan statement left contradicted |
+| **G0** | **DONE.** Inspected the finalized run, answered P1–P11 (§2.2), recorded seven contradicted assumptions (§0b), committed a real fixture under `tests/fixtures/graph/`. | Met: every P-item answered; fixture committed; §0b records each correction and its reason |
 | **G1** | `graph/core` + `graph/stages/projection`: typed readers, node and edge builders, deterministic export, `rejected.jsonl`. No database. | `nodes.jsonl`/`edges.jsonl` byte-identical across two runs on the fixture; every §3.2 edge derived from the registry, not a literal list; unresolved-entity policy tested; offline suite green |
 | **G2** | Neo4j 5 Community in Docker, `config/graph.yaml`, constraints and indexes, batched loader, wipe-and-replace. | Constraints created; a fixture export loads; loading twice without wiping changes no count; loading with a missing endpoint fails |
 | **G3** | Load the real Opendoor run; validate counts and provenance. | Acceptance criteria 1–7 pass on the real run; counts recorded (they are §2.2 P11's answer) |
@@ -862,11 +1141,12 @@ mints a key extraction did not, and the projection must document it. The alterna
 every unnamed subsidiary in the corpus into one node, which is the mis-attribution the
 placeholder exists to prevent. **Decide before G1** — it is `core/keys.py`'s central rule.
 
-**14.2 — Do warned claims load?**
-*Recommendation: yes, with `validation_state: warned`, `warning_codes`, and a `:Warned` label
-styled with a red border.* The alternative — withholding them — makes the graph look cleaner
-than the extraction was, which is the failure mode §1.3 exists to prevent. Depends on P6: if
-Stage 13 records warnings only at run level, this degrades to a run-level note and G0 says so.
+**14.2 — Do warned claims load? — RESOLVED at G0, default applied.**
+Yes, with `validation_state: warned`, `warning_codes` and a `:Warned` label. P6 turned out the
+worse way — the run records no per-claim warning — but the state is **re-derivable from the
+ontology's own validator and cross-checks exactly against the manifest's 186** (§5.5). The
+recommended default is therefore applied without inventing anything. Had the counts disagreed,
+the fallback was to carry the aggregate only, and G1 still fails the build if they ever do.
 
 **14.3 — A `:FiscalPeriod` node, or period as properties?**
 *Recommendation: properties only for V1.* No ontology predicate connects an observation to a

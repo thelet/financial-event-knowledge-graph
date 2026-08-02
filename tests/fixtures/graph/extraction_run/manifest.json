@@ -1,0 +1,149 @@
+{
+  "bounds": {
+    "candidate_limit_per_lane": null,
+    "documents_requested": null,
+    "event_prompt_version": "1.0.0",
+    "lanes": [
+      "tables",
+      "narrative",
+      "events"
+    ],
+    "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
+    "prompt_version": "1.2.0",
+    "provider_calls_permitted": 0,
+    "recorded_answers_available": 15
+  },
+  "catalog_digests": {
+    "claims.jsonl": "33ee20407ac92a23b1b2da75c4dfbb8f1db9f371e8ea7b0130dddc1b1ff08394",
+    "events.jsonl": "b1eaed303fc6af24bfb4b331e4e0d5e40d659929d2f8413de9c61f14698166b8",
+    "evidence.jsonl": "a5c0b4ac27cc07907f46efedb4aacfdf3659714ed5fb2e003427d2736f74ab7c",
+    "issues.jsonl": "1fa8391e010289220e2f94b555f73a5a616e98e142904593e9f92ad8123fcfc5",
+    "lane_outputs.jsonl": "bdef371cbe65cfeecd22479fbef7acc7727578f23068e128ec12589e64686067",
+    "observations.jsonl": "9065477557a4017fb65082af71d4f270b3ab739cf4914c3fa11cd89961fc0c0f",
+    "rejected_claims.jsonl": "45f6c2562ff8956c286121803baa809176fa7980ea354ea2b541c842764e3238",
+    "relationships.jsonl": "bf095051992e7315e03ac8a6c17eabbf59192cae05eba4bdde9ebf97437f0104",
+    "report.md": "d6d8e0493d09d6f9fc8e5c23d8d205703e1d1b77a8782000653c4910a82df8e8"
+  },
+  "code_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+  "config_hash": "e1bb4eaf254fd61c247e35b847d0d30d0faf0948fa2e7053b8b96e1c4a8b2c2c",
+  "corpus": {
+    "content_digest": "9992c4eb1888",
+    "corpus_id": "294d-12442p-9992c4eb1888",
+    "documents": 294,
+    "passages": 12442,
+    "table_passages": 1935
+  },
+  "counts": {
+    "candidates": 11848,
+    "candidates_with_a_claim": 154,
+    "candidates_with_no_claim": 11694,
+    "candidates_with_no_claim_and_no_code": 0,
+    "claims": 2717,
+    "events": 6,
+    "events_flagged_for_temporal_review": 1,
+    "evidence_references": 2717,
+    "issues": 17127,
+    "observations": 2707,
+    "rejected_claims": 46,
+    "relationships": 4,
+    "temporal_diagnostics_recorded": 1
+  },
+  "created_at": "2026-08-02T16:02:44+00:00",
+  "dependencies": {
+    "httpx": "0.28.1",
+    "pydantic": "2.13.4",
+    "pytest": "8.4.2",
+    "pyyaml": "6.0.3"
+  },
+  "environment": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python_version": "3.13.11"
+  },
+  "extractor_version": "1.0.0",
+  "lanes": [
+    {
+      "lane": "tables",
+      "name": "normalized_table",
+      "version": "1.0.0"
+    },
+    {
+      "lane": "narrative",
+      "name": "normalized_narrative",
+      "version": "1.0.0"
+    },
+    {
+      "lane": "events",
+      "name": "normalized_narrative_events",
+      "version": "1.0.0"
+    }
+  ],
+  "layout_version": "1.0.0",
+  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "ontology_id": "real_estate_marketplace_v1",
+  "provider": {
+    "context_tokens": 8192,
+    "mode": "replay_only",
+    "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
+    "recorded_answers": 15
+  },
+  "run_id": "extract-v1-lexical-2422c4252c07",
+  "scope": {
+    "scope_name": "lexical",
+    "scope_version": "1.0.0",
+    "strategy": "lexical"
+  },
+  "verification": [
+    {
+      "check": "evidence_resolution",
+      "description": "every evidence passage_id exists in the corpus and every quoted span occurs in it",
+      "examined": 2717,
+      "failures": 0,
+      "failures_by_code": {},
+      "passed": true,
+      "warnings": 0,
+      "warnings_by_code": {}
+    },
+    {
+      "check": "ontology_validation",
+      "description": "every claim through validate_claims; V1 §11 criterion 1 requires zero errors",
+      "examined": 2717,
+      "failures": 0,
+      "failures_by_code": {},
+      "passed": true,
+      "warnings": 186,
+      "warnings_by_code": {
+        "unpreferred_source_lane": 186
+      }
+    },
+    {
+      "check": "forbidden_lanes",
+      "description": "no observation carries a source lane its metric forbids, and no xbrl-first metric carries a normalized-lane observation",
+      "examined": 2707,
+      "failures": 0,
+      "failures_by_code": {},
+      "passed": true,
+      "warnings": 0,
+      "warnings_by_code": {}
+    },
+    {
+      "check": "duplicate_identities",
+      "description": "no two distinct payloads share an id, in any catalog",
+      "examined": 25324,
+      "failures": 0,
+      "failures_by_code": {},
+      "passed": true,
+      "warnings": 0,
+      "warnings_by_code": {}
+    },
+    {
+      "check": "conflicting_duplicates",
+      "description": "no (metric, subject, period, lane, passage) is reported twice with different values",
+      "examined": 2707,
+      "failures": 0,
+      "failures_by_code": {},
+      "passed": true,
+      "warnings": 0,
+      "warnings_by_code": {}
+    }
+  ]
+}
