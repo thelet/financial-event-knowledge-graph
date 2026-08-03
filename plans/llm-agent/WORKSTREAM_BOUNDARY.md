@@ -67,14 +67,66 @@ Only these, and nothing else:
 | --- | --- |
 | `data/graph_runs/<id>/` | `manifest.json` (identity, `inputs.run_complete_sha256`, `counts`, `artifacts`), `nodes.jsonl`, `edges.jsonl` |
 | Neo4j | All eight base labels `Metric, Observation, Event, Passage, Document, Entity, Issue, EvidenceSource` and all twelve relationship types `HAS_OBSERVATION, EVIDENCED_BY, PART_OF, PARTICIPATES_IN, OBSERVATION_OF_SUBJECT, RECONCILES_TO, DISTINCT_FROM, HOLDS_POSITION_AT, BORROWS_UNDER, PLACEHOLDER_FOR, FOUND_IN, CONCERNS_METRIC`; the `passage_text` fulltext index; `:Issue` from two entry points only |
-| `ontology.core.` and `ontology` | metric definitions, aliases, `mutually_distinct_groups`, `distinct_from`, formula windows, percentage bounds, ambiguity blocks |
-| `extraction.core.` | `PeriodRef.key` for period-key derivation, `digest` and `normalize_alias` for identifiers |
+| `ontology.core.` and `ontology` | metric definitions, aliases, `mutually_distinct_groups`, `distinct_from`, formula windows, percentage bounds, ambiguity blocks, `normalize_alias` — **the authority for all metric metadata and compatibility** |
+| `extraction.core.` | `PeriodRef.key` for period-key derivation, `digest` for identifiers |
 | `data/extraction_runs/<id>/run.complete` | its sha256, for the staleness gate only |
 
 **It does not import** `extraction.stages`, `extraction.providers`, `extraction.contracts`,
-`normalization.*`, `acquisition.*`, or anything under `graph/stages/`. `graph.core.models` and
-`graph.contracts` are candidates for the allowed list at L1 and are marked *(unverified)* until
-the first structural test is written.
+`normalization.*`, `acquisition.*`, or anything under `graph/stages/` — **including
+`graph/stages/load/connection.py`**, see §4.1. `graph.core.models` and `graph.contracts` are
+candidates for the allowed list at L1 and are marked *(unverified)* until the first structural
+test is written.
+
+**Correction, 2026-08-03 (implementation recon).** This table previously placed
+`normalize_alias` in `extraction.core.identifiers`. It is in **`ontology.core.identifiers:48`**;
+`extraction.core.identifiers` has only a private `_slug`. A packet written from the old row
+would not have compiled. Recorded rather than silently fixed because three downstream packets
+were about to be issued from it.
+
+### 4.1 Reaching Neo4j — the tension the plan did not resolve
+
+`load_settings`, `read_env_file`, `GraphSettings` and `driver_for` all live in
+`graph/stages/load/connection.py`, which §4 forbids. **Decision: `story/` re-states the
+behaviour it needs in a story-owned adapter and imports nothing from the load stage.**
+
+| | |
+| --- | --- |
+| Adapter | `story/providers/neo4j_connection.py` — **not** `story/core/`. `core/` stays free of Neo4j and of environment concerns; `providers/` is already the boundary where an external system is reached, and now owns Bolt as well as HTTP |
+| Constructed by | `story/context.py`, the composition root. No retrieval tool constructs a driver |
+| Consumed as | a story-owned query-executor protocol declared in `story/contracts.py`, injected into retrieval tools |
+| Implements | URI/user/password/database configuration · repository-consistent `.env` layering · driver creation · connectivity verification · lifecycle and close · **parameterised read statements with an explicit timeout** |
+| Must not implement | schema or index creation · wipe or replace · graph loading · any write query · load-batch settings · migration |
+| Driver import | the adapter is the **only** story module importing `neo4j`, enforced by a structural test |
+| Tests | normal tests use a fake/recorded executor; live Neo4j tests are optional and separately marked |
+
+Why re-state rather than import: the repository already settles this trade the same way —
+`extraction/core/config.py:34-43` re-states `canonical_hash` rather than reach across a
+boundary, and says so in its docstring. Re-stating also buys something import cannot:
+`driver_for` returns a **write-capable** driver, so a story layer built on it would have
+read-only as a convention. A story-owned adapter makes it structural.
+
+### 4.2 Four shape facts every consumer must respect *(verified 2026-08-03)*
+
+Recorded here because three of them contradict what a reader would reasonably assume.
+
+1. **Neo4j stores no nulls.** `SET n += {k: null}` removes the key, so an absent property and
+   an explicit null are indistinguishable — and 53,951 null-valued properties were dropped at
+   projection `1.1.0`. Consumers must **never assume an optional property exists**, must
+   distinguish *missing* from *valued*, and must derive period shape from the fields actually
+   present rather than from a null check. Measured sparsity: `period_start`/`period_end` on
+   **2,304 of 2,704** observations, `currency` on **997**, `row_label`/`column_label` on
+   **2,690**, `table_id` on **503 of 8,776** passages, `report_date` on **184 of 185**
+   documents.
+2. **`quoted_text` is a property of the `EVIDENCED_BY` relationship, not of `:Observation`.**
+   So are `table_id` and `block_ids`. Retrieval Cypher must return the **edge** property
+   explicitly; a query that returns only node fields silently loses every citation quote.
+3. **`:Metric` carries no `percentage_min`, `percentage_max`, `distinct_from` or
+   `reconciles_to`.** Metric metadata and every compatibility decision come from the
+   **ontology contracts**, which are authoritative. The 36 `DISTINCT_FROM` and 2
+   `RECONCILES_TO` edges may support graph inspection but must never be the source of a
+   comparability ruling, and **no consumer may silently fall back to a missing node property**.
+4. **The graph holds the cited passage subset, not the corpus.** 8,776 `:Passage` nodes against
+   `corpus.passages = 12442`. A consumer assuming they are the same is wrong by 3,666.
 
 ---
 

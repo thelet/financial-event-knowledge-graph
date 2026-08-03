@@ -449,13 +449,14 @@ story/
     periods.py              the closed period-surface grammar (§13.4)
   stages/
     freshness/              the staleness gate (§7)                    — reads Neo4j + manifests
-    retrieval/              the fifteen tools (§9)   ← the only module that imports neo4j
+    retrieval/              the fifteen tools (§9)   ← owns every Cypher string; imports no driver
     detection/              the seven detectors (§6)
     ranking/                deterministic scoring and dedup (§6.10)
     packaging/              StoryEvidencePackage builder (§10)
     generation/             planner + writer (§11, §12)                — the only model callers
     verification/           deterministic gate + model adjudicator (§13)
   providers/                public.py, local_openai_compatible.py      — the only HTTP client
+                            neo4j_connection.py    ← the only module that imports the driver
   context.py  pipeline.py  cli.py  __main__.py
 config/story.yaml
 tests/story/
@@ -478,8 +479,16 @@ The real proportion question is §23's fourteen implementation stages against a 
 zero lines today, and §23 answers it: L0–L6 and L9 need no model server, and L0 alone
 (the staleness gate) has standalone value.
 
+**Correction, 2026-08-03 (implementation, decision D1).** This tree originally put the driver
+import in `retrieval/`. It is in **`story/providers/neo4j_connection.py`**: `core/` must stay
+free of Neo4j and of environment concerns, `providers/` is already the boundary where an
+external system is reached, and retrieval receives a `ReadQueryExecutor` by injection so no
+tool constructs a driver. Retrieval still owns every Cypher string — it just does not own the
+connection.
+
 Each directory is still the boundary of a different failure. `freshness` refuses a
-run; `retrieval` is the only place a driver is imported; `detection` and `ranking` are separate
+run; `providers` is the only place a driver or an HTTP client is imported; `retrieval` owns
+every Cypher string and receives its executor injected; `detection` and `ranking` are separate
 because §6.10 forbids a model from ranking and keeping them together invites one function to do
 both; `packaging` is the wall the model cannot see past; `generation` is the only place a
 prompt exists; `verification` must be constructible without either a database or a model, so a
