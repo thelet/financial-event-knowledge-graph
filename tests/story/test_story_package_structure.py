@@ -205,18 +205,14 @@ def test_no_story_module_names_a_framework(path):
 
 
 def test_the_driver_is_named_only_in_the_story_owned_connection_module():
-    """`neo4j` may be imported from `story/providers/neo4j_connection.py` and nowhere else.
+    """`neo4j` may be imported from `story/providers/neo4j_connection.py`, and it must be.
 
-    Written now, before the module exists, because this is the rule that has to hold the day
-    it does. It passes today with **zero** importers, and the "somebody must actually import
-    it" half of `tests/graph/test_graph_package_structure.py::
-    test_the_driver_is_named_only_inside_the_load_stage` is deliberately absent: at S0 the
-    only way to satisfy it would be to write the adapter, which is S0c's. That half arrives
-    with S0c.
-
-    What keeps the rule from passing vacuously in the meantime is the guard below it —
-    `STORY_MODULES` is asserted non-empty and named, so an empty walk cannot be mistaken for a
-    clean one.
+    Written at S0 before the module existed, because this is the rule that has to hold the day
+    it does. **S0c completed the second half**: the "somebody must actually import it"
+    assertion that `tests/graph/test_graph_package_structure.py::
+    test_the_driver_is_named_only_inside_the_load_stage` carries is now here too. Without it
+    the rule is satisfiable by deleting the adapter, which is a different package than the one
+    the plan describes.
     """
     assert STORY_MODULES, "no story module was walked; the rule below proves nothing"
     importers = {
@@ -224,20 +220,36 @@ def test_the_driver_is_named_only_in_the_story_owned_connection_module():
         for path in STORY_MODULES
         if any(imported.split(".")[0] == DRIVER for imported in imports(path))
     }
-    escaped = importers - {DRIVER_OWNING_MODULE.relative_to(PACKAGE).as_posix()}
-    assert escaped == set(), f"driver imported outside the connection module: {sorted(escaped)}"
+    assert importers == {DRIVER_OWNING_MODULE.relative_to(PACKAGE).as_posix()}, (
+        f"the driver must be imported by the connection module and by nothing else, "
+        f"found {sorted(importers)}")
 
 
-def test_no_driver_is_reachable_from_anything_but_the_connection_module():
+def test_no_driver_is_reachable_from_the_contract_the_core_or_any_stage():
     """Transitively, the half a per-file check cannot see.
 
     A driver that arrived through `story.core.keys -> extraction.core.something -> neo4j`
     would satisfy the test above and still put a Bolt connection inside `core/`, which §5
-    requires to be constructible with no database. Everything except the connection module is
-    walked, and the whole closure is checked.
+    requires to be constructible with no database.
+
+    **Corrected at S0c; the S0 spelling was impossible to satisfy.** It walked *everything
+    except the connection module* and asserted the closure reached no driver — but D1 requires
+    `story/context.py` to construct the executor, so the composition root imports the adapter
+    by design and the closure from it reaches `neo4j` in one hop. The rule as written could
+    only be kept by a package with no composition root, or by hiding the import behind
+    `importlib`, which would defeat the import-graph check it belongs to.
+
+    The set walked is now the one that must stay driver-free — the contract, `core/` and every
+    stage — which is exactly how `tests/graph/test_graph_package_structure.py::
+    test_no_driver_is_reachable_from_core_or_projection` scopes the same rule (`DATABASE_FREE`
+    is `graph/core` plus `graph/stages/projection`, not "everything but the loader"). The
+    guarantee is unchanged and the exemption is two named paths wide: a *stage* that imported
+    the adapter still fails here.
     """
-    driver_free = [p for p in STORY_MODULES if p != DRIVER_OWNING_MODULE]
+    exempt = (DRIVER_OWNING_MODULE, PACKAGE / "context.py")
+    driver_free = [p for p in STORY_MODULES if p not in exempt]
     assert driver_free, "nothing to walk"
+    assert any(p.is_relative_to(PACKAGE / "core") for p in driver_free)
     offences = [
         f"{name} imports {imported}"
         for name, path in sorted(closure(driver_free).items())
@@ -245,6 +257,22 @@ def test_no_driver_is_reachable_from_anything_but_the_connection_module():
         if imported.split(".")[0] == DRIVER
     ]
     assert offences == []
+
+
+def test_the_composition_root_is_the_only_module_outside_providers_that_reaches_the_adapter():
+    """D1's runtime half: no retrieval tool, no detector and nothing in `core/` builds a driver.
+
+    The exemption the test above grants `story/context.py` is bounded here rather than left
+    open. `story.providers.neo4j_connection` may be imported by the composition root and by
+    nothing else in the package; a stage that wanted an executor takes one as an argument.
+    """
+    adapter = "story.providers.neo4j_connection"
+    importers = {
+        path.relative_to(PACKAGE).as_posix()
+        for path in STORY_MODULES
+        if path != DRIVER_OWNING_MODULE and adapter in imports(path)
+    }
+    assert importers == {"context.py"}, sorted(importers)
 
 
 def test_the_driver_never_reaches_the_contract_or_the_core():

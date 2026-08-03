@@ -1,4 +1,6 @@
-"""Builders for the story layer's frozen types. Offline, no database, no model server.
+"""Builders for the story layer's frozen types, and the recorded executor every stage tests against.
+
+Offline, no database, no model server.
 
 Every type in `story/core/models.py` is required at construction to be internally consistent,
 which is the point — and it makes a hand-built example verbose. These builders supply the
@@ -10,6 +12,14 @@ contract that could only be tested against a finished run would be a contract no
 check from a clean checkout. `tests/story/fixtures/` arrives at S3, when there is something
 real to slice.
 
+**`RecordedReadExecutor` is the database, for every test that is not marked `neo4j`** (S0c).
+It imports no driver — that is the claim it exists to make good: `ReadQueryExecutor` is a
+structural type, so a stage can be written and driven with `neo4j` uninstalled. It records
+every call, including the timeout, because §16's "a timeout on every statement" is a property
+a caller has to be *shown* keeping, and a fake that discarded the argument would let a stage
+drop it silently. It lives here rather than in one step's test file because S0b and S1 both
+consume the same protocol and neither should reimplement this.
+
 Deliberately **no `__init__.py` in this directory**: `pyproject.toml`'s
 `pythonpath = [".", "tests", …]` puts `tests/` on `sys.path`, so a `tests/story/__init__.py`
 would make `tests/story` importable as the top-level package `story` and shadow the real one.
@@ -19,8 +29,9 @@ raises `AttributeError` from inside a test. No other directory under `tests/` ha
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import pytest
 
@@ -31,6 +42,7 @@ from story.core.models import (
     EditorialPlan,
     EvidenceRequest,
     FactBinding,
+    HealthStatus,
     KeyPoint,
     PackageBudget,
     PackagedDocument,
@@ -179,6 +191,60 @@ def make_draft(**overrides: Any) -> Draft:
     )
     fields.update(overrides)
     return Draft(**fields)
+
+
+@dataclass(frozen=True)
+class RecordedRead:
+    """One `read()` call, exactly as it arrived. `timeout_seconds` is recorded, not assumed."""
+
+    statement: str
+    parameters: dict[str, Any]
+    timeout_seconds: float
+
+
+@dataclass
+class RecordedReadExecutor:
+    """A `story.contracts.ReadQueryExecutor` with a script where the database would be.
+
+    Structural conformance and no import of `story.providers`: the point of the protocol is
+    that a stage can be exercised with no driver installed, and a fake that reached for the
+    adapter to satisfy it would quietly undo that.
+
+    `rows_by_statement` is keyed by the exact statement text, so a test that changes a query
+    by one character stops matching — which is the failure a test wants, not one to smooth
+    over with fuzzy lookup. `raises` makes an unreachable database a scriptable state.
+    """
+
+    rows_by_statement: Mapping[str, tuple[dict[str, Any], ...]] = field(default_factory=dict)
+    default_rows: tuple[dict[str, Any], ...] = ()
+    health: HealthStatus = field(
+        default_factory=lambda: HealthStatus(ok=True, status="ok", detail="recorded"))
+    raises: Exception | None = None
+    calls: list[RecordedRead] = field(default_factory=list)
+    closed: bool = False
+
+    def read(
+        self,
+        statement: str,
+        parameters: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> tuple[dict[str, Any], ...]:
+        self.calls.append(RecordedRead(statement, dict(parameters), timeout_seconds))
+        if self.raises is not None:
+            raise self.raises
+        return self.rows_by_statement.get(statement, self.default_rows)
+
+    def verify_connectivity(self) -> HealthStatus:
+        return self.health
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def recorded_executor() -> RecordedReadExecutor:
+    return RecordedReadExecutor()
 
 
 @pytest.fixture

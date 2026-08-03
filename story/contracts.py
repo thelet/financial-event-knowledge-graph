@@ -2,8 +2,8 @@
 
 Dependency-light by rule, the same rule `graph/contracts.py` and `extraction/contracts.py`
 state: `typing`, this package's core models, and nothing else. **No driver, no HTTP client, no
-configuration, no storage import** — and in particular no `neo4j`, which V1_STORY_AGENT §5
-confines to `story/stages/retrieval/`, and no `httpx`, which §5 confines to
+configuration, no storage import** — and in particular no `neo4j`, which decision D1 confines
+to `story/providers/neo4j_connection.py`, and no `httpx`, which §5 confines to
 `story/providers/`. `tests/story/test_story_package_structure.py` asserts the import set of
 this file exactly, so the rule cannot erode by one convenient import.
 
