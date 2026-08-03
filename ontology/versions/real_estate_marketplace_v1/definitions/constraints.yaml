@@ -69,3 +69,15 @@ percentage_defaults:
 
 # Confidence, where present, is a probability.
 confidence_range: {min: 0.0, max: 1.0}
+
+# An observation may not measure a period that had not ended when the filing carrying it was
+# made. Reporting lag in the normal direction is unbounded and needs no parameter - measured
+# over the 2,704 observations of extract-v1-lexical-2422c4252c07 on 2026-08-03 it runs from
+# +15 days to 1,045 days, and all 2,704 pass. `guided` is exempt by the meaning of the
+# assertion type and is not listed here; only the calculated exemption is policy.
+future_period:
+  # Metrics whose CALCULATED observations may cover a period ending after the carrier filing -
+  # a projection re-derived from filed inputs. Empty: no such metric is declared yet, and an
+  # unlisted future-period calculated fact is indistinguishable from a mislabelled guidance
+  # figure, which is what the rule exists to catch.
+  allowed_calculated_metrics: []

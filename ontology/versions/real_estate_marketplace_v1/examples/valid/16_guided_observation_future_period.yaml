@@ -1,0 +1,25 @@
+description: >-
+  The one shape in which a forward-looking period is legitimate on an observation:
+  `assertion_type: guided`. The event type's own restriction says a guided value recorded as
+  an observation must carry a non-reported assertion type and a future period, so refusing
+  this would make that rule unsatisfiable from the other side.
+claim:
+  claim_id: ex-valid-guided-future-period
+  claim_kind: metric_observation
+  assertion_type: guided
+  metric_observation:
+    observation_id: obs-homes-sold-2027q1-guided
+    metric_id: homes_sold
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 3000
+    unit: homes
+    period_start: "2027-01-01"
+    period_end: "2027-03-31"
+    reported_at: "2026-11-06"
+    source_lane: normalized_narrative
+    assertion_type: guided
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-26-000041-00033
+        document_id: doc-0001801169-26-000041-odt-ex991

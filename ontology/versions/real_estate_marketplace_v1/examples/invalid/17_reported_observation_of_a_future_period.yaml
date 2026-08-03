@@ -1,0 +1,25 @@
+description: >-
+  A filing dated 2024-02-15 reporting a period that ends 2027-12-31. Nothing measured it,
+  because it had not happened. This is the shape a guided figure takes when it is mislabelled
+  as an actual, and until now nothing anywhere refused it - an observation with period_end
+  2027-12-31 validated cleanly.
+expected_codes: [period_ends_after_the_filing_that_carries_it]
+claim:
+  claim_id: ex-invalid-future-period-reported
+  claim_kind: metric_observation
+  metric_observation:
+    observation_id: obs-bad-future-homes-sold
+    metric_id: homes_sold
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 4200
+    unit: homes
+    period_start: "2027-10-01"
+    period_end: "2027-12-31"
+    reported_at: "2024-02-15"
+    source_lane: normalized_table
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-24-000009-014
+        document_id: doc-0001801169-24-000009-odt-20231231x10k

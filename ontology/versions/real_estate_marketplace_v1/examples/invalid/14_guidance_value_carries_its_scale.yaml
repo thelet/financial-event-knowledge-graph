@@ -1,0 +1,29 @@
+description: >-
+  `low_value: "1.0 billion"` - the untyped-property defect written out. The digits and the
+  scale arrive in one string, so nothing downstream can compare the figure to an actual
+  without parsing prose. The scale belongs in `unit`; the bound must be a plain number.
+expected_codes: [event_property_not_of_declared_type]
+claim:
+  claim_id: ex-invalid-guidance-unscaled
+  claim_kind: event
+  event:
+    event_id: evt-bad-guidance-unscaled
+    event_type_id: guidance_issuance
+    occurred_on: "2024-02-15"
+    assertion_type: guided
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2024q1
+        entity_type: fiscal_period
+    properties:
+      guided_metric: revenue
+      low_value: "1.0 billion"
+      high_value: "1.1 billion"
+      unit: USD
+      currency: USD
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-24-000006"

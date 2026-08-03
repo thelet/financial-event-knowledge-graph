@@ -1,0 +1,29 @@
+description: >-
+  One bound and no other. This is neither a range nor a point, and afterwards the two are
+  indistinguishable - a range whose upper half was lost reads exactly like a point figure
+  that failed to say so. A point sets both bounds to the same number; qualitative guidance
+  sets neither.
+expected_codes: [event_value_range_incomplete_or_inverted]
+claim:
+  claim_id: ex-invalid-guidance-lone-bound
+  claim_kind: event
+  event:
+    event_id: evt-bad-guidance-lone-bound
+    event_type_id: guidance_issuance
+    occurred_on: "2024-02-15"
+    assertion_type: guided
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2024q1
+        entity_type: fiscal_period
+    properties:
+      guided_metric: revenue
+      low_value: "1000"
+      unit: USD_millions
+      currency: USD
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-24-000006"

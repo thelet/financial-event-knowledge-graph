@@ -68,8 +68,12 @@ class LoadedOntology:
     def validate_claims(self, claims: Sequence[OntologyClaim]) -> ValidationResult:
         return self._validator.validate_claims(claims)
 
-    def validate_observation(self, observation: MetricObservation) -> ValidationResult:
-        return self._validator.validate_observation(observation)
+    def validate_observation(
+        self, observation: MetricObservation, carrier_date: str | None = None
+    ) -> ValidationResult:
+        """`carrier_date`: the filing date of the document reporting it, when the caller has
+        it. See `ClaimValidator.validate_observation`."""
+        return self._validator.validate_observation(observation, carrier_date)
 
     def validate_event(self, event: EventInstance) -> ValidationResult:
         return self._validator.validate_event(event)

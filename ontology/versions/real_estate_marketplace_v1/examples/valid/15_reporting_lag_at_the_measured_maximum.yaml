@@ -1,0 +1,25 @@
+description: >-
+  A FY2020 comparative column read out of a FY2022 10-K filed 1,045 days after the period
+  ended - the widest lag in the run. Reporting lag in this direction is unbounded and always
+  legitimate; the future-period rule refuses only the reverse, where a period ends after the
+  filing that carries it.
+claim:
+  claim_id: ex-valid-wide-reporting-lag
+  claim_kind: metric_observation
+  assertion_type: reported
+  metric_observation:
+    observation_id: obs-homes-sold-fy2020-in-fy2022-10k
+    metric_id: homes_sold
+    subject_entity_id: opendoor
+    subject_type: public_company
+    value: 9913
+    unit: homes
+    period_start: "2020-01-01"
+    period_end: "2020-12-31"
+    reported_at: "2023-11-11"
+    source_lane: normalized_table
+    assertion_type: reported
+    evidence:
+      - evidence_kind: normalized_table
+        table_id: tbl-0001801169-23-000033-011
+        document_id: doc-0001801169-23-000033-odt-20221231x10k

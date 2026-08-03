@@ -1,0 +1,29 @@
+description: >-
+  A guidance issuance claiming to be a report. A target the company has not met is not a
+  report of anything, and letting it through is exactly how a guided figure becomes
+  indistinguishable from an actual in the graph. The event type refuses `reported` outright.
+expected_codes: [assertion_type_not_allowed_for_event_type]
+claim:
+  claim_id: ex-invalid-guidance-reported
+  claim_kind: event
+  event:
+    event_id: evt-bad-guidance-reported
+    event_type_id: guidance_issuance
+    occurred_on: "2024-02-15"
+    assertion_type: reported
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2024q1
+        entity_type: fiscal_period
+    properties:
+      guided_metric: revenue
+      low_value: "1000"
+      high_value: "1100"
+      unit: USD_millions
+      currency: USD
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-24-000006"

@@ -1,0 +1,28 @@
+description: >-
+  Guidance on "adjusted revenue growth" - a phrase the company used and the ontology never
+  declared. A guided figure that does not name a declared metric can never be compared with
+  an actual, because there is no actual it belongs to. `guided_metric` must resolve.
+expected_codes: [event_property_does_not_name_a_declared_concept]
+claim:
+  claim_id: ex-invalid-guidance-unknown-metric
+  claim_kind: event
+  event:
+    event_id: evt-bad-guidance-unknown-metric
+    event_type_id: guidance_issuance
+    occurred_on: "2024-02-15"
+    assertion_type: guided
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2024q1
+        entity_type: fiscal_period
+    properties:
+      guided_metric: adjusted_revenue_growth
+      low_value: "10"
+      high_value: "12"
+      unit: percent
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-24-000006"

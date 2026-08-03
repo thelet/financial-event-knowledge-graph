@@ -9,6 +9,7 @@ declare it protects nothing.
 from __future__ import annotations
 
 
+from ontology.core.values import AssertionType
 from ontology_factories import observation
 
 
@@ -141,9 +142,16 @@ def test_a_restatement_supersedes_rather_than_overwrites(registry):
 
 
 def test_guidance_is_not_an_earnings_release(registry):
+    """The restriction used to be prose, and this test used to grep it.
+
+    A substring match on `inference_restrictions` proved only that a word appeared in a
+    sentence no code read. The restriction is now declared where a check can enforce it
+    *(F0 Part D1)*, so the test asserts the declaration.
+    """
     guidance = registry.concept("guidance_issuance")
     assert guidance.inference_restrictions
-    assert "reported" in guidance.inference_restrictions
+    assert AssertionType.REPORTED in guidance.forbidden_assertion_types
+    assert AssertionType.GUIDED not in guidance.forbidden_assertion_types
 
 
 def test_market_entry_forbids_inferring_an_event_from_a_list_that_grew(registry):

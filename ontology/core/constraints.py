@@ -17,6 +17,7 @@ Nothing in this module names a concept. Every concept id it uses arrives through
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -27,11 +28,16 @@ from .errors import (
     E_CONFIDENCE_RANGE,
     E_DISCOVERY_ONLY_AS_CANONICAL,
     E_DUPLICATE_ID,
+    E_EVENT_ASSERTION_TYPE,
     E_EVENT_PARTICIPANT,
+    E_EVENT_PROPERTY_REFERENCE,
+    E_EVENT_PROPERTY_TYPE,
     E_EVENT_TEMPORAL,
+    E_EVENT_VALUE_RANGE,
     E_EVIDENCE_OFFSETS,
     E_FORMULA_OVERLAP,
     E_FORMULA_UNKNOWN_COMPONENT,
+    E_FUTURE_PERIOD,
     E_INHERITANCE_CYCLE,
     E_INVALID_ENDPOINT,
     E_INVALID_INHERITANCE,
@@ -59,6 +65,7 @@ from .models import (
     AliasEntry,
     ConceptDefinition,
     EventInstance,
+    EventPropertyContract,
     EventTypeDefinition,
     ExternalMapping,
     MetricDefinition,
@@ -99,6 +106,12 @@ class ConstraintParameters:
     percentage_default_max: float = 1000.0
     confidence_min: float = 0.0
     confidence_max: float = 1.0
+    #: Metrics whose *calculated* observations may legitimately cover a period ending after the
+    #: filing that carries them — a projection re-derived from filed inputs. Empty by default:
+    #: a future-period calculated fact is refused unless the ontology names the metric, because
+    #: the failure it guards against (a guided figure mislabelled) is silent otherwise.
+    #: `guided` needs no entry here; see `check_future_period`.
+    future_period_allowed_calculated_metrics: frozenset[str] = frozenset()
 
     @classmethod
     def from_yaml(cls, raw: Mapping[str, Any]) -> "ConstraintParameters":
@@ -106,6 +119,7 @@ class ConstraintParameters:
         canonicality = raw.get("evidence_canonicality") or {}
         pct = raw.get("percentage_defaults") or {}
         conf = raw.get("confidence_range") or {}
+        future = raw.get("future_period") or {}
         return cls(
             mutually_distinct_groups=tuple(
                 DistinctGroup(
@@ -128,6 +142,9 @@ class ConstraintParameters:
             percentage_default_max=float(pct.get("max", 1000.0)),
             confidence_min=float(conf.get("min", 0.0)),
             confidence_max=float(conf.get("max", 1.0)),
+            future_period_allowed_calculated_metrics=frozenset(
+                future.get("allowed_calculated_metrics", ())
+            ),
         )
 
 
@@ -476,6 +493,69 @@ def check_observation_periods(
                    f"period_start {observation.period_start}")
 
 
+def check_future_period(
+    observation: MetricObservation,
+    parameters: ConstraintParameters,
+    result: ValidationResult,
+    carrier_date: str | None = None,
+) -> None:
+    """A filed figure cannot measure a period the filing had not yet lived through.
+
+    **Deliberately not "reject anything after today".** Wall-clock time is not a property of
+    the corpus: replaying a 2021 filing in 2026 must give the same answer it gave in 2021, and
+    a now-based rule would silently change verdicts as the clock moved. The comparison is
+    against the *carrier* — the filing that reports the value — so it is a fact about two dates
+    the run already holds.
+
+    **Reporting lag is unbounded in the permitted direction.** A period ending well before its
+    filing is the normal case, not a suspicious one: measured over the 2,704 observations of
+    `extract-v1-lexical-2422c4252c07` on 2026-08-03, the lag runs from **+15 days** (Q3 2020
+    8-K) to **1,045 days** (a FY2019 comparative column in a FY2022 10-K), and all 2,704 pass.
+    Only the reverse direction — period end *after* the carrier — is refused.
+
+    Three exemptions, and no others:
+
+    - `GUIDED`, unconditionally. A guided figure is *about* a period the company has not
+      reported yet; that is what the assertion type means, and refusing it would make
+      `guidance_issuance.inference_restrictions` unsatisfiable again from the other side.
+    - `CALCULATED`, only for a metric the ontology names in
+      `constraints.yaml: future_period.allowed_calculated_metrics`. A projection re-derived
+      from filed inputs is legitimate; an unlisted one is indistinguishable from a mislabelled
+      guidance figure, which is the exact failure this check exists to catch.
+    - No carrier date known — the check abstains rather than guesses. **This is presently the
+      common case:** `reported_at` is populated by no lane and appears in no catalog *(verified
+      2026-08-03)*, so on the current run the rule fires only when a caller passes
+      `carrier_date`. That is a gap in what the lanes record, not a weakening of the rule.
+
+    The carrier is the **filing date**, never the report date. Measured on the same run: one
+    observation (`obs:borrowing-capacity:opendoor:2022-10-19:…`) legitimately carries an instant
+    *after* its document's `report_date` — a subsequent event disclosed in a 10-Q — and a
+    report-date rule would refuse it. Against `filing_date`, zero observations are
+    forward-looking.
+    """
+    carrier = carrier_date or observation.reported_at
+    if not carrier:
+        return
+    period_end = observation.period_end or observation.instant_date
+    if not period_end or period_end <= carrier:
+        return
+    if observation.assertion_type == AssertionType.GUIDED:
+        return
+    if (
+        observation.assertion_type == AssertionType.CALCULATED
+        and observation.metric_id in parameters.future_period_allowed_calculated_metrics
+    ):
+        return
+    result.add(
+        E_FUTURE_PERIOD,
+        f"observation/{observation.observation_id}",
+        f"period ends {period_end} but the filing carrying it is dated {carrier}; "
+        f"a {observation.assertion_type} observation cannot measure a period that had not "
+        f"ended when it was reported. A forward-looking figure is assertion_type "
+        f"{AssertionType.GUIDED} on a guidance_issuance event, not an observation.",
+    )
+
+
 def check_observation_unit(
     observation: MetricObservation, metric: MetricDefinition, result: ValidationResult
 ) -> None:
@@ -711,6 +791,155 @@ def check_event_temporal(
         result.add(E_EVENT_TEMPORAL, f"event/{event.event_id}",
                    f"{definition.concept_id} requires at least one of "
                    f"{list(alternatives)}")
+
+
+#: A plain number and nothing else. `"1.0 billion"`, `"1,000"`, `"$1.0"` and `"~1.0"` all fail
+#: on purpose: each is a rendering that still carries its scale or its symbol in the string,
+#: and the scale belongs in the unit. Accepting any of them would reintroduce exactly the hole
+#: the typed range exists to close (V1 §5.2 defect 2).
+_PLAIN_NUMBER = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
+
+
+def _as_number(value: Any) -> float | None:
+    """The value as a number, or None if it is not one. Booleans are not numbers here."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and _PLAIN_NUMBER.match(value.strip()):
+        return float(value)
+    return None
+
+
+def check_event_assertion_type(
+    event: EventInstance, definition: EventTypeDefinition, result: ValidationResult
+) -> None:
+    """An event type may refuse an assertion type outright.
+
+    `guidance_issuance` refuses `reported`: a target the company has not met is not a report of
+    anything. The restriction was prose in `inference_restrictions` and read by nothing until
+    this check *(F0 Part D1)*.
+    """
+    if event.assertion_type in definition.forbidden_assertion_types:
+        result.add(
+            E_EVENT_ASSERTION_TYPE,
+            f"event/{event.event_id}",
+            f"{definition.concept_id} refuses assertion_type "
+            f"{event.assertion_type!r} (forbidden: "
+            f"{[str(a) for a in definition.forbidden_assertion_types]})",
+        )
+
+
+def check_event_properties(
+    event: EventInstance,
+    definition: EventTypeDefinition,
+    metric_ids: frozenset[str],
+    result: ValidationResult,
+) -> None:
+    """Types for the properties an event type declares typed. See `EventPropertyContract`.
+
+    Event types that declare no `property_contract` are unaffected, so this is additive: the
+    only thing it can newly refuse is a value an event type has explicitly typed.
+    """
+    contract = definition.property_contract
+    if contract is None:
+        return
+    path = f"event/{event.event_id}"
+    properties = event.properties
+
+    for name in contract.required_properties:
+        if not str(properties.get(name) or "").strip():
+            result.add(E_EVENT_PROPERTY_TYPE, f"{path}.properties.{name}",
+                       f"{definition.concept_id} requires {name!r}")
+
+    for name in contract.numeric_properties:
+        if name in properties and _as_number(properties[name]) is None:
+            result.add(E_EVENT_PROPERTY_TYPE, f"{path}.properties.{name}",
+                       f"{properties[name]!r} is not a plain number. The scale belongs in "
+                       f"{contract.unit_property or 'the unit property'}, not in the digits.")
+
+    for name in contract.metric_reference_properties:
+        value = properties.get(name)
+        if value is not None and str(value) not in metric_ids:
+            result.add(E_EVENT_PROPERTY_REFERENCE, f"{path}.properties.{name}",
+                       f"{value!r} is not a declared metric definition")
+
+    _check_event_unit(event, contract, path, result)
+    _check_event_value_range(event, contract, path, result)
+
+
+def _check_event_unit(
+    event: EventInstance,
+    contract: EventPropertyContract,
+    path: str,
+    result: ValidationResult,
+) -> None:
+    """Same two rules an observation's unit faces, from the same two vocabularies.
+
+    Deliberately the same codes as `check_observation_unit`: an unknown unit on a guided value
+    and an unknown unit on a measured one are the same defect, and a caller filtering on
+    `unknown_unit` should see both.
+    """
+    if not contract.unit_property:
+        return
+    unit = event.properties.get(contract.unit_property)
+    if unit is None:
+        return
+    if unit not in KNOWN_UNITS:
+        result.add(E_UNKNOWN_UNIT, f"{path}.properties.{contract.unit_property}",
+                   f"unit {unit!r} is not in KNOWN_UNITS")
+    if unit in MONETARY_UNITS and contract.currency_property:
+        if not str(event.properties.get(contract.currency_property) or "").strip():
+            result.add(E_MISSING_CURRENCY, f"{path}.properties.{contract.unit_property}",
+                       f"unit {unit!r} is monetary and requires "
+                       f"{contract.currency_property!r}")
+
+
+def _check_event_value_range(
+    event: EventInstance,
+    contract: EventPropertyContract,
+    path: str,
+    result: ValidationResult,
+) -> None:
+    """Both bounds, or neither, and a unit whenever there is a number to scale.
+
+    Three shapes are legitimate and the third is the reason this is not simply "require both":
+
+    - a **range** — two different bounds;
+    - a **point** — both bounds set to the same value, which is how a single guided figure is
+      expressed without a second representation to keep in step;
+    - **qualitative** — neither bound. "we expect holding periods to lengthen" is a real
+      guidance statement with no number in it, and the plan (§5.3) is explicit that it must not
+      be coerced into inventing one.
+
+    A *lone* bound is none of the three: it is either a range whose other half was lost or a
+    point that failed to say so, and the two are indistinguishable afterwards.
+    """
+    low_name, high_name = contract.range_low_property, contract.range_high_property
+    if not (low_name and high_name):
+        return
+    low, high = event.properties.get(low_name), event.properties.get(high_name)
+    present = [name for name, value in ((low_name, low), (high_name, high))
+               if value is not None]
+    if not present:
+        return  # qualitative guidance: permitted, and never made to invent a number
+    if len(present) == 1:
+        result.add(E_EVENT_VALUE_RANGE, f"{path}.properties.{present[0]}",
+                   f"{present[0]!r} is set without {low_name if high is None else high_name!r}"
+                   f"; a point value sets both bounds to the same number, and a range sets "
+                   f"both. One bound alone states neither.")
+        return
+
+    low_number, high_number = _as_number(low), _as_number(high)
+    if low_number is not None and high_number is not None and high_number < low_number:
+        result.add(E_EVENT_VALUE_RANGE, path,
+                   f"{high_name} {high!r} is below {low_name} {low!r}")
+    if contract.unit_property and not str(
+        event.properties.get(contract.unit_property) or ""
+    ).strip():
+        result.add(E_EVENT_VALUE_RANGE, f"{path}.properties.{contract.unit_property}",
+                   f"a value range needs {contract.unit_property!r}: a bare number carries no "
+                   f"scale, and 1.0 is not comparable to an actual without one")
 
 
 def check_relationship_instance(

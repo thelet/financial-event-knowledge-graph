@@ -134,10 +134,23 @@ class ClaimValidator:
     def __init__(self, registry: InMemoryConceptRegistry) -> None:
         self._registry = registry
         self._parameters = registry.definitions.constraints
+        self._metric_ids = frozenset(
+            m.concept_id for m in registry.definitions.metrics
+        )
 
     # -- observations --------------------------------------------------------------------
 
-    def validate_observation(self, observation: MetricObservation) -> ValidationResult:
+    def validate_observation(
+        self, observation: MetricObservation, carrier_date: str | None = None
+    ) -> ValidationResult:
+        """`carrier_date` is the filing date of the document reporting this observation.
+
+        Optional because most callers hold an observation and nothing else, and because the
+        catalogs do not carry it: `MetricObservation.reported_at` is populated by no lane
+        *(verified 2026-08-03)*, so `check_future_period` falls back to it and abstains when it
+        is absent. A caller that *does* know the filing — the extraction lane, which reads the
+        document — should pass it, and then the future-period rule has teeth.
+        """
         result = ValidationResult()
         path = f"observation/{observation.observation_id}"
         metric = self._registry.find(observation.metric_id)
@@ -147,6 +160,7 @@ class ClaimValidator:
             return result
 
         rules.check_observation_periods(observation, metric, result)
+        rules.check_future_period(observation, self._parameters, result, carrier_date)
         rules.check_observation_unit(observation, metric, result)
         rules.check_observation_subject(
             observation, metric, self._registry.accepts_type, result
@@ -185,6 +199,8 @@ class ClaimValidator:
 
         rules.check_event_temporal(event, definition, result)
         rules.check_event_participants(event, definition, result)
+        rules.check_event_assertion_type(event, definition, result)
+        rules.check_event_properties(event, definition, self._metric_ids, result)
         rules.check_confidence(event.confidence, path, self._parameters, result)
         rules.check_evidence(
             event.evidence, definition.evidence_required, path, self._parameters, result

@@ -246,10 +246,29 @@ event_types:
       - role: period
         entity_types: [fiscal_period]
     allowed_properties: [guided_metric, low_value, high_value, unit, currency]
+    # Typed 2026-08-03 (F0 Part D2). `properties` is dict[str, Any], so before this
+    # `low_value: "1.0 billion"` entered silently while every observation lane enforced scale
+    # discipline. guided_metric is required: a guidance event that does not say what is being
+    # guided states nothing. The bounds are not - a qualitative outlook ("we expect holding
+    # periods to lengthen") is a real guidance statement and must not be made to invent a
+    # number. Both bounds equal is how a point figure is expressed.
+    property_contract:
+      required_properties: [guided_metric]
+      numeric_properties: [low_value, high_value]
+      metric_reference_properties: [guided_metric]
+      unit_property: unit
+      currency_property: currency
+      range_low_property: low_value
+      range_high_property: high_value
+    # The mechanical half of inference_restrictions below, moved somewhere a check can read
+    # it. `reported` was the only assertion type this event type could not carry, and until
+    # AssertionType.GUIDED existed there was no member that fit - so the restriction was
+    # unsatisfiable, and therefore untestable (F0 Part D1).
+    forbidden_assertion_types: [reported]
     sec_item_codes: ["2.02", "7.01"]
     inference_restrictions: >-
       A guided value is not an observation of the metric. If recorded as an observation at
-      all it must carry assertion_type other than `reported` and a future period.
+      all it must carry assertion_type `guided` and a future period.
 
   - concept_id: listing_compliance_event
     label: Listing compliance event

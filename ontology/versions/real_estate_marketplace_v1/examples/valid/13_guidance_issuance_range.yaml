@@ -1,0 +1,31 @@
+description: >-
+  A guided revenue range for a quarter that has not happened yet. The disclosure act is the
+  event; the numbers are typed properties of it, not observations of the metric. Assertion
+  type `guided` - the one member that describes a target the company has not met, and the
+  only one `guidance_issuance` will accept.
+claim:
+  claim_id: ex-valid-guidance-range
+  claim_kind: event
+  assertion_type: guided
+  event:
+    event_id: evt-guidance-2024q1-revenue
+    event_type_id: guidance_issuance
+    occurred_on: "2024-02-15"
+    announced_on: "2024-02-15"
+    assertion_type: guided
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2024q1
+        entity_type: fiscal_period
+    properties:
+      guided_metric: revenue
+      low_value: "1000"
+      high_value: "1100"
+      unit: USD_millions
+      currency: USD
+    evidence:
+      - evidence_kind: filing_metadata
+        accession: "0001801169-24-000006"

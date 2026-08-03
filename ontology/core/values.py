@@ -65,7 +65,17 @@ class GaapStatus(StrEnum):
 
 
 class SourceLane(StrEnum):
-    """Where a value came from. Recorded on every observation."""
+    """Where a value came from. Recorded on every observation.
+
+    `TRANSCRIPT` and `MARKET_DATA` added 2026-08-03 (F0 Part D4) for the two lanes the
+    factual-spine plan schedules next. **Nothing emits either yet** — they exist so that the
+    lane that lands first is a lane implementation rather than a contract change.
+
+    `TRANSCRIPT`, not `earnings_call_transcript`: the plan §6.1 measured that Opendoor has
+    replaced its earnings call with a streamed *Financial Open House* with shareholder Q&A, so
+    the artifact is not uniformly an earnings call and a name asserting it would be wrong for
+    the recent half of the corpus.
+    """
 
     XBRL = "xbrl"
     NORMALIZED_TABLE = "normalized_table"
@@ -74,15 +84,30 @@ class SourceLane(StrEnum):
     COMPANY_DASHBOARD = "company_dashboard"
     CALCULATED = "calculated"
     MANUAL_ANNOTATION = "manual_annotation"
+    TRANSCRIPT = "transcript"
+    MARKET_DATA = "market_data"
 
 
 class AssertionType(StrEnum):
-    """How a claim came to be believed. Never inferred from the value itself."""
+    """How a claim came to be believed. Never inferred from the value itself.
+
+    `GUIDED` added 2026-08-03 (F0 Part D1). `guidance_issuance.inference_restrictions` demands
+    *"assertion_type other than `reported`"* and the four original members could not satisfy it
+    honestly: `CALCULATED` triggers the required calculation fields
+    (`constraints.check_calculation_fields`) that a guided figure has no way to supply,
+    `CLASSIFIED` says a category was assigned, and `INFERRED` says the graph worked the value
+    out. A guided figure is none of those — the company *stated a target it has not yet met*.
+    The rule was therefore unsatisfiable, and so also untestable, until this member existed.
+
+    `GUIDED` is the one assertion type for which a period ending after the filing date is
+    normal rather than a defect; `constraints.check_future_period` reads it that way.
+    """
 
     REPORTED = "reported"
     CALCULATED = "calculated"
     CLASSIFIED = "classified"
     INFERRED = "inferred"
+    GUIDED = "guided"
 
 
 class MappingSystem(StrEnum):
@@ -121,11 +146,27 @@ class Canonicality(StrEnum):
 
 
 class EvidenceKind(StrEnum):
+    """What an evidence reference points at. **One kind per reference, never a mixture.**
+
+    Each member names a *discriminated* variant: the fields a reference of that kind must
+    carry, and the fields it may carry, are declared per kind in `claims.yaml`
+    (`EvidenceTypeDefinition.required_fields` / `optional_fields`) and enforced by
+    `extraction.core.validation.validate_evidence_resolves`. A `passage_id` on a kind that
+    does not name a passage is refused rather than ignored — F0 §2.2 records that fabricating
+    one is the specific failure this contract exists to prevent.
+
+    `MARKET_DATA` and `CALCULATED` added 2026-08-03 (F0 Part B). They are the two kinds the
+    factual spine needs that no filed document supplies: a price series row, and a value
+    re-derived from other observations rather than read anywhere.
+    """
+
     NORMALIZED_PASSAGE = "normalized_passage"
     NORMALIZED_TABLE = "normalized_table"
     XBRL_FACT = "xbrl_fact"
     FILING_METADATA = "filing_metadata"
     EXTERNAL_PAGE = "external_page"
+    MARKET_DATA = "market_data"
+    CALCULATED = "calculated"
 
 
 class PopulationRole(StrEnum):

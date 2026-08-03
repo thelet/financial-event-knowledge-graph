@@ -1,0 +1,27 @@
+description: >-
+  Qualitative outlook - "we expect holding periods to lengthen". A real guidance statement
+  with no number in it, recorded with `guided_metric` and neither bound. The contract permits
+  it deliberately: coercing this into a range would mean inventing a figure the company never
+  gave, which is worse than recording that the outlook was directional.
+claim:
+  claim_id: ex-valid-guidance-qualitative
+  claim_kind: event
+  assertion_type: guided
+  event:
+    event_id: evt-guidance-2024q1-holding-period
+    event_type_id: guidance_issuance
+    occurred_on: "2024-02-15"
+    assertion_type: guided
+    participants:
+      - role: reporter
+        entity_id: opendoor
+        entity_type: public_company
+      - role: period
+        entity_id: fy2024q1
+        entity_type: fiscal_period
+    properties:
+      guided_metric: housing_inventory_homes
+    evidence:
+      - evidence_kind: normalized_passage
+        passage_id: psg-0001801169-24-000006-00021
+        document_id: doc-0001801169-24-000006-odt-ex991
