@@ -1,0 +1,71 @@
+{
+  "artifacts": {
+    "edges.jsonl": "69ef9f6bfd3a61e7309536156a45e188e4c807b4ea4b23a8e1679db109441902",
+    "nodes.jsonl": "3a6b8ccb4f3cf9b3944fdf10856ca427276419fd975021cba887127a46201fa4"
+  },
+  "corpus": {
+    "content_digest": "9992c4eb1888",
+    "corpus_id": "294d-12442p-9992c4eb1888",
+    "documents": 294,
+    "passages": 12442,
+    "table_passages": 1935
+  },
+  "counts": {
+    "edges": 35600,
+    "edges_by_type": {
+      "BORROWS_UNDER": 1,
+      "CONCERNS_METRIC": 1523,
+      "DISTINCT_FROM": 36,
+      "EVIDENCED_BY": 2710,
+      "FOUND_IN": 17130,
+      "HAS_OBSERVATION": 2704,
+      "HOLDS_POSITION_AT": 3,
+      "OBSERVATION_OF_SUBJECT": 2704,
+      "PARTICIPATES_IN": 10,
+      "PART_OF": 8776,
+      "PLACEHOLDER_FOR": 1,
+      "RECONCILES_TO": 2
+    },
+    "nodes": 28836,
+    "nodes_by_label": {
+      "Document": 185,
+      "Entity": 9,
+      "Event": 6,
+      "Issue": 17130,
+      "Metric": 26,
+      "Observation": 2704,
+      "Passage": 8776
+    },
+    "rejected": 0
+  },
+  "created_at": "2026-08-03T14:42:09+00:00",
+  "extraction_code_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+  "extraction_run_id": "extract-v1-lexical-833f7bcfbce9",
+  "graph_code_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+  "graph_projection_version": "1.2.0",
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "inputs": {
+    "extraction_config_hash": "e1bb4eaf254fd61c247e35b847d0d30d0faf0948fa2e7053b8b96e1c4a8b2c2c",
+    "extraction_created_at": "2026-08-03T14:41:10+00:00",
+    "extraction_layout_version": "1.0.0",
+    "extraction_run_directory": "data/extraction_runs/extract-v1-lexical-833f7bcfbce9",
+    "extraction_run_id": "extract-v1-lexical-833f7bcfbce9",
+    "input_content_digest": "40ea214c701c",
+    "run_complete_sha256": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e"
+  },
+  "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
+  "ontology_id": "real_estate_marketplace_v1",
+  "ontology_version": "2.0.0",
+  "scope": {
+    "scope_name": "lexical",
+    "scope_version": "1.0.0",
+    "strategy": "lexical"
+  },
+  "warning_reconciliation": {
+    "agreed": true,
+    "covers_whole_run": true,
+    "derived": 185,
+    "manifest_total": 185,
+    "warned_claims": 185
+  }
+}
