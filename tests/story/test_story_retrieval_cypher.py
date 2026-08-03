@@ -46,14 +46,37 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = REPO_ROOT / "story"
 RETRIEVAL = PACKAGE / "stages" / "retrieval"
 
-#: A string is treated as Cypher when it returns something. Every statement in this package
-#: does, including `CONNECTIVITY_PROBE = "RETURN 1 AS ok"`, and no ordinary message, code or
-#: identifier in `story/` contains the bare word.
-_CYPHER_MARKER = re.compile(r"\bRETURN\b")
+#: Cypher's clause keywords. A statement in this repository begins with one of these, which is
+#: the whole of the rule below — prose does not.
+_CLAUSE_KEYWORDS = frozenset({
+    "MATCH", "OPTIONAL", "RETURN", "WITH", "WHERE", "UNWIND", "CALL", "YIELD", "ORDER", "LIMIT",
+    "SKIP", "UNION", "USING", "CREATE", "MERGE", "SET", "DELETE", "DETACH", "REMOVE", "DROP",
+    "FOREACH", "LOAD",
+})
 
-#: WORKSTREAM_BOUNDARY §3 and §16, verbatim. Matched case-sensitively and on a word boundary,
-#: so `offset_from_anchor` is not a `SET` and `document_types` is not a `CREATE`.
-WRITE_KEYWORDS = ("CREATE", "MERGE", "SET", "DELETE", "REMOVE", "DROP", "LOAD CSV", "FOREACH")
+#: The first word of a string, which is what decides whether it is a statement. A clause keyword
+#: is followed by whitespace, an opening bracket, or the end of the fragment — the lookahead is
+#: there because `story/core/models.py` holds the constant `"limit="`, whose first word is
+#: `LIMIT` and which is a keyword-argument prefix rather than a bound on anything.
+_FIRST_WORD = re.compile(r"^\s*([A-Za-z_]+)(?=\s|\(|$)")
+
+#: A node pattern with a label, or a relationship bracket. The second way a string can be
+#: Cypher: a *fragment* that an f-string will concatenate into a statement does not have to
+#: begin with a clause keyword, and `story/stages/freshness/loaded_graph.py` holds four of them.
+_PATTERN_MARKER = re.compile(
+    r"\(\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*[A-Za-z_]|\(\s*:\s*[A-Za-z_]|-\[|\]->|<-\[")
+
+#: WORKSTREAM_BOUNDARY §3 and §16, plus `DETACH` — `tests/story/test_story_freshness.py` already
+#: names it and `DETACH DELETE` is the spelling a mutation reaches for first.
+#:
+#: **Matched case-*insensitively*, on a word boundary, against the upper-cased statement.** D4:
+#: the case-sensitive form let `"match (n) set n.x = 1 return n"` through, and `EXPLAIN` on the
+#: live server produced a `SetProperty` operator for it — Neo4j does not care about the
+#: spelling and neither may this. The word boundary is what keeps the false positives out and
+#: is unaffected by the case fold: `OFFSET_FROM_ANCHOR` has no `\bSET\b` in it because `F`
+#: precedes the `S`, and `$DOCUMENT_TYPES` has no `\bCREATE\b`.
+WRITE_KEYWORDS = ("CREATE", "MERGE", "SET", "DELETE", "DETACH", "REMOVE", "DROP", "LOAD CSV",
+                  "FOREACH")
 
 #: §9's eight base labels, plus the status labels the plan names by hand: `NotAttempted`, which
 #: every `:Issue` query must exclude, `Warned`, which §10.1 surfaces, and `GraphLoad`, which §7
@@ -106,8 +129,73 @@ def story_modules() -> list[Path]:
     return sorted(p for p in PACKAGE.rglob("*.py") if "__pycache__" not in p.parts)
 
 
+def non_docstring_strings(path: Path) -> list[tuple[int, str]]:
+    """Every string literal in the file that is not a docstring, with its line.
+
+    `executable_source` above answers the same question by re-unparsing, which loses the line
+    numbers a failure message needs to be actionable. This keeps them, at the cost of the same
+    docstring identification done twice — the same technique
+    `tests/story/test_story_freshness.py:658` uses.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+    return [
+        (node.lineno, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def _first_word(text: str) -> str:
+    match = _FIRST_WORD.match(text)
+    return match.group(1).upper() if match else ""
+
+
 def _is_cypher(value: object) -> bool:
-    return isinstance(value, str) and bool(_CYPHER_MARKER.search(value))
+    """A string this scan will collect and apply every structural rule to.
+
+    **D4 replaced `\\bRETURN\\b` here**, which was two defects at once. It gated collection on a
+    word a write statement need not contain — `"MATCH (n:Metric) DETACH DELETE n"` was not
+    examined by *any* rule below — and it was one keyword where the language has many, so a
+    statement with no `RETURN` escaped the `LIMIT` and label rules too.
+
+    The replacement is the shape of a statement rather than one of its words: Cypher begins
+    with a clause keyword. That is precise in both directions — it collects every statement in
+    `story/` including a lower-cased one, and it leaves prose alone, which matters because
+    `story/providers/neo4j_connection.py` raises with *"is a Node: return named properties
+    instead … would drop its labels"*, a sentence containing both `return` and `drop` and no
+    Cypher at all. Gating on the mere presence of a keyword would flag it and the fix would be
+    to delete the explanation.
+    """
+    return isinstance(value, str) and _first_word(value) in _CLAUSE_KEYWORDS
+
+
+def _could_be_a_statement(value: str) -> bool:
+    """The wider net the write-clause scan casts, and only it.
+
+    Deliberately over-inclusive relative to `_is_cypher`: it also catches a *fragment* carrying
+    a labelled node pattern or a relationship bracket, because a write clause hidden in a piece
+    of an f-string is the same bug as one in a whole statement. It is not used to collect
+    statements, because a string like `"exactly one (:GraphLoad) node; found "` is a message and
+    would fail the `LIMIT` rule for no reason. A false positive here costs one rewritten
+    sentence; a false negative costs §16's read-only guarantee.
+    """
+    return _first_word(value) in _CLAUSE_KEYWORDS or bool(_PATTERN_MARKER.search(value))
+
+
+def _write_keywords_in(statement: str) -> list[str]:
+    """Every write clause the string names, case-folded and word-boundaried."""
+    upper = statement.upper()
+    return [keyword for keyword in WRITE_KEYWORDS
+            if re.search(rf"\b{re.escape(keyword)}\b", upper)]
 
 
 def _module_string_constants(tree: ast.Module) -> dict[str, str]:
@@ -153,6 +241,12 @@ def cypher_statements() -> dict[str, str]:
     to a driver. An assignment that *contains* Cypher but is not fixed at import time is
     recorded with an empty text, which is how the interpolation test finds it — dropping it
     would make the offending case the one thing the scan cannot see.
+
+    A constant *inside* a collected assignment is not collected a second time. That mattered
+    once `_is_cypher` widened past `RETURN` (D4): `story/stages/freshness/loaded_graph.py`
+    builds its statements from pieces like `"MATCH (m:"`, and each piece would otherwise arrive
+    here as a statement of its own and be asked, absurdly, for a `LIMIT`. The assembled text is
+    already collected under the assignment's name and is where the rules belong.
     """
     found: dict[str, str] = {}
     for path in story_modules():
@@ -163,7 +257,7 @@ def cypher_statements() -> dict[str, str]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Assign) or not _holds_cypher(node.value):
                 continue
-            assigned.add(id(node.value))
+            assigned.update(id(part) for part in ast.walk(node.value))
             text = _fixed_text(node.value, constants)
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -265,9 +359,52 @@ def test_no_module_builds_a_cypher_statement_with_an_operator_or_a_method_call(
 @pytest.mark.parametrize("name", RESOLVED_IDS)
 def test_no_cypher_statement_contains_a_write_clause(name: str) -> None:
     """§16's named rule, and the reason it is package-wide rather than stage-wide."""
-    offenders = [keyword for keyword in WRITE_KEYWORDS
-                 if re.search(rf"\b{re.escape(keyword)}\b", STATEMENTS[name])]
+    offenders = _write_keywords_in(STATEMENTS[name])
     assert not offenders, f"{name} contains {offenders}; the story layer is read-only (§16)"
+
+
+def test_no_string_constant_anywhere_in_the_package_could_be_a_write_statement() -> None:
+    """The half of §16's read-only rule that does not depend on being collected as a statement.
+
+    D4 found the previous scan evadable twice over, and the reviewer proved both by mutation
+    against the live server: `"MATCH (n:Metric) DETACH DELETE n"` was skipped for want of a
+    `RETURN`, and `"match (n) set n.x = 1 return n"` for want of upper case. `EXPLAIN` produced
+    `DetachDelete` and `SetProperty` for them, so the server would have run either one.
+
+    So this reads every non-docstring string constant in `story/` — assigned or not, collected
+    as a statement or not, fragment or whole — and applies the keyword list case-folded to
+    anything that could be part of a statement. `tests/story/test_story_freshness.py` was
+    already doing exactly this for its own stage and was strictly stronger than §16's
+    package-wide rule; this closes the gap the other way.
+    """
+    offences = [
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{line} {sorted(found)}: {text[:80]!r}"
+        for path in story_modules()
+        for line, text in non_docstring_strings(path)
+        if _could_be_a_statement(text) and (found := _write_keywords_in(text))
+    ]
+    assert offences == [], f"the story layer is read-only (§16): {offences}"
+
+
+def test_the_write_clause_scan_catches_both_spellings_d4_found_it_missing() -> None:
+    """The scan's own mutation test, so the two evasions cannot come back unnoticed.
+
+    A structural rule with no test of its own is a rule that can be weakened by a one-character
+    edit — which is what happened: `\\bRETURN\\b` and a case-sensitive keyword match each looked
+    like a detail. Both mutations below are verbatim from the review, and the third is the
+    sentence in `story/providers/neo4j_connection.py` that any cruder rule flags.
+    """
+    for mutation in ("MATCH (n:Metric) DETACH DELETE n",
+                     "match (n) set n.x = 1 return n",
+                     "MATCH (n) DETACH DELETE n",
+                     "CREATE (n:Metric {metric_id: 'x'})",
+                     "\nMERGE (m:Metric)\nRETURN m.metric_id AS metric_id\n"):
+        assert _could_be_a_statement(mutation), f"{mutation!r} would not be scanned at all"
+        assert _write_keywords_in(mutation), f"{mutation!r} is a write and was not flagged"
+
+    prose = ("a returned field is a Node: return named properties instead. Flattening it here "
+             "would drop its labels and its identity while still looking like a plain row")
+    assert not _could_be_a_statement(prose), "the scan reads English as Cypher"
 
 
 @pytest.mark.parametrize("name", RESOLVED_IDS)
@@ -337,14 +474,21 @@ def test_no_cypher_statement_traverses_observation_of_subject(name: str) -> None
         f"{name} names OBSERVATION_OF_SUBJECT; the subject is a property, not a hop")
 
 
-def test_only_the_counter_evidence_statement_reaches_issue_found_in_or_concerns_metric() -> None:
+#: The statements `find_counter_evidence` owns. Two since D5: the second reads the scope an
+#: empty first result cannot be interpreted without. The rule §9 states is about the *tool* that
+#: may reach `:Issue`, so it is written as an allowlist of that tool's statements rather than as
+#: one name — but it stays an allowlist, and a third statement has to be added here on purpose.
+COUNTER_EVIDENCE_STATEMENTS = frozenset({"COUNTER_EVIDENCE", "COUNTER_EVIDENCE_SCOPE"})
+
+
+def test_only_the_counter_evidence_statements_reach_issue_found_in_or_concerns_metric() -> None:
     """§9: `:Issue` is reachable from two entry points, and `find_counter_evidence` is S1's one."""
     for name, statement in STATEMENTS.items():
         touching = [token for token in ("Issue", "FOUND_IN", "CONCERNS_METRIC")
                     if token in statement]
         if not touching:
             continue
-        assert name.endswith("::COUNTER_EVIDENCE"), (
+        assert name.rpartition("::")[2] in COUNTER_EVIDENCE_STATEMENTS, (
             f"{name} names {touching}; §9 allows only find_counter_evidence to")
 
 

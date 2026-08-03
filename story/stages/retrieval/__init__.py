@@ -2,7 +2,7 @@
 
 Four modules, split by concern rather than for symmetry:
 
-    cypher.py             the ten statements, as plain string constants and nothing else
+    cypher.py             the eleven statements, as plain string constants and nothing else
     lucene_escaping.py    a term list to a Lucene query that can only mean those words
     metric_metadata.py    C4 — the ontology answers for a metric, the graph only says whether
                           it was projected

@@ -85,6 +85,26 @@ DEFAULT_HANDLE_LIMIT = 10
 #: clamp teaches a caller that its request was honoured.
 MAX_CONTEXT_NEIGHBOURS = 3
 
+#: How many fulltext candidates `search_passages` ranks before the document filter runs (D7).
+#: Constructor-owned like every other bound here, and generous by design: 500 is 5.7% of the
+#: 8,776 indexed passages, twenty times the 25-row cap, and enough that the corpus's four
+#: document types are all represented in the pool for every query measured except a bare stop
+#: word. Without it the statement is linear in corpus size — 45,972 db hits for 26 rows on
+#: `["the"]` — and the row cap does nothing about that, because the `Top` runs after the expand.
+#: `candidate_pool_size` on every row reports whether this bound bit.
+DEFAULT_INNER_SEARCH_LIMIT = 500
+
+#: The one place the `{document_id}#p{n}` passage-id grammar is written in Python. Verified
+#: total over the graph's 8,776 passages on 2026-08-03: every id splits on this separator into
+#: exactly two parts, reconstructs exactly from `document_id`, and its ordinal round-trips
+#: through `toInteger` unchanged. D8 turns that measurement into the neighbour lookup, so a
+#: change to the projection's id scheme must land here and in `cypher.PASSAGE_CONTEXT` together.
+PASSAGE_ORDINAL_SEPARATOR = "#p"
+
+#: Most severe first, mirroring the `CASE` in `cypher.COUNTER_EVIDENCE`. Named here so the
+#: truncation message can quote the order the caller was actually given (D6).
+SEVERITY_ORDER: tuple[str, ...] = ("rejection", "refusal", "diagnostic")
+
 #: `YYYY-MM-DD`, the form every date property in this graph is stored in *(F13: the graph holds
 #: no temporal type — `occurred_on`, `filing_date`, `period_start` are all strings)*. Validated
 #: here because a malformed date compares lexicographically against real ones and returns a
@@ -119,6 +139,34 @@ PERIOD_SHAPES = frozenset({"duration", "instant"})
 
 TOOL_NAMES: tuple[str, ...] = tuple(sorted(TOOL_PARAMETERS))
 
+#: `get_passage_context`'s one absence message, in one place because two code paths now reach
+#: it: an id that does not parse and an id that parses but names nothing.
+_PASSAGE_ABSENCE = (
+    "the graph holds 8,776 of the corpus's 12,442 passages, so an id that exists in the corpus "
+    "may not be cited by any fact and therefore may not be here")
+
+
+def passage_window_ids(passage_id: Any, *, before: int, after: int) -> list[str] | None:
+    """The ids of the anchor and its neighbours, or `None` if the id is not a passage id.
+
+    Module-level rather than a method because it is a fact about the projection's id grammar
+    and nothing about the retriever's state — and because the totality claim it rests on is
+    testable directly, against the ids, without a database.
+
+    `split` and the two-part check mirror `cypher.PASSAGE_CONTEXT`'s own
+    `split(passage_id, '#p')` exactly, so the Python and the Cypher agree by construction
+    rather than by inspection. Negative ordinals are dropped rather than queried: the ordinal
+    round-trips through `toInteger` on all 8,776 ids, so `#p-1` cannot name a node.
+    """
+    if not isinstance(passage_id, str):
+        return None
+    parts = passage_id.split(PASSAGE_ORDINAL_SEPARATOR)
+    if len(parts) != 2 or not parts[1].isdigit():
+        return None
+    document_id, anchor = parts[0], int(parts[1])
+    window = range(max(anchor - before, 0), anchor + after + 1)
+    return [f"{document_id}{PASSAGE_ORDINAL_SEPARATOR}{index}" for index in window]
+
 
 class BoundedGraphRetriever:
     """`story.contracts.GraphRetriever` over an injected read executor.
@@ -142,6 +190,7 @@ class BoundedGraphRetriever:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         excerpt_chars: int = DEFAULT_EXCERPT_CHARS,
         handle_limit: int = DEFAULT_HANDLE_LIMIT,
+        inner_search_limit: int = DEFAULT_INNER_SEARCH_LIMIT,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError(
@@ -153,8 +202,14 @@ class BoundedGraphRetriever:
         self._registry = registry
         self._ontology_definition_hash = ontology_definition_hash
         self._timeout_seconds = timeout_seconds
+        if inner_search_limit < MAX_ROWS["search_passages"]:
+            raise ValueError(
+                f"inner_search_limit must be at least the {MAX_ROWS['search_passages']}-row "
+                f"cap on search_passages, got {inner_search_limit!r}; a pool smaller than the "
+                "page cannot fill it and would make every search look like a short corpus")
         self._excerpt_chars = excerpt_chars
         self._handle_limit = handle_limit
+        self._inner_search_limit = inner_search_limit
         self._trace: list[RetrievalTraceEntry] = []
 
     # -- the protocol ---------------------------------------------------------------------
@@ -388,6 +443,21 @@ class BoundedGraphRetriever:
         return ok(rows, truncated=truncated)
 
     def _get_passage_context(self, parameters: Mapping[str, Any]) -> RetrievalResult:
+        """The window's ids are computed here, and that is D8's whole fix.
+
+        The statement used to seek every passage of the anchor's document and filter each one
+        with a `toInteger(split(...))` no index can serve — 968 db hits for 7 rows on a
+        453-passage filing, linear in document size. The id grammar is total (measured, see
+        `PASSAGE_ORDINAL_SEPARATOR`), so the neighbour ids are *derivable*: build them and look
+        them up on the `passage_key` uniqueness constraint instead. 113 db hits for the same 7
+        rows, and the count no longer moves with the document.
+
+        Behaviour is deliberately unchanged: the ids are built from the anchor's own
+        `document_id`, so the window cannot cross a document; the anchor is always in the list;
+        an id below zero cannot exist and is clamped away rather than queried; and an id the
+        graph does not hold matches nothing, which is exactly what the range filter did with the
+        3,666 corpus passages the graph never cited.
+        """
         before = parameters.get("before", MAX_CONTEXT_NEIGHBOURS)
         after = parameters.get("after", MAX_CONTEXT_NEIGHBOURS)
         for name, value in (("before", before), ("after", after)):
@@ -399,20 +469,24 @@ class BoundedGraphRetriever:
                     f"{name}={value} is outside §9's 0..{MAX_CONTEXT_NEIGHBOURS}; refused rather "
                     "than clamped, because a clamp reports a request as honoured")
 
+        passage_id = parameters["passage_id"]
+        neighbours = passage_window_ids(passage_id, before=before, after=after)
+        if neighbours is None:
+            # An id that does not parse cannot name a passage in this graph — the grammar is
+            # total over all 8,776 — so this is the same absence the empty result below reports,
+            # reached without asking the database a question whose answer is already known.
+            return not_found(str(passage_id), detail=_PASSAGE_ABSENCE)
+
         outcome = self._read(
             "get_passage_context",
             cypher.PASSAGE_CONTEXT,
-            {"passage_id": parameters["passage_id"], "before": before, "after": after},
+            {"passage_id": passage_id, "neighbour_passage_ids": neighbours},
         )
         if isinstance(outcome, RetrievalResult):
             return outcome
         rows, truncated = outcome
         if not rows:
-            return not_found(
-                str(parameters["passage_id"]),
-                detail="the graph holds 8,776 of the corpus's 12,442 passages, so an id that "
-                       "exists in the corpus may not be cited by any fact and therefore may not "
-                       "be here")
+            return not_found(str(passage_id), detail=_PASSAGE_ABSENCE)
         return ok(rows, truncated=truncated)
 
     def _search_passages(self, parameters: Mapping[str, Any]) -> RetrievalResult:
@@ -450,7 +524,8 @@ class BoundedGraphRetriever:
              "document_types": document_types,
              "since": parameters.get("since"),
              "until": parameters.get("until"),
-             "excerpt_chars": self._excerpt_chars},
+             "excerpt_chars": self._excerpt_chars,
+             "inner_limit": self._inner_search_limit},
         )
         if isinstance(outcome, RetrievalResult):
             return outcome
@@ -473,22 +548,97 @@ class BoundedGraphRetriever:
     def _find_counter_evidence(self, parameters: Mapping[str, Any]) -> RetrievalResult:
         """The only tool that reaches `:Issue`, and it never returns a `:NotAttempted` one.
 
-        Zero rows is an `Ok`. "This filing records no refused claim about this metric" is a
-        finding about the corpus; turning it into a `NotFound` would make an honest absence
-        look like a broken identifier.
+        Zero rows is an `Ok` **when there was somewhere to look**. "This filing records no
+        refused claim about this metric" is a finding about the corpus; turning it into a
+        `NotFound` would make an honest absence look like a broken identifier.
+
+        **D5 is the case where there was nowhere to look.** The statement scopes issues to the
+        documents that carry an observation of this metric and period, so a metric with no
+        observation has an empty scope and every refusal is excluded by construction. Nine of
+        26 metrics are in that state and the worst of them is `revenue`: 170 attempted issues,
+        0 observations — it has no number *because* of the refusals, and `Ok([])` said the
+        filing refused nothing. So an empty result is disambiguated with one more read and, when
+        the scope was empty, answered `Unavailable`.
+
+        **Why `Unavailable` and not `NotFound`.** `not_found` in this package means "no node
+        carries that id", and the id is fine here — the metric resolved through the ontology and
+        the `:Metric` node exists. What is missing is the tool's own scope, so the honest answer
+        is §9's *"`Unavailable` is an answer and is rendered as one"*: the graph cannot answer
+        this question, and the reason names the two counts that say why. A `NotFound` would have
+        moved the confusion rather than removed it, by blaming the caller's identifier for a
+        property of the run.
         """
         resolution = self._resolve(parameters["metric_id"])
         if isinstance(resolution, RetrievalResult):
             return resolution
+        period_key = parameters["period_key"]
+        scope_parameters = {"metric_id": resolution.metric_id, "period_key": period_key}
         outcome = self._read(
-            "find_counter_evidence",
-            cypher.COUNTER_EVIDENCE,
-            {"metric_id": resolution.metric_id, "period_key": parameters["period_key"]},
-        )
+            "find_counter_evidence", cypher.COUNTER_EVIDENCE, scope_parameters)
         if isinstance(outcome, RetrievalResult):
             return outcome
         rows, truncated = outcome
-        return ok(rows, truncated=truncated)
+        if rows:
+            return self._counter_evidence_page(rows, truncated=truncated)
+        return self._empty_counter_evidence(resolution.metric_id, period_key, scope_parameters)
+
+    def _counter_evidence_page(
+        self, rows: tuple[Mapping[str, Any], ...], *, truncated: bool
+    ) -> RetrievalResult:
+        """Rows, plus what the bound cost when it bit (D6).
+
+        `truncated=True` is a count and says nothing about *kind*, which mattered because the
+        old `ORDER BY issue.severity` was lexicographic: `rejection` sorted last and was dropped
+        first. With the explicit rank the drop is safe in one direction — nothing dropped can
+        outrank anything returned — and that is exactly what is worth telling the caller, and it
+        costs no second query to say: the least severe row returned is the ceiling on what was
+        lost.
+        """
+        if not truncated:
+            return ok(rows)
+        floor = str(rows[-1].get("severity"))
+        return ok(
+            rows,
+            truncated=True,
+            code="truncated_below_severity",
+            detail=f"{len(rows)} issues returned, ordered most severe first "
+                   f"({', '.join(SEVERITY_ORDER)}); every issue the bound dropped ranks at or "
+                   f"below {floor!r}, so nothing outranking a returned row was lost",
+        )
+
+    def _empty_counter_evidence(
+        self, metric_id: str, period_key: Any, scope_parameters: Mapping[str, Any]
+    ) -> RetrievalResult:
+        """Tell "this filing refused nothing" apart from "there was no filing" (D5).
+
+        One extra read, and only on the empty path — the ordinary call is still one statement.
+        """
+        outcome = self._read(
+            "find_counter_evidence", cypher.COUNTER_EVIDENCE_SCOPE, scope_parameters)
+        if isinstance(outcome, RetrievalResult):
+            return outcome
+        scope_rows, _truncated = outcome
+        if not scope_rows:
+            return unavailable(
+                "no_metric_node",
+                f"the ontology defines {metric_id} but this graph run projected no `:Metric` "
+                "node for it, so counter-evidence cannot be scoped to the documents that "
+                "report it; §7's freshness gate is where a graph missing a projected metric "
+                "should be caught")
+        scope = scope_rows[0]
+        period_observations = int(scope.get("period_observation_count") or 0)
+        if period_observations:
+            return ok(())
+        metric_observations = int(scope.get("metric_observation_count") or 0)
+        recorded_issues = int(scope.get("recorded_issue_count") or 0)
+        return unavailable(
+            "no_document_scope",
+            f"{metric_id} has no observation of {period_key!r} ({metric_observations} in the "
+            f"whole run), so the documents that report this fact — the scope counter-evidence "
+            f"is defined over — are an empty set and every issue is excluded by construction. "
+            f"{recorded_issues} recorded issues concern {metric_id}; an empty `Ok` here would "
+            f"have said the filings refused nothing, when the refusals are why there is no "
+            f"number to ask about")
 
     # -- shared machinery -----------------------------------------------------------------
 
@@ -583,10 +733,14 @@ class BoundedGraphRetriever:
 __all__ = [
     "DEFAULT_EXCERPT_CHARS",
     "DEFAULT_HANDLE_LIMIT",
+    "DEFAULT_INNER_SEARCH_LIMIT",
     "DEFAULT_TIMEOUT_SECONDS",
     "MAX_CONTEXT_NEIGHBOURS",
+    "PASSAGE_ORDINAL_SEPARATOR",
     "PERIOD_SHAPES",
+    "SEVERITY_ORDER",
     "TOOL_NAMES",
     "TOOL_PARAMETERS",
     "BoundedGraphRetriever",
+    "passage_window_ids",
 ]

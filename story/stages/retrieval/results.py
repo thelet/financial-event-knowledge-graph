@@ -89,16 +89,30 @@ CITATION_FIELDS: Mapping[str, tuple[str, ...]] = {
 _CODE_SEPARATOR = ": "
 
 
-def ok(rows: Sequence[Mapping[str, Any]], *, truncated: bool = False) -> RetrievalResult:
-    """Rows the caller may use, and whether a bound bit.
+def ok(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    truncated: bool = False,
+    code: str = "",
+    detail: str = "",
+) -> RetrievalResult:
+    """Rows the caller may use, whether a bound bit, and optionally what the bound cost.
 
     Zero rows is an `Ok`, not a `NotFound`: "this metric has no refused claim in these
     documents" is an answer about the corpus, while `NotFound` is an answer about an
     identifier. Collapsing the two would let an empty counter-evidence result read as a
-    broken id.
+    broken id. What zero rows may *not* mean is "the query had nothing to look in" — D5 —
+    and `find_counter_evidence` answers `Unavailable` there rather than stretching this one.
+
+    **`code`/`detail` exist because `truncated=True` is a count and not a description.** D6:
+    the bound bit on `housing_inventory_homes` and the caller could see that 25 rows came back
+    and nothing about what the 26th would have been. `result_code()` already reads `""` for an
+    `Ok` with nothing to say, so an `Ok` that *has* something to say uses the same
+    `"<code>: <detail>"` shape as every other outcome and needs no new field on the frozen type.
     """
+    reason = f"{code}{_CODE_SEPARATOR}{detail}" if code else ""
     return RetrievalResult(
-        outcome=RetrievalOutcome.OK, rows=tuple(rows), truncated=truncated)
+        outcome=RetrievalOutcome.OK, rows=tuple(rows), truncated=truncated, reason=reason)
 
 
 def not_found(identifier: str, *, detail: str = "") -> RetrievalResult:

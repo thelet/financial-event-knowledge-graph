@@ -1,7 +1,7 @@
 """Every Cypher statement the story agent will ever run, as plain string constants.
 
 Responsibility: the statements, and nothing else. No executor, no result type, no ontology, no
-parameter validation — this module holds twelve strings and a docstring per string saying what
+parameter validation — this module holds eleven strings and a docstring per string saying what
 bounds it. It is its own file because it is the file a reviewer reads: §16 makes code-owned
 parameterised Cypher *the primary control*, and a control that is scattered across a package
 cannot be read in one sitting.
@@ -32,10 +32,10 @@ entity is the whole graph. Subject identity is read from `Observation.subject_en
 which every observation carries — a property lookup instead of a traversal, and the same
 answer.
 
-**`:Issue`, `FOUND_IN` and `CONCERNS_METRIC` appear in exactly one statement**, the
-counter-evidence one, and it excludes `:NotAttempted`. 10,852 of 17,130 issues record a
-question that was never asked; surfacing them would report the run's own bounds as a finding
-about Opendoor.
+**`:Issue`, `FOUND_IN` and `CONCERNS_METRIC` appear in exactly one tool's two statements** —
+`COUNTER_EVIDENCE` and the `COUNTER_EVIDENCE_SCOPE` that D5 added to it — and both exclude
+`:NotAttempted`. 10,852 of 17,130 issues record a question that was never asked; surfacing them
+would report the run's own bounds as a finding about Opendoor.
 
 **`:EvidenceSource` is not queried because zero exist** — all 2,710 `EVIDENCED_BY` edges land
 on a `:Passage` *(verified live)*. §13.7.2's Rule C is the answer when a lane emits one, and
@@ -332,8 +332,8 @@ LIMIT $row_limit
 # Passages — the corpus surface, and the one place the corpus is not what it looks like
 # ---------------------------------------------------------------------------------------
 
-#: `get_passage_context`, bound 7 (`before` ≤ 3 + anchor + `after` ≤ 3), one hop for the
-#: anchor's document and a `psg_document` index lookup for the neighbours.
+#: `get_passage_context`, bound 7 (`before` ≤ 3 + anchor + `after` ≤ 3). Two index seeks and
+#: nothing else: `passage_key` for the anchor, and `passage_key` again for the ≤ 7 neighbour ids.
 #:
 #: **Ordinality is parsed out of the id because no property carries it.** A `:Passage` has 17
 #: properties and none is a sequence number *(checked live)*; `passage_id` is
@@ -342,19 +342,31 @@ LIMIT $row_limit
 #: than one that is not. Lexicographic ordering would put `#p100` between `#p1` and `#p11`, so
 #: the integer is what the window is computed over.
 #:
+#: **D8: the neighbour ids are computed, not searched for.** The first version sought every
+#: passage of the anchor's document on `psg_document` and then applied a non-indexable
+#: `toInteger(split(...))` filter to each, which is linear in document size — 968 db hits for 7
+#: rows on the 453-passage `open-20201231.htm` *(PROFILE, 2026-08-03)*. The grammar above is
+#: total, and re-measured to be so: 8,776/8,776 passages split into exactly two parts,
+#: reconstruct exactly, and round-trip through `toInteger` without changing. So `graph_tools`
+#: builds `<document_id>#p<n>` for each `n` in the window and this statement looks them up on
+#: the `passage_key` uniqueness constraint: **113 db hits for the same 7 rows**, and the count
+#: no longer depends on how long the document is. `neighbour.document_id = anchor.document_id`
+#: stays as a belt-and-braces guard — the constructed ids cannot name another document, and a
+#: statement that relied on that silently would be one refactor away from crossing one.
+#:
 #: **Neighbouring here means neighbouring among the *cited* passages.** The graph holds 8,776
 #: of the corpus's 12,442 passages, so the passage before `#p120` may be `#p118`. Rather than
 #: imply contiguity, every row carries its own `passage_index` and its
 #: `offset_from_anchor`, and a gap between them is a gap a reader can see. That is the fourth
-#: shape fact, made legible instead of assumed away.
+#: shape fact, made legible instead of assumed away. A constructed id for a passage the graph
+#: does not hold simply matches nothing, which is the same clamp the range filter gave.
 PASSAGE_CONTEXT = """
 MATCH (anchor:Passage)-[:PART_OF]->(document:Document)
 WHERE anchor.passage_id = $passage_id
 WITH anchor, document, toInteger(split(anchor.passage_id, '#p')[1]) AS anchor_index
 MATCH (neighbour:Passage)
-WHERE neighbour.document_id = anchor.document_id
-  AND toInteger(split(neighbour.passage_id, '#p')[1]) >= anchor_index - $before
-  AND toInteger(split(neighbour.passage_id, '#p')[1]) <= anchor_index + $after
+WHERE neighbour.passage_id IN $neighbour_passage_ids
+  AND neighbour.document_id = anchor.document_id
 RETURN neighbour.passage_id AS passage_id,
        toInteger(split(neighbour.passage_id, '#p')[1]) AS passage_index,
        toInteger(split(neighbour.passage_id, '#p')[1]) - anchor_index AS offset_from_anchor,
@@ -382,10 +394,31 @@ LIMIT $row_limit
 #: safety: `lucene_escaping.build_query` produces `$lucene_query`, so a term list cannot become
 #: syntax, and nothing anywhere can choose which index is read.
 #:
-#: **No inner `limit` on the procedure call, deliberately.** `queryNodes` accepts one, and it
-#: would be applied *before* the document filter — so asking for 8-K passages would silently
-#: return nothing whenever the top matches were 10-Qs. The trailing `LIMIT` bounds the result;
-#: the timeout bounds the scan.
+#: **D7: there is an inner `limit`, and the reason the first version left it off was measured
+#: to be the smaller problem.** Without it the statement is unbounded in the corpus: `["the"]`
+#: matches 6,873 of 8,776 passages, the `PART_OF` expand runs on every one of them *before* the
+#: filter, and `ORDER BY score DESC` forces a `Top` that drains the whole stream — **45,972 db
+#: hits for 26 rows**, and 38,787 for a `document_types` filter that matched nothing *(PROFILE,
+#: 2026-08-03)*. With `{limit: $inner_limit}` at 500 the same call costs **3,430**, the empty
+#: filter costs 2,618, and the 26 returned passages are byte-identical for `the`, `margin`,
+#: `Adjusted EBITDA` and the earnings-release-plus-window filter the live suite runs. What the
+#: bound buys is not the 13× — it is that the cost stops being linear in corpus size.
+#:
+#: **What the inner limit costs, measured rather than argued.** It is applied before the
+#: document filter, so a filter whose matches all rank below the pool is starved: `["the"]`
+#: restricted to `shareholder_letter` (582 of 8,776 passages) returns 26 rows unbounded and
+#: **9** at 500. That is real, and it is why `candidate_pool_size` is a returned field —
+#: `candidate_pool_size == $inner_limit` says the ranking pool was capped and fewer rows may be
+#: a consequence of the cap rather than of the corpus. Raising the limit does not remove the
+#: effect (the pool would have to reach ~1,445 for that one query), so it is reported instead
+#: of hidden. §11's silent-omission channel is the orchestrator's to rule on; this statement's
+#: job is to make the omission visible and the scan finite.
+#:
+#: The `collect`/`UNWIND` round trip exists only to count the pool, and it is free — **3,430 db
+#: hits either way** for `["the"]`, measured against the same statement with
+#: `WITH node AS passage, score` in its place. *(An earlier draft of this comment claimed it was
+#: cheaper, on a measurement taken with a shortened `RETURN` list; the saving was the missing
+#: fields, not the `collect`.)* It is bounded by `$inner_limit` by construction.
 #:
 #: **The window is on `filing_date`, not `report_date`.** `filing_date` is on all 185
 #: documents and `report_date` on 184 (C2), so filtering on `report_date` would drop one
@@ -395,14 +428,19 @@ LIMIT $row_limit
 #: `char_count` reports the real length, so a truncated excerpt is visibly truncated. Full text
 #: is `get_passage_context`'s job.
 SEARCH_PASSAGES = """
-CALL db.index.fulltext.queryNodes('passage_text', $lucene_query) YIELD node, score
-WITH node AS passage, score
+CALL db.index.fulltext.queryNodes('passage_text', $lucene_query, {limit: $inner_limit})
+     YIELD node, score
+WITH collect({passage_node: node, passage_score: score}) AS candidates
+WITH candidates, size(candidates) AS candidate_pool_size
+UNWIND candidates AS candidate
+WITH candidate.passage_node AS passage, candidate.passage_score AS score, candidate_pool_size
 MATCH (passage:Passage)-[:PART_OF]->(document:Document)
 WHERE ($document_types IS NULL OR document.document_type IN $document_types)
   AND ($since IS NULL OR document.filing_date >= $since)
   AND ($until IS NULL OR document.filing_date <= $until)
 RETURN passage.passage_id AS passage_id,
        score AS score,
+       candidate_pool_size AS candidate_pool_size,
        left(passage.text, $excerpt_chars) AS text_excerpt,
        passage.char_count AS char_count,
        passage.passage_kind AS passage_kind,
@@ -475,8 +513,23 @@ LIMIT $row_limit
 #: Counter-evidence is "what this filing would not let the run say about this metric", and the
 #: filing is the scope in which that is true.
 #:
-#: Zero rows is an `Ok`, not a `NotFound`: `adjusted_ebitda` 2022Q3 genuinely has no refused
-#: claim in its documents, and that is a finding.
+#: **D5: zero rows is an `Ok` only when the scope exists.** The first `MATCH` is what makes
+#: `document_ids` — so a metric with no observation of this period has `document_ids = []` and
+#: *every* recorded refusal is excluded by construction. Nine of the 26 metrics have no
+#: observation at all, and six of those are the ones the refusals are about: `revenue` has 170
+#: attempted issues and 0 observations *(verified live 2026-08-03)*, which is to say it has no
+#: number **because** of them. `Ok([])` there reads as "this filing refused nothing", which is
+#: the most misleading answer this tool could give. `COUNTER_EVIDENCE_SCOPE` below tells the two
+#: apart and `graph_tools` runs it only when this one returns nothing.
+#:
+#: **D6: `ORDER BY issue.severity` sorted the strongest evidence to the bottom.** The vocabulary
+#: is `rejection` (49), `refusal` (6,228) and `diagnostic` (1) *(counted live, excluding
+#: `:NotAttempted`)*, and alphabetically `rejection` sorts last — so `housing_inventory_homes`
+#: 2023-03-31, which has 34 refusals and 2 rejections in scope, returned 25 refusals and
+#: dropped both rejections. The rank below is explicit and most-severe-first, which also makes
+#: truncation safe to describe: a dropped issue can never outrank a returned one, so
+#: `graph_tools` can say what the bound cost without a second query. `severity_rank` is returned
+#: beside `severity` so the caller can see the order it was given rather than infer it.
 COUNTER_EVIDENCE = """
 MATCH (observation:Observation)
 WHERE observation.metric_id = $metric_id AND observation.period_key = $period_key
@@ -488,6 +541,12 @@ WHERE metric.metric_id = $metric_id
 RETURN issue.issue_id AS issue_id,
        issue.code AS code,
        issue.severity AS severity,
+       CASE issue.severity
+           WHEN 'rejection' THEN 0
+           WHEN 'refusal' THEN 1
+           WHEN 'diagnostic' THEN 2
+           ELSE 3
+       END AS severity_rank,
        issue.detail AS detail,
        issue.rejected_claim AS rejected_claim,
        issue.row_label AS row_label,
@@ -499,7 +558,41 @@ RETURN issue.issue_id AS issue_id,
        passage.source_url AS source_url,
        issue.document_id AS document_id,
        issue.document_type AS document_type
-ORDER BY issue.severity, issue.code, issue.issue_id
+ORDER BY severity_rank, issue.code, issue.issue_id
+LIMIT $row_limit
+"""
+
+#: The scope `find_counter_evidence` needs to read its own empty result (D5), and the **second**
+#: statement that names `:Issue` — both belong to the one tool §9 allows near the label, and
+#: both exclude `:NotAttempted`.
+#:
+#: Run only when `COUNTER_EVIDENCE` returns nothing, so the ordinary path is still one query. It
+#: answers the question `Ok([])` cannot: was the document scope empty? `period_observation_count`
+#: is the scope itself; `metric_observation_count` separates "this metric is unmeasured in the
+#: run" from "this period of it is"; `recorded_issue_count` is the number the caller most needs
+#: in the first case — `revenue`'s 170.
+#:
+#: Every hop is a property lookup on `obs_metric`/`obs_period` or the `metric_key` index except
+#: the last, which is the same `CONCERNS_METRIC` traversal the statement above makes: 611 db
+#: hits for `revenue` *(PROFILE, 2026-08-03)*. Three `OPTIONAL MATCH`es rather than three
+#: queries because each aggregates to one row before the next begins, so the result is exactly
+#: one row whatever the graph holds — no `LIMIT` could have promised that.
+COUNTER_EVIDENCE_SCOPE = """
+MATCH (metric:Metric)
+WHERE metric.metric_id = $metric_id
+OPTIONAL MATCH (observation:Observation)
+WHERE observation.metric_id = $metric_id AND observation.period_key = $period_key
+WITH metric, count(observation) AS period_observation_count
+OPTIONAL MATCH (any_observation:Observation)
+WHERE any_observation.metric_id = $metric_id
+WITH metric, period_observation_count, count(any_observation) AS metric_observation_count
+OPTIONAL MATCH (metric)<-[:CONCERNS_METRIC]-(issue:Issue)
+WHERE NOT issue:NotAttempted
+RETURN metric.metric_id AS metric_id,
+       period_observation_count AS period_observation_count,
+       metric_observation_count AS metric_observation_count,
+       count(issue) AS recorded_issue_count
+ORDER BY metric_id
 LIMIT $row_limit
 """
 
@@ -517,11 +610,13 @@ STATEMENTS: dict[str, str] = {
     "SEARCH_PASSAGES": SEARCH_PASSAGES,
     "EVENTS_IN_WINDOW": EVENTS_IN_WINDOW,
     "COUNTER_EVIDENCE": COUNTER_EVIDENCE,
+    "COUNTER_EVIDENCE_SCOPE": COUNTER_EVIDENCE_SCOPE,
 }
 
 __all__ = [
     "COMPARE_METRIC_PERIODS",
     "COUNTER_EVIDENCE",
+    "COUNTER_EVIDENCE_SCOPE",
     "EVENTS_IN_WINDOW",
     "FACT_EVIDENCE_FOR_EVENT",
     "FACT_EVIDENCE_FOR_OBSERVATION",

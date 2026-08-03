@@ -28,9 +28,12 @@ from story.core.models import RetrievalOutcome
 from story.stages.retrieval import cypher
 from story.stages.retrieval.graph_tools import (
     DEFAULT_HANDLE_LIMIT,
+    DEFAULT_INNER_SEARCH_LIMIT,
     MAX_CONTEXT_NEIGHBOURS,
+    SEVERITY_ORDER,
     TOOL_PARAMETERS,
     BoundedGraphRetriever,
+    passage_window_ids,
 )
 from story.stages.retrieval.lucene_escaping import RESERVED_WORDS, build_query, escape_term
 from story.stages.retrieval.metric_metadata import default_registry
@@ -155,6 +158,44 @@ def test_every_statement_is_issued_with_a_positive_timeout() -> None:
 def test_a_non_positive_timeout_is_refused_at_construction() -> None:
     with pytest.raises(ValueError, match="must be positive"):
         BoundedGraphRetriever(RecordedReadExecutor(), timeout_seconds=0)
+
+
+def test_the_fulltext_candidate_pool_is_bounded_before_the_expand_and_the_sort() -> None:
+    """D7. Without an inner limit the statement is linear in corpus size: `["the"]` matches
+    6,873 of 8,776 passages, the `PART_OF` expand runs on all of them before the document
+    filter, and `ORDER BY score DESC` drains the stream — 45,972 db hits for 26 rows, and 38,787
+    for a filter that matched nothing *(PROFILE, 2026-08-03)*. The row cap cannot help, because
+    the `Top` is what it bounds."""
+    tool, executor = retriever()
+    tool.call("search_passages", {"terms": ["the"]})
+
+    assert "{limit: $inner_limit}" in cypher.SEARCH_PASSAGES
+    assert executor.calls[0].parameters["inner_limit"] == DEFAULT_INNER_SEARCH_LIMIT
+
+
+def test_the_candidate_pool_bound_is_reported_because_it_can_cost_a_row() -> None:
+    """The inner limit is applied before the document filter, so a filter whose matches all
+    rank below the pool is starved: `["the"]` restricted to `shareholder_letter` returns 26 rows
+    unbounded and 9 at 500 *(measured live)*. `candidate_pool_size == inner_limit` is how a
+    caller can tell that apart from a short corpus, and it is why the omission is visible rather
+    than silent."""
+    assert "candidate_pool_size AS candidate_pool_size" in cypher.SEARCH_PASSAGES
+
+
+def test_no_caller_parameter_can_reach_the_candidate_pool_bound() -> None:
+    tool, executor = retriever()
+
+    result = tool.call("search_passages", {"terms": ["margin"], "inner_limit": 100_000})
+
+    assert result_code(result) == "unknown_parameter"
+    assert not executor.calls
+
+
+def test_a_candidate_pool_smaller_than_the_page_is_refused_at_construction() -> None:
+    """A pool below the 25-row cap cannot fill a page, and every search would look like a short
+    corpus rather than like a misconfiguration."""
+    with pytest.raises(ValueError, match="at least"):
+        BoundedGraphRetriever(RecordedReadExecutor(), inner_search_limit=10)
 
 
 def test_no_caller_parameter_can_reach_the_row_limit() -> None:
@@ -524,16 +565,75 @@ def test_a_context_window_wider_than_three_is_refused_rather_than_clamped(field:
 
 
 def test_the_default_context_window_is_the_widest_the_plan_allows() -> None:
-    tool, executor = retriever(**{cypher.PASSAGE_CONTEXT: rows(1)})
-    tool.call("get_passage_context", {"passage_id": "p"})
+    """Read off the ids the tool asks for, since D8 made those the window.
 
-    assert executor.calls[0].parameters["before"] == MAX_CONTEXT_NEIGHBOURS
-    assert executor.calls[0].parameters["after"] == MAX_CONTEXT_NEIGHBOURS
+    Seven ids centred on the anchor is `before=3 + anchor + after=3` and nothing else — the
+    parameter no longer reaches the statement, so this is where the default is now visible.
+    """
+    tool, executor = retriever(**{cypher.PASSAGE_CONTEXT: rows(1)})
+    tool.call("get_passage_context", {"passage_id": "norm:doc#p10"})
+
+    asked = executor.calls[0].parameters["neighbour_passage_ids"]
+    assert asked == [f"norm:doc#p{index}" for index in range(7, 14)]
+    assert len(asked) == 2 * MAX_CONTEXT_NEIGHBOURS + 1
 
 
 def test_passage_context_returns_the_gap_between_neighbours_rather_than_implying_contiguity() -> None:
     assert "offset_from_anchor" in cypher.PASSAGE_CONTEXT
     assert "AS passage_index" in cypher.PASSAGE_CONTEXT
+
+
+# ---------------------------------------------------------------------------------------
+# D8 — the neighbour ids are computed from the id grammar, not searched for
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_passage_window_is_computed_from_the_id_and_never_leaves_the_document() -> None:
+    """The grammar is `{document_id}#p{n}` and is total over all 8,776 passages (re-measured
+    2026-08-03: every id splits in two, reconstructs exactly, and its ordinal round-trips
+    through `toInteger`). So the window is arithmetic, and every id it produces carries the
+    anchor's own document prefix — the window cannot cross a document because it cannot spell
+    another one's id."""
+    window = passage_window_ids("norm:a:b:c.htm#p120", before=2, after=1)
+
+    assert window == ["norm:a:b:c.htm#p118", "norm:a:b:c.htm#p119",
+                      "norm:a:b:c.htm#p120", "norm:a:b:c.htm#p121"]
+    assert all(identifier.startswith("norm:a:b:c.htm#p") for identifier in window)
+
+
+def test_the_passage_window_clamps_at_zero_rather_than_asking_for_a_negative_ordinal() -> None:
+    assert passage_window_ids("norm:doc#p1", before=3, after=0) == [
+        "norm:doc#p0", "norm:doc#p1"]
+
+
+def test_the_passage_window_always_contains_the_anchor_even_with_no_neighbours() -> None:
+    assert passage_window_ids("norm:doc#p7", before=0, after=0) == ["norm:doc#p7"]
+
+
+@pytest.mark.parametrize(
+    "identifier", ["norm:doc", "norm:doc#p", "norm:doc#p12#p3", "norm:doc#pxii", 120, None])
+def test_an_id_the_grammar_cannot_parse_is_not_found_without_asking_the_graph(
+    identifier: Any,
+) -> None:
+    """The grammar holds for every passage in the graph, so an id that does not parse cannot
+    name one — and a query whose answer is already known is a query not worth issuing."""
+    assert passage_window_ids(identifier, before=1, after=1) is None
+
+    tool, executor = retriever()
+    result = tool.call("get_passage_context", {"passage_id": identifier})
+
+    assert result.outcome is RetrievalOutcome.NOT_FOUND
+    assert not executor.calls
+
+
+def test_passage_context_looks_neighbours_up_by_id_instead_of_scanning_the_document() -> None:
+    """D8's fix, as a property of the statement: the non-indexable per-passage
+    `toInteger(split(...))` filter that made the cost linear in document size is gone from the
+    `WHERE`, and the anchor's `#p` arithmetic is all that is left of it."""
+    assert "neighbour.passage_id IN $neighbour_passage_ids" in cypher.PASSAGE_CONTEXT
+    where = cypher.PASSAGE_CONTEXT.split("RETURN")[0]
+    assert "toInteger(split(neighbour" not in where
+    assert "neighbour.document_id = anchor.document_id" in cypher.PASSAGE_CONTEXT
 
 
 @pytest.mark.parametrize("value", ["2022-1-1", "not-a-date", "20220101", ""])
@@ -569,22 +669,121 @@ def test_the_event_window_names_which_date_put_a_row_in_it() -> None:
 # ---------------------------------------------------------------------------------------
 
 
-def test_no_counter_evidence_is_an_ok_and_not_a_not_found() -> None:
+def scope(**fields: Any) -> tuple[dict[str, Any], ...]:
+    """One `COUNTER_EVIDENCE_SCOPE` row, defaulting to a metric that *is* observed."""
+    return ({"metric_id": "adjusted_ebitda", "period_observation_count": 6,
+             "metric_observation_count": 296, "recorded_issue_count": 2, **fields},)
+
+
+def test_no_counter_evidence_is_an_ok_when_the_documents_that_report_the_fact_exist() -> None:
     """"This filing records no refused claim about this metric" is a finding about the corpus;
-    a `NotFound` would make an honest absence look like a broken identifier."""
-    tool, _executor = retriever(**{cypher.COUNTER_EVIDENCE: ()})
+    a `NotFound` would make an honest absence look like a broken identifier. The scope read is
+    what earns the `Ok`: six observations of the period, so there were documents to search."""
+    tool, executor = retriever(**{cypher.COUNTER_EVIDENCE: (),
+                                  cypher.COUNTER_EVIDENCE_SCOPE: scope()})
 
     result = tool.call("find_counter_evidence",
                        {"metric_id": "adjusted_ebitda", "period_key": "2022Q3"})
 
     assert result.outcome is RetrievalOutcome.OK
     assert result.rows == ()
+    assert [call.statement for call in executor.calls] == [
+        cypher.COUNTER_EVIDENCE, cypher.COUNTER_EVIDENCE_SCOPE]
 
 
-def test_the_counter_evidence_statement_is_the_only_one_that_names_an_issue() -> None:
-    naming = [name for name, statement in cypher.STATEMENTS.items() if ":Issue" in statement]
+def test_counter_evidence_with_rows_never_pays_for_the_scope_read() -> None:
+    """D5 costs a second statement only where the first one's answer is ambiguous."""
+    tool, executor = retriever(**{cypher.COUNTER_EVIDENCE: rows(3, severity="refusal")})
 
-    assert naming == ["COUNTER_EVIDENCE"]
+    tool.call("find_counter_evidence", {"metric_id": "adjusted_ebitda", "period_key": "2022Q3"})
+
+    assert [call.statement for call in executor.calls] == [cypher.COUNTER_EVIDENCE]
+
+
+def test_a_metric_with_no_observation_of_the_period_is_unavailable_and_not_an_empty_ok() -> None:
+    """D5, the defect exactly. `revenue` carries 170 attempted issues and 0 observations
+    *(verified live 2026-08-03)*, so the document scope is empty and every one of those 170 is
+    excluded by construction — `Ok([])` said the filings had refused nothing, which is the
+    opposite of the truth and the answer a planner asking "is there counter-evidence about
+    revenue?" was given."""
+    tool, _executor = retriever(
+        **{cypher.COUNTER_EVIDENCE: (),
+           cypher.COUNTER_EVIDENCE_SCOPE: scope(metric_id="revenue", period_observation_count=0,
+                                                metric_observation_count=0,
+                                                recorded_issue_count=170)})
+
+    result = tool.call("find_counter_evidence", {"metric_id": "revenue", "period_key": "2022Q3"})
+
+    assert result.outcome is RetrievalOutcome.UNAVAILABLE
+    assert result_code(result) == "no_document_scope"
+    assert "170" in result.reason, "the reason must name what was excluded, not just that it was"
+
+
+def test_a_period_with_no_observation_is_unavailable_even_when_the_metric_has_others() -> None:
+    """The same emptiness by a different route: the metric is measured, this period is not, and
+    the scope is empty either way. One code, and a reason that separates the two counts."""
+    tool, _executor = retriever(
+        **{cypher.COUNTER_EVIDENCE: (),
+           cypher.COUNTER_EVIDENCE_SCOPE: scope(period_observation_count=0)})
+
+    result = tool.call("find_counter_evidence",
+                       {"metric_id": "adjusted_ebitda", "period_key": "1999Q1"})
+
+    assert result_code(result) == "no_document_scope"
+    assert "296" in result.reason and "1999Q1" in result.reason
+
+
+def test_a_metric_the_graph_never_projected_is_unavailable_rather_than_a_silent_empty_ok() -> None:
+    tool, _executor = retriever(**{cypher.COUNTER_EVIDENCE: (),
+                                   cypher.COUNTER_EVIDENCE_SCOPE: ()})
+
+    result = tool.call("find_counter_evidence",
+                       {"metric_id": "adjusted_ebitda", "period_key": "2022Q3"})
+
+    assert result_code(result) == "no_metric_node"
+
+
+def test_counter_evidence_orders_by_an_explicit_severity_rank_and_not_by_the_word() -> None:
+    """D6. `{diagnostic, refusal, rejection}` sorts alphabetically with the strongest evidence
+    last, so the bound dropped `rejection` rows first: `housing_inventory_homes` 2023-03-31 has
+    34 refusals and 2 rejections in scope and returned 25 refusals *(verified live)*."""
+    assert "ORDER BY severity_rank" in cypher.COUNTER_EVIDENCE
+    assert "ORDER BY issue.severity" not in cypher.COUNTER_EVIDENCE
+    ranks = [cypher.COUNTER_EVIDENCE.index(f"'{severity}' THEN") for severity in SEVERITY_ORDER]
+    assert ranks == sorted(ranks), "the CASE does not rank most severe first"
+
+
+def test_a_truncated_counter_evidence_result_says_what_the_bound_could_have_dropped() -> None:
+    """`truncated=True` is a count and says nothing about kind. With the rank ordering it can
+    say something exact and free: nothing dropped outranks anything returned."""
+    cap = MAX_ROWS["find_counter_evidence"]
+    scripted = tuple({"issue_id": f"iss:{index}", "severity": "refusal"}
+                     for index in range(cap + 1))
+    tool, _executor = retriever(**{cypher.COUNTER_EVIDENCE: scripted})
+
+    result = tool.call("find_counter_evidence",
+                       {"metric_id": "adjusted_ebitda", "period_key": "2022Q3"})
+
+    assert result.outcome is RetrievalOutcome.OK
+    assert result.truncated is True
+    assert result_code(result) == "truncated_below_severity"
+    assert "refusal" in result.reason
+
+
+def test_an_untruncated_ok_still_says_nothing_it_does_not_have_to() -> None:
+    tool, _executor = retriever(**{cypher.COUNTER_EVIDENCE: rows(2, severity="rejection")})
+
+    result = tool.call("find_counter_evidence",
+                       {"metric_id": "adjusted_ebitda", "period_key": "2022Q3"})
+
+    assert result_code(result) == ""
+
+
+def test_only_the_counter_evidence_tools_two_statements_name_an_issue() -> None:
+    naming = sorted(name for name, statement in cypher.STATEMENTS.items()
+                    if ":Issue" in statement)
+
+    assert naming == ["COUNTER_EVIDENCE", "COUNTER_EVIDENCE_SCOPE"]
 
 
 @pytest.mark.parametrize("tool_name", sorted(UNAVAILABLE_TOOLS))
@@ -901,6 +1100,28 @@ def test_live_passage_context_returns_the_anchor_with_its_cited_neighbours(
     assert anchors[0]["offset_from_anchor"] == 0
     assert _values(result, "passage_index") == sorted(_values(result, "passage_index"))
     assert all(row["document_id"] == anchors[0]["document_id"] for row in result.rows)
+    assert all(-2 <= row["offset_from_anchor"] <= 2 for row in result.rows)
+
+
+@pytest.mark.neo4j
+def test_live_the_widest_context_window_costs_the_same_in_a_long_document_as_a_short_one(
+    live_retriever,  # type: ignore[no-untyped-def]
+) -> None:
+    """D8's claim, stated as behaviour rather than as a db-hit count a test cannot see: the
+    window is the same seven-id lookup wherever it lands, so the 453-passage `open-20201231.htm`
+    and the 183-passage `open-20220930.htm` answer identically shaped results. The db-hit
+    measurement is in `cypher.PASSAGE_CONTEXT` — 968 to 112 on the long one."""
+    long_document = "norm:0001801169:0001801169-21-000011:open-20201231.htm"
+    short_document = "norm:0001801169:0001801169-22-000108:open-20220930.htm"
+
+    for document in (long_document, short_document):
+        result = live_retriever.call("get_passage_context",
+                                     {"passage_id": f"{document}#p120"})
+
+        assert result.outcome is RetrievalOutcome.OK, document
+        assert len(result.rows) == 7, document
+        assert _values(result, "offset_from_anchor") == [-3, -2, -1, 0, 1, 2, 3], document
+        assert all(row["document_id"] == document for row in result.rows), document
 
 
 @pytest.mark.neo4j
@@ -986,10 +1207,32 @@ def test_live_counter_evidence_returns_refusals_and_never_an_unasked_question(
 
     assert result.outcome is RetrievalOutcome.OK
     assert result.rows
-    assert all(row["severity"] in {"refusal", "rejection", "diagnostic"} for row in result.rows)
+    assert all(row["severity"] in set(SEVERITY_ORDER) for row in result.rows)
     assert all(row["passage_id"] and row["document_id"] for row in result.rows)
-    ordering = [(row["severity"], row["code"], row["issue_id"]) for row in result.rows]
+    ordering = [(row["severity_rank"], row["code"], row["issue_id"]) for row in result.rows]
     assert ordering == sorted(ordering), "the statement's ORDER BY did not hold"
+    assert all(row["severity_rank"] == SEVERITY_ORDER.index(row["severity"])
+               for row in result.rows)
+
+
+@pytest.mark.neo4j
+def test_live_truncation_keeps_the_rejections_the_lexicographic_order_dropped(
+    live_retriever,  # type: ignore[no-untyped-def]
+) -> None:
+    """D6 against the graph. `housing_inventory_homes` 2023-03-31 has 34 refusals and 2
+    rejections in scope; ordered by the word, `rejection` sorted last and the 25-row bound threw
+    both away. Ordered by rank, both survive and the refusals are what the bound costs."""
+    result = live_retriever.call(
+        "find_counter_evidence",
+        {"metric_id": "housing_inventory_homes", "period_key": "2023-03-31"})
+
+    assert result.outcome is RetrievalOutcome.OK
+    assert result.truncated is True
+    severities = [row["severity"] for row in result.rows]
+    assert severities.count("rejection") == 2, f"a rejection was dropped again: {severities}"
+    assert severities[:2] == ["rejection", "rejection"]
+    assert result_code(result) == "truncated_below_severity"
+    assert "refusal" in result.reason
 
 
 @pytest.mark.neo4j
@@ -999,6 +1242,36 @@ def test_live_a_metric_with_no_refused_claim_returns_an_empty_ok(live_retriever)
 
     assert result.outcome is RetrievalOutcome.OK
     assert result.rows == ()
+    assert result_code(result) == ""
+
+
+@pytest.mark.neo4j
+def test_live_revenue_reports_that_it_has_no_scope_instead_of_no_counter_evidence(
+    live_retriever,  # type: ignore[no-untyped-def]
+) -> None:
+    """D5 against the graph, on the metric that shows why it matters. `revenue` has 170 recorded
+    issues and not one observation — it has no number *because* of them — and the tool used to
+    answer `Ok([])`, which `results.ok` documents as "this filing refused nothing"."""
+    result = live_retriever.call("find_counter_evidence",
+                                 {"metric_id": "revenue", "period_key": "2022Q3"})
+
+    assert result.outcome is RetrievalOutcome.UNAVAILABLE
+    assert result_code(result) == "no_document_scope"
+    assert "170" in result.reason
+
+
+@pytest.mark.neo4j
+def test_live_search_reports_the_candidate_pool_it_ranked(live_retriever) -> None:  # type: ignore[no-untyped-def]
+    """D7: the pool is bounded, and its size is on every row so a starved filter is legible.
+    `["the"]` matches 6,873 passages and the pool caps at 500; `EBITDA` in earnings releases
+    exhausts its matches and reports fewer, which is the difference the field exists to show."""
+    broad = live_retriever.call("search_passages", {"terms": ["the"]})
+    narrow = live_retriever.call("search_passages", {"terms": ["EBITDA"],
+                                                     "document_types": ["earnings_release"]})
+
+    assert broad.outcome is RetrievalOutcome.OK and narrow.outcome is RetrievalOutcome.OK
+    assert all(row["candidate_pool_size"] == DEFAULT_INNER_SEARCH_LIMIT for row in broad.rows)
+    assert all(row["candidate_pool_size"] < DEFAULT_INNER_SEARCH_LIMIT for row in narrow.rows)
 
 
 @pytest.mark.neo4j
