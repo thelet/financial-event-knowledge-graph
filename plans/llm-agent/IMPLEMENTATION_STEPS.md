@@ -144,7 +144,10 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Acceptance** | digest-based, not id-based; structured refusal not exception; zero graph writes; marked `neo4j` where it touches the DB, with an offline fixture path |
 | **Rollback** | delete the stage |
 | **Commit** | one |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED** 2026-08-03 |
+| **Commit hash** | `54a4287` |
+| **Delivered** | 1,966 lines; 13 checks, 8 refusal codes, 46 tests |
+| **Orchestrator validation** | scope: all 8 files inside the workstream tree · `46 passed` · **read the digest-vs-id test in full** — it stages a run regenerated in place, asserts an explicit `id_only_gate()` returns `[]` *first*, then asserts the real gate refuses with both digests named. That is the strongest form of that test · marker count verified live: marker `node_count`=28,836, live total 28,837, live excluding `:GraphLoad` = 28,836, so the exclusion is correct and a naive total would false-positive |
 
 ### S1 — Safe retrieval layer
 
@@ -226,7 +229,11 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Owns** | `story/providers/` `tests/story/test_story_provider*.py` |
 | **Parallel** | **yes** — wave A with S1 |
 | **Acceptance** | no vendor SDK; no hard-coded secret; schema violation never retried; timeout never retried; replay store keyed by request identity; live tests file-wide `live`-marked |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED** 2026-08-03 |
+| **Commit hash** | `1a5d716` |
+| **Delivered** | 2,229 lines across 7 files; `StoryOpenAICompatibleProvider`, `GenerationStore`, `portable_schema` |
+| **Orchestrator validation** | scope: 0 files outside its 7 paths · `87 passed, 2 skipped` · `pyproject.toml` untouched · **reproduced the digest-collision finding myself** — the naive `\x1f` join gives one digest for `('planner\x1f','write')` and `('planner','\x1fwrite')`; story's does not, and personas separate |
+| **Live model server** | **NOT RUNNING** — nothing on `127.0.0.1:8080` or `:8081`, verified by me. Both live tests skip cleanly, which is the designed outcome. **The wire contract is proven only against `httpx.MockTransport`**; the nested `response_format` and two-turn shape are unverified against a running llama.cpp |
 
 ### S7 — Editorial planner · S8 — Constrained writer
 
@@ -399,11 +406,24 @@ This is exactly how `tests/graph/test_graph_package_structure.py` scopes the sam
 | F13 | The graph stores only five property types: Boolean, Double, Long, String, StringArray. No temporal or spatial value exists in it today | The `Date`/`Time`/`Point` conversion branches are unreachable now and exist so a future `date` property cannot leak |
 | F14 | A fifth error type `StoryGraphResultError` beyond the boundary doc's three | Accepted — the conversion needs somewhere to refuse a returned `Node`, and flattening it satisfies "no driver type escaped" while dropping labels, which is worse |
 
+### S0b and S6 findings
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| F15 | **§7 names five refusal codes; the gate needs eight.** `graph_manifest_unreadable`, `extraction_run_directory_missing` and `graph_unreachable` have no code in the plan — without them a stopped container or a deleted manifest escapes as a traceback from the gate every command runs first | Accepted; plan §7 under-specified |
+| F16 | The `:GraphLoad` marker's own `node_count` is **28,836** — the loader excludes itself from what it records. The trap is the *live* count (28,837) | Handled with `WHERE NOT n:GraphLoad`, and a test that counting the marker as data would refuse the correct run. Verified live by me |
+| F17 | `graph/core/verification_report.Check` is `extra="forbid"` with no refusal code, and `VerificationReport` requires four count fields a filesystem check has no honest value for | Types modelled on it, not borrowed; only the shared rendering rule imported |
+| F18 | The graph manifest reader is **allow-subset**, not `extra="forbid"` | Justified: `manifest.json` is the other workstream's artifact with several consumers, and refusing a *fresh* graph because the projection added a diagnostic block would raise where §7 promises a structured refusal |
+| F19 | **Extraction's `\x1f` digest join is ambiguous once a second free-text field exists.** Reproduced: `('planner\x1f','write')` and `('planner','\x1fwrite')` share a digest | Story digests each text field before joining. **Extraction is not currently vulnerable** — only `prompt` is genuinely free-text there — but story with `system` *and* `prompt` would have inherited it |
+| F20 | **§15.3's six keywords are not sufficient alone.** An object without `additionalProperties:false` admits any key; an array without `items` admits any element | `validate_portable_schema` enforces those beyond the keyword list and refuses `description`/`title`. **Constrains what S7/S8 may write** — flagged for those packets |
+| F21 | **The local model server is down.** Nothing on `:8080` or `:8081` | S12 will run on recorded responses. Reported honestly rather than worked around; see §8 |
+
 ## 8. Founder gates
 
 | # | Question | Status |
 | --- | --- | --- |
-| D1 | Neo4j connection boundary | **RESOLVED** — see above |
+| D1 | Neo4j connection boundary | **RESOLVED** — see §7 |
+| G1 | **The local llama.cpp server is not running** (`:8080` and `:8081` both refused, verified 2026-08-03). S12's spike will therefore run against recorded model responses only, and the provider's wire contract stays proven against `httpx.MockTransport` rather than a real server | **OPEN — founder's call.** Implementation proceeds; nothing is blocked. Starting the server would let S12 additionally report a real local-model run |
 
 ---
 
