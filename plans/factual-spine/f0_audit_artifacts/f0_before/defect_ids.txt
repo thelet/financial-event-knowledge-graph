@@ -1,0 +1,6 @@
+obs:housing-inventory-homes:opendoor:2023-12-31:normalized-narrative:46093176cdf5
+obs:market-count:opendoor:2021-03-31:normalized-table:849370fa078c
+obs:market-count:opendoor:2022-03-31:normalized-table:e4b152866fa2
+obs:market-count:opendoor:2023-03-31:normalized-table:9a2d0faedf1f
+obs:market-count:opendoor:2023-12-31:normalized-narrative:46093176cdf5
+obs:pct-homes-on-market-gt-120-days:opendoor:2023-12-31:normalized-narrative:46093176cdf5

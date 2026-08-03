@@ -1,0 +1,18 @@
+PREDICTED OUTCOME OF PART A (derived before agents reported)
+
+Table lane: 5 tables rebind, one observation REDATED in each (old id gone, new id appears):
+  open-20210331#p144  market_count 2020-03-31=21  ->  2020-12-31=21
+  open-20220331#p122  market_count 2021-03-31=44  ->  2021-12-31=44   [defect 1]
+  open-20230331#p109  market_count 2022-03-31=53  ->  2022-12-31=53   [defect 2]
+  open-20240331#p112  market_count 2023-03-31=50  ->  2023-12-31=50   [defect 3]
+  open-20250331#p101  market_count 2024-03-31=50  ->  2024-12-31=50
+  (first column of each table keeps its March-31 instant; cols 2-4 become Year-Ended)
+
+Narrative lane: 3 observations REMOVED (refused), all from q42023formxex992sharehol#p20:
+  market_count 2023-12-31=53                    [defect 4]
+  pct_homes_on_market_gt_120_days 2023-12-31=55 [defect 5]
+  housing_inventory_homes 2023-12-31=12788      [defect 6]
+
+NET: 2707 -> 2704 observations. 5 ids replaced, 3 removed. All other 2699 ids byte-identical.
+Note p144 and p101 carry a 7th and 8th wrong reading not in the original six -- the fix is
+general so it corrects them too. That is expected and must be reported, not hidden.
