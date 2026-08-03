@@ -206,22 +206,26 @@ Stated plainly, because they bound what the green suite means.
 
 ---
 
-## 8. Founder decision outstanding
+## 8. The benchmark decision, taken
 
-**The benchmark gold case `recon-shareholder-letter-table-as-prose` is now unmeetable by
-construction.** It annotates `#p20` — the passage the lane now correctly refuses — with the two
-correct values from columns the flattening destroyed.
+`recon-shareholder-letter-table-as-prose` is now a **must-refuse case**. Its gold expected two
+observations from a passage whose columns did not survive normalization, on the reasoning that
+the leading value of each run-together row is safely attributable — an assumption the run
+measured false, and the source of three of the six defects F0 removed.
 
-| | Before | After |
-| --- | ---: | ---: |
-| Value accuracy | 0.818 | **1.000** |
-| `value_wrong` errors | 1 | **0** |
-| Metric-identity recall | 0.550 | **0.450** |
+The refusal rule was not weakened. Both facts keep a positive benchmark from a source whose
+columns survived: the 18% was already gold three other ways (including the same document's `#p9`
+prose), and `housing_inventory_homes` 5,326 moved to `kpi-table-q4-2023-earnings` — the same
+quarter's EX-99.1, same row, columns intact.
 
-Two gold observations moved from *matched-but-wrong* to *missed*. The trade is honest — the lane
-cannot know which of seven flattened columns a figure came from — but the case will sit as a
-permanent recall penalty until it is re-scoped or reclassified as a passage the lane must refuse.
-**No benchmark case was changed here.**
+| Narrative score (lexical) | Pre-F0 | Post-F0 | **After reclassification** |
+| --- | ---: | ---: | ---: |
+| `metric_identity_accuracy` | 0.550 | 0.450 | **0.500** |
+| `value_accuracy` | 0.818 | 1.000 | **1.000** |
+| `value_wrong` | 1 | 0 | **0** |
+
+Recall recovers as a **denominator correction**, not an extraction gain. Full reasoning and the
+fact-by-fact audit are in [F0_INTEGRATION_AUDIT.md](F0_INTEGRATION_AUDIT.md).
 
 ---
 
