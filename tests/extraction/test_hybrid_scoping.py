@@ -319,7 +319,7 @@ def test_renderer_v1_is_pure_and_excludes_the_corpus_fitted_content(ontology):
 
 
 def test_every_concept_renders_to_a_non_empty_stable_string(ontology):
-    """131 concepts, no exceptions. A concept that rendered to "" would embed as whatever the
+    """133 concepts, no exceptions. A concept that rendered to "" would embed as whatever the
     model does with an empty string and would sit at a fixed, meaningless similarity."""
     for concept in ontology.registry.definitions.concepts:
         rendered = render_concept(concept)
@@ -984,7 +984,7 @@ def test_the_report_regenerates_offline_from_the_committed_caches(repo_config):
     a green run here is evidence the committed caches are complete."""
     built = hybrid_scope_runner.build_report(
         catalog_root=repo_config.catalog_root, implementation_commit=PINNED_COMMIT)
-    assert built.embedding["concepts_indexed"] == 131
+    assert built.embedding["concepts_indexed"] == 133
     assert built.views["hybrid"].totals["cases"] == 26
 
 
@@ -1042,7 +1042,7 @@ def test_the_benchmark_readme_does_not_restate_the_hybrid_results(report):
     for score in ("required-concept recall |", "scope size, mean",
                   "critical-concept recall |"):
         assert score not in section, score
-    # No measured figure at all — neither a ratio nor a count. `500 entries` for a 132-entry
+    # No measured figure at all — neither a ratio nor a count. `500 entries` for a 134-entry
     # cache was one of the fabrications that survived, and it is an integer, so integers are
     # checked too. Four numbers are allowed and none of them is a result: the section reference
     # `§1.1a`, the determinism contract's tolerance (a fixed clause of that section), and the
@@ -1366,11 +1366,13 @@ def test_both_paraphrases_are_recovered_at_sentence_granularity(report):
 
 def test_the_ablation_arm_is_the_only_extra_entry_in_the_concept_cache(ontology,
                                                                       embedding_config):
-    """132 entries for 131 concepts. Anything else means a stale rendering is cached beside a
+    """134 entries for 133 concepts. F0 added the `market_data` and `calculated` evidence
+    types, which are registry concepts like any other. Anything else means a stale rendering
+    is cached beside a
     current one, which is the state the cache key cannot detect because both are `v1`."""
     identity = CacheIdentity(
         ontology.definition_hash, embedding_config.model, embedding_config.dimensions)
     cache = VectorCache.load(hybrid_scope_runner.CONCEPT_VECTORS, identity)
     rendered = set(concept_vectors(ontology, cache))
-    assert len(rendered) == 131
-    assert len(cache) == 132
+    assert len(rendered) == 133
+    assert len(cache) == 134

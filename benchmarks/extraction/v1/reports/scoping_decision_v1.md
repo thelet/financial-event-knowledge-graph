@@ -23,7 +23,7 @@ From the committed scope reports. Reachability is what step 9 measured and is *n
 | --- | --- |
 | denominator | 50 |
 | hybrid required concept recall | 0.98 |
-| hybrid scope size mean | 18.461538 |
+| hybrid scope size mean | 18.5 |
 | hybrid stage 09 criterion 1 holds | **no** |
 | lexical only report recall | 0.96 |
 | lexical required concept recall | 0.96 |
@@ -98,9 +98,9 @@ The commit below is the only field permitted to move between two regenerations o
 
 |  | Value |
 | --- | --- |
-| implementation commit | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
-| ontology definition hash | `e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc` |
-| source `event_relationship_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
-| source `hybrid_scope_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
-| source `lexical_scope_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
-| source `narrative_lane_v1.json` | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
+| implementation commit | `c59818e4a775103c94f3438306c051b66ef54387` |
+| ontology definition hash | `337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2` |
+| source `event_relationship_v1.json` | `c59818e4a775103c94f3438306c051b66ef54387` |
+| source `hybrid_scope_v1.json` | `c59818e4a775103c94f3438306c051b66ef54387` |
+| source `lexical_scope_v1.json` | `c59818e4a775103c94f3438306c051b66ef54387` |
+| source `narrative_lane_v1.json` | `c59818e4a775103c94f3438306c051b66ef54387` |

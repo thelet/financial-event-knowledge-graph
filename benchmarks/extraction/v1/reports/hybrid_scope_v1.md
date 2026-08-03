@@ -11,16 +11,16 @@ Durations are deliberately absent: this artifact is byte-identical on regenerati
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `4d3ae1e8e2b90356932a33c6b611e444d1396faa` |
+| implementation commit | `c59818e4a775103c94f3438306c051b66ef54387` |
 | scope | `hybrid` v`1.0.0` |
-| ontology definition hash | `e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc` |
+| ontology definition hash | `337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2` |
 | embedding model | `Qwen3-Embedding-0.6B-f16.gguf` |
 | dimensions | 1024 |
 | renderer | `v1` |
 | text normalization | `v1` |
-| `cache_key` | `f6af53bb252ddd834b6b14f667f11a1ad460b56567e3f1c00402527b30d04c0f` |
-| concepts indexed | 131 |
-| concept cache entries | 132 |
+| `cache_key` | `31d2f6ee824ab952788c596c1d16ad93aa1fee0ca6202546f6fbac644ebb5b77` |
+| concepts indexed | 133 |
+| concept cache entries | 134 |
 | text cache entries | 26 |
 | `top_k` | 2 |
 | `min_similarity` | 0.45 |
@@ -37,7 +37,7 @@ The concept cache holds one entry more than the vocabulary: the ablation arm of 
 | --- | --- | --- | --- |
 | 1 | required-concept recall strictly greater than lexical's 0.960 measured in this same run, and both `pct_homes_on_market_gt_120_days` paraphrases recovered | required_concept_recall 0.980; lexical_required_concept_recall 0.960; stage_09_lexical_recall_as_measured 0.959; paraphrases_recovered ('letter-prose-inventory-and-120d-q2-2022', 'pct_homes_on_market_gt_120_days'); paraphrases_missed ('population-our-homes-in-inventory-q1-2023', 'pct_homes_on_market_gt_120_days') | **no** |
 | 2 | critical-concept recall 1.000 and ambiguity preservation 1.000, unchanged | critical_concept_recall 1.000; ambiguity_preservation 1.000 | yes |
-| 3 | scope size mean no worse than +25% over lexical's 17.9 of 131 measured in this same run | lexical_mean 17.923; hybrid_mean 18.462; growth 0.030; budget 0.250 | yes |
+| 3 | scope size mean no worse than +25% over lexical's 17.9 of 133 measured in this same run | lexical_mean 17.923; hybrid_mean 18.500; growth 0.032; budget 0.250 | yes |
 | 4 | no semantic addition displaces or outranks a protected candidate | violations none | yes |
 
 Criterion 1 is a conjunction, and the two halves can disagree: recall above the baseline with one paraphrase still unreached fails it, which is the outcome §7 asks to be reported as readily as the other one.
@@ -48,11 +48,11 @@ Criterion 1 is a conjunction, and the two halves can disagree: recall above the 
 
 | Case | Concept | Rank in that passage | Similarity | Concepts standing clear at 3 sd |
 | --- | --- | --- | --- | --- |
-| `population-our-homes-in-inventory-q1-2023` | `pct_homes_on_market_gt_120_days` | 2 | 0.5169 | 0 |
+| `population-our-homes-in-inventory-q1-2023` | `pct_homes_on_market_gt_120_days` | 2 | 0.5166 | 0 |
 
-For `population-our-homes-in-inventory-q1-2023`: the sentence alone reaches the concept at rank 0, 0.8307 with a 0.1375 margin over the next concept — the `paraphrase-2` probe, 82 characters. The 2046-character passage it sits in does not: its best concept is `housing_inventory_homes` at 0.5609 and **no concept stands clear of that passage's own background at all**. The statistic `top_k` came from says there is no semantic signal in that passage to admit; a larger cap would admit candidates that do not stand out, and would happen to include this one.
+For `population-our-homes-in-inventory-q1-2023`: the sentence alone reaches the concept at rank 0, 0.8305 with a 0.1373 margin over the next concept — the `paraphrase-2` probe, 82 characters. The 2046-character passage it sits in does not: its best concept is `housing_inventory_homes` at 0.5607 and **no concept stands clear of that passage's own background at all**. The statistic `top_k` came from says there is no semantic signal in that passage to admit; a larger cap would admit candidates that do not stand out, and would happen to include this one.
 
-For completeness, and not as a recommendation: at `top_k` 3 both paraphrases are recovered, required-concept recall is 1.000, scope size grows +4.7% and the unrequired additions rise from 13 to 20 — every §7 criterion would then hold. **The verdict therefore rests on how `top_k` is derived, not on whether the model can paraphrase.** That is a founder-visible fact and it is stated here rather than buried in the sensitivity table below.
+For completeness, and not as a recommendation: at `top_k` 3 both paraphrases are recovered, required-concept recall is 1.000, scope size grows +4.7% and the unrequired additions rise from 14 to 20 — every §7 criterion would then hold. **The verdict therefore rests on how `top_k` is derived, not on whether the model can paraphrase.** That is a founder-visible fact and it is stated here rather than buried in the sensitivity table below.
 
 **What stage 10 inherits from this, as a constraint rather than a curiosity.** Whole-passage embedding, not the vocabulary and not the model, is what the benchmark measured here. The **evidence boundary remains the normalized passage**: a claim cites a `passage_id` and `verify` resolves it against `passages.jsonl`. Stage 10 may focus a prompt, or score semantic similarity, on **evidence-resolvable spans** within a passage — sentences it can still cite by that passage's id — but it must **not** mint synthetic sub-passage anchors. An identifier that does not resolve in `passages.jsonl` fails `verify` by construction, and evidence that cannot be checked is the one thing this pipeline exists to refuse.
 
@@ -67,7 +67,7 @@ For completeness, and not as a recommendation: at `top_k` 3 both paraphrases are
 
 | Scope size | `lexical` | `embedding_only` | `hybrid` |
 | --- | --- | --- | --- |
-| mean | 17.923 | 1.846 | 18.462 |
+| mean | 17.923 | 1.846 | 18.500 |
 | median | 20.5 | 2.0 | 21.0 |
 | min | 5 | 0 | 6 |
 | max | 22 | 2 | 23 |
@@ -94,16 +94,16 @@ For completeness, and not as a recommendation: at `top_k` 3 both paraphrases are
 
 | Pooled over | pairs | mean | sd | p50 | p90 | p95 | p99 | max |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| all 32 texts | 4192 | 0.3245 | 0.1286 | 0.3030 | 0.5075 | 0.5528 | 0.6895 | 0.8695 |
-| 26 case passages | 3406 | 0.3001 | 0.1158 | 0.2818 | 0.4803 | 0.5202 | 0.5924 | 0.6990 |
-| 6 probes | 786 | 0.4305 | 0.1275 | 0.4092 | 0.5875 | 0.6808 | 0.8147 | 0.8695 |
-| 26 distinct texts | 3406 | 0.3279 | 0.1292 | 0.3083 | 0.5088 | 0.5558 | 0.6989 | 0.8695 |
+| all 32 texts | 4256 | 0.3245 | 0.1280 | 0.3029 | 0.5062 | 0.5526 | 0.6881 | 0.8698 |
+| 26 case passages | 3458 | 0.3000 | 0.1152 | 0.2823 | 0.4796 | 0.5198 | 0.5928 | 0.6989 |
+| 6 probes | 798 | 0.4307 | 0.1268 | 0.4107 | 0.5845 | 0.6795 | 0.8126 | 0.8698 |
+| 26 distinct texts | 3458 | 0.3279 | 0.1287 | 0.3081 | 0.5084 | 0.5547 | 0.6981 | 0.8698 |
 
 **32 texts are 26 distinct texts.** The 26 cases sit on 20 distinct passages — three of them read different columns of one Q1 2025 KPI table — so six passages are pooled twice or three times in every figure above. Both counts are stated because the difference is real. **The statistics below are weighted by case: all 32 texts, so the six passages carrying more than one case are pooled once per case.** That is the honest default for a benchmark whose unit is the case, and it is a choice rather than an absence of one.
 
-**The distribution is a mixture, and that is the finding.** A whole passage's best concept sits where a probe's tenth does: the 26 case passages top out at 0.6990 while the 6 probes reach 0.8695. Length dilutes — a whole KPI table and the single sentence naming one of its metrics are not on the same scale, so one absolute threshold cannot mean the same thing to both. An absolute number can therefore only floor; rank has to select.
+**The distribution is a mixture, and that is the finding.** A whole passage's best concept sits where a probe's tenth does: the 26 case passages top out at 0.6989 while the 6 probes reach 0.8698. Length dilutes — a whole KPI table and the single sentence naming one of its metrics are not on the same scale, so one absolute threshold cannot mean the same thing to both. An absolute number can therefore only floor; rank has to select.
 
-**`min_similarity`** = pooled mean + 1 sd = 0.3245 + 0.1286 = 0.4531, rounded to **0.45**. One standard deviation above the pooled mean excludes roughly 84% of all pairs by construction. It is a statement about the background of the measurement and about no particular text, which is the only kind of absolute statement this distribution supports.
+**`min_similarity`** = pooled mean + 1 sd = 0.3245 + 0.1280 = 0.4525, rounded to **0.45**. One standard deviation above the pooled mean excludes roughly 84% of all pairs by construction. It is a statement about the background of the measurement and about no particular text, which is the only kind of absolute statement this distribution supports.
 
 ### Which pool, and why it matters
 
@@ -111,59 +111,59 @@ The pool is an argument, not a detail: two of the four candidates below round to
 
 | Pool | texts | pairs | mean | sd | mean + 1 sd | rounded |
 | --- | --- | --- | --- | --- | --- | --- |
-| all 32 texts (as shipped) | 32 | 4192 | 0.3245 | 0.1286 | 0.4531 | **0.45** |
-| minus the two paraphrase probes | 30 | 3930 | 0.3211 | 0.1292 | 0.4504 | **0.45** |
-| 26 case passages only | 26 | 3406 | 0.3001 | 0.1158 | 0.4159 | 0.42 |
-| 20 distinct case passages | 20 | 2620 | 0.2971 | 0.1129 | 0.4100 | 0.41 |
+| all 32 texts (as shipped) | 32 | 4256 | 0.3245 | 0.1280 | 0.4525 | **0.45** |
+| minus the two paraphrase probes | 30 | 3990 | 0.3211 | 0.1287 | 0.4497 | **0.45** |
+| 26 case passages only | 26 | 3458 | 0.3000 | 0.1152 | 0.4151 | 0.42 |
+| 20 distinct case passages | 20 | 2660 | 0.2971 | 0.1122 | 0.4093 | 0.41 |
 
 The shipped pool is **all texts, case-weighted**, for the same reason the statistics are: the benchmark's unit is the case, the floor exists to describe the background against which *cases* are scored, and a pool that dropped the probes would describe a background the report does not measure against. The case-passage-only pools are reported because they are the defensible alternative and they move the answer by 0.03-0.04.
 
-**On gold leakage.** Two of the pooled texts — the `paraphrase-1` and `paraphrase-2` probes — are the wordings of stage 8's two *known misses*, so they are derived from the gold answer this stage is trying to reach. Removing them entirely leaves the floor at 0.4504 → **0.45**, unchanged, and leaves the histogram maximum below unchanged at **2**. Neither derived number depends on the two gold-derived texts. That is the evidence, stated as a measurement rather than as a reassurance.
+**On gold leakage.** Two of the pooled texts — the `paraphrase-1` and `paraphrase-2` probes — are the wordings of stage 8's two *known misses*, so they are derived from the gold answer this stage is trying to reach. Removing them entirely leaves the floor at 0.4497 → **0.45**, unchanged, and leaves the histogram maximum below unchanged at **2**. Neither derived number depends on the two gold-derived texts. That is the evidence, stated as a measurement rather than as a reassurance.
 
-**`top_k`** = how many concepts stand clear of a text's *own* field, at that text's own mean + 3 sd — the only scale-free statistic available once the pooled scale is known not to be shared. Across all 32 texts that count is 0 for 22 text(s), 1 for 8 text(s), 2 for 2 text(s), so the cap is the maximum observed, **2**. Deduplicated to the 26 distinct texts it is 0 for 18 text(s), 1 for 6 text(s), 2 for 2 text(s) — the same maximum, **2**, so the cap does not depend on the double counting either.
+**`top_k`** = how many concepts stand clear of a text's *own* field, at that text's own mean + 3 sd — the only scale-free statistic available once the pooled scale is known not to be shared. Across all 32 texts that count is 0 for 21 text(s), 1 for 9 text(s), 2 for 2 text(s), so the cap is the maximum observed, **2**. Deduplicated to the 26 distinct texts it is 0 for 17 text(s), 1 for 7 text(s), 2 for 2 text(s) — the same maximum, **2**, so the cap does not depend on the double counting either.
 
-The honest limitation: a fixed pair approximates a per-text z-threshold that this configuration interface cannot express. For 22 of the texts *nothing* stands clear at 3 sd, and a fixed `top_k` still admits two. An adaptive per-text rule is a design change rather than a config change, and is the first thing to try if the founder wants this mechanism to earn its place.
+The honest limitation: a fixed pair approximates a per-text z-threshold that this configuration interface cannot express. For 21 of the texts *nothing* stands clear at 3 sd, and a fixed `top_k` still admits two. An adaptive per-text rule is a design change rather than a config change, and is the first thing to try if the founder wants this mechanism to earn its place.
 
 ### Per text
 
 | Text | kind | chars | top-1 | similarity | gap to next | own mean | own sd | ≥2sd | ≥3sd |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Contribution Margin was 5.4% in the quarter` | probe | 43 | `contribution_margin` | 0.7030 | 0.0135 | 0.3696 | 0.0984 | 9 | 2 |
-| `Gross Margin` | probe | 12 | `gaap_gross_margin` | 0.8695 | 0.0030 | 0.5173 | 0.1247 | 8 | 0 |
-| `Gross profit` | probe | 12 | `adjusted_gross_profit` | 0.8292 | 0.0004 | 0.5022 | 0.1264 | 8 | 0 |
-| `Homes sold in period` | probe | 20 | `homes_sold` | 0.7566 | 0.0143 | 0.4433 | 0.1046 | 6 | 0 |
-| `drift-adjusted-gross-profit-2020-vs-2021` | case_passage | 2423 | `contribution_profit` | 0.6912 | 0.0192 | 0.3066 | 0.1300 | 5 | 0 |
-| `event-credit-facility-established-2022` | case_passage | 1045 | `credit_facility_terminated` | 0.4765 | 0.0195 | 0.2715 | 0.0679 | 6 | 1 |
-| `event-executive-change-ceo-2025` | case_passage | 365 | `common_stock` | 0.5643 | 0.0692 | 0.3342 | 0.0659 | 3 | 1 |
-| `event-workforce-reduction-2020` | case_passage | 1597 | `holding_costs` | 0.5708 | 0.1097 | 0.2570 | 0.0812 | 7 | 1 |
-| `kpi-table-10k-fy2023-three-year` | case_passage | 2262 | `homes_sold` | 0.6062 | 0.0003 | 0.3395 | 0.1254 | 4 | 0 |
-| `kpi-table-10q-q1-2025-two-column` | case_passage | 1918 | `homes_sold` | 0.5953 | 0.0011 | 0.3255 | 0.1280 | 3 | 0 |
-| `kpi-table-q1-2025-current-column` | case_passage | 2657 | `contribution_profit_v1` | 0.5989 | 0.0059 | 0.3320 | 0.1231 | 4 | 0 |
-| `kpi-table-q1-2025-middle-columns` | case_passage | 2657 | `contribution_profit_v1` | 0.5989 | 0.0059 | 0.3320 | 0.1231 | 4 | 0 |
-| `kpi-table-q1-2025-prior-period-column` | case_passage | 2657 | `contribution_profit_v1` | 0.5989 | 0.0059 | 0.3320 | 0.1231 | 4 | 0 |
-| `kpi-table-q1-2026-earnings` | case_passage | 2658 | `contribution_profit_v1` | 0.5912 | 0.0002 | 0.3309 | 0.1214 | 5 | 0 |
-| `kpi-table-q4-2023-earnings` | case_passage | 3133 | `contribution_profit_v1` | 0.6014 | 0.0049 | 0.3323 | 0.1245 | 6 | 0 |
-| `letter-prose-inventory-and-120d-q2-2022` | case_passage | 2232 | `housing_inventory_homes` | 0.4831 | 0.0211 | 0.2622 | 0.1036 | 1 | 0 |
-| `letter-prose-multiple-metrics-q4-2021` | case_passage | 2322 | `resale_cohort` | 0.5642 | 0.0191 | 0.3065 | 0.1040 | 6 | 0 |
-| `letter-prose-run-together-kpi-row-q1-2025` | case_passage | 2504 | `homes_sold` | 0.5722 | 0.0229 | 0.3411 | 0.1115 | 1 | 0 |
-| `negative-ambiguous-alias-bare-gross-profit` | case_passage | 1991 | `contribution_profit` | 0.6884 | 0.0217 | 0.2911 | 0.1296 | 6 | 1 |
-| `negative-forward-looking-outlook` | case_passage | 118 | `housing_inventory_homes` | 0.6990 | 0.0034 | 0.3269 | 0.1213 | 6 | 2 |
-| `negative-material-agreement-recital` | case_passage | 2381 | `subsidiary` | 0.3656 | 0.0192 | 0.2144 | 0.0512 | 4 | 0 |
-| `negative-risk-factor-partnership-boilerplate` | case_passage | 3896 | `pct_homes_on_market_gt_120_days` | 0.4337 | 0.0066 | 0.2443 | 0.0748 | 7 | 0 |
-| `paraphrase-1` | probe | 64 | `pct_homes_on_market_gt_120_days` | 0.8126 | 0.1972 | 0.3611 | 0.1033 | 8 | 1 |
-| `paraphrase-2` | probe | 82 | `pct_homes_on_market_gt_120_days` | 0.8307 | 0.1375 | 0.3894 | 0.1079 | 7 | 1 |
-| `population-our-homes-in-inventory-q1-2023` | case_passage | 2046 | `housing_inventory_homes` | 0.5609 | 0.0269 | 0.2773 | 0.0963 | 9 | 0 |
-| `population-our-homes-q4-2021` | case_passage | 2322 | `resale_cohort` | 0.5642 | 0.0191 | 0.3065 | 0.1040 | 6 | 0 |
-| `population-portfolio-mdna-fy2023-10k` | case_passage | 2797 | `housing_inventory_homes` | 0.4979 | 0.0405 | 0.2345 | 0.0961 | 7 | 0 |
-| `population-two-wordings-one-passage-q4-2023` | case_passage | 1963 | `homes_under_contract` | 0.5798 | 0.0101 | 0.3013 | 0.0992 | 6 | 0 |
-| `recon-q1-2021-holding-costs-split-rows` | case_passage | 1991 | `contribution_profit` | 0.6884 | 0.0217 | 0.2911 | 0.1296 | 6 | 1 |
-| `recon-q1-2021-thousands-in-table` | case_passage | 1991 | `contribution_profit` | 0.6884 | 0.0217 | 0.2911 | 0.1296 | 6 | 1 |
-| `recon-q4-2020-mixed-period-lengths` | case_passage | 2423 | `contribution_profit` | 0.6912 | 0.0192 | 0.3066 | 0.1300 | 5 | 0 |
-| `recon-shareholder-letter-table-as-prose` | case_passage | 1568 | `homes_sold` | 0.5673 | 0.0344 | 0.3131 | 0.1200 | 1 | 0 |
+| `Contribution Margin was 5.4% in the quarter` | probe | 43 | `contribution_margin` | 0.7025 | 0.0143 | 0.3695 | 0.0977 | 9 | 2 |
+| `Gross Margin` | probe | 12 | `gaap_gross_margin` | 0.8698 | 0.0032 | 0.5176 | 0.1237 | 8 | 0 |
+| `Gross profit` | probe | 12 | `adjusted_gross_profit` | 0.8293 | 0.0008 | 0.5024 | 0.1254 | 8 | 0 |
+| `Homes sold in period` | probe | 20 | `homes_sold` | 0.7566 | 0.0142 | 0.4434 | 0.1038 | 7 | 1 |
+| `drift-adjusted-gross-profit-2020-vs-2021` | case_passage | 2423 | `contribution_profit` | 0.6911 | 0.0172 | 0.3060 | 0.1292 | 5 | 0 |
+| `event-credit-facility-established-2022` | case_passage | 1045 | `credit_facility_terminated` | 0.4763 | 0.0200 | 0.2712 | 0.0675 | 7 | 1 |
+| `event-executive-change-ceo-2025` | case_passage | 365 | `common_stock` | 0.5644 | 0.0695 | 0.3339 | 0.0654 | 4 | 1 |
+| `event-workforce-reduction-2020` | case_passage | 1597 | `holding_costs` | 0.5714 | 0.1103 | 0.2568 | 0.0807 | 7 | 1 |
+| `kpi-table-10k-fy2023-three-year` | case_passage | 2262 | `housing_inventory_homes` | 0.6062 | 0.0001 | 0.3396 | 0.1246 | 4 | 0 |
+| `kpi-table-10q-q1-2025-two-column` | case_passage | 1918 | `homes_sold` | 0.5951 | 0.0002 | 0.3256 | 0.1272 | 3 | 0 |
+| `kpi-table-q1-2025-current-column` | case_passage | 2657 | `contribution_profit_v1` | 0.6001 | 0.0072 | 0.3321 | 0.1223 | 4 | 0 |
+| `kpi-table-q1-2025-middle-columns` | case_passage | 2657 | `contribution_profit_v1` | 0.6001 | 0.0072 | 0.3321 | 0.1223 | 4 | 0 |
+| `kpi-table-q1-2025-prior-period-column` | case_passage | 2657 | `contribution_profit_v1` | 0.6001 | 0.0072 | 0.3321 | 0.1223 | 4 | 0 |
+| `kpi-table-q1-2026-earnings` | case_passage | 2658 | `contribution_profit_v1` | 0.5924 | 0.0016 | 0.3310 | 0.1205 | 6 | 0 |
+| `kpi-table-q4-2023-earnings` | case_passage | 3133 | `contribution_profit_v1` | 0.6025 | 0.0063 | 0.3322 | 0.1236 | 6 | 0 |
+| `letter-prose-inventory-and-120d-q2-2022` | case_passage | 2232 | `housing_inventory_homes` | 0.4830 | 0.0213 | 0.2623 | 0.1029 | 1 | 0 |
+| `letter-prose-multiple-metrics-q4-2021` | case_passage | 2322 | `resale_cohort` | 0.5639 | 0.0185 | 0.3063 | 0.1032 | 6 | 0 |
+| `letter-prose-run-together-kpi-row-q1-2025` | case_passage | 2504 | `homes_sold` | 0.5719 | 0.0227 | 0.3414 | 0.1107 | 1 | 0 |
+| `negative-ambiguous-alias-bare-gross-profit` | case_passage | 1991 | `contribution_profit` | 0.6880 | 0.0198 | 0.2904 | 0.1288 | 6 | 1 |
+| `negative-forward-looking-outlook` | case_passage | 118 | `housing_inventory_homes` | 0.6989 | 0.0032 | 0.3274 | 0.1207 | 6 | 2 |
+| `negative-material-agreement-recital` | case_passage | 2381 | `subsidiary` | 0.3658 | 0.0193 | 0.2139 | 0.0511 | 4 | 0 |
+| `negative-risk-factor-partnership-boilerplate` | case_passage | 3896 | `pct_homes_on_market_gt_120_days` | 0.4336 | 0.0065 | 0.2449 | 0.0746 | 7 | 0 |
+| `paraphrase-1` | probe | 64 | `pct_homes_on_market_gt_120_days` | 0.8125 | 0.1968 | 0.3618 | 0.1026 | 8 | 1 |
+| `paraphrase-2` | probe | 82 | `pct_homes_on_market_gt_120_days` | 0.8305 | 0.1373 | 0.3896 | 0.1072 | 7 | 1 |
+| `population-our-homes-in-inventory-q1-2023` | case_passage | 2046 | `housing_inventory_homes` | 0.5607 | 0.0265 | 0.2773 | 0.0956 | 9 | 0 |
+| `population-our-homes-q4-2021` | case_passage | 2322 | `resale_cohort` | 0.5639 | 0.0185 | 0.3063 | 0.1032 | 6 | 0 |
+| `population-portfolio-mdna-fy2023-10k` | case_passage | 2797 | `housing_inventory_homes` | 0.4978 | 0.0402 | 0.2348 | 0.0955 | 7 | 0 |
+| `population-two-wordings-one-passage-q4-2023` | case_passage | 1963 | `homes_under_contract` | 0.5796 | 0.0099 | 0.3018 | 0.0986 | 7 | 0 |
+| `recon-q1-2021-holding-costs-split-rows` | case_passage | 1991 | `contribution_profit` | 0.6880 | 0.0198 | 0.2904 | 0.1288 | 6 | 1 |
+| `recon-q1-2021-thousands-in-table` | case_passage | 1991 | `contribution_profit` | 0.6880 | 0.0198 | 0.2904 | 0.1288 | 6 | 1 |
+| `recon-q4-2020-mixed-period-lengths` | case_passage | 2423 | `contribution_profit` | 0.6911 | 0.0172 | 0.3060 | 0.1292 | 5 | 0 |
+| `recon-shareholder-letter-table-as-prose` | case_passage | 1568 | `homes_sold` | 0.5670 | 0.0342 | 0.3132 | 0.1192 | 1 | 0 |
 
 ## Semantic-only recoveries and unrequired additions
 
-1 recoveries — gold concepts the hybrid scope reaches and the lexical one does not — and 13 **unrequired additions**: concepts it reaches that the gold annotation does not require.
+1 recoveries — gold concepts the hybrid scope reaches and the lexical one does not — and 14 **unrequired additions**: concepts it reaches that the gold annotation does not require.
 
 **Unrequired is not incorrect, and this number is not an error rate.** The benchmark annotates a deliberate subset — the concepts the reviewers chose to assert for each passage — not an exhaustive list of everything a passage licences. An addition outside that subset is therefore **unmeasured**, not wrong: nothing in the gold data says whether it belongs. It is counted as a cost because a larger candidate set is a real cost to the lane that reads it, and for no other reason. This is the same reason the table-lane report refuses to call its matched-over-emitted ratio precision.
 
@@ -171,29 +171,30 @@ The honest limitation: a fixed pair approximates a per-text z-threshold that thi
 
 | Case | Concept | Similarity | Rank |
 | --- | --- | --- | --- |
-| `letter-prose-inventory-and-120d-q2-2022` | `pct_homes_on_market_gt_120_days` | 0.4620 | 1 |
+| `letter-prose-inventory-and-120d-q2-2022` | `pct_homes_on_market_gt_120_days` | 0.4617 | 1 |
 
 ### Unrequired additions
 
 | Case | Concept | Category | Similarity | Rank |
 | --- | --- | --- | --- | --- |
-| `drift-adjusted-gross-profit-2020-vs-2021` | `contribution_profit_v1` | `metric_formula` | 0.6720 | 1 |
-| `event-credit-facility-established-2022` | `credit_facility_terminated` | `event_type` | 0.4765 | 0 |
-| `event-executive-change-ceo-2025` | `common_stock` | `financial_instrument_type` | 0.5643 | 0 |
-| `event-executive-change-ceo-2025` | `operations_pause` | `event_type` | 0.4951 | 1 |
-| `kpi-table-q1-2025-current-column` | `contribution_profit_v1` | `metric_formula` | 0.5989 | 0 |
-| `kpi-table-q1-2025-middle-columns` | `contribution_profit_v1` | `metric_formula` | 0.5989 | 0 |
-| `kpi-table-q1-2025-prior-period-column` | `contribution_profit_v1` | `metric_formula` | 0.5989 | 0 |
-| `kpi-table-q1-2026-earnings` | `contribution_profit_v1` | `metric_formula` | 0.5912 | 0 |
-| `kpi-table-q4-2023-earnings` | `contribution_profit_v1` | `metric_formula` | 0.6014 | 0 |
-| `negative-ambiguous-alias-bare-gross-profit` | `contribution_profit_v1` | `metric_formula` | 0.6667 | 1 |
-| `recon-q1-2021-holding-costs-split-rows` | `contribution_profit_v1` | `metric_formula` | 0.6667 | 1 |
-| `recon-q1-2021-thousands-in-table` | `contribution_profit_v1` | `metric_formula` | 0.6667 | 1 |
-| `recon-q4-2020-mixed-period-lengths` | `contribution_profit_v1` | `metric_formula` | 0.6720 | 1 |
+| `drift-adjusted-gross-profit-2020-vs-2021` | `contribution_profit_v1` | `metric_formula` | 0.6739 | 1 |
+| `event-credit-facility-established-2022` | `credit_facility_terminated` | `event_type` | 0.4763 | 0 |
+| `event-executive-change-ceo-2025` | `common_stock` | `financial_instrument_type` | 0.5644 | 0 |
+| `event-executive-change-ceo-2025` | `operations_pause` | `event_type` | 0.4949 | 1 |
+| `kpi-table-10q-q1-2025-two-column` | `contribution_profit_v1` | `metric_formula` | 0.5949 | 1 |
+| `kpi-table-q1-2025-current-column` | `contribution_profit_v1` | `metric_formula` | 0.6001 | 0 |
+| `kpi-table-q1-2025-middle-columns` | `contribution_profit_v1` | `metric_formula` | 0.6001 | 0 |
+| `kpi-table-q1-2025-prior-period-column` | `contribution_profit_v1` | `metric_formula` | 0.6001 | 0 |
+| `kpi-table-q1-2026-earnings` | `contribution_profit_v1` | `metric_formula` | 0.5924 | 0 |
+| `kpi-table-q4-2023-earnings` | `contribution_profit_v1` | `metric_formula` | 0.6025 | 0 |
+| `negative-ambiguous-alias-bare-gross-profit` | `contribution_profit_v1` | `metric_formula` | 0.6682 | 1 |
+| `recon-q1-2021-holding-costs-split-rows` | `contribution_profit_v1` | `metric_formula` | 0.6682 | 1 |
+| `recon-q1-2021-thousands-in-table` | `contribution_profit_v1` | `metric_formula` | 0.6682 | 1 |
+| `recon-q4-2020-mixed-period-lengths` | `contribution_profit_v1` | `metric_formula` | 0.6739 | 1 |
 
-By category: `event_type` 2, `financial_instrument_type` 1, `metric_formula` 10.
+By category: `event_type` 2, `financial_instrument_type` 1, `metric_formula` 11.
 
-13 of 26 cases gained nothing at all: every concept the embedding selected was already in the lexical scope, or nothing cleared the floor.
+12 of 26 cases gained nothing at all: every concept the embedding selected was already in the lexical scope, or nothing cleared the floor.
 
 ## Ambiguity delta
 
@@ -207,7 +208,7 @@ For every case whose gold expects an `AMBIGUOUS_ALIAS` abstention: do all candid
 
 | New neighbour | Similarity | Rank | Formula variant of a candidate |
 | --- | --- | --- | --- |
-| `contribution_profit_v1` | 0.6667 | 1 | no |
+| `contribution_profit_v1` | 0.6682 | 1 | no |
 
 ## Renderer ablation — STAGE_09 §2.1
 
@@ -215,8 +216,8 @@ For every case whose gold expects an `AMBIGUOUS_ALIAS` abstention: do all candid
 
 | Probe | Concept | rank `v1` | sim `v1` | margin `v1` | rank +variants | sim +variants | margin +variants |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 5% of our homes were listed on the market for more than 120 days | `pct_homes_on_market_gt_120_days` | 0 | 0.8126 | 0.1972 | 0 | 0.8190 | 0.2036 |
-| 59% of our homes in inventory had been listed on the market for more than 120 days | `pct_homes_on_market_gt_120_days` | 0 | 0.8307 | 0.1375 | 0 | 0.8491 | 0.1560 |
+| 5% of our homes were listed on the market for more than 120 days | `pct_homes_on_market_gt_120_days` | 0 | 0.8125 | 0.1968 | 0 | 0.8189 | 0.2033 |
+| 59% of our homes in inventory had been listed on the market for more than 120 days | `pct_homes_on_market_gt_120_days` | 0 | 0.8305 | 0.1373 | 0 | 0.8491 | 0.1559 |
 
 Excluding the corpus-fitted content changes no ranking. The exclusion is therefore free, and the sentence-level recovery of both paraphrases is semantic rather than a transcription of the fixture.
 
@@ -227,7 +228,7 @@ Excluding the corpus-fitted content changes no ranking. The exclusion is therefo
 | `top_k` | required recall | critical recall | known-instance recall | ambiguity | paraphrases (of 2) | scope mean | growth | unrequired additions | §7.2 | §7.3 | §7.4 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 0.960 | 1.000 | 1.000 | 1.000 | 0 | 18.192 | +1.5% | 7 | yes | yes | yes |
-| **2** | 0.980 | 1.000 | 1.000 | 1.000 | 1 | 18.462 | +3.0% | 13 | yes | yes | yes |
+| **2** | 0.980 | 1.000 | 1.000 | 1.000 | 1 | 18.500 | +3.2% | 14 | yes | yes | yes |
 | 3 | 1.000 | 1.000 | 1.000 | 1.000 | 2 | 18.769 | +4.7% | 20 | yes | yes | yes |
 | 4 | 1.000 | 1.000 | 1.000 | 1.000 | 2 | 19.077 | +6.4% | 28 | yes | yes | yes |
 | 5 | 1.000 | 1.000 | 1.000 | 1.000 | 2 | 19.577 | +9.2% | 41 | yes | yes | yes |
@@ -251,55 +252,55 @@ Short texts handed to the scope whole. Stage 8's three named wordings, the two s
 
 The §8a.8 row label. The table lane abstains here with AMBIGUOUS_ALIAS over four concepts because the whole label matches no alias and the widest surface inside it is the declared-ambiguous “homes”. The scope keeps all four and additionally records `homes_sold` as the one whose own name is present, which is the evidence a narrative lane needs and a deterministic reader is not entitled to act on.
 
-Selected: `homes_sold` 0.7566, `homes_purchased` 0.7423
+Selected: `homes_sold` 0.7566, `homes_purchased` 0.7425
 
 | Rank | Concept | Similarity |
 | --- | --- | --- |
 | 0 | `homes_sold` | 0.7566 |
-| 1 | `homes_purchased` | 0.7423 |
-| 2 | `resale_cohort` | 0.7412 |
-| 3 | `housing_inventory_homes` | 0.7410 |
-| 4 | `pct_homes_on_market_gt_120_days` | 0.7188 |
+| 1 | `homes_purchased` | 0.7425 |
+| 2 | `resale_cohort` | 0.7414 |
+| 3 | `housing_inventory_homes` | 0.7414 |
+| 4 | `pct_homes_on_market_gt_120_days` | 0.7189 |
 
 ### `Gross Margin`
 
 A bare prose mention. The shared resolver reads this as `gaap_gross_margin` by canonical label — correct for a table cell whose entire contents are the metric's name — and the scope still admits `adjusted_gross_margin`, because in prose the qualifier “Adjusted” may sit anywhere in the sentence. The resolver's answer never narrows the scope.
 
-Selected: `gaap_gross_margin` 0.8695, `adjusted_gross_margin` 0.8665
+Selected: `gaap_gross_margin` 0.8698, `adjusted_gross_margin` 0.8665
 
 | Rank | Concept | Similarity |
 | --- | --- | --- |
-| 0 | `gaap_gross_margin` | 0.8695 |
+| 0 | `gaap_gross_margin` | 0.8698 |
 | 1 | `adjusted_gross_margin` | 0.8665 |
-| 2 | `adjusted_gross_margin_v1` | 0.8483 |
-| 3 | `gaap_gross_margin_v1` | 0.8297 |
-| 4 | `contribution_margin` | 0.7873 |
+| 2 | `adjusted_gross_margin_v1` | 0.8486 |
+| 3 | `gaap_gross_margin_v1` | 0.8293 |
+| 4 | `contribution_margin` | 0.7867 |
 
 ### `Gross profit`
 
 The `aliases.yaml` ambiguity in its purest form: both `gaap_gross_profit` and `adjusted_gross_profit`, neither preferred, plus the `contribution_profit` sibling both are declared distinct from.
 
-Selected: `adjusted_gross_profit` 0.8292, `gaap_gross_profit` 0.8288
+Selected: `adjusted_gross_profit` 0.8293, `gaap_gross_profit` 0.8285
 
 | Rank | Concept | Similarity |
 | --- | --- | --- |
-| 0 | `adjusted_gross_profit` | 0.8292 |
-| 1 | `gaap_gross_profit` | 0.8288 |
-| 2 | `gaap_gross_margin` | 0.8061 |
+| 0 | `adjusted_gross_profit` | 0.8293 |
+| 1 | `gaap_gross_profit` | 0.8285 |
+| 2 | `gaap_gross_margin` | 0.8060 |
 | 3 | `adjusted_gross_profit_v2` | 0.8032 |
-| 4 | `adjusted_gross_profit_v1` | 0.8014 |
+| 4 | `adjusted_gross_profit_v1` | 0.8007 |
 
 ### `paraphrase-1`
 
 The wording of a stage 8 miss, handed to the scope as its whole text. The case of the same name scores the full passage this sentence sits in.
 
-Selected: `pct_homes_on_market_gt_120_days` 0.8126, `homes_purchased` 0.6154
+Selected: `pct_homes_on_market_gt_120_days` 0.8125, `homes_purchased` 0.6156
 
 | Rank | Concept | Similarity |
 | --- | --- | --- |
-| 0 | `pct_homes_on_market_gt_120_days` | 0.8126 |
-| 1 | `homes_purchased` | 0.6154 |
-| 2 | `housing_inventory_homes` | 0.6115 |
+| 0 | `pct_homes_on_market_gt_120_days` | 0.8125 |
+| 1 | `homes_purchased` | 0.6156 |
+| 2 | `housing_inventory_homes` | 0.6120 |
 | 3 | `operations_pause` | 0.6097 |
 | 4 | `homes_sold` | 0.6072 |
 
@@ -307,29 +308,29 @@ Selected: `pct_homes_on_market_gt_120_days` 0.8126, `homes_purchased` 0.6154
 
 The wording of a stage 8 miss, handed to the scope as its whole text. The case of the same name scores the full passage this sentence sits in.
 
-Selected: `pct_homes_on_market_gt_120_days` 0.8307, `housing_inventory_homes` 0.6932
+Selected: `pct_homes_on_market_gt_120_days` 0.8305, `housing_inventory_homes` 0.6933
 
 | Rank | Concept | Similarity |
 | --- | --- | --- |
-| 0 | `pct_homes_on_market_gt_120_days` | 0.8307 |
-| 1 | `housing_inventory_homes` | 0.6932 |
-| 2 | `homes_purchased` | 0.6445 |
-| 3 | `homes_sold` | 0.6402 |
-| 4 | `operations_pause` | 0.6310 |
+| 0 | `pct_homes_on_market_gt_120_days` | 0.8305 |
+| 1 | `housing_inventory_homes` | 0.6933 |
+| 2 | `homes_purchased` | 0.6446 |
+| 3 | `homes_sold` | 0.6401 |
+| 4 | `collateral` | 0.6317 |
 
 ### `Contribution Margin was 5.4% in the quarter`
 
 STAGE_09 §4.2. `contribution_margin_v1`, a `metric_formula`, ranks second, which is why a naive top-k threatens the ambiguity a lane has to preserve.
 
-Selected: `contribution_margin` 0.7030, `contribution_margin_v1` 0.6895
+Selected: `contribution_margin` 0.7025, `contribution_margin_v1` 0.6883
 
 | Rank | Concept | Similarity |
 | --- | --- | --- |
-| 0 | `contribution_margin` | 0.7030 |
-| 1 | `contribution_margin_v1` | 0.6895 |
+| 0 | `contribution_margin` | 0.7025 |
+| 1 | `contribution_margin_v1` | 0.6883 |
 | 2 | `adjusted_gross_margin` | 0.6139 |
-| 3 | `adjusted_gross_margin_v1` | 0.6083 |
-| 4 | `adjusted_ebitda_margin` | 0.5991 |
+| 3 | `adjusted_gross_margin_v1` | 0.6086 |
+| 4 | `adjusted_ebitda_margin` | 0.5995 |
 
 ## Per-case results
 
@@ -340,7 +341,7 @@ Selected: `contribution_margin` 0.7030, `contribution_margin_v1` 0.6895
 | [`event-executive-change-ceo-2025`](#event-executive-change-ceo-2025) | 5 | 2 | 7 | 0 | 0 | 2 |
 | [`event-workforce-reduction-2020`](#event-workforce-reduction-2020) | 14 | 2 | 14 | 0 | 0 | 2 |
 | [`kpi-table-10k-fy2023-three-year`](#kpi-table-10k-fy2023-three-year) | 21 | 2 | 21 | 1 | 0 | 2 |
-| [`kpi-table-10q-q1-2025-two-column`](#kpi-table-10q-q1-2025-two-column) | 21 | 2 | 21 | 1 | 0 | 2 |
+| [`kpi-table-10q-q1-2025-two-column`](#kpi-table-10q-q1-2025-two-column) | 21 | 2 | 22 | 1 | 0 | 2 |
 | [`kpi-table-q1-2025-current-column`](#kpi-table-q1-2025-current-column) | 21 | 2 | 22 | 10 | 0 | 2 |
 | [`kpi-table-q1-2025-middle-columns`](#kpi-table-q1-2025-middle-columns) | 21 | 2 | 22 | 8 | 0 | 2 |
 | [`kpi-table-q1-2025-prior-period-column`](#kpi-table-q1-2025-prior-period-column) | 21 | 2 | 22 | 3 | 0 | 2 |
@@ -374,13 +375,13 @@ Selected: `contribution_margin` 0.7030, `contribution_margin_v1` 0.6895
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit` | 0.6912 | yes |
-| 1 | `contribution_profit_v1` | 0.6720 | yes |
-| 2 | `holding_costs` | 0.6109 | no |
-| 3 | `contribution_profit_after_interest_v1` | 0.5924 | no |
-| 4 | `resale_cohort` | 0.5807 | no |
+| 0 | `contribution_profit` | 0.6911 | yes |
+| 1 | `contribution_profit_v1` | 0.6739 | yes |
+| 2 | `holding_costs` | 0.6113 | no |
+| 3 | `contribution_profit_after_interest_v1` | 0.5931 | no |
+| 4 | `resale_cohort` | 0.5805 | no |
 
-Gold metrics in the ranking: `adjusted_gross_profit` rank 11 (0.5135)
+Gold metrics in the ranking: `adjusted_gross_profit` rank 11 (0.5139)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -420,13 +421,13 @@ Gold metrics in the ranking: `adjusted_gross_profit` rank 11 (0.5135)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `credit_facility_terminated` | 0.4765 | yes |
-| 1 | `workforce_reduction` | 0.4569 | yes |
-| 2 | `credit_facility_amended` | 0.4384 | no |
-| 3 | `credit_facility_established` | 0.4306 | no |
+| 0 | `credit_facility_terminated` | 0.4763 | yes |
+| 1 | `workforce_reduction` | 0.4564 | yes |
+| 2 | `credit_facility_amended` | 0.4386 | no |
+| 3 | `credit_facility_established` | 0.4308 | no |
 | 4 | `asset_backed_debt_facility` | 0.4199 | no |
 
-Gold metrics in the ranking: `borrowing_capacity` rank 6 (0.4058)
+Gold metrics in the ranking: `borrowing_capacity` rank 6 (0.4068)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -453,11 +454,11 @@ Gold metrics in the ranking: `borrowing_capacity` rank 6 (0.4058)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `common_stock` | 0.5643 | yes |
-| 1 | `operations_pause` | 0.4951 | yes |
+| 0 | `common_stock` | 0.5644 | yes |
+| 1 | `operations_pause` | 0.4949 | yes |
 | 2 | `geographic_market` | 0.4799 | no |
-| 3 | `asset_backed_debt_facility` | 0.4652 | no |
-| 4 | `market_entry` | 0.4437 | no |
+| 3 | `asset_backed_debt_facility` | 0.4648 | no |
+| 4 | `market_entry` | 0.4446 | no |
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -481,11 +482,11 @@ Gold metrics in the ranking: `borrowing_capacity` rank 6 (0.4058)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `holding_costs` | 0.5708 | yes |
+| 0 | `holding_costs` | 0.5714 | yes |
 | 1 | `inventory_valuation_adjustment` | 0.4611 | yes |
-| 2 | `housing_inventory_homes` | 0.4572 | no |
-| 3 | `contribution_profit` | 0.4561 | no |
-| 4 | `resale_cohort` | 0.4547 | no |
+| 2 | `housing_inventory_homes` | 0.4570 | no |
+| 3 | `contribution_profit` | 0.4552 | no |
+| 4 | `resale_cohort` | 0.4549 | no |
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -516,13 +517,13 @@ Gold metrics in the ranking: `borrowing_capacity` rank 6 (0.4058)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `homes_sold` | 0.6062 | yes |
-| 1 | `housing_inventory_homes` | 0.6059 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.6049 | no |
-| 3 | `homes_purchased` | 0.5936 | no |
-| 4 | `resale_cohort` | 0.5885 | no |
+| 0 | `housing_inventory_homes` | 0.6062 | yes |
+| 1 | `homes_sold` | 0.6061 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.6048 | no |
+| 3 | `homes_purchased` | 0.5935 | no |
+| 4 | `resale_cohort` | 0.5882 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.6049)
+Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.6048)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -552,21 +553,21 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.6049)
 
 - category: `deterministic_kpi_table` · lane `tables` (from `cases/01_deterministic_kpi_tables.yaml`)
 - passage: `norm:0001801169:0001801169-25-000038:open-20250331.htm#p96`
-- scope size lexical 21 · embedding_only 2 · hybrid 21
-- 21 protected of 21
+- scope size lexical 21 · embedding_only 2 · hybrid 22
+- 21 protected of 22
 - reasons: `ambiguous_alias` 13, `canonical_label` 11, `confusion_sibling` 1, `exact_alias` 11, `normalized_alias` 1, `semantic_neighbour` 2, `stable_core` 3, `table_label` 17
 - gold metrics: `pct_homes_on_market_gt_120_days`
 - missed (hybrid): none
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `homes_sold` | 0.5953 | yes |
-| 1 | `housing_inventory_homes` | 0.5942 | yes |
-| 2 | `contribution_profit_v1` | 0.5938 | no |
-| 3 | `pct_homes_on_market_gt_120_days` | 0.5784 | no |
-| 4 | `resale_cohort` | 0.5773 | no |
+| 0 | `homes_sold` | 0.5951 | yes |
+| 1 | `contribution_profit_v1` | 0.5949 | yes |
+| 2 | `housing_inventory_homes` | 0.5945 | no |
+| 3 | `pct_homes_on_market_gt_120_days` | 0.5783 | no |
+| 4 | `resale_cohort` | 0.5770 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.5784)
+Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.5783)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -579,12 +580,13 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.5784)
 | `contribution_margin` | `ambiguous_alias`, `canonical_label`, `exact_alias`, `table_label` | contribution, contribution margin, margin |
 | `contribution_profit` | `ambiguous_alias`, `exact_alias`, `table_label` | contribution, contribution profit |
 | `contribution_profit_after_interest` | `ambiguous_alias`, `table_label` | contribution |
+| `contribution_profit_v1` | `semantic_neighbour` | — |
 | `gaap_gross_margin` | `ambiguous_alias`, `canonical_label`, `table_label` | gross margin, margin |
 | `gaap_gross_profit` | `ambiguous_alias`, `table_label` | gross profit |
 | `homes_purchased` | `ambiguous_alias`, `canonical_label`, `exact_alias`, `table_label` | homes, homes purchased |
 | `homes_sold` | `ambiguous_alias`, `canonical_label`, `exact_alias`, `semantic_neighbour`, `table_label` | homes, homes sold |
 | `homes_under_contract` | `ambiguous_alias`, `table_label` | homes |
-| `housing_inventory_homes` | `ambiguous_alias`, `canonical_label`, `exact_alias`, `semantic_neighbour`, `table_label` | (in millions, except percentages, homes purchased, homes sold, number of markets, and homes in inventory), homes, homes in inventory, homes in inventory (at period end), inventory |
+| `housing_inventory_homes` | `ambiguous_alias`, `canonical_label`, `exact_alias`, `table_label` | (in millions, except percentages, homes purchased, homes sold, number of markets, and homes in inventory), homes, homes in inventory, homes in inventory (at period end), inventory |
 | `inventory_balance` | `ambiguous_alias`, `canonical_label`, `exact_alias`, `table_label` | (in millions, except percentages, homes purchased, homes sold, number of markets, and homes in inventory), inventory, inventory (at period end) |
 | `market_count` | `canonical_label`, `exact_alias`, `table_label` | markets, number of markets |
 | `opendoor` | `stable_core` | — |
@@ -604,13 +606,13 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.5784)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit_v1` | 0.5989 | yes |
-| 1 | `homes_sold` | 0.5931 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5914 | no |
-| 3 | `housing_inventory_homes` | 0.5869 | no |
-| 4 | `resale_cohort` | 0.5765 | no |
+| 0 | `contribution_profit_v1` | 0.6001 | yes |
+| 1 | `homes_sold` | 0.5928 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5913 | no |
+| 3 | `housing_inventory_homes` | 0.5872 | no |
+| 4 | `resale_cohort` | 0.5761 | no |
 
-Gold metrics in the ranking: `adjusted_ebitda` rank 19 (0.4936), `adjusted_ebitda_margin` rank 17 (0.5001), `contribution_margin` rank 24 (0.4734), `contribution_profit` rank 5 (0.5736), `gaap_gross_margin` rank 22 (0.4783), `homes_purchased` rank 6 (0.5665), `homes_sold` rank 1 (0.5931), `housing_inventory_homes` rank 3 (0.5869), `market_count` rank 33 (0.4212), `pct_homes_on_market_gt_120_days` rank 2 (0.5914)
+Gold metrics in the ranking: `adjusted_ebitda` rank 19 (0.4935), `adjusted_ebitda_margin` rank 17 (0.4999), `contribution_margin` rank 24 (0.4729), `contribution_profit` rank 5 (0.5735), `gaap_gross_margin` rank 22 (0.4784), `homes_purchased` rank 6 (0.5665), `homes_sold` rank 1 (0.5928), `housing_inventory_homes` rank 3 (0.5872), `market_count` rank 33 (0.4212), `pct_homes_on_market_gt_120_days` rank 2 (0.5913)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -649,13 +651,13 @@ Gold metrics in the ranking: `adjusted_ebitda` rank 19 (0.4936), `adjusted_ebitd
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit_v1` | 0.5989 | yes |
-| 1 | `homes_sold` | 0.5931 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5914 | no |
-| 3 | `housing_inventory_homes` | 0.5869 | no |
-| 4 | `resale_cohort` | 0.5765 | no |
+| 0 | `contribution_profit_v1` | 0.6001 | yes |
+| 1 | `homes_sold` | 0.5928 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5913 | no |
+| 3 | `housing_inventory_homes` | 0.5872 | no |
+| 4 | `resale_cohort` | 0.5761 | no |
 
-Gold metrics in the ranking: `adjusted_ebitda_margin` rank 17 (0.5001), `contribution_margin` rank 24 (0.4734), `contribution_profit` rank 5 (0.5736), `gaap_gross_margin` rank 22 (0.4783), `homes_purchased` rank 6 (0.5665), `homes_sold` rank 1 (0.5931), `housing_inventory_homes` rank 3 (0.5869), `pct_homes_on_market_gt_120_days` rank 2 (0.5914)
+Gold metrics in the ranking: `adjusted_ebitda_margin` rank 17 (0.4999), `contribution_margin` rank 24 (0.4729), `contribution_profit` rank 5 (0.5735), `gaap_gross_margin` rank 22 (0.4784), `homes_purchased` rank 6 (0.5665), `homes_sold` rank 1 (0.5928), `housing_inventory_homes` rank 3 (0.5872), `pct_homes_on_market_gt_120_days` rank 2 (0.5913)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -694,13 +696,13 @@ Gold metrics in the ranking: `adjusted_ebitda_margin` rank 17 (0.5001), `contrib
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit_v1` | 0.5989 | yes |
-| 1 | `homes_sold` | 0.5931 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5914 | no |
-| 3 | `housing_inventory_homes` | 0.5869 | no |
-| 4 | `resale_cohort` | 0.5765 | no |
+| 0 | `contribution_profit_v1` | 0.6001 | yes |
+| 1 | `homes_sold` | 0.5928 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5913 | no |
+| 3 | `housing_inventory_homes` | 0.5872 | no |
+| 4 | `resale_cohort` | 0.5761 | no |
 
-Gold metrics in the ranking: `adjusted_ebitda` rank 19 (0.4936), `homes_sold` rank 1 (0.5931), `pct_homes_on_market_gt_120_days` rank 2 (0.5914)
+Gold metrics in the ranking: `adjusted_ebitda` rank 19 (0.4935), `homes_sold` rank 1 (0.5928), `pct_homes_on_market_gt_120_days` rank 2 (0.5913)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -739,13 +741,13 @@ Gold metrics in the ranking: `adjusted_ebitda` rank 19 (0.4936), `homes_sold` ra
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit_v1` | 0.5912 | yes |
-| 1 | `homes_sold` | 0.5910 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5899 | no |
-| 3 | `housing_inventory_homes` | 0.5891 | no |
-| 4 | `resale_cohort` | 0.5804 | no |
+| 0 | `contribution_profit_v1` | 0.5924 | yes |
+| 1 | `homes_sold` | 0.5908 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5897 | no |
+| 3 | `housing_inventory_homes` | 0.5894 | no |
+| 4 | `resale_cohort` | 0.5799 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5899)
+Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5897)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -783,13 +785,13 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5899)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit_v1` | 0.6014 | yes |
-| 1 | `pct_homes_on_market_gt_120_days` | 0.5964 | yes |
-| 2 | `homes_sold` | 0.5954 | no |
-| 3 | `housing_inventory_homes` | 0.5873 | no |
-| 4 | `contribution_profit` | 0.5836 | no |
+| 0 | `contribution_profit_v1` | 0.6025 | yes |
+| 1 | `pct_homes_on_market_gt_120_days` | 0.5962 | yes |
+| 2 | `homes_sold` | 0.5953 | no |
+| 3 | `housing_inventory_homes` | 0.5876 | no |
+| 4 | `contribution_profit` | 0.5834 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 1 (0.5964)
+Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 1 (0.5962)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -828,13 +830,13 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 1 (0.5964)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `housing_inventory_homes` | 0.4831 | yes |
-| 1 | `pct_homes_on_market_gt_120_days` | 0.4620 | yes |
-| 2 | `inventory_balance` | 0.4608 | no |
-| 3 | `inventory_valuation_adjustment` | 0.4569 | no |
-| 4 | `adjusted_ebitda` | 0.4566 | no |
+| 0 | `housing_inventory_homes` | 0.4830 | yes |
+| 1 | `pct_homes_on_market_gt_120_days` | 0.4617 | yes |
+| 2 | `inventory_balance` | 0.4610 | no |
+| 3 | `inventory_valuation_adjustment` | 0.4571 | no |
+| 4 | `adjusted_ebitda` | 0.4564 | no |
 
-Gold metrics in the ranking: `housing_inventory_homes` rank 0 (0.4831), `pct_homes_on_market_gt_120_days` rank 1 (0.4620)
+Gold metrics in the ranking: `housing_inventory_homes` rank 0 (0.4830), `pct_homes_on_market_gt_120_days` rank 1 (0.4617)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -871,13 +873,13 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 0 (0.4831), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `resale_cohort` | 0.5642 | yes |
-| 1 | `holding_costs` | 0.5451 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5405 | no |
-| 3 | `housing_inventory_homes` | 0.5331 | no |
-| 4 | `contribution_profit` | 0.5297 | no |
+| 0 | `resale_cohort` | 0.5639 | yes |
+| 1 | `holding_costs` | 0.5454 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5403 | no |
+| 3 | `housing_inventory_homes` | 0.5330 | no |
+| 4 | `contribution_profit` | 0.5293 | no |
 
-Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.4495), `adjusted_gross_profit` rank 13 (0.4514), `contribution_profit` rank 4 (0.5297)
+Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.4495), `adjusted_gross_profit` rank 13 (0.4514), `contribution_profit` rank 4 (0.5293)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -916,13 +918,13 @@ Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.4495), `adjusted
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `homes_sold` | 0.5722 | yes |
+| 0 | `homes_sold` | 0.5719 | yes |
 | 1 | `pct_homes_on_market_gt_120_days` | 0.5492 | yes |
-| 2 | `resale_cohort` | 0.5331 | no |
-| 3 | `housing_inventory_homes` | 0.5274 | no |
+| 2 | `resale_cohort` | 0.5328 | no |
+| 3 | `housing_inventory_homes` | 0.5276 | no |
 | 4 | `operations_pause` | 0.5226 | no |
 
-Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5274), `pct_homes_on_market_gt_120_days` rank 1 (0.5492)
+Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5276), `pct_homes_on_market_gt_120_days` rank 1 (0.5492)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -961,11 +963,11 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5274), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit` | 0.6884 | yes |
-| 1 | `contribution_profit_v1` | 0.6667 | yes |
-| 2 | `contribution_profit_after_interest_v1` | 0.5842 | no |
-| 3 | `holding_costs` | 0.5800 | no |
-| 4 | `resale_cohort` | 0.5575 | no |
+| 0 | `contribution_profit` | 0.6880 | yes |
+| 1 | `contribution_profit_v1` | 0.6682 | yes |
+| 2 | `contribution_profit_after_interest_v1` | 0.5849 | no |
+| 3 | `holding_costs` | 0.5804 | no |
+| 4 | `resale_cohort` | 0.5571 | no |
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1003,11 +1005,11 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5274), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `housing_inventory_homes` | 0.6990 | yes |
-| 1 | `homes_purchased` | 0.6955 | yes |
-| 2 | `homes_sold` | 0.6834 | no |
-| 3 | `pct_homes_on_market_gt_120_days` | 0.6522 | no |
-| 4 | `homes_under_contract` | 0.5951 | no |
+| 0 | `housing_inventory_homes` | 0.6989 | yes |
+| 1 | `homes_purchased` | 0.6957 | yes |
+| 2 | `homes_sold` | 0.6831 | no |
+| 3 | `pct_homes_on_market_gt_120_days` | 0.6521 | no |
+| 4 | `homes_under_contract` | 0.5945 | no |
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1034,11 +1036,11 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5274), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `subsidiary` | 0.3656 | no |
-| 1 | `subsidiary_of` | 0.3464 | no |
-| 2 | `corporate_acquisition` | 0.3402 | no |
-| 3 | `holds_position_at` | 0.3180 | no |
-| 4 | `public_company` | 0.3152 | no |
+| 0 | `subsidiary` | 0.3658 | no |
+| 1 | `subsidiary_of` | 0.3465 | no |
+| 2 | `corporate_acquisition` | 0.3403 | no |
+| 3 | `holds_position_at` | 0.3184 | no |
+| 4 | `public_company` | 0.3146 | no |
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1061,11 +1063,11 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5274), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `pct_homes_on_market_gt_120_days` | 0.4337 | no |
+| 0 | `pct_homes_on_market_gt_120_days` | 0.4336 | no |
 | 1 | `listing_compliance_event` | 0.4271 | no |
 | 2 | `homes_sold` | 0.4242 | no |
 | 3 | `operations_pause` | 0.4224 | no |
-| 4 | `homes_purchased` | 0.4008 | no |
+| 4 | `housing_inventory_homes` | 0.4009 | no |
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1095,13 +1097,13 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5274), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `housing_inventory_homes` | 0.5609 | yes |
-| 1 | `inventory_balance` | 0.5339 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5169 | no |
-| 3 | `resale_cohort` | 0.5039 | no |
-| 4 | `homes_sold` | 0.5018 | no |
+| 0 | `housing_inventory_homes` | 0.5607 | yes |
+| 1 | `inventory_balance` | 0.5342 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5166 | no |
+| 3 | `resale_cohort` | 0.5038 | no |
+| 4 | `homes_sold` | 0.5016 | no |
 
-Gold metrics in the ranking: `housing_inventory_homes` rank 0 (0.5609), `pct_homes_on_market_gt_120_days` rank 2 (0.5169)
+Gold metrics in the ranking: `housing_inventory_homes` rank 0 (0.5607), `pct_homes_on_market_gt_120_days` rank 2 (0.5166)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1137,13 +1139,13 @@ Gold metrics in the ranking: `housing_inventory_homes` rank 0 (0.5609), `pct_hom
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `resale_cohort` | 0.5642 | yes |
-| 1 | `holding_costs` | 0.5451 | yes |
-| 2 | `pct_homes_on_market_gt_120_days` | 0.5405 | no |
-| 3 | `housing_inventory_homes` | 0.5331 | no |
-| 4 | `contribution_profit` | 0.5297 | no |
+| 0 | `resale_cohort` | 0.5639 | yes |
+| 1 | `holding_costs` | 0.5454 | yes |
+| 2 | `pct_homes_on_market_gt_120_days` | 0.5403 | no |
+| 3 | `housing_inventory_homes` | 0.5330 | no |
+| 4 | `contribution_profit` | 0.5293 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5405)
+Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5403)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1182,13 +1184,13 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5405)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `housing_inventory_homes` | 0.4979 | yes |
-| 1 | `homes_purchased` | 0.4574 | yes |
-| 2 | `holding_costs` | 0.4545 | no |
-| 3 | `pct_homes_on_market_gt_120_days` | 0.4457 | no |
-| 4 | `homes_sold` | 0.4401 | no |
+| 0 | `housing_inventory_homes` | 0.4978 | yes |
+| 1 | `homes_purchased` | 0.4576 | yes |
+| 2 | `holding_costs` | 0.4546 | no |
+| 3 | `pct_homes_on_market_gt_120_days` | 0.4454 | no |
+| 4 | `homes_sold` | 0.4399 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.4457)
+Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.4454)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1227,13 +1229,13 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 3 (0.4457)
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `homes_under_contract` | 0.5798 | yes |
+| 0 | `homes_under_contract` | 0.5796 | yes |
 | 1 | `housing_inventory_homes` | 0.5697 | yes |
 | 2 | `homes_purchased` | 0.5525 | no |
-| 3 | `pct_homes_on_market_gt_120_days` | 0.5503 | no |
-| 4 | `homes_sold` | 0.5118 | no |
+| 3 | `pct_homes_on_market_gt_120_days` | 0.5501 | no |
+| 4 | `homes_sold` | 0.5116 | no |
 
-Gold metrics in the ranking: `acquisition_contracts` rank 6 (0.4996), `pct_homes_on_market_gt_120_days` rank 3 (0.5503)
+Gold metrics in the ranking: `acquisition_contracts` rank 6 (0.4999), `pct_homes_on_market_gt_120_days` rank 3 (0.5501)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1262,13 +1264,13 @@ Gold metrics in the ranking: `acquisition_contracts` rank 6 (0.4996), `pct_homes
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit` | 0.6884 | yes |
-| 1 | `contribution_profit_v1` | 0.6667 | yes |
-| 2 | `contribution_profit_after_interest_v1` | 0.5842 | no |
-| 3 | `holding_costs` | 0.5800 | no |
-| 4 | `resale_cohort` | 0.5575 | no |
+| 0 | `contribution_profit` | 0.6880 | yes |
+| 1 | `contribution_profit_v1` | 0.6682 | yes |
+| 2 | `contribution_profit_after_interest_v1` | 0.5849 | no |
+| 3 | `holding_costs` | 0.5804 | no |
+| 4 | `resale_cohort` | 0.5571 | no |
 
-Gold metrics in the ranking: `contribution_profit` rank 0 (0.6884), `homes_sold` rank 7 (0.5336)
+Gold metrics in the ranking: `contribution_profit` rank 0 (0.6880), `homes_sold` rank 7 (0.5332)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1306,13 +1308,13 @@ Gold metrics in the ranking: `contribution_profit` rank 0 (0.6884), `homes_sold`
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit` | 0.6884 | yes |
-| 1 | `contribution_profit_v1` | 0.6667 | yes |
-| 2 | `contribution_profit_after_interest_v1` | 0.5842 | no |
-| 3 | `holding_costs` | 0.5800 | no |
-| 4 | `resale_cohort` | 0.5575 | no |
+| 0 | `contribution_profit` | 0.6880 | yes |
+| 1 | `contribution_profit_v1` | 0.6682 | yes |
+| 2 | `contribution_profit_after_interest_v1` | 0.5849 | no |
+| 3 | `holding_costs` | 0.5804 | no |
+| 4 | `resale_cohort` | 0.5571 | no |
 
-Gold metrics in the ranking: `adjusted_gross_margin` rank 12 (0.4899), `adjusted_gross_profit` rank 10 (0.5042), `contribution_profit` rank 0 (0.6884), `direct_selling_costs` rank 9 (0.5123)
+Gold metrics in the ranking: `adjusted_gross_margin` rank 12 (0.4899), `adjusted_gross_profit` rank 10 (0.5042), `contribution_profit` rank 0 (0.6880), `direct_selling_costs` rank 9 (0.5122)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1350,13 +1352,13 @@ Gold metrics in the ranking: `adjusted_gross_margin` rank 12 (0.4899), `adjusted
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `contribution_profit` | 0.6912 | yes |
-| 1 | `contribution_profit_v1` | 0.6720 | yes |
-| 2 | `holding_costs` | 0.6109 | no |
-| 3 | `contribution_profit_after_interest_v1` | 0.5924 | no |
-| 4 | `resale_cohort` | 0.5807 | no |
+| 0 | `contribution_profit` | 0.6911 | yes |
+| 1 | `contribution_profit_v1` | 0.6739 | yes |
+| 2 | `holding_costs` | 0.6113 | no |
+| 3 | `contribution_profit_after_interest_v1` | 0.5931 | no |
+| 4 | `resale_cohort` | 0.5805 | no |
 
-Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.5041), `adjusted_gross_profit` rank 11 (0.5135)
+Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.5043), `adjusted_gross_profit` rank 11 (0.5139)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1396,13 +1398,13 @@ Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.5041), `adjusted
 
 | Rank | Concept | Similarity | Selected |
 | --- | --- | --- | --- |
-| 0 | `homes_sold` | 0.5673 | yes |
-| 1 | `pct_homes_on_market_gt_120_days` | 0.5329 | yes |
-| 2 | `housing_inventory_homes` | 0.5252 | no |
-| 3 | `contribution_profit_v1` | 0.5244 | no |
-| 4 | `homes_purchased` | 0.5213 | no |
+| 0 | `homes_sold` | 0.5670 | yes |
+| 1 | `pct_homes_on_market_gt_120_days` | 0.5328 | yes |
+| 2 | `housing_inventory_homes` | 0.5255 | no |
+| 3 | `contribution_profit_v1` | 0.5252 | no |
+| 4 | `homes_purchased` | 0.5210 | no |
 
-Gold metrics in the ranking: `housing_inventory_homes` rank 2 (0.5252), `pct_homes_on_market_gt_120_days` rank 1 (0.5329)
+Gold metrics in the ranking: `housing_inventory_homes` rank 2 (0.5255), `pct_homes_on_market_gt_120_days` rank 1 (0.5328)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |

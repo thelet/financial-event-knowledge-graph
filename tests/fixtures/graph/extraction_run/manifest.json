@@ -14,17 +14,17 @@
     "recorded_answers_available": 15
   },
   "catalog_digests": {
-    "claims.jsonl": "33ee20407ac92a23b1b2da75c4dfbb8f1db9f371e8ea7b0130dddc1b1ff08394",
+    "claims.jsonl": "ef47b4017d9300fbb80d73cb1be13ba2b4bc5091f0e7776fea2ae0bf7c18f283",
     "events.jsonl": "b1eaed303fc6af24bfb4b331e4e0d5e40d659929d2f8413de9c61f14698166b8",
-    "evidence.jsonl": "a5c0b4ac27cc07907f46efedb4aacfdf3659714ed5fb2e003427d2736f74ab7c",
-    "issues.jsonl": "1fa8391e010289220e2f94b555f73a5a616e98e142904593e9f92ad8123fcfc5",
-    "lane_outputs.jsonl": "bdef371cbe65cfeecd22479fbef7acc7727578f23068e128ec12589e64686067",
-    "observations.jsonl": "9065477557a4017fb65082af71d4f270b3ab739cf4914c3fa11cd89961fc0c0f",
-    "rejected_claims.jsonl": "45f6c2562ff8956c286121803baa809176fa7980ea354ea2b541c842764e3238",
+    "evidence.jsonl": "af06d575c1bb6387e3922200a25bc3643e5694cd77e66a98d3e974ade7dab56f",
+    "issues.jsonl": "4b289e381ff77d1a30ab3680bfb9773d446e58efc3a3a703d342bc2b35805ada",
+    "lane_outputs.jsonl": "2aac5b1a74c19dfd638d6ecc53a973d8c79e1699e03776a64443f071e3d4f4d0",
+    "observations.jsonl": "b9e267cf117bb1fdba9a00c617f9c29755de3202befd728b4d4551fb9d1e8cfb",
+    "rejected_claims.jsonl": "f86584fd88717ee6384a1bf2357b9b629be908779f51dcd319b3053df1c91e95",
     "relationships.jsonl": "bf095051992e7315e03ac8a6c17eabbf59192cae05eba4bdde9ebf97437f0104",
-    "report.md": "d6d8e0493d09d6f9fc8e5c23d8d205703e1d1b77a8782000653c4910a82df8e8"
+    "report.md": "6c495809d5f3cb685e71cff520eb22f76f5748915ed495662d74cbad3c202575"
   },
-  "code_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+  "code_commit": "c59818e4a775103c94f3438306c051b66ef54387",
   "config_hash": "e1bb4eaf254fd61c247e35b847d0d30d0faf0948fa2e7053b8b96e1c4a8b2c2c",
   "corpus": {
     "content_digest": "9992c4eb1888",
@@ -35,20 +35,20 @@
   },
   "counts": {
     "candidates": 11848,
-    "candidates_with_a_claim": 154,
-    "candidates_with_no_claim": 11694,
+    "candidates_with_a_claim": 153,
+    "candidates_with_no_claim": 11695,
     "candidates_with_no_claim_and_no_code": 0,
-    "claims": 2717,
+    "claims": 2714,
     "events": 6,
     "events_flagged_for_temporal_review": 1,
-    "evidence_references": 2717,
-    "issues": 17127,
-    "observations": 2707,
-    "rejected_claims": 46,
+    "evidence_references": 2714,
+    "issues": 17130,
+    "observations": 2704,
+    "rejected_claims": 49,
     "relationships": 4,
     "temporal_diagnostics_recorded": 1
   },
-  "created_at": "2026-08-02T16:02:44+00:00",
+  "created_at": "2026-08-03T13:33:47+00:00",
   "dependencies": {
     "httpx": "0.28.1",
     "pydantic": "2.13.4",
@@ -78,7 +78,7 @@
     }
   ],
   "layout_version": "1.0.0",
-  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
   "ontology_id": "real_estate_marketplace_v1",
   "provider": {
     "context_tokens": 8192,
@@ -86,7 +86,7 @@
     "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
     "recorded_answers": 15
   },
-  "run_id": "extract-v1-lexical-2422c4252c07",
+  "run_id": "extract-v1-lexical-7f72d6172630",
   "scope": {
     "scope_name": "lexical",
     "scope_version": "1.0.0",
@@ -96,7 +96,7 @@
     {
       "check": "evidence_resolution",
       "description": "every evidence passage_id exists in the corpus and every quoted span occurs in it",
-      "examined": 2717,
+      "examined": 2714,
       "failures": 0,
       "failures_by_code": {},
       "passed": true,
@@ -106,19 +106,19 @@
     {
       "check": "ontology_validation",
       "description": "every claim through validate_claims; V1 §11 criterion 1 requires zero errors",
-      "examined": 2717,
+      "examined": 2714,
       "failures": 0,
       "failures_by_code": {},
       "passed": true,
-      "warnings": 186,
+      "warnings": 185,
       "warnings_by_code": {
-        "unpreferred_source_lane": 186
+        "unpreferred_source_lane": 185
       }
     },
     {
       "check": "forbidden_lanes",
       "description": "no observation carries a source lane its metric forbids, and no xbrl-first metric carries a normalized-lane observation",
-      "examined": 2707,
+      "examined": 2704,
       "failures": 0,
       "failures_by_code": {},
       "passed": true,
@@ -128,7 +128,7 @@
     {
       "check": "duplicate_identities",
       "description": "no two distinct payloads share an id, in any catalog",
-      "examined": 25324,
+      "examined": 25321,
       "failures": 0,
       "failures_by_code": {},
       "passed": true,
@@ -138,7 +138,7 @@
     {
       "check": "conflicting_duplicates",
       "description": "no (metric, subject, period, lane, passage) is reported twice with different values",
-      "examined": 2707,
+      "examined": 2704,
       "failures": 0,
       "failures_by_code": {},
       "passed": true,

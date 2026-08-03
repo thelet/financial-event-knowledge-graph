@@ -13,7 +13,7 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692,
+          "similarity": 0.668207,
           "variant_of_a_candidate": false
         }
       ],
@@ -326,7 +326,7 @@
         {
           "concept_id": "adjusted_gross_profit",
           "rank": 11,
-          "similarity": 0.513549
+          "similarity": 0.51394
         }
       ],
       "lane": "tables",
@@ -360,27 +360,27 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.691154
+          "similarity": 0.691139
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.671983
+          "similarity": 0.673937
         },
         {
           "concept_id": "holding_costs",
           "rank": 2,
-          "similarity": 0.610913
+          "similarity": 0.611294
         },
         {
           "concept_id": "contribution_profit_after_interest_v1",
           "rank": 3,
-          "similarity": 0.592385
+          "similarity": 0.593068
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.580708
+          "similarity": 0.580504
         }
       ],
       "scope_size": {
@@ -392,12 +392,12 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.691154
+          "similarity": 0.691139
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.671983
+          "similarity": 0.673937
         }
       ],
       "source_file": "05_negative_and_formula_drift.yaml"
@@ -522,7 +522,7 @@
         {
           "concept_id": "borrowing_capacity",
           "rank": 6,
-          "similarity": 0.405831
+          "similarity": 0.406816
         }
       ],
       "lane": "narrative",
@@ -543,22 +543,22 @@
         {
           "concept_id": "credit_facility_terminated",
           "rank": 0,
-          "similarity": 0.47646
+          "similarity": 0.47635
         },
         {
           "concept_id": "workforce_reduction",
           "rank": 1,
-          "similarity": 0.456935
+          "similarity": 0.45636
         },
         {
           "concept_id": "credit_facility_amended",
           "rank": 2,
-          "similarity": 0.438416
+          "similarity": 0.438591
         },
         {
           "concept_id": "credit_facility_established",
           "rank": 3,
-          "similarity": 0.430635
+          "similarity": 0.43077
         },
         {
           "concept_id": "asset_backed_debt_facility",
@@ -575,12 +575,12 @@
         {
           "concept_id": "credit_facility_terminated",
           "rank": 0,
-          "similarity": 0.47646
+          "similarity": 0.47635
         },
         {
           "concept_id": "workforce_reduction",
           "rank": 1,
-          "similarity": 0.456935
+          "similarity": 0.45636
         }
       ],
       "source_file": "06_events_and_relationships.yaml"
@@ -675,27 +675,27 @@
         {
           "concept_id": "common_stock",
           "rank": 0,
-          "similarity": 0.56427
+          "similarity": 0.564364
         },
         {
           "concept_id": "operations_pause",
           "rank": 1,
-          "similarity": 0.495119
+          "similarity": 0.494882
         },
         {
           "concept_id": "geographic_market",
           "rank": 2,
-          "similarity": 0.47992
+          "similarity": 0.479892
         },
         {
           "concept_id": "asset_backed_debt_facility",
           "rank": 3,
-          "similarity": 0.465192
+          "similarity": 0.464777
         },
         {
           "concept_id": "market_entry",
           "rank": 4,
-          "similarity": 0.443669
+          "similarity": 0.44458
         }
       ],
       "scope_size": {
@@ -707,12 +707,12 @@
         {
           "concept_id": "common_stock",
           "rank": 0,
-          "similarity": 0.56427
+          "similarity": 0.564364
         },
         {
           "concept_id": "operations_pause",
           "rank": 1,
-          "similarity": 0.495119
+          "similarity": 0.494882
         }
       ],
       "source_file": "06_events_and_relationships.yaml"
@@ -890,7 +890,7 @@
         {
           "concept_id": "holding_costs",
           "rank": 0,
-          "similarity": 0.570846
+          "similarity": 0.571424
         },
         {
           "concept_id": "inventory_valuation_adjustment",
@@ -900,17 +900,17 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 2,
-          "similarity": 0.457184
+          "similarity": 0.456996
         },
         {
           "concept_id": "contribution_profit",
           "rank": 3,
-          "similarity": 0.456081
+          "similarity": 0.455157
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.454685
+          "similarity": 0.454872
         }
       ],
       "scope_size": {
@@ -922,7 +922,7 @@
         {
           "concept_id": "holding_costs",
           "rank": 0,
-          "similarity": 0.570846
+          "similarity": 0.571424
         },
         {
           "concept_id": "inventory_valuation_adjustment",
@@ -1202,7 +1202,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.604922
+          "similarity": 0.604754
         }
       ],
       "lane": "tables",
@@ -1233,29 +1233,29 @@
       ],
       "ranking_head": [
         {
-          "concept_id": "homes_sold",
+          "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.606214
+          "similarity": 0.606196
         },
         {
-          "concept_id": "housing_inventory_homes",
+          "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.605898
+          "similarity": 0.606144
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.604922
+          "similarity": 0.604754
         },
         {
           "concept_id": "homes_purchased",
           "rank": 3,
-          "similarity": 0.593585
+          "similarity": 0.593511
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.588505
+          "similarity": 0.588204
         }
       ],
       "scope_size": {
@@ -1265,14 +1265,14 @@
       },
       "semantic_neighbours": [
         {
-          "concept_id": "homes_sold",
+          "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.606214
+          "similarity": 0.606196
         },
         {
-          "concept_id": "housing_inventory_homes",
+          "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.605898
+          "similarity": 0.606144
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -1384,6 +1384,14 @@
           ]
         },
         {
+          "concept_id": "contribution_profit_v1",
+          "protected": false,
+          "reasons": [
+            "semantic_neighbour"
+          ],
+          "surfaces": []
+        },
+        {
           "concept_id": "gaap_gross_margin",
           "protected": true,
           "reasons": [
@@ -1454,7 +1462,6 @@
             "ambiguous_alias",
             "canonical_label",
             "exact_alias",
-            "semantic_neighbour",
             "table_label"
           ],
           "surfaces": [
@@ -1546,7 +1553,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.578374
+          "similarity": 0.578269
         }
       ],
       "lane": "tables",
@@ -1579,44 +1586,44 @@
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.595319
-        },
-        {
-          "concept_id": "housing_inventory_homes",
-          "rank": 1,
-          "similarity": 0.594219
+          "similarity": 0.595099
         },
         {
           "concept_id": "contribution_profit_v1",
+          "rank": 1,
+          "similarity": 0.594927
+        },
+        {
+          "concept_id": "housing_inventory_homes",
           "rank": 2,
-          "similarity": 0.593826
+          "similarity": 0.59447
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.578374
+          "similarity": 0.578269
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.577274
+          "similarity": 0.576965
         }
       ],
       "scope_size": {
         "embedding_only": 2,
-        "hybrid": 21,
+        "hybrid": 22,
         "lexical": 21
       },
       "semantic_neighbours": [
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.595319
+          "similarity": 0.595099
         },
         {
-          "concept_id": "housing_inventory_homes",
+          "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.594219
+          "similarity": 0.594927
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -1904,42 +1911,42 @@
         {
           "concept_id": "adjusted_ebitda",
           "rank": 19,
-          "similarity": 0.49361
+          "similarity": 0.493543
         },
         {
           "concept_id": "adjusted_ebitda_margin",
           "rank": 17,
-          "similarity": 0.50012
+          "similarity": 0.499903
         },
         {
           "concept_id": "contribution_margin",
           "rank": 24,
-          "similarity": 0.47339
+          "similarity": 0.472946
         },
         {
           "concept_id": "contribution_profit",
           "rank": 5,
-          "similarity": 0.573573
+          "similarity": 0.573474
         },
         {
           "concept_id": "gaap_gross_margin",
           "rank": 22,
-          "similarity": 0.478281
+          "similarity": 0.47837
         },
         {
           "concept_id": "homes_purchased",
           "rank": 6,
-          "similarity": 0.566534
+          "similarity": 0.566468
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.586868
+          "similarity": 0.587162
         },
         {
           "concept_id": "market_count",
@@ -1949,7 +1956,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.591444
+          "similarity": 0.591307
         }
       ],
       "lane": "tables",
@@ -1982,27 +1989,27 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.59893
+          "similarity": 0.600057
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.591444
+          "similarity": 0.591307
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.586868
+          "similarity": 0.587162
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.576522
+          "similarity": 0.576135
         }
       ],
       "scope_size": {
@@ -2014,12 +2021,12 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.59893
+          "similarity": 0.600057
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -2305,42 +2312,42 @@
         {
           "concept_id": "adjusted_ebitda_margin",
           "rank": 17,
-          "similarity": 0.50012
+          "similarity": 0.499903
         },
         {
           "concept_id": "contribution_margin",
           "rank": 24,
-          "similarity": 0.47339
+          "similarity": 0.472946
         },
         {
           "concept_id": "contribution_profit",
           "rank": 5,
-          "similarity": 0.573573
+          "similarity": 0.573474
         },
         {
           "concept_id": "gaap_gross_margin",
           "rank": 22,
-          "similarity": 0.478281
+          "similarity": 0.47837
         },
         {
           "concept_id": "homes_purchased",
           "rank": 6,
-          "similarity": 0.566534
+          "similarity": 0.566468
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.586868
+          "similarity": 0.587162
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.591444
+          "similarity": 0.591307
         }
       ],
       "lane": "tables",
@@ -2373,27 +2380,27 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.59893
+          "similarity": 0.600057
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.591444
+          "similarity": 0.591307
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.586868
+          "similarity": 0.587162
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.576522
+          "similarity": 0.576135
         }
       ],
       "scope_size": {
@@ -2405,12 +2412,12 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.59893
+          "similarity": 0.600057
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -2691,17 +2698,17 @@
         {
           "concept_id": "adjusted_ebitda",
           "rank": 19,
-          "similarity": 0.49361
+          "similarity": 0.493543
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.591444
+          "similarity": 0.591307
         }
       ],
       "lane": "tables",
@@ -2734,27 +2741,27 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.59893
+          "similarity": 0.600057
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.591444
+          "similarity": 0.591307
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.586868
+          "similarity": 0.587162
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.576522
+          "similarity": 0.576135
         }
       ],
       "scope_size": {
@@ -2766,12 +2773,12 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.59893
+          "similarity": 0.600057
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.593052
+          "similarity": 0.592828
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -3037,7 +3044,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.589902
+          "similarity": 0.58975
         }
       ],
       "lane": "tables",
@@ -3069,27 +3076,27 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.591193
+          "similarity": 0.592408
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.591018
+          "similarity": 0.590833
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.589902
+          "similarity": 0.58975
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.589087
+          "similarity": 0.589413
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.580407
+          "similarity": 0.579931
         }
       ],
       "scope_size": {
@@ -3101,12 +3108,12 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.591193
+          "similarity": 0.592408
         },
         {
           "concept_id": "homes_sold",
           "rank": 1,
-          "similarity": 0.591018
+          "similarity": 0.590833
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -3387,7 +3394,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.596415
+          "similarity": 0.596247
         }
       ],
       "lane": "tables",
@@ -3420,27 +3427,27 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.601357
+          "similarity": 0.602499
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.596415
+          "similarity": 0.596247
         },
         {
           "concept_id": "homes_sold",
           "rank": 2,
-          "similarity": 0.59542
+          "similarity": 0.595256
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.587306
+          "similarity": 0.587607
         },
         {
           "concept_id": "contribution_profit",
           "rank": 4,
-          "similarity": 0.583647
+          "similarity": 0.583383
         }
       ],
       "scope_size": {
@@ -3452,12 +3459,12 @@
         {
           "concept_id": "contribution_profit_v1",
           "rank": 0,
-          "similarity": 0.601357
+          "similarity": 0.602499
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.596415
+          "similarity": 0.596247
         }
       ],
       "source_file": "01_deterministic_kpi_tables.yaml"
@@ -3672,12 +3679,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.483146
+          "similarity": 0.48302
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.462001
+          "similarity": 0.461711
         }
       ],
       "lane": "narrative",
@@ -3708,27 +3715,27 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.483146
+          "similarity": 0.48302
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.462001
+          "similarity": 0.461711
         },
         {
           "concept_id": "inventory_balance",
           "rank": 2,
-          "similarity": 0.460769
+          "similarity": 0.461041
         },
         {
           "concept_id": "inventory_valuation_adjustment",
           "rank": 3,
-          "similarity": 0.456905
+          "similarity": 0.457052
         },
         {
           "concept_id": "adjusted_ebitda",
           "rank": 4,
-          "similarity": 0.456552
+          "similarity": 0.456392
         }
       ],
       "scope_size": {
@@ -3740,12 +3747,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.483146
+          "similarity": 0.48302
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.462001
+          "similarity": 0.461711
         }
       ],
       "source_file": "04_shareholder_letter_prose.yaml"
@@ -4002,12 +4009,12 @@
         {
           "concept_id": "adjusted_gross_profit",
           "rank": 13,
-          "similarity": 0.451439
+          "similarity": 0.451444
         },
         {
           "concept_id": "contribution_profit",
           "rank": 4,
-          "similarity": 0.529736
+          "similarity": 0.529273
         }
       ],
       "lane": "narrative",
@@ -4041,27 +4048,27 @@
         {
           "concept_id": "resale_cohort",
           "rank": 0,
-          "similarity": 0.564163
+          "similarity": 0.563885
         },
         {
           "concept_id": "holding_costs",
           "rank": 1,
-          "similarity": 0.545055
+          "similarity": 0.545404
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.540495
+          "similarity": 0.540332
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.533056
+          "similarity": 0.533003
         },
         {
           "concept_id": "contribution_profit",
           "rank": 4,
-          "similarity": 0.529736
+          "similarity": 0.529273
         }
       ],
       "scope_size": {
@@ -4073,12 +4080,12 @@
         {
           "concept_id": "resale_cohort",
           "rank": 0,
-          "similarity": 0.564163
+          "similarity": 0.563885
         },
         {
           "concept_id": "holding_costs",
           "rank": 1,
-          "similarity": 0.545055
+          "similarity": 0.545404
         }
       ],
       "source_file": "04_shareholder_letter_prose.yaml"
@@ -4352,12 +4359,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.52743
+          "similarity": 0.527637
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.549233
+          "similarity": 0.549156
         }
       ],
       "lane": "narrative",
@@ -4391,22 +4398,22 @@
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.572153
+          "similarity": 0.57186
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.549233
+          "similarity": 0.549156
         },
         {
           "concept_id": "resale_cohort",
           "rank": 2,
-          "similarity": 0.533097
+          "similarity": 0.532761
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.52743
+          "similarity": 0.527637
         },
         {
           "concept_id": "operations_pause",
@@ -4423,12 +4430,12 @@
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.572153
+          "similarity": 0.57186
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.549233
+          "similarity": 0.549156
         }
       ],
       "source_file": "04_shareholder_letter_prose.yaml"
@@ -4736,27 +4743,27 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692
+          "similarity": 0.668207
         },
         {
           "concept_id": "contribution_profit_after_interest_v1",
           "rank": 2,
-          "similarity": 0.584185
+          "similarity": 0.584925
         },
         {
           "concept_id": "holding_costs",
           "rank": 3,
-          "similarity": 0.580049
+          "similarity": 0.580401
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.557535
+          "similarity": 0.557094
         }
       ],
       "scope_size": {
@@ -4768,12 +4775,12 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692
+          "similarity": 0.668207
         }
       ],
       "source_file": "05_negative_and_formula_drift.yaml"
@@ -4911,27 +4918,27 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.698953
+          "similarity": 0.698936
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.695525
+          "similarity": 0.695741
         },
         {
           "concept_id": "homes_sold",
           "rank": 2,
-          "similarity": 0.683428
+          "similarity": 0.683097
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.652216
+          "similarity": 0.652149
         },
         {
           "concept_id": "homes_under_contract",
           "rank": 4,
-          "similarity": 0.595101
+          "similarity": 0.594528
         }
       ],
       "scope_size": {
@@ -4943,12 +4950,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.698953
+          "similarity": 0.698936
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.695525
+          "similarity": 0.695741
         }
       ],
       "source_file": "05_negative_and_formula_drift.yaml"
@@ -5036,27 +5043,27 @@
         {
           "concept_id": "subsidiary",
           "rank": 0,
-          "similarity": 0.365609
+          "similarity": 0.365777
         },
         {
           "concept_id": "subsidiary_of",
           "rank": 1,
-          "similarity": 0.346374
+          "similarity": 0.346488
         },
         {
           "concept_id": "corporate_acquisition",
           "rank": 2,
-          "similarity": 0.340187
+          "similarity": 0.340307
         },
         {
           "concept_id": "holds_position_at",
           "rank": 3,
-          "similarity": 0.318048
+          "similarity": 0.31835
         },
         {
           "concept_id": "public_company",
           "rank": 4,
-          "similarity": 0.315242
+          "similarity": 0.314572
         }
       ],
       "scope_size": {
@@ -5220,7 +5227,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 0,
-          "similarity": 0.433677
+          "similarity": 0.433639
         },
         {
           "concept_id": "listing_compliance_event",
@@ -5230,7 +5237,7 @@
         {
           "concept_id": "homes_sold",
           "rank": 2,
-          "similarity": 0.424226
+          "similarity": 0.424195
         },
         {
           "concept_id": "operations_pause",
@@ -5238,9 +5245,9 @@
           "similarity": 0.422393
         },
         {
-          "concept_id": "homes_purchased",
+          "concept_id": "housing_inventory_homes",
           "rank": 4,
-          "similarity": 0.400802
+          "similarity": 0.400852
         }
       ],
       "scope_size": {
@@ -5457,12 +5464,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.560882
+          "similarity": 0.560693
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.516945
+          "similarity": 0.516624
         }
       ],
       "lane": "narrative",
@@ -5495,27 +5502,27 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.560882
+          "similarity": 0.560693
         },
         {
           "concept_id": "inventory_balance",
           "rank": 1,
-          "similarity": 0.533946
+          "similarity": 0.534216
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.516945
+          "similarity": 0.516624
         },
         {
           "concept_id": "resale_cohort",
           "rank": 3,
-          "similarity": 0.503887
+          "similarity": 0.503784
         },
         {
           "concept_id": "homes_sold",
           "rank": 4,
-          "similarity": 0.501763
+          "similarity": 0.501559
         }
       ],
       "scope_size": {
@@ -5527,12 +5534,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.560882
+          "similarity": 0.560693
         },
         {
           "concept_id": "inventory_balance",
           "rank": 1,
-          "similarity": 0.533946
+          "similarity": 0.534216
         }
       ],
       "source_file": "03_population_wording.yaml"
@@ -5782,7 +5789,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.540495
+          "similarity": 0.540332
         }
       ],
       "lane": "narrative",
@@ -5816,27 +5823,27 @@
         {
           "concept_id": "resale_cohort",
           "rank": 0,
-          "similarity": 0.564163
+          "similarity": 0.563885
         },
         {
           "concept_id": "holding_costs",
           "rank": 1,
-          "similarity": 0.545055
+          "similarity": 0.545404
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 2,
-          "similarity": 0.540495
+          "similarity": 0.540332
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.533056
+          "similarity": 0.533003
         },
         {
           "concept_id": "contribution_profit",
           "rank": 4,
-          "similarity": 0.529736
+          "similarity": 0.529273
         }
       ],
       "scope_size": {
@@ -5848,12 +5855,12 @@
         {
           "concept_id": "resale_cohort",
           "rank": 0,
-          "similarity": 0.564163
+          "similarity": 0.563885
         },
         {
           "concept_id": "holding_costs",
           "rank": 1,
-          "similarity": 0.545055
+          "similarity": 0.545404
         }
       ],
       "source_file": "03_population_wording.yaml"
@@ -6093,7 +6100,7 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.44572
+          "similarity": 0.44541
         }
       ],
       "lane": "narrative",
@@ -6127,27 +6134,27 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.497937
+          "similarity": 0.497792
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.45743
+          "similarity": 0.457589
         },
         {
           "concept_id": "holding_costs",
           "rank": 2,
-          "similarity": 0.454543
+          "similarity": 0.454633
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.44572
+          "similarity": 0.44541
         },
         {
           "concept_id": "homes_sold",
           "rank": 4,
-          "similarity": 0.440074
+          "similarity": 0.439949
         }
       ],
       "scope_size": {
@@ -6159,12 +6166,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 0,
-          "similarity": 0.497937
+          "similarity": 0.497792
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.45743
+          "similarity": 0.457589
         }
       ],
       "source_file": "03_population_wording.yaml"
@@ -6304,12 +6311,12 @@
         {
           "concept_id": "acquisition_contracts",
           "rank": 6,
-          "similarity": 0.499586
+          "similarity": 0.499855
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.550305
+          "similarity": 0.55014
         }
       ],
       "lane": "narrative",
@@ -6333,27 +6340,27 @@
         {
           "concept_id": "homes_under_contract",
           "rank": 0,
-          "similarity": 0.579797
+          "similarity": 0.579617
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 1,
-          "similarity": 0.569715
+          "similarity": 0.569736
         },
         {
           "concept_id": "homes_purchased",
           "rank": 2,
-          "similarity": 0.55247
+          "similarity": 0.552517
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 3,
-          "similarity": 0.550305
+          "similarity": 0.55014
         },
         {
           "concept_id": "homes_sold",
           "rank": 4,
-          "similarity": 0.511827
+          "similarity": 0.511617
         }
       ],
       "scope_size": {
@@ -6365,12 +6372,12 @@
         {
           "concept_id": "homes_under_contract",
           "rank": 0,
-          "similarity": 0.579797
+          "similarity": 0.579617
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 1,
-          "similarity": 0.569715
+          "similarity": 0.569736
         }
       ],
       "source_file": "03_population_wording.yaml"
@@ -6655,12 +6662,12 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "homes_sold",
           "rank": 7,
-          "similarity": 0.533558
+          "similarity": 0.533186
         }
       ],
       "lane": "tables",
@@ -6692,27 +6699,27 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692
+          "similarity": 0.668207
         },
         {
           "concept_id": "contribution_profit_after_interest_v1",
           "rank": 2,
-          "similarity": 0.584185
+          "similarity": 0.584925
         },
         {
           "concept_id": "holding_costs",
           "rank": 3,
-          "similarity": 0.580049
+          "similarity": 0.580401
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.557535
+          "similarity": 0.557094
         }
       ],
       "scope_size": {
@@ -6724,12 +6731,12 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692
+          "similarity": 0.668207
         }
       ],
       "source_file": "02_sparse_reconciliation_tables.yaml"
@@ -7021,17 +7028,17 @@
         {
           "concept_id": "adjusted_gross_profit",
           "rank": 10,
-          "similarity": 0.504194
+          "similarity": 0.504203
         },
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "direct_selling_costs",
           "rank": 9,
-          "similarity": 0.51227
+          "similarity": 0.512187
         }
       ],
       "lane": "tables",
@@ -7063,27 +7070,27 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692
+          "similarity": 0.668207
         },
         {
           "concept_id": "contribution_profit_after_interest_v1",
           "rank": 2,
-          "similarity": 0.584185
+          "similarity": 0.584925
         },
         {
           "concept_id": "holding_costs",
           "rank": 3,
-          "similarity": 0.580049
+          "similarity": 0.580401
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.557535
+          "similarity": 0.557094
         }
       ],
       "scope_size": {
@@ -7095,12 +7102,12 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.688383
+          "similarity": 0.688025
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.666692
+          "similarity": 0.668207
         }
       ],
       "source_file": "02_sparse_reconciliation_tables.yaml"
@@ -7409,12 +7416,12 @@
         {
           "concept_id": "adjusted_gross_margin",
           "rank": 14,
-          "similarity": 0.50412
+          "similarity": 0.504289
         },
         {
           "concept_id": "adjusted_gross_profit",
           "rank": 11,
-          "similarity": 0.513549
+          "similarity": 0.51394
         }
       ],
       "lane": "tables",
@@ -7448,27 +7455,27 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.691154
+          "similarity": 0.691139
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.671983
+          "similarity": 0.673937
         },
         {
           "concept_id": "holding_costs",
           "rank": 2,
-          "similarity": 0.610913
+          "similarity": 0.611294
         },
         {
           "concept_id": "contribution_profit_after_interest_v1",
           "rank": 3,
-          "similarity": 0.592385
+          "similarity": 0.593068
         },
         {
           "concept_id": "resale_cohort",
           "rank": 4,
-          "similarity": 0.580708
+          "similarity": 0.580504
         }
       ],
       "scope_size": {
@@ -7480,12 +7487,12 @@
         {
           "concept_id": "contribution_profit",
           "rank": 0,
-          "similarity": 0.691154
+          "similarity": 0.691139
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 1,
-          "similarity": 0.671983
+          "similarity": 0.673937
         }
       ],
       "source_file": "02_sparse_reconciliation_tables.yaml"
@@ -7750,12 +7757,12 @@
         {
           "concept_id": "housing_inventory_homes",
           "rank": 2,
-          "similarity": 0.525211
+          "similarity": 0.525514
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.532888
+          "similarity": 0.532837
         }
       ],
       "lane": "narrative",
@@ -7788,27 +7795,27 @@
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.567264
+          "similarity": 0.567037
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.532888
+          "similarity": 0.532837
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 2,
-          "similarity": 0.525211
+          "similarity": 0.525514
         },
         {
           "concept_id": "contribution_profit_v1",
           "rank": 3,
-          "similarity": 0.524398
+          "similarity": 0.52519
         },
         {
           "concept_id": "homes_purchased",
           "rank": 4,
-          "similarity": 0.521317
+          "similarity": 0.52095
         }
       ],
       "scope_size": {
@@ -7820,12 +7827,12 @@
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.567264
+          "similarity": 0.567037
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 1,
-          "similarity": 0.532888
+          "similarity": 0.532837
         }
       ],
       "source_file": "02_sparse_reconciliation_tables.yaml"
@@ -7870,11 +7877,11 @@
         "holds": true,
         "measured": {
           "budget": 0.25,
-          "growth": 0.030043,
-          "hybrid_mean": 18.461538,
+          "growth": 0.032189,
+          "hybrid_mean": 18.5,
           "lexical_mean": 17.923077
         },
-        "statement": "scope size mean no worse than +25% over lexical's 17.9 of 131 measured in this same run"
+        "statement": "scope size mean no worse than +25% over lexical's 17.9 of 133 measured in this same run"
       },
       {
         "criterion": 4,
@@ -7893,499 +7900,499 @@
     "distinct_texts": 26,
     "min_similarity_pools": [
       {
-        "mean": 0.32451,
-        "mean_plus_1sd": 0.4531,
-        "pairs": 4192,
+        "mean": 0.324489,
+        "mean_plus_1sd": 0.4525,
+        "pairs": 4256,
         "pool": "all 32 texts (as shipped)",
         "rounded": 0.45,
-        "sd": 0.1286,
+        "sd": 0.128032,
         "texts": 32
       },
       {
-        "mean": 0.321127,
-        "mean_plus_1sd": 0.4504,
-        "pairs": 3930,
+        "mean": 0.321073,
+        "mean_plus_1sd": 0.4497,
+        "pairs": 3990,
         "pool": "minus the two paraphrase probes",
         "rounded": 0.45,
-        "sd": 0.129231,
+        "sd": 0.128652,
         "texts": 30
       },
       {
-        "mean": 0.300054,
-        "mean_plus_1sd": 0.4159,
-        "pairs": 3406,
+        "mean": 0.299977,
+        "mean_plus_1sd": 0.4151,
+        "pairs": 3458,
         "pool": "26 case passages only",
         "rounded": 0.42,
-        "sd": 0.115823,
+        "sd": 0.115164,
         "texts": 26
       },
       {
-        "mean": 0.297112,
-        "mean_plus_1sd": 0.41,
-        "pairs": 2620,
+        "mean": 0.2971,
+        "mean_plus_1sd": 0.4093,
+        "pairs": 2660,
         "pool": "20 distinct case passages",
         "rounded": 0.41,
-        "sd": 0.112852,
+        "sd": 0.112224,
         "texts": 20
       }
     ],
     "per_text": {
       "Contribution Margin was 5.4% in the quarter": {
         "characters": 43,
-        "gap_to_next": 0.013514,
+        "gap_to_next": 0.014289,
         "kind": "probe",
-        "max": 0.703001,
-        "mean": 0.369616,
-        "sd": 0.098424,
+        "max": 0.702549,
+        "mean": 0.369529,
+        "sd": 0.097658,
         "standout_2sd": 9,
         "standout_3sd": 2,
         "top_1": "contribution_margin",
-        "top_1_similarity": 0.703001
+        "top_1_similarity": 0.702549
       },
       "Gross Margin": {
         "characters": 12,
-        "gap_to_next": 0.002952,
+        "gap_to_next": 0.003246,
         "kind": "probe",
-        "max": 0.869473,
-        "mean": 0.5173,
-        "sd": 0.124664,
+        "max": 0.869767,
+        "mean": 0.517561,
+        "sd": 0.123741,
         "standout_2sd": 8,
         "standout_3sd": 0,
         "top_1": "gaap_gross_margin",
-        "top_1_similarity": 0.869473
+        "top_1_similarity": 0.869767
       },
       "Gross profit": {
         "characters": 12,
-        "gap_to_next": 0.000446,
+        "gap_to_next": 0.00082,
         "kind": "probe",
-        "max": 0.829244,
-        "mean": 0.502219,
-        "sd": 0.126358,
+        "max": 0.829311,
+        "mean": 0.502358,
+        "sd": 0.125443,
         "standout_2sd": 8,
         "standout_3sd": 0,
         "top_1": "adjusted_gross_profit",
-        "top_1_similarity": 0.829244
+        "top_1_similarity": 0.829311
       },
       "Homes sold in period": {
         "characters": 20,
-        "gap_to_next": 0.014342,
+        "gap_to_next": 0.014172,
         "kind": "probe",
-        "max": 0.756631,
-        "mean": 0.443276,
-        "sd": 0.104576,
-        "standout_2sd": 6,
-        "standout_3sd": 0,
+        "max": 0.756639,
+        "mean": 0.443363,
+        "sd": 0.10383,
+        "standout_2sd": 7,
+        "standout_3sd": 1,
         "top_1": "homes_sold",
-        "top_1_similarity": 0.756631
+        "top_1_similarity": 0.756639
       },
       "drift-adjusted-gross-profit-2020-vs-2021": {
         "characters": 2423,
-        "gap_to_next": 0.019171,
+        "gap_to_next": 0.017202,
         "kind": "case_passage",
-        "max": 0.691154,
-        "mean": 0.306558,
-        "sd": 0.129977,
+        "max": 0.691139,
+        "mean": 0.305962,
+        "sd": 0.129229,
         "standout_2sd": 5,
         "standout_3sd": 0,
         "top_1": "contribution_profit",
-        "top_1_similarity": 0.691154
+        "top_1_similarity": 0.691139
       },
       "event-credit-facility-established-2022": {
         "characters": 1045,
-        "gap_to_next": 0.019525,
+        "gap_to_next": 0.01999,
         "kind": "case_passage",
-        "max": 0.47646,
-        "mean": 0.271543,
-        "sd": 0.067928,
-        "standout_2sd": 6,
+        "max": 0.47635,
+        "mean": 0.27116,
+        "sd": 0.067545,
+        "standout_2sd": 7,
         "standout_3sd": 1,
         "top_1": "credit_facility_terminated",
-        "top_1_similarity": 0.47646
+        "top_1_similarity": 0.47635
       },
       "event-executive-change-ceo-2025": {
         "characters": 365,
-        "gap_to_next": 0.069151,
+        "gap_to_next": 0.069482,
         "kind": "case_passage",
-        "max": 0.56427,
-        "mean": 0.334163,
-        "sd": 0.06587,
-        "standout_2sd": 3,
+        "max": 0.564364,
+        "mean": 0.333885,
+        "sd": 0.065415,
+        "standout_2sd": 4,
         "standout_3sd": 1,
         "top_1": "common_stock",
-        "top_1_similarity": 0.56427
+        "top_1_similarity": 0.564364
       },
       "event-workforce-reduction-2020": {
         "characters": 1597,
-        "gap_to_next": 0.109738,
+        "gap_to_next": 0.110316,
         "kind": "case_passage",
-        "max": 0.570846,
-        "mean": 0.256952,
-        "sd": 0.08122,
+        "max": 0.571424,
+        "mean": 0.256825,
+        "sd": 0.080657,
         "standout_2sd": 7,
         "standout_3sd": 1,
         "top_1": "holding_costs",
-        "top_1_similarity": 0.570846
+        "top_1_similarity": 0.571424
       },
       "kpi-table-10k-fy2023-three-year": {
         "characters": 2262,
-        "gap_to_next": 0.000316,
+        "gap_to_next": 5.2e-05,
         "kind": "case_passage",
-        "max": 0.606214,
-        "mean": 0.339526,
-        "sd": 0.125418,
+        "max": 0.606196,
+        "mean": 0.339594,
+        "sd": 0.124574,
         "standout_2sd": 4,
         "standout_3sd": 0,
-        "top_1": "homes_sold",
-        "top_1_similarity": 0.606214
+        "top_1": "housing_inventory_homes",
+        "top_1_similarity": 0.606196
       },
       "kpi-table-10q-q1-2025-two-column": {
         "characters": 1918,
-        "gap_to_next": 0.0011,
+        "gap_to_next": 0.000172,
         "kind": "case_passage",
-        "max": 0.595319,
-        "mean": 0.325523,
-        "sd": 0.128023,
+        "max": 0.595099,
+        "mean": 0.325615,
+        "sd": 0.127169,
         "standout_2sd": 3,
         "standout_3sd": 0,
         "top_1": "homes_sold",
-        "top_1_similarity": 0.595319
+        "top_1_similarity": 0.595099
       },
       "kpi-table-q1-2025-current-column": {
         "characters": 2657,
-        "gap_to_next": 0.005878,
+        "gap_to_next": 0.007229,
         "kind": "case_passage",
-        "max": 0.59893,
-        "mean": 0.332002,
-        "sd": 0.123101,
+        "max": 0.600057,
+        "mean": 0.332133,
+        "sd": 0.122292,
         "standout_2sd": 4,
         "standout_3sd": 0,
         "top_1": "contribution_profit_v1",
-        "top_1_similarity": 0.59893
+        "top_1_similarity": 0.600057
       },
       "kpi-table-q1-2025-middle-columns": {
         "characters": 2657,
-        "gap_to_next": 0.005878,
+        "gap_to_next": 0.007229,
         "kind": "case_passage",
-        "max": 0.59893,
-        "mean": 0.332002,
-        "sd": 0.123101,
+        "max": 0.600057,
+        "mean": 0.332133,
+        "sd": 0.122292,
         "standout_2sd": 4,
         "standout_3sd": 0,
         "top_1": "contribution_profit_v1",
-        "top_1_similarity": 0.59893
+        "top_1_similarity": 0.600057
       },
       "kpi-table-q1-2025-prior-period-column": {
         "characters": 2657,
-        "gap_to_next": 0.005878,
+        "gap_to_next": 0.007229,
         "kind": "case_passage",
-        "max": 0.59893,
-        "mean": 0.332002,
-        "sd": 0.123101,
+        "max": 0.600057,
+        "mean": 0.332133,
+        "sd": 0.122292,
         "standout_2sd": 4,
         "standout_3sd": 0,
         "top_1": "contribution_profit_v1",
-        "top_1_similarity": 0.59893
+        "top_1_similarity": 0.600057
       },
       "kpi-table-q1-2026-earnings": {
         "characters": 2658,
-        "gap_to_next": 0.000175,
+        "gap_to_next": 0.001575,
         "kind": "case_passage",
-        "max": 0.591193,
-        "mean": 0.330933,
-        "sd": 0.121382,
-        "standout_2sd": 5,
+        "max": 0.592408,
+        "mean": 0.330992,
+        "sd": 0.120536,
+        "standout_2sd": 6,
         "standout_3sd": 0,
         "top_1": "contribution_profit_v1",
-        "top_1_similarity": 0.591193
+        "top_1_similarity": 0.592408
       },
       "kpi-table-q4-2023-earnings": {
         "characters": 3133,
-        "gap_to_next": 0.004942,
+        "gap_to_next": 0.006252,
         "kind": "case_passage",
-        "max": 0.601357,
-        "mean": 0.332279,
-        "sd": 0.124465,
+        "max": 0.602499,
+        "mean": 0.332233,
+        "sd": 0.12362,
         "standout_2sd": 6,
         "standout_3sd": 0,
         "top_1": "contribution_profit_v1",
-        "top_1_similarity": 0.601357
+        "top_1_similarity": 0.602499
       },
       "letter-prose-inventory-and-120d-q2-2022": {
         "characters": 2232,
-        "gap_to_next": 0.021145,
+        "gap_to_next": 0.021309,
         "kind": "case_passage",
-        "max": 0.483146,
-        "mean": 0.262208,
-        "sd": 0.103622,
+        "max": 0.48302,
+        "mean": 0.262263,
+        "sd": 0.10294,
         "standout_2sd": 1,
         "standout_3sd": 0,
         "top_1": "housing_inventory_homes",
-        "top_1_similarity": 0.483146
+        "top_1_similarity": 0.48302
       },
       "letter-prose-multiple-metrics-q4-2021": {
         "characters": 2322,
-        "gap_to_next": 0.019108,
+        "gap_to_next": 0.018481,
         "kind": "case_passage",
-        "max": 0.564163,
-        "mean": 0.306485,
-        "sd": 0.103995,
+        "max": 0.563885,
+        "mean": 0.30629,
+        "sd": 0.103248,
         "standout_2sd": 6,
         "standout_3sd": 0,
         "top_1": "resale_cohort",
-        "top_1_similarity": 0.564163
+        "top_1_similarity": 0.563885
       },
       "letter-prose-run-together-kpi-row-q1-2025": {
         "characters": 2504,
-        "gap_to_next": 0.02292,
+        "gap_to_next": 0.022704,
         "kind": "case_passage",
-        "max": 0.572153,
-        "mean": 0.341149,
-        "sd": 0.111477,
+        "max": 0.57186,
+        "mean": 0.341366,
+        "sd": 0.110673,
         "standout_2sd": 1,
         "standout_3sd": 0,
         "top_1": "homes_sold",
-        "top_1_similarity": 0.572153
+        "top_1_similarity": 0.57186
       },
       "negative-ambiguous-alias-bare-gross-profit": {
         "characters": 1991,
-        "gap_to_next": 0.021691,
+        "gap_to_next": 0.019818,
         "kind": "case_passage",
-        "max": 0.688383,
-        "mean": 0.291057,
-        "sd": 0.129615,
+        "max": 0.688025,
+        "mean": 0.290439,
+        "sd": 0.128809,
         "standout_2sd": 6,
         "standout_3sd": 1,
         "top_1": "contribution_profit",
-        "top_1_similarity": 0.688383
+        "top_1_similarity": 0.688025
       },
       "negative-forward-looking-outlook": {
         "characters": 118,
-        "gap_to_next": 0.003428,
+        "gap_to_next": 0.003195,
         "kind": "case_passage",
-        "max": 0.698953,
-        "mean": 0.326854,
-        "sd": 0.121326,
+        "max": 0.698936,
+        "mean": 0.327381,
+        "sd": 0.12068,
         "standout_2sd": 6,
         "standout_3sd": 2,
         "top_1": "housing_inventory_homes",
-        "top_1_similarity": 0.698953
+        "top_1_similarity": 0.698936
       },
       "negative-material-agreement-recital": {
         "characters": 2381,
-        "gap_to_next": 0.019235,
+        "gap_to_next": 0.019289,
         "kind": "case_passage",
-        "max": 0.365609,
-        "mean": 0.214398,
-        "sd": 0.051203,
+        "max": 0.365777,
+        "mean": 0.213928,
+        "sd": 0.051063,
         "standout_2sd": 4,
         "standout_3sd": 0,
         "top_1": "subsidiary",
-        "top_1_similarity": 0.365609
+        "top_1_similarity": 0.365777
       },
       "negative-risk-factor-partnership-boilerplate": {
         "characters": 3896,
-        "gap_to_next": 0.006577,
+        "gap_to_next": 0.006539,
         "kind": "case_passage",
-        "max": 0.433677,
-        "mean": 0.244348,
-        "sd": 0.074786,
+        "max": 0.433639,
+        "mean": 0.244872,
+        "sd": 0.074585,
         "standout_2sd": 7,
         "standout_3sd": 0,
         "top_1": "pct_homes_on_market_gt_120_days",
-        "top_1_similarity": 0.433677
+        "top_1_similarity": 0.433639
       },
       "paraphrase-1": {
         "characters": 64,
-        "gap_to_next": 0.197234,
+        "gap_to_next": 0.196829,
         "kind": "probe",
-        "max": 0.812617,
-        "mean": 0.361072,
-        "sd": 0.103256,
+        "max": 0.812469,
+        "mean": 0.361822,
+        "sd": 0.102599,
         "standout_2sd": 8,
         "standout_3sd": 1,
         "top_1": "pct_homes_on_market_gt_120_days",
-        "top_1_similarity": 0.812617
+        "top_1_similarity": 0.812469
       },
       "paraphrase-2": {
         "characters": 82,
-        "gap_to_next": 0.137529,
+        "gap_to_next": 0.137275,
         "kind": "probe",
-        "max": 0.830706,
-        "mean": 0.389438,
-        "sd": 0.1079,
+        "max": 0.830549,
+        "mean": 0.389622,
+        "sd": 0.107212,
         "standout_2sd": 7,
         "standout_3sd": 1,
         "top_1": "pct_homes_on_market_gt_120_days",
-        "top_1_similarity": 0.830706
+        "top_1_similarity": 0.830549
       },
       "population-our-homes-in-inventory-q1-2023": {
         "characters": 2046,
-        "gap_to_next": 0.026936,
+        "gap_to_next": 0.026477,
         "kind": "case_passage",
-        "max": 0.560882,
-        "mean": 0.277308,
-        "sd": 0.096288,
+        "max": 0.560693,
+        "mean": 0.277336,
+        "sd": 0.095572,
         "standout_2sd": 9,
         "standout_3sd": 0,
         "top_1": "housing_inventory_homes",
-        "top_1_similarity": 0.560882
+        "top_1_similarity": 0.560693
       },
       "population-our-homes-q4-2021": {
         "characters": 2322,
-        "gap_to_next": 0.019108,
+        "gap_to_next": 0.018481,
         "kind": "case_passage",
-        "max": 0.564163,
-        "mean": 0.306485,
-        "sd": 0.103995,
+        "max": 0.563885,
+        "mean": 0.30629,
+        "sd": 0.103248,
         "standout_2sd": 6,
         "standout_3sd": 0,
         "top_1": "resale_cohort",
-        "top_1_similarity": 0.564163
+        "top_1_similarity": 0.563885
       },
       "population-portfolio-mdna-fy2023-10k": {
         "characters": 2797,
-        "gap_to_next": 0.040507,
+        "gap_to_next": 0.040203,
         "kind": "case_passage",
-        "max": 0.497937,
-        "mean": 0.234518,
-        "sd": 0.096128,
+        "max": 0.497792,
+        "mean": 0.234784,
+        "sd": 0.095535,
         "standout_2sd": 7,
         "standout_3sd": 0,
         "top_1": "housing_inventory_homes",
-        "top_1_similarity": 0.497937
+        "top_1_similarity": 0.497792
       },
       "population-two-wordings-one-passage-q4-2023": {
         "characters": 1963,
-        "gap_to_next": 0.010082,
+        "gap_to_next": 0.009881,
         "kind": "case_passage",
-        "max": 0.579797,
-        "mean": 0.301288,
-        "sd": 0.099166,
-        "standout_2sd": 6,
+        "max": 0.579617,
+        "mean": 0.301753,
+        "sd": 0.098566,
+        "standout_2sd": 7,
         "standout_3sd": 0,
         "top_1": "homes_under_contract",
-        "top_1_similarity": 0.579797
+        "top_1_similarity": 0.579617
       },
       "recon-q1-2021-holding-costs-split-rows": {
         "characters": 1991,
-        "gap_to_next": 0.021691,
+        "gap_to_next": 0.019818,
         "kind": "case_passage",
-        "max": 0.688383,
-        "mean": 0.291057,
-        "sd": 0.129615,
+        "max": 0.688025,
+        "mean": 0.290439,
+        "sd": 0.128809,
         "standout_2sd": 6,
         "standout_3sd": 1,
         "top_1": "contribution_profit",
-        "top_1_similarity": 0.688383
+        "top_1_similarity": 0.688025
       },
       "recon-q1-2021-thousands-in-table": {
         "characters": 1991,
-        "gap_to_next": 0.021691,
+        "gap_to_next": 0.019818,
         "kind": "case_passage",
-        "max": 0.688383,
-        "mean": 0.291057,
-        "sd": 0.129615,
+        "max": 0.688025,
+        "mean": 0.290439,
+        "sd": 0.128809,
         "standout_2sd": 6,
         "standout_3sd": 1,
         "top_1": "contribution_profit",
-        "top_1_similarity": 0.688383
+        "top_1_similarity": 0.688025
       },
       "recon-q4-2020-mixed-period-lengths": {
         "characters": 2423,
-        "gap_to_next": 0.019171,
+        "gap_to_next": 0.017202,
         "kind": "case_passage",
-        "max": 0.691154,
-        "mean": 0.306558,
-        "sd": 0.129977,
+        "max": 0.691139,
+        "mean": 0.305962,
+        "sd": 0.129229,
         "standout_2sd": 5,
         "standout_3sd": 0,
         "top_1": "contribution_profit",
-        "top_1_similarity": 0.691154
+        "top_1_similarity": 0.691139
       },
       "recon-shareholder-letter-table-as-prose": {
         "characters": 1568,
-        "gap_to_next": 0.034376,
+        "gap_to_next": 0.0342,
         "kind": "case_passage",
-        "max": 0.567264,
-        "mean": 0.313149,
-        "sd": 0.120001,
+        "max": 0.567037,
+        "mean": 0.313183,
+        "sd": 0.11916,
         "standout_2sd": 1,
         "standout_3sd": 0,
         "top_1": "homes_sold",
-        "top_1_similarity": 0.567264
+        "top_1_similarity": 0.567037
       }
     },
     "pooled_all_texts": {
-      "max": 0.869473,
-      "mean": 0.32451,
-      "mean_plus_1sd": 0.45311,
-      "mean_plus_3sd": 0.71031,
-      "min": -0.020099,
-      "p50": 0.303042,
-      "p90": 0.507455,
-      "p95": 0.552802,
-      "p99": 0.689526,
-      "pairs": 4192,
-      "sd": 0.1286
+      "max": 0.869767,
+      "mean": 0.324489,
+      "mean_plus_1sd": 0.452521,
+      "mean_plus_3sd": 0.708584,
+      "min": -0.020485,
+      "p50": 0.302858,
+      "p90": 0.506231,
+      "p95": 0.552583,
+      "p99": 0.688126,
+      "pairs": 4256,
+      "sd": 0.128032
     },
     "pooled_case_passages": {
-      "max": 0.698953,
-      "mean": 0.300054,
-      "mean_plus_1sd": 0.415877,
-      "mean_plus_3sd": 0.647523,
-      "min": -0.020099,
-      "p50": 0.281789,
-      "p90": 0.480302,
-      "p95": 0.520249,
-      "p99": 0.592385,
-      "pairs": 3406,
-      "sd": 0.115823
+      "max": 0.698936,
+      "mean": 0.299977,
+      "mean_plus_1sd": 0.41514,
+      "mean_plus_3sd": 0.645468,
+      "min": -0.020485,
+      "p50": 0.282257,
+      "p90": 0.479594,
+      "p95": 0.519844,
+      "p99": 0.592828,
+      "pairs": 3458,
+      "sd": 0.115164
     },
     "pooled_distinct_case_passages": {
-      "max": 0.698953,
-      "mean": 0.297112,
-      "mean_plus_1sd": 0.409964,
-      "mean_plus_3sd": 0.635669,
-      "min": -0.020099,
-      "p50": 0.281177,
-      "p90": 0.475308,
-      "p95": 0.514143,
-      "p99": 0.590784,
-      "pairs": 2620,
-      "sd": 0.112852
+      "max": 0.698936,
+      "mean": 0.2971,
+      "mean_plus_1sd": 0.409324,
+      "mean_plus_3sd": 0.633772,
+      "min": -0.020485,
+      "p50": 0.282189,
+      "p90": 0.473585,
+      "p95": 0.513501,
+      "p99": 0.590172,
+      "pairs": 2660,
+      "sd": 0.112224
     },
     "pooled_distinct_texts": {
-      "max": 0.869473,
-      "mean": 0.327891,
-      "mean_plus_1sd": 0.457135,
-      "mean_plus_3sd": 0.715623,
-      "min": -0.020099,
-      "p50": 0.308341,
-      "p90": 0.508839,
-      "p95": 0.555848,
-      "p99": 0.698855,
-      "pairs": 3406,
-      "sd": 0.129244
+      "max": 0.869767,
+      "mean": 0.327933,
+      "mean_plus_1sd": 0.456636,
+      "mean_plus_3sd": 0.714042,
+      "min": -0.020485,
+      "p50": 0.308059,
+      "p90": 0.508363,
+      "p95": 0.554733,
+      "p99": 0.698121,
+      "pairs": 3458,
+      "sd": 0.128703
     },
     "pooled_probes": {
-      "max": 0.869473,
-      "mean": 0.430487,
-      "mean_plus_1sd": 0.557955,
-      "mean_plus_3sd": 0.812892,
+      "max": 0.869767,
+      "mean": 0.430709,
+      "mean_plus_1sd": 0.557463,
+      "mean_plus_3sd": 0.810972,
       "min": 0.139862,
-      "p50": 0.409188,
-      "p90": 0.587509,
-      "p95": 0.680769,
-      "p99": 0.814721,
-      "pairs": 786,
-      "sd": 0.127469
+      "p50": 0.410666,
+      "p90": 0.584542,
+      "p95": 0.679475,
+      "p99": 0.812629,
+      "pairs": 798,
+      "sd": 0.126754
     },
     "probes": 6,
     "standout_3sd_counts": {
       "distinct": {
         "histogram": {
-          "0": 18,
-          "1": 6,
+          "0": 17,
+          "1": 7,
           "2": 2
         },
         "max": 2,
@@ -8394,8 +8401,8 @@
         "texts": 26
       },
       "histogram": {
-        "0": 22,
-        "1": 8,
+        "0": 21,
+        "1": 9,
         "2": 2
       },
       "max": 2,
@@ -8407,50 +8414,50 @@
     "texts": 32
   },
   "embedding": {
-    "cache_key": "f6af53bb252ddd834b6b14f667f11a1ad460b56567e3f1c00402527b30d04c0f",
-    "concept_cache_entries": 132,
-    "concepts_indexed": 131,
+    "cache_key": "31d2f6ee824ab952788c596c1d16ad93aa1fee0ca6202546f6fbac644ebb5b77",
+    "concept_cache_entries": 134,
+    "concepts_indexed": 133,
     "dimensions": 1024,
     "model_id": "Qwen3-Embedding-0.6B-f16.gguf",
     "renderer_version": "v1",
     "text_cache_entries": 26,
     "text_normalization_version": "v1"
   },
-  "implementation_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+  "implementation_commit": "c59818e4a775103c94f3438306c051b66ef54387",
   "normalization_corpus": {
     "documents": 294,
     "documents_sha256": "c2baa5373a5161967a1311458874318801338d39b298df82f6af78a249dbe5e3",
     "passages": 12442,
     "table_passages": 1935
   },
-  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
   "probes": [
     {
       "head": [
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.756631
+          "similarity": 0.756639
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.742289
+          "similarity": 0.742467
         },
         {
           "concept_id": "resale_cohort",
           "rank": 2,
-          "similarity": 0.741228
+          "similarity": 0.741376
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 3,
-          "similarity": 0.740957
+          "similarity": 0.741365
         },
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 4,
-          "similarity": 0.718785
+          "similarity": 0.718939
         }
       ],
       "name": "Homes sold in period",
@@ -8459,12 +8466,12 @@
         {
           "concept_id": "homes_sold",
           "rank": 0,
-          "similarity": 0.756631
+          "similarity": 0.756639
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.742289
+          "similarity": 0.742467
         }
       ],
       "text": "Homes sold in period"
@@ -8474,7 +8481,7 @@
         {
           "concept_id": "gaap_gross_margin",
           "rank": 0,
-          "similarity": 0.869473
+          "similarity": 0.869767
         },
         {
           "concept_id": "adjusted_gross_margin",
@@ -8484,17 +8491,17 @@
         {
           "concept_id": "adjusted_gross_margin_v1",
           "rank": 2,
-          "similarity": 0.848293
+          "similarity": 0.848551
         },
         {
           "concept_id": "gaap_gross_margin_v1",
           "rank": 3,
-          "similarity": 0.829651
+          "similarity": 0.8293
         },
         {
           "concept_id": "contribution_margin",
           "rank": 4,
-          "similarity": 0.787282
+          "similarity": 0.786731
         }
       ],
       "name": "Gross Margin",
@@ -8503,7 +8510,7 @@
         {
           "concept_id": "gaap_gross_margin",
           "rank": 0,
-          "similarity": 0.869473
+          "similarity": 0.869767
         },
         {
           "concept_id": "adjusted_gross_margin",
@@ -8518,17 +8525,17 @@
         {
           "concept_id": "adjusted_gross_profit",
           "rank": 0,
-          "similarity": 0.829244
+          "similarity": 0.829311
         },
         {
           "concept_id": "gaap_gross_profit",
           "rank": 1,
-          "similarity": 0.828798
+          "similarity": 0.828491
         },
         {
           "concept_id": "gaap_gross_margin",
           "rank": 2,
-          "similarity": 0.806118
+          "similarity": 0.806045
         },
         {
           "concept_id": "adjusted_gross_profit_v2",
@@ -8538,7 +8545,7 @@
         {
           "concept_id": "adjusted_gross_profit_v1",
           "rank": 4,
-          "similarity": 0.801385
+          "similarity": 0.800709
         }
       ],
       "name": "Gross profit",
@@ -8547,12 +8554,12 @@
         {
           "concept_id": "adjusted_gross_profit",
           "rank": 0,
-          "similarity": 0.829244
+          "similarity": 0.829311
         },
         {
           "concept_id": "gaap_gross_profit",
           "rank": 1,
-          "similarity": 0.828798
+          "similarity": 0.828491
         }
       ],
       "text": "Gross profit"
@@ -8562,27 +8569,27 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 0,
-          "similarity": 0.812617
+          "similarity": 0.812469
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.615383
+          "similarity": 0.61564
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 2,
-          "similarity": 0.611472
+          "similarity": 0.612035
         },
         {
           "concept_id": "operations_pause",
           "rank": 3,
-          "similarity": 0.609699
+          "similarity": 0.609738
         },
         {
           "concept_id": "homes_sold",
           "rank": 4,
-          "similarity": 0.607218
+          "similarity": 0.607154
         }
       ],
       "name": "paraphrase-1",
@@ -8591,12 +8598,12 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 0,
-          "similarity": 0.812617
+          "similarity": 0.812469
         },
         {
           "concept_id": "homes_purchased",
           "rank": 1,
-          "similarity": 0.615383
+          "similarity": 0.61564
         }
       ],
       "text": "5% of our homes were listed on the market for more than 120 days"
@@ -8606,27 +8613,27 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 0,
-          "similarity": 0.830706
+          "similarity": 0.830549
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 1,
-          "similarity": 0.693177
+          "similarity": 0.693274
         },
         {
           "concept_id": "homes_purchased",
           "rank": 2,
-          "similarity": 0.644461
+          "similarity": 0.644573
         },
         {
           "concept_id": "homes_sold",
           "rank": 3,
-          "similarity": 0.640206
+          "similarity": 0.640081
         },
         {
-          "concept_id": "operations_pause",
+          "concept_id": "collateral",
           "rank": 4,
-          "similarity": 0.631017
+          "similarity": 0.631727
         }
       ],
       "name": "paraphrase-2",
@@ -8635,12 +8642,12 @@
         {
           "concept_id": "pct_homes_on_market_gt_120_days",
           "rank": 0,
-          "similarity": 0.830706
+          "similarity": 0.830549
         },
         {
           "concept_id": "housing_inventory_homes",
           "rank": 1,
-          "similarity": 0.693177
+          "similarity": 0.693274
         }
       ],
       "text": "59% of our homes in inventory had been listed on the market for more than 120 days"
@@ -8650,12 +8657,12 @@
         {
           "concept_id": "contribution_margin",
           "rank": 0,
-          "similarity": 0.703001
+          "similarity": 0.702549
         },
         {
           "concept_id": "contribution_margin_v1",
           "rank": 1,
-          "similarity": 0.689487
+          "similarity": 0.68826
         },
         {
           "concept_id": "adjusted_gross_margin",
@@ -8665,12 +8672,12 @@
         {
           "concept_id": "adjusted_gross_margin_v1",
           "rank": 3,
-          "similarity": 0.608256
+          "similarity": 0.60856
         },
         {
           "concept_id": "adjusted_ebitda_margin",
           "rank": 4,
-          "similarity": 0.599143
+          "similarity": 0.599501
         }
       ],
       "name": "Contribution Margin was 5.4% in the quarter",
@@ -8679,12 +8686,12 @@
         {
           "concept_id": "contribution_margin",
           "rank": 0,
-          "similarity": 0.703001
+          "similarity": 0.702549
         },
         {
           "concept_id": "contribution_margin_v1",
           "rank": 1,
-          "similarity": 0.689487
+          "similarity": 0.68826
         }
       ],
       "text": "Contribution Margin was 5.4% in the quarter"
@@ -8693,22 +8700,22 @@
   "renderer_ablation": [
     {
       "concept_id": "pct_homes_on_market_gt_120_days",
-      "margin_v1": 0.197234,
-      "margin_with_variants": 0.203601,
+      "margin_v1": 0.196829,
+      "margin_with_variants": 0.2033,
       "probe": "5% of our homes were listed on the market for more than 120 days",
       "rank_v1": 0,
       "rank_with_variants": 0,
-      "similarity_v1": 0.812617,
-      "similarity_with_variants": 0.818984
+      "similarity_v1": 0.812469,
+      "similarity_with_variants": 0.81894
     },
     {
       "concept_id": "pct_homes_on_market_gt_120_days",
-      "margin_v1": 0.137529,
-      "margin_with_variants": 0.155968,
+      "margin_v1": 0.137275,
+      "margin_with_variants": 0.155871,
       "probe": "59% of our homes in inventory had been listed on the market for more than 120 days",
       "rank_v1": 0,
       "rank_with_variants": 0,
-      "similarity_v1": 0.830706,
+      "similarity_v1": 0.830549,
       "similarity_with_variants": 0.849145
     }
   ],
@@ -8724,7 +8731,6 @@
     "cases_with_no_semantic_addition": [
       "event-workforce-reduction-2020",
       "kpi-table-10k-fy2023-three-year",
-      "kpi-table-10q-q1-2025-two-column",
       "letter-prose-multiple-metrics-q4-2021",
       "letter-prose-run-together-kpi-row-q1-2025",
       "negative-forward-looking-outlook",
@@ -8751,7 +8757,7 @@
         "category": "metric_definition",
         "concept_id": "pct_homes_on_market_gt_120_days",
         "rank": 1,
-        "similarity": 0.462001
+        "similarity": 0.461711
       }
     ],
     "unrequired_additions": [
@@ -8760,97 +8766,104 @@
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 1,
-        "similarity": 0.671983
+        "similarity": 0.673937
       },
       {
         "case_id": "event-credit-facility-established-2022",
         "category": "event_type",
         "concept_id": "credit_facility_terminated",
         "rank": 0,
-        "similarity": 0.47646
+        "similarity": 0.47635
       },
       {
         "case_id": "event-executive-change-ceo-2025",
         "category": "financial_instrument_type",
         "concept_id": "common_stock",
         "rank": 0,
-        "similarity": 0.56427
+        "similarity": 0.564364
       },
       {
         "case_id": "event-executive-change-ceo-2025",
         "category": "event_type",
         "concept_id": "operations_pause",
         "rank": 1,
-        "similarity": 0.495119
+        "similarity": 0.494882
+      },
+      {
+        "case_id": "kpi-table-10q-q1-2025-two-column",
+        "category": "metric_formula",
+        "concept_id": "contribution_profit_v1",
+        "rank": 1,
+        "similarity": 0.594927
       },
       {
         "case_id": "kpi-table-q1-2025-current-column",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 0,
-        "similarity": 0.59893
+        "similarity": 0.600057
       },
       {
         "case_id": "kpi-table-q1-2025-middle-columns",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 0,
-        "similarity": 0.59893
+        "similarity": 0.600057
       },
       {
         "case_id": "kpi-table-q1-2025-prior-period-column",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 0,
-        "similarity": 0.59893
+        "similarity": 0.600057
       },
       {
         "case_id": "kpi-table-q1-2026-earnings",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 0,
-        "similarity": 0.591193
+        "similarity": 0.592408
       },
       {
         "case_id": "kpi-table-q4-2023-earnings",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 0,
-        "similarity": 0.601357
+        "similarity": 0.602499
       },
       {
         "case_id": "negative-ambiguous-alias-bare-gross-profit",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 1,
-        "similarity": 0.666692
+        "similarity": 0.668207
       },
       {
         "case_id": "recon-q1-2021-holding-costs-split-rows",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 1,
-        "similarity": 0.666692
+        "similarity": 0.668207
       },
       {
         "case_id": "recon-q1-2021-thousands-in-table",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 1,
-        "similarity": 0.666692
+        "similarity": 0.668207
       },
       {
         "case_id": "recon-q4-2020-mixed-period-lengths",
         "category": "metric_formula",
         "concept_id": "contribution_profit_v1",
         "rank": 1,
-        "similarity": 0.671983
+        "similarity": 0.673937
       }
     ],
     "unrequired_by_category": {
       "event_type": 2,
       "financial_instrument_type": 1,
-      "metric_formula": 10
+      "metric_formula": 11
     }
   },
   "sensitivity": [
@@ -8877,10 +8890,10 @@
       "known_instance_recall": 1.0,
       "paraphrases_recovered": 1,
       "required_concept_recall": 0.98,
-      "scope_size_growth": 0.030043,
-      "scope_size_mean": 18.461538,
+      "scope_size_growth": 0.032189,
+      "scope_size_mean": 18.5,
       "top_k": 2,
-      "unrequired_additions": 13
+      "unrequired_additions": 14
     },
     {
       "ambiguity_preservation": 1.0,
@@ -9796,7 +9809,7 @@
           },
           "missed_instance_ids": [],
           "missed_metric_ids": [],
-          "scope_size": 21
+          "scope_size": 22
         },
         {
           "ambiguity_preserved": null,
@@ -10183,7 +10196,7 @@
       ],
       "totals": {
         "asymmetric_critical_pairs": 0,
-        "candidates": 480,
+        "candidates": 481,
         "cases": 26,
         "confusion_expansions": 77,
         "counts_by_reason": {
@@ -10205,7 +10218,7 @@
         },
         "scope_size": {
           "max": 23,
-          "mean": 18.461538,
+          "mean": 18.5,
           "median": 21.0,
           "min": 6
         },

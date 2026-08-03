@@ -147,21 +147,20 @@
       "ambiguity_codes_accuracy": 0.0,
       "ambiguity_preserved_rate": 0.0,
       "evidence_accuracy": 0.0,
-      "matched_over_distinct_emitted": 0.019608,
-      "matched_over_emitted": 0.021739,
+      "matched_over_distinct_emitted": 0.02381,
+      "matched_over_emitted": 0.02619,
       "metric_identity_accuracy": 0.05,
       "period_accuracy": 0.0,
       "population_accuracy": 0.0,
       "scale_accuracy": 0.0,
       "subject_accuracy": 0.0,
       "unit_accuracy": 0.0,
-      "value_accuracy": 0.015151
+      "value_accuracy": 0.0
     },
     "score_ratios_higher_under_hybrid": [
       "matched_over_distinct_emitted",
       "matched_over_emitted",
-      "metric_identity_accuracy",
-      "value_accuracy"
+      "metric_identity_accuracy"
     ],
     "score_ratios_lower_under_hybrid": []
   },
@@ -251,7 +250,7 @@
     "scale_wrong",
     "value_wrong"
   ],
-  "implementation_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+  "implementation_commit": "c59818e4a775103c94f3438306c051b66ef54387",
   "lane": {
     "name": "normalized_narrative",
     "prompt_version": "1.2.0",
@@ -271,7 +270,7 @@
     "passages": 12442,
     "table_passages": 1935
   },
-  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
   "probes": [
     {
       "case_id": "letter-prose-inventory-and-120d-q2-2022",
@@ -3085,75 +3084,23 @@
             "assembly_rejections": 0,
             "code_agreeing_abstentions": 0,
             "duplicate_claim_keys": 0,
-            "emitted": 3,
+            "emitted": 0,
             "expected_abstentions": 1,
             "failures": 2,
             "gold": 2,
             "honoured_abstentions": 1,
-            "matched": 2,
-            "missed": 0,
+            "matched": 0,
+            "missed": 2,
             "model_abstentions": 0,
             "model_chosen_abstentions": 0,
             "ontology_errors": 0,
-            "ontology_warnings": 1,
-            "rejected_claims": 10,
+            "ontology_warnings": 0,
+            "rejected_claims": 13,
             "scope_concepts": 18,
-            "unrequired": 1
+            "unrequired": 0
           },
           "duplicate_claim_keys": [],
-          "emitted": [
-            {
-              "currency": null,
-              "evidence": {
-                "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-                "resolves": true
-              },
-              "lane_claim_ambiguity_codes": [],
-              "metric_id": "housing_inventory_homes",
-              "period_key": "2023-12-31",
-              "population_definition_raw": null,
-              "raw_text": "Homes in inventory (at period end) 5,326 4,007 3,558 6,261 12,788 5,326 12,788",
-              "scale": "units",
-              "scale_source": "metric_default",
-              "subject_entity_id": "opendoor",
-              "unit": "homes",
-              "value": 12788.0
-            },
-            {
-              "currency": null,
-              "evidence": {
-                "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-                "resolves": true
-              },
-              "lane_claim_ambiguity_codes": [],
-              "metric_id": "market_count",
-              "period_key": "2023-12-31",
-              "population_definition_raw": null,
-              "raw_text": "Number of markets (at period end) 50 53 53 53 53 50 53",
-              "scale": "units",
-              "scale_source": "metric_default",
-              "subject_entity_id": "opendoor",
-              "unit": "markets",
-              "value": 53.0
-            },
-            {
-              "currency": null,
-              "evidence": {
-                "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-                "resolves": true
-              },
-              "lane_claim_ambiguity_codes": [],
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "population_definition_raw": "homes “on the market” for greater than 120 days",
-              "raw_text": "Percentage of homes “on the market” for greater than 120 days (at period end) 18 % 12 % 24 % 59 % 55 % 18 % 55 %",
-              "scale": "units",
-              "scale_source": "metric_default",
-              "subject_entity_id": "opendoor",
-              "unit": "percent",
-              "value": 55.0
-            }
-          ],
+          "emitted": [],
           "expected_abstentions": [
             {
               "ambiguity_candidates": [],
@@ -3169,18 +3116,18 @@
           ],
           "failures": [
             {
-              "category": "metric_misidentified",
-              "detail": "matched observation failed value, population",
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "source": "wrong_match"
-            },
-            {
-              "category": "value_wrong",
-              "detail": "matched observation failed value",
+              "category": "metric_not_identified",
+              "detail": "abstained over with ['PERIOD_NOT_GROUNDED_IN_PASSAGE'], and no claim was emitted",
               "metric_id": "housing_inventory_homes",
               "period_key": "2023-12-31",
-              "source": "wrong_match"
+              "source": "missed_gold"
+            },
+            {
+              "category": "metric_not_identified",
+              "detail": "abstained over with ['PERIOD_NOT_GROUNDED_IN_PASSAGE'], and no claim was emitted",
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "source": "missed_gold"
             }
           ],
           "gold": [
@@ -3208,151 +3155,28 @@
           "issues_by_code": {
             "AMBIGUOUS_ALIAS": 1,
             "DEFERRED_REQUIRED_SOURCE_LANE": 3,
-            "MISSING_PERIOD": 6
+            "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9
           },
-          "matched": [
+          "matched": [],
+          "missed": [
             {
-              "dimensions": {
-                "ambiguity_codes_ok": false,
-                "evidence_ok": true,
-                "period_ok": true,
-                "population_ok": false,
-                "scale_ok": true,
-                "subject_ok": true,
-                "unit_ok": true,
-                "value_ok": false
-              },
-              "dimensions_applicable": {
-                "ambiguity_codes": false,
-                "evidence": true,
-                "period": true,
-                "population": true,
-                "scale": true,
-                "subject": true,
-                "unit": true,
-                "value": true
-              },
-              "emitted": {
-                "ambiguity_codes": [
-                  "pct_120_days_denominator"
-                ],
-                "lane_claim_ambiguity_codes": [],
-                "population_definition_raw": "homes “on the market” for greater than 120 days",
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "percent",
-                "value": 55.0
-              },
-              "expected": {
-                "ambiguity_codes": [],
-                "population_definition_raw": "Percentage of homes “on the market” for greater than 120 days (at period end)",
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "percent",
-                "value": 18
-              },
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "population_contained_in_expected": true
+              "metric_id": "housing_inventory_homes",
+              "period_key": "2023-12-31"
             },
             {
-              "dimensions": {
-                "ambiguity_codes_ok": true,
-                "evidence_ok": true,
-                "period_ok": true,
-                "population_ok": true,
-                "scale_ok": true,
-                "subject_ok": true,
-                "unit_ok": true,
-                "value_ok": false
-              },
-              "dimensions_applicable": {
-                "ambiguity_codes": false,
-                "evidence": true,
-                "period": true,
-                "population": false,
-                "scale": true,
-                "subject": true,
-                "unit": true,
-                "value": true
-              },
-              "emitted": {
-                "ambiguity_codes": [],
-                "lane_claim_ambiguity_codes": [],
-                "population_definition_raw": null,
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "homes",
-                "value": 12788.0
-              },
-              "expected": {
-                "ambiguity_codes": [],
-                "population_definition_raw": null,
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "homes",
-                "value": 5326
-              },
-              "metric_id": "housing_inventory_homes",
-              "period_key": "2023-12-31",
-              "population_contained_in_expected": false
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31"
             }
           ],
-          "missed": [],
           "model_abstentions_by_code": {},
           "ontology_errors": [],
-          "ontology_warnings": [
-            "—: unpreferred_source_lane: housing_inventory_homes is usually sourced from ['normalized_table'], got normalized_narrative"
-          ],
+          "ontology_warnings": [],
           "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-          "period_attribution": [
-            {
-              "char_start": 46,
-              "chose_comparative": false,
-              "distance_from_evidence": -487,
-              "in_evidence": false,
-              "matched_gold": true,
-              "metric_id": "housing_inventory_homes",
-              "period_key": "2023-12-31",
-              "period_label": "December 31, 2023",
-              "reporting_period_keys": [
-                "2023-12-31"
-              ],
-              "sentence_states_its_own_period": false
-            },
-            {
-              "char_start": 46,
-              "chose_comparative": false,
-              "distance_from_evidence": -317,
-              "in_evidence": false,
-              "matched_gold": false,
-              "metric_id": "market_count",
-              "period_key": "2023-12-31",
-              "period_label": "December 31, 2023",
-              "reporting_period_keys": [
-                "2023-12-31"
-              ],
-              "sentence_states_its_own_period": false
-            },
-            {
-              "char_start": 46,
-              "chose_comparative": false,
-              "distance_from_evidence": -648,
-              "in_evidence": false,
-              "matched_gold": true,
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "period_label": "December 31, 2023",
-              "reporting_period_keys": [
-                "2023-12-31"
-              ],
-              "sentence_states_its_own_period": false
-            }
-          ],
+          "period_attribution": [],
           "rejections_by_code": {
             "AMBIGUOUS_ALIAS": 1,
             "DEFERRED_REQUIRED_SOURCE_LANE": 3,
-            "MISSING_PERIOD": 6
+            "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9
           },
           "scope_concept_ids": [
             "acquisition_contracts",
@@ -3380,22 +3204,17 @@
             "ambiguity_codes_accuracy": 1.0,
             "ambiguity_preserved_rate": 1.0,
             "evidence_accuracy": 1.0,
-            "matched_over_distinct_emitted": 0.666667,
-            "matched_over_emitted": 0.666667,
-            "metric_identity_accuracy": 1.0,
+            "matched_over_distinct_emitted": 1.0,
+            "matched_over_emitted": 1.0,
+            "metric_identity_accuracy": 0.0,
             "period_accuracy": 1.0,
-            "population_accuracy": 0.0,
+            "population_accuracy": 1.0,
             "scale_accuracy": 1.0,
             "subject_accuracy": 1.0,
             "unit_accuracy": 1.0,
-            "value_accuracy": 0.0
+            "value_accuracy": 1.0
           },
-          "unrequired_emitted": [
-            {
-              "metric_id": "market_count",
-              "period_key": "2023-12-31"
-            }
-          ]
+          "unrequired_emitted": []
         }
       ],
       "scope": "hybrid",
@@ -3407,21 +3226,21 @@
         "code_agreeing_abstentions": 1,
         "distinct_passages": 13,
         "duplicate_claim_keys": 0,
-        "emitted_observations": 24,
-        "emitted_observations_distinct": 18,
+        "emitted_observations": 21,
+        "emitted_observations_distinct": 15,
         "expected_abstentions": 15,
         "failures": 15,
         "failures_by_category": {
           "ambiguity_collapsed": 0,
           "evidence_ungrounded": 2,
-          "metric_misidentified": 6,
-          "metric_not_identified": 1,
+          "metric_misidentified": 5,
+          "metric_not_identified": 3,
           "period_wrong": 4,
           "scale_wrong": 0,
           "schema_or_parse_failure": 1,
           "subject_wrong": 0,
           "unit_wrong": 0,
-          "value_wrong": 1
+          "value_wrong": 0
         },
         "gold_observations": 20,
         "honoured_abstentions": 14,
@@ -3431,16 +3250,17 @@
           "DEFINITIONAL_NOT_OBSERVATIONAL": 12,
           "DERIVED_COMPARISON": 15,
           "GUIDANCE_NOT_REPORTED": 3,
-          "MISSING_PERIOD": 20,
+          "MISSING_PERIOD": 14,
           "MODEL_ANSWER_UNUSABLE": 1,
+          "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9,
           "QUOTED_SPAN_NOT_IN_PASSAGE": 10,
           "UNIT_CONTRADICTS_ONTOLOGY": 1,
           "UNRESOLVED_METRIC": 3,
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
-        "matched_carrying_undeclared_ambiguity_codes": 1,
-        "matched_observations": 12,
-        "missed_observations": 8,
+        "matched_carrying_undeclared_ambiguity_codes": 0,
+        "matched_observations": 10,
+        "missed_observations": 10,
         "model_abstentions": 43,
         "model_abstentions_by_code": {
           "DEFINITIONAL_NOT_OBSERVATIONAL": 12,
@@ -3453,20 +3273,21 @@
         "model_chosen_abstentions": 39,
         "ontology_errors": 0,
         "ontology_errors_distinct": 0,
-        "ontology_warnings": 15,
-        "ontology_warnings_distinct": 10,
+        "ontology_warnings": 14,
+        "ontology_warnings_distinct": 9,
         "period_attribution": {
           "chose_comparative": 1,
-          "claims": 24,
+          "claims": 21,
           "label_in_evidence": 6,
           "max_distance_from_evidence": 1354,
           "sentence_states_its_own_period": 19
         },
-        "rejected_claims": 43,
+        "rejected_claims": 46,
         "rejections_by_code": {
           "AMBIGUOUS_ALIAS": 2,
           "DEFERRED_REQUIRED_SOURCE_LANE": 17,
-          "MISSING_PERIOD": 11,
+          "MISSING_PERIOD": 5,
+          "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9,
           "QUOTED_SPAN_NOT_IN_PASSAGE": 10,
           "UNIT_CONTRADICTS_ONTOLOGY": 1,
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
@@ -3476,31 +3297,31 @@
           "abstention_honoured_rate": 15,
           "ambiguity_codes_accuracy": 4,
           "ambiguity_preserved_rate": 1,
-          "evidence_accuracy": 12,
-          "matched_over_distinct_emitted": 18,
-          "matched_over_emitted": 24,
+          "evidence_accuracy": 10,
+          "matched_over_distinct_emitted": 15,
+          "matched_over_emitted": 21,
           "metric_identity_accuracy": 20,
-          "period_accuracy": 12,
-          "population_accuracy": 5,
-          "scale_accuracy": 12,
-          "subject_accuracy": 12,
-          "unit_accuracy": 12,
-          "value_accuracy": 12
+          "period_accuracy": 10,
+          "population_accuracy": 4,
+          "scale_accuracy": 10,
+          "subject_accuracy": 10,
+          "unit_accuracy": 10,
+          "value_accuracy": 10
         },
         "score_numerators": {
           "abstention_code_agreement": 1,
           "abstention_honoured_rate": 14,
           "ambiguity_codes_accuracy": 4,
           "ambiguity_preserved_rate": 0,
-          "evidence_accuracy": 12,
-          "matched_over_distinct_emitted": 12,
-          "matched_over_emitted": 12,
-          "metric_identity_accuracy": 12,
-          "period_accuracy": 12,
+          "evidence_accuracy": 10,
+          "matched_over_distinct_emitted": 10,
+          "matched_over_emitted": 10,
+          "metric_identity_accuracy": 10,
+          "period_accuracy": 10,
           "population_accuracy": 0,
-          "scale_accuracy": 12,
-          "subject_accuracy": 12,
-          "unit_accuracy": 12,
+          "scale_accuracy": 10,
+          "subject_accuracy": 10,
+          "unit_accuracy": 10,
           "value_accuracy": 10
         },
         "scores": {
@@ -3510,16 +3331,16 @@
           "ambiguity_preserved_rate": 0.0,
           "evidence_accuracy": 1.0,
           "matched_over_distinct_emitted": 0.666667,
-          "matched_over_emitted": 0.5,
-          "metric_identity_accuracy": 0.6,
+          "matched_over_emitted": 0.47619,
+          "metric_identity_accuracy": 0.5,
           "period_accuracy": 1.0,
           "population_accuracy": 0.0,
           "scale_accuracy": 1.0,
           "subject_accuracy": 1.0,
           "unit_accuracy": 1.0,
-          "value_accuracy": 0.833333
+          "value_accuracy": 1.0
         },
-        "unrequired_observations": 12
+        "unrequired_observations": 11
       }
     },
     "lexical": {
@@ -6148,75 +5969,23 @@
             "assembly_rejections": 0,
             "code_agreeing_abstentions": 0,
             "duplicate_claim_keys": 0,
-            "emitted": 3,
+            "emitted": 0,
             "expected_abstentions": 1,
             "failures": 2,
             "gold": 2,
             "honoured_abstentions": 1,
-            "matched": 2,
-            "missed": 0,
+            "matched": 0,
+            "missed": 2,
             "model_abstentions": 0,
             "model_chosen_abstentions": 0,
             "ontology_errors": 0,
-            "ontology_warnings": 1,
-            "rejected_claims": 10,
+            "ontology_warnings": 0,
+            "rejected_claims": 13,
             "scope_concepts": 18,
-            "unrequired": 1
+            "unrequired": 0
           },
           "duplicate_claim_keys": [],
-          "emitted": [
-            {
-              "currency": null,
-              "evidence": {
-                "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-                "resolves": true
-              },
-              "lane_claim_ambiguity_codes": [],
-              "metric_id": "housing_inventory_homes",
-              "period_key": "2023-12-31",
-              "population_definition_raw": null,
-              "raw_text": "Homes in inventory (at period end) 5,326 4,007 3,558 6,261 12,788 5,326 12,788",
-              "scale": "units",
-              "scale_source": "metric_default",
-              "subject_entity_id": "opendoor",
-              "unit": "homes",
-              "value": 12788.0
-            },
-            {
-              "currency": null,
-              "evidence": {
-                "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-                "resolves": true
-              },
-              "lane_claim_ambiguity_codes": [],
-              "metric_id": "market_count",
-              "period_key": "2023-12-31",
-              "population_definition_raw": null,
-              "raw_text": "Number of markets (at period end) 50 53 53 53 53 50 53",
-              "scale": "units",
-              "scale_source": "metric_default",
-              "subject_entity_id": "opendoor",
-              "unit": "markets",
-              "value": 53.0
-            },
-            {
-              "currency": null,
-              "evidence": {
-                "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-                "resolves": true
-              },
-              "lane_claim_ambiguity_codes": [],
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "population_definition_raw": "homes “on the market” for greater than 120 days",
-              "raw_text": "Percentage of homes “on the market” for greater than 120 days (at period end) 18 % 12 % 24 % 59 % 55 % 18 % 55 %",
-              "scale": "units",
-              "scale_source": "metric_default",
-              "subject_entity_id": "opendoor",
-              "unit": "percent",
-              "value": 55.0
-            }
-          ],
+          "emitted": [],
           "expected_abstentions": [
             {
               "ambiguity_candidates": [],
@@ -6232,18 +6001,18 @@
           ],
           "failures": [
             {
-              "category": "metric_misidentified",
-              "detail": "matched observation failed value, population",
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "source": "wrong_match"
-            },
-            {
-              "category": "value_wrong",
-              "detail": "matched observation failed value",
+              "category": "metric_not_identified",
+              "detail": "abstained over with ['PERIOD_NOT_GROUNDED_IN_PASSAGE'], and no claim was emitted",
               "metric_id": "housing_inventory_homes",
               "period_key": "2023-12-31",
-              "source": "wrong_match"
+              "source": "missed_gold"
+            },
+            {
+              "category": "metric_not_identified",
+              "detail": "abstained over with ['PERIOD_NOT_GROUNDED_IN_PASSAGE'], and no claim was emitted",
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31",
+              "source": "missed_gold"
             }
           ],
           "gold": [
@@ -6271,151 +6040,28 @@
           "issues_by_code": {
             "AMBIGUOUS_ALIAS": 1,
             "DEFERRED_REQUIRED_SOURCE_LANE": 3,
-            "MISSING_PERIOD": 6
+            "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9
           },
-          "matched": [
+          "matched": [],
+          "missed": [
             {
-              "dimensions": {
-                "ambiguity_codes_ok": false,
-                "evidence_ok": true,
-                "period_ok": true,
-                "population_ok": false,
-                "scale_ok": true,
-                "subject_ok": true,
-                "unit_ok": true,
-                "value_ok": false
-              },
-              "dimensions_applicable": {
-                "ambiguity_codes": false,
-                "evidence": true,
-                "period": true,
-                "population": true,
-                "scale": true,
-                "subject": true,
-                "unit": true,
-                "value": true
-              },
-              "emitted": {
-                "ambiguity_codes": [
-                  "pct_120_days_denominator"
-                ],
-                "lane_claim_ambiguity_codes": [],
-                "population_definition_raw": "homes “on the market” for greater than 120 days",
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "percent",
-                "value": 55.0
-              },
-              "expected": {
-                "ambiguity_codes": [],
-                "population_definition_raw": "Percentage of homes “on the market” for greater than 120 days (at period end)",
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "percent",
-                "value": 18
-              },
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "population_contained_in_expected": true
+              "metric_id": "housing_inventory_homes",
+              "period_key": "2023-12-31"
             },
             {
-              "dimensions": {
-                "ambiguity_codes_ok": true,
-                "evidence_ok": true,
-                "period_ok": true,
-                "population_ok": true,
-                "scale_ok": true,
-                "subject_ok": true,
-                "unit_ok": true,
-                "value_ok": false
-              },
-              "dimensions_applicable": {
-                "ambiguity_codes": false,
-                "evidence": true,
-                "period": true,
-                "population": false,
-                "scale": true,
-                "subject": true,
-                "unit": true,
-                "value": true
-              },
-              "emitted": {
-                "ambiguity_codes": [],
-                "lane_claim_ambiguity_codes": [],
-                "population_definition_raw": null,
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "homes",
-                "value": 12788.0
-              },
-              "expected": {
-                "ambiguity_codes": [],
-                "population_definition_raw": null,
-                "scale": "units",
-                "subject_entity_id": "opendoor",
-                "unit": "homes",
-                "value": 5326
-              },
-              "metric_id": "housing_inventory_homes",
-              "period_key": "2023-12-31",
-              "population_contained_in_expected": false
+              "metric_id": "pct_homes_on_market_gt_120_days",
+              "period_key": "2023-12-31"
             }
           ],
-          "missed": [],
           "model_abstentions_by_code": {},
           "ontology_errors": [],
-          "ontology_warnings": [
-            "—: unpreferred_source_lane: housing_inventory_homes is usually sourced from ['normalized_table'], got normalized_narrative"
-          ],
+          "ontology_warnings": [],
           "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20",
-          "period_attribution": [
-            {
-              "char_start": 46,
-              "chose_comparative": false,
-              "distance_from_evidence": -487,
-              "in_evidence": false,
-              "matched_gold": true,
-              "metric_id": "housing_inventory_homes",
-              "period_key": "2023-12-31",
-              "period_label": "December 31, 2023",
-              "reporting_period_keys": [
-                "2023-12-31"
-              ],
-              "sentence_states_its_own_period": false
-            },
-            {
-              "char_start": 46,
-              "chose_comparative": false,
-              "distance_from_evidence": -317,
-              "in_evidence": false,
-              "matched_gold": false,
-              "metric_id": "market_count",
-              "period_key": "2023-12-31",
-              "period_label": "December 31, 2023",
-              "reporting_period_keys": [
-                "2023-12-31"
-              ],
-              "sentence_states_its_own_period": false
-            },
-            {
-              "char_start": 46,
-              "chose_comparative": false,
-              "distance_from_evidence": -648,
-              "in_evidence": false,
-              "matched_gold": true,
-              "metric_id": "pct_homes_on_market_gt_120_days",
-              "period_key": "2023-12-31",
-              "period_label": "December 31, 2023",
-              "reporting_period_keys": [
-                "2023-12-31"
-              ],
-              "sentence_states_its_own_period": false
-            }
-          ],
+          "period_attribution": [],
           "rejections_by_code": {
             "AMBIGUOUS_ALIAS": 1,
             "DEFERRED_REQUIRED_SOURCE_LANE": 3,
-            "MISSING_PERIOD": 6
+            "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9
           },
           "scope_concept_ids": [
             "acquisition_contracts",
@@ -6443,22 +6089,17 @@
             "ambiguity_codes_accuracy": 1.0,
             "ambiguity_preserved_rate": 1.0,
             "evidence_accuracy": 1.0,
-            "matched_over_distinct_emitted": 0.666667,
-            "matched_over_emitted": 0.666667,
-            "metric_identity_accuracy": 1.0,
+            "matched_over_distinct_emitted": 1.0,
+            "matched_over_emitted": 1.0,
+            "metric_identity_accuracy": 0.0,
             "period_accuracy": 1.0,
-            "population_accuracy": 0.0,
+            "population_accuracy": 1.0,
             "scale_accuracy": 1.0,
             "subject_accuracy": 1.0,
             "unit_accuracy": 1.0,
-            "value_accuracy": 0.0
+            "value_accuracy": 1.0
           },
-          "unrequired_emitted": [
-            {
-              "metric_id": "market_count",
-              "period_key": "2023-12-31"
-            }
-          ]
+          "unrequired_emitted": []
         }
       ],
       "scope": "lexical",
@@ -6470,21 +6111,21 @@
         "code_agreeing_abstentions": 1,
         "distinct_passages": 13,
         "duplicate_claim_keys": 0,
-        "emitted_observations": 23,
-        "emitted_observations_distinct": 17,
+        "emitted_observations": 20,
+        "emitted_observations_distinct": 14,
         "expected_abstentions": 15,
         "failures": 15,
         "failures_by_category": {
           "ambiguity_collapsed": 0,
           "evidence_ungrounded": 2,
-          "metric_misidentified": 5,
-          "metric_not_identified": 2,
+          "metric_misidentified": 4,
+          "metric_not_identified": 4,
           "period_wrong": 4,
           "scale_wrong": 0,
           "schema_or_parse_failure": 1,
           "subject_wrong": 0,
           "unit_wrong": 0,
-          "value_wrong": 1
+          "value_wrong": 0
         },
         "gold_observations": 20,
         "honoured_abstentions": 14,
@@ -6494,16 +6135,17 @@
           "DEFINITIONAL_NOT_OBSERVATIONAL": 12,
           "DERIVED_COMPARISON": 15,
           "GUIDANCE_NOT_REPORTED": 3,
-          "MISSING_PERIOD": 20,
+          "MISSING_PERIOD": 14,
           "MODEL_ANSWER_UNUSABLE": 1,
+          "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9,
           "QUOTED_SPAN_NOT_IN_PASSAGE": 10,
           "UNIT_CONTRADICTS_ONTOLOGY": 1,
           "UNRESOLVED_METRIC": 3,
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
         },
-        "matched_carrying_undeclared_ambiguity_codes": 1,
-        "matched_observations": 11,
-        "missed_observations": 9,
+        "matched_carrying_undeclared_ambiguity_codes": 0,
+        "matched_observations": 9,
+        "missed_observations": 11,
         "model_abstentions": 43,
         "model_abstentions_by_code": {
           "DEFINITIONAL_NOT_OBSERVATIONAL": 12,
@@ -6516,20 +6158,21 @@
         "model_chosen_abstentions": 39,
         "ontology_errors": 0,
         "ontology_errors_distinct": 0,
-        "ontology_warnings": 15,
-        "ontology_warnings_distinct": 10,
+        "ontology_warnings": 14,
+        "ontology_warnings_distinct": 9,
         "period_attribution": {
           "chose_comparative": 1,
-          "claims": 23,
+          "claims": 20,
           "label_in_evidence": 5,
           "max_distance_from_evidence": 1354,
           "sentence_states_its_own_period": 18
         },
-        "rejected_claims": 45,
+        "rejected_claims": 48,
         "rejections_by_code": {
           "AMBIGUOUS_ALIAS": 3,
           "DEFERRED_REQUIRED_SOURCE_LANE": 18,
-          "MISSING_PERIOD": 11,
+          "MISSING_PERIOD": 5,
+          "PERIOD_NOT_GROUNDED_IN_PASSAGE": 9,
           "QUOTED_SPAN_NOT_IN_PASSAGE": 10,
           "UNIT_CONTRADICTS_ONTOLOGY": 1,
           "VALUE_CONTRADICTS_QUOTED_TEXT": 2
@@ -6539,31 +6182,31 @@
           "abstention_honoured_rate": 15,
           "ambiguity_codes_accuracy": 3,
           "ambiguity_preserved_rate": 1,
-          "evidence_accuracy": 11,
-          "matched_over_distinct_emitted": 17,
-          "matched_over_emitted": 23,
+          "evidence_accuracy": 9,
+          "matched_over_distinct_emitted": 14,
+          "matched_over_emitted": 20,
           "metric_identity_accuracy": 20,
-          "period_accuracy": 11,
-          "population_accuracy": 4,
-          "scale_accuracy": 11,
-          "subject_accuracy": 11,
-          "unit_accuracy": 11,
-          "value_accuracy": 11
+          "period_accuracy": 9,
+          "population_accuracy": 3,
+          "scale_accuracy": 9,
+          "subject_accuracy": 9,
+          "unit_accuracy": 9,
+          "value_accuracy": 9
         },
         "score_numerators": {
           "abstention_code_agreement": 1,
           "abstention_honoured_rate": 14,
           "ambiguity_codes_accuracy": 3,
           "ambiguity_preserved_rate": 0,
-          "evidence_accuracy": 11,
-          "matched_over_distinct_emitted": 11,
-          "matched_over_emitted": 11,
-          "metric_identity_accuracy": 11,
-          "period_accuracy": 11,
+          "evidence_accuracy": 9,
+          "matched_over_distinct_emitted": 9,
+          "matched_over_emitted": 9,
+          "metric_identity_accuracy": 9,
+          "period_accuracy": 9,
           "population_accuracy": 0,
-          "scale_accuracy": 11,
-          "subject_accuracy": 11,
-          "unit_accuracy": 11,
+          "scale_accuracy": 9,
+          "subject_accuracy": 9,
+          "unit_accuracy": 9,
           "value_accuracy": 9
         },
         "scores": {
@@ -6572,17 +6215,17 @@
           "ambiguity_codes_accuracy": 1.0,
           "ambiguity_preserved_rate": 0.0,
           "evidence_accuracy": 1.0,
-          "matched_over_distinct_emitted": 0.647059,
-          "matched_over_emitted": 0.478261,
-          "metric_identity_accuracy": 0.55,
+          "matched_over_distinct_emitted": 0.642857,
+          "matched_over_emitted": 0.45,
+          "metric_identity_accuracy": 0.45,
           "period_accuracy": 1.0,
           "population_accuracy": 0.0,
           "scale_accuracy": 1.0,
           "subject_accuracy": 1.0,
           "unit_accuracy": 1.0,
-          "value_accuracy": 0.818182
+          "value_accuracy": 1.0
         },
-        "unrequired_observations": 12
+        "unrequired_observations": 11
       }
     }
   }

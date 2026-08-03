@@ -12873,7 +12873,7 @@
       ]
     }
   ],
-  "implementation_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+  "implementation_commit": "c59818e4a775103c94f3438306c051b66ef54387",
   "known_misses": [
     {
       "candidate_concept_ids": [
@@ -12931,7 +12931,7 @@
     "passages": 12442,
     "table_passages": 1935
   },
-  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
   "score_caveats": [
     {
       "detail": "V1_CLAIM_EXTRACTION §4.0 names eight dimensions scored independently and this report scores seven of them: metric_recall, matched_over_emitted and the six per-match dimensions. No score, per case or in total, is named for ambiguity. The table cases do declare expected abstentions and the lane does record AMBIGUOUS_ALIAS, so it is measurable here and simply is not measured. narrative_lane_v1.json scores all of them and states each denominator.",

@@ -190,7 +190,7 @@
     "properties_wrong",
     "silence_broken"
   ],
-  "implementation_commit": "4d3ae1e8e2b90356932a33c6b611e444d1396faa",
+  "implementation_commit": "c59818e4a775103c94f3438306c051b66ef54387",
   "lane": {
     "name": "normalized_narrative_events",
     "prompt_version": "1.0.0",
@@ -210,7 +210,7 @@
     "passages": 12442,
     "table_passages": 1935
   },
-  "ontology_definition_hash": "e8d4af709be275c679210bbebe174354f52e621f0363566e928fad47945ba8bc",
+  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
   "review_questions": [
     {
       "case_id": "event-executive-change-ceo-2025",
