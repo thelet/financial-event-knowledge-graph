@@ -165,7 +165,24 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Rollback** | delete the stage |
 | **Commit** | one |
 | **Review** | adversarial retrieval reviewer before acceptance |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED (pending R1 + adversarial review)** 2026-08-03 |
+| **Commit hash** | `99ed12a` |
+| **Delivered** | 3,056 lines across 8 files; 9 tools + 3 `Unavailable` stubs; 65 offline + 24 neo4j + 239 structural-scan cases |
+| **Orchestrator validation** | scope: 8 files, all its own · import cycle **resolved** (structure suite 168 passed) · found and correctly refused to paper over a defect in accepted work (see R1) |
+| **Notable** | `OBSERVATION_OF_SUBJECT` appears in **no statement at all** — stronger than the rule I specified; subject identity read from `Observation.subject_entity_id` · truncation is arithmetic, not trust: each query asks `max_rows + 1` and the extra row's arrival is the only evidence of cutting · `find_counter_evidence` joins at **document** grain, measured — passage grain returns 0 rows for the 2022Q3 metrics because the refusals sit in neighbouring tables of the same filing · Lucene reserved *words* quoted case-insensitively, wider than Lucene's own rule, because silent evidence suppression is the costlier mistake |
+
+### R1 — Repair: unbounded read, flaky test *(fresh agent, not a step)*
+
+| | |
+| --- | --- |
+| **Trigger** | S1 found `story/stages/freshness/loaded_graph.py::LOAD_MARKERS` (S0b, accepted at `54a4287`) has **no `LIMIT`** and no bounding aggregate, violating §16's own rule in the stage that runs before every command. It left the test **failing rather than exempting** a sibling's code — the correct call. Orchestrator confirmed: `graph/stages/load/lifecycle.py:101` states *"Concurrency is out of scope and unguarded: `:GraphLoad` carries no uniqueness constraint"*, and `schema.py` has none. Markers accumulate one per load; exactly one exists today, which is why S0b's own tests passed |
+| **Also** | `test_the_timeout_is_applied_by_the_server_and_not_by_the_client` is **flaky** — orchestrator measured 5/5 pass in isolation, fails under full-suite load. It races a 0.001 s server timeout against a possibly-warm plan |
+| **Founder constraint** | **Smallest correct fix, no scope expansion.** `LIMIT 2` only if the code already needs to detect more than one marker, else `LIMIT 1`. **No lifecycle redesign, no new marker concepts, no new refusal code.** Current freshness behaviour preserved. **One** focused regression test. For the flake: **no wall-clock race** — a fake/recording driver asserting the configured timeout reaches the query execution call; any live timeout test stays optional and `neo4j`-marked |
+| **Owns** | `story/stages/freshness/*` `tests/story/test_story_freshness.py` `tests/story/test_story_neo4j_adapter.py` |
+| **Acceptance** | both failures green, nothing else broken, full `tests/story/` green **three consecutive times** |
+| **Status** | RUNNING |
+
+**Orchestrator note, recorded against myself.** My R1 packet invited the scope creep the founder then had to rule out — it asked the agent to decide whether a multi-marker graph "is itself a fact worth refusing on", which opens a new refusal code and new marker semantics for a defect whose fix is one token. The founder's constraint is narrower and correct. Corrected mid-flight.
 
 ### S2 — Canonical series and comparability
 
@@ -233,7 +250,7 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Commit hash** | `1a5d716` |
 | **Delivered** | 2,229 lines across 7 files; `StoryOpenAICompatibleProvider`, `GenerationStore`, `portable_schema` |
 | **Orchestrator validation** | scope: 0 files outside its 7 paths · `87 passed, 2 skipped` · `pyproject.toml` untouched · **reproduced the digest-collision finding myself** — the naive `\x1f` join gives one digest for `('planner\x1f','write')` and `('planner','\x1fwrite')`; story's does not, and personas separate |
-| **Live model server** | **NOT RUNNING** — nothing on `127.0.0.1:8080` or `:8081`, verified by me. Both live tests skip cleanly, which is the designed outcome. **The wire contract is proven only against `httpx.MockTransport`**; the nested `response_format` and two-turn shape are unverified against a running llama.cpp |
+| **Live model server** | **VERIFIED 2026-08-03** after the founder started it. S6's two live tests now **pass** rather than skip: a real schema-constrained generation with `schema_violations(...) == []`, `finish_reason == "stop"`, `attempts == 1`. The orchestrator then ran an independent probe through the provider with real graph values — `+218,000,000` (2022Q2) → `−211,000,000` (2022Q3) — and got `{"direction":"decrease","crossed_zero":true,"magnitude_usd_millions":429}` in 0.92 s, 132 tokens, off `Qwen3.5-9B-Q4_K_M.gguf`. **The wire contract is now proven against a real llama.cpp**, not only `httpx.MockTransport`: the nested `response_format` is honoured and the two-turn `system`/`prompt` split is accepted. *(The `429` is a wire test, not a licence — §13.9 requires a published magnitude to come from a deterministic `Calculation` over two bound observation ids, never from the model.)* |
 
 ### S7 — Editorial planner · S8 — Constrained writer
 
@@ -423,7 +440,7 @@ This is exactly how `tests/graph/test_graph_package_structure.py` scopes the sam
 | # | Question | Status |
 | --- | --- | --- |
 | D1 | Neo4j connection boundary | **RESOLVED** — see §7 |
-| G1 | **The local llama.cpp server is not running** (`:8080` and `:8081` both refused, verified 2026-08-03). S12's spike will therefore run against recorded model responses only, and the provider's wire contract stays proven against `httpx.MockTransport` rather than a real server | **OPEN — founder's call.** Implementation proceeds; nothing is blocked. Starting the server would let S12 additionally report a real local-model run |
+| G1 | The local llama.cpp server was not running | **CLOSED 2026-08-03.** Founder started it. `:8080` returns `{"status":"ok"}` serving `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf` — verified by the orchestrator. `:8081` (embeddings) remains down and is **irrelevant**: embeddings are deferred from V1. S6's two live tests can now run instead of skipping, and S12 can report a real local-Qwen run alongside the recorded one |
 
 ---
 
