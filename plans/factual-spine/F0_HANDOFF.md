@@ -81,13 +81,24 @@ All existing ids reproduce unchanged (2,704/0 mismatches via
 `graph.core.derivation.mismatched_observation_ids`). 27 tests.
 
 ### Part D — ontology ⚠️ landed but unverified by me
-`AssertionType.GUIDED`, typed guidance range, future-period invariant, new source lanes, and 9 new
-ontology example fixtures. **The agent's report never reached me — verify D's work yourself.**
+`AssertionType.GUIDED` is present in `ontology/core/values.py`, and 9 new ontology example
+fixtures exist (`examples/valid/13-16*`, `examples/invalid/13-17*`) covering guidance ranges,
+qualitative guidance, reporting lag at the measured maximum, a guided future period, and a
+reported observation of a future period. Typed guidance range, future-period invariant and new
+source lanes are believed done. **The agent was stopped before reporting — verify all of it
+yourself, and confirm the ontology still loads and every example behaves as declared.**
 
-### Part E — graph projection ❓ WAS STILL RUNNING when context ran out
-Owns: non-passage evidence projection, ontology instance-property projection, loader/schema
-allowlists, and the stale pinned corpus counts in `tests/graph/`.
-**Check whether it finished. Assume it did not.**
+### Part E — graph projection ❌ NOT STARTED — this is your first task
+Confirmed by inspection after the agent was stopped: `graph/stages/projection/nodes.py` contains
+**no** instance-property projection and **no** evidence-source node (0 markers). Nothing of Part E
+landed. It still owns, in full:
+- non-passage evidence projection — and note Agent B's warning that
+  `graph/stages/projection/edges.py:410,525-540` still dereferences `row.passage_id`
+  unconditionally and will `AttributeError` on the new row shapes;
+- ontology instance-property projection (`cik`, `tickers`, `exchange`, `mic` are declared and
+  silently dropped, ~line 613);
+- `loader.CONCRETE_LABELS` and `schema.CONSTRAINED_RELATIONSHIP_TYPES` allowlists;
+- the stale pinned corpus counts in `tests/graph/` listed in §5.
 
 ---
 
