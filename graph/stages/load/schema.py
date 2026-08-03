@@ -11,6 +11,9 @@ is what lets `graph load` be re-run without a wipe.
 
     REQUIRE n.x IS UNIQUE     accepted; creates a UNIQUENESS constraint plus a backing RANGE
                               index that takes the constraint's own name
+    REQUIRE r.x IS UNIQUE     **accepted** on a relationship pattern too, `FOR ()-[r:T]-()`;
+    (relationship)            `SHOW CONSTRAINTS` reports type `RELATIONSHIP_UNIQUENESS`
+                              *(probed 2026-08-03 on `:PLACEHOLDER_FOR` and dropped again)*
     REQUIRE n.x IS NODE KEY   refused, Neo.DatabaseError.Schema.ConstraintCreationFailed —
                               "Node Key constraint requires Neo4j Enterprise Edition"
     REQUIRE n.x IS NOT NULL   refused, Neo.DatabaseError.Schema.ConstraintCreationFailed —
@@ -23,6 +26,15 @@ they raise even for a constraint that does not exist — and the refusal arrives
 `DatabaseError`, not a `ClientError`, so "unsupported feature" and "server broke" share a
 class here. Hence the module offers uniqueness only; NOT NULL stays enforced by the projection
 models and re-checked by a post-load assertion, exactly as §5.1 planned for.
+
+**The relationship row of that table was added on 2026-08-03 after review, and it changed the
+design.** §5.1 had probed four node-side capabilities and generalised from them that Community
+offers node uniqueness; nobody had asked the server about a relationship. It answers yes. Until
+then `edge_key` was protected by `MERGE` semantics alone, which are scoped to one
+`(source, target)` pair — so two relationships of one type could carry the same `edge_key`
+between different pairs and the database had no opinion. §5.2's constraint set is therefore 19
+objects, not 7: seven node keys and twelve `edge_key` constraints, one per §3.2 relationship
+type.
 
 No APOC (§6.3). Nothing below is a procedure call except `db.awaitIndexes`, which ships with
 the server.
@@ -47,6 +59,38 @@ KEY_PROPERTIES: dict[str, str] = {label: f"{label.lower()}_id" for label in BASE
 #: (constraint name, label). The names are §5.2's.
 CONSTRAINTS: tuple[tuple[str, str], ...] = tuple(
     (f"{label.lower()}_key", label) for label in sorted(BASE_LABELS)
+)
+
+#: The property every projected relationship is identified by, set by `loader.edge_statement`'s
+#: `MERGE (s)-[r:T {edge_key: row.edge_key}]->(t)`. Named here because the constraints below are
+#: on it, and the loader reads the same constant back for its allowlist.
+EDGE_KEY_PROPERTY = "edge_key"
+
+#: §3.2's closed set of twelve relationship types, which is also the set the loader will submit
+#: (`loader.ALLOWED_RELATIONSHIP_TYPES` is this tuple). One relationship uniqueness constraint
+#: is created per type: Neo4j scopes a relationship constraint to a single type, so there is no
+#: "any relationship" form to write, and a type absent from this list would load with its
+#: `edge_key` unprotected.
+CONSTRAINED_RELATIONSHIP_TYPES: tuple[str, ...] = (
+    "BORROWS_UNDER",
+    "CONCERNS_METRIC",
+    "DISTINCT_FROM",
+    "EVIDENCED_BY",
+    "FOUND_IN",
+    "HAS_OBSERVATION",
+    "HOLDS_POSITION_AT",
+    "OBSERVATION_OF_SUBJECT",
+    "PARTICIPATES_IN",
+    "PART_OF",
+    "PLACEHOLDER_FOR",
+    "RECONCILES_TO",
+)
+
+#: (constraint name, relationship type). Lower-cased type plus `_edge_key`, so the names sort
+#: beside §5.2's node constraints and say what they protect.
+RELATIONSHIP_CONSTRAINTS: tuple[tuple[str, str], ...] = tuple(
+    (f"{relationship_type.lower()}_edge_key", relationship_type)
+    for relationship_type in CONSTRAINED_RELATIONSHIP_TYPES
 )
 
 #: (index name, label, property). §5.3's list, **with every property name checked against the
@@ -76,16 +120,30 @@ FULLTEXT_INDEXES: tuple[tuple[str, str, str], ...] = (
     ("passage_text", "Passage", "text"),
 )
 
-CONSTRAINT_NAMES = tuple(name for name, _ in CONSTRAINTS)
+NODE_CONSTRAINT_NAMES = tuple(name for name, _ in CONSTRAINTS)
+RELATIONSHIP_CONSTRAINT_NAMES = tuple(name for name, _ in RELATIONSHIP_CONSTRAINTS)
+CONSTRAINT_NAMES = NODE_CONSTRAINT_NAMES + RELATIONSHIP_CONSTRAINT_NAMES
 INDEX_NAMES = tuple(name for name, _, _ in INDEXES + FULLTEXT_INDEXES)
 
 
 def constraint_statements() -> tuple[str, ...]:
-    return tuple(
+    """The seven node-key constraints, then the twelve relationship `edge_key` ones.
+
+    The relationship form is written **undirected** (`FOR ()-[r:T]-()`), which is the only form
+    the parser accepts — a directed pattern is a syntax error — and it is also the reading that
+    is wanted: `edge_key` identifies the relationship, not the direction it happens to point.
+    """
+    nodes = tuple(
         f"CREATE CONSTRAINT {name} IF NOT EXISTS "
         f"FOR (n:{label}) REQUIRE n.{KEY_PROPERTIES[label]} IS UNIQUE"
         for name, label in CONSTRAINTS
     )
+    relationships = tuple(
+        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+        f"FOR ()-[r:{relationship_type}]-() REQUIRE r.{EDGE_KEY_PROPERTY} IS UNIQUE"
+        for name, relationship_type in RELATIONSHIP_CONSTRAINTS
+    )
+    return nodes + relationships
 
 
 def index_statements() -> tuple[str, ...]:
@@ -115,13 +173,21 @@ class SchemaState:
     want only this module's objects filter on `CONSTRAINT_NAMES` / `INDEX_NAMES`.
     """
 
-    #: (name, label, property), sorted.
-    constraints: tuple[tuple[str, str, str], ...]
+    #: (name, entity type, label or relationship type, property), sorted. `entityType` comes
+    #: from the server rather than from this module's naming convention, so "is this constraint
+    #: on a node or on a relationship" is read back rather than assumed.
+    constraints: tuple[tuple[str, str, str, str], ...]
     #: (name, index type, label or '', property or ''), sorted.
     indexes: tuple[tuple[str, str, str, str], ...]
 
-    def managed_constraints(self) -> tuple[tuple[str, str, str], ...]:
+    def managed_constraints(self) -> tuple[tuple[str, str, str, str], ...]:
         return tuple(row for row in self.constraints if row[0] in CONSTRAINT_NAMES)
+
+    def managed_node_constraints(self) -> tuple[tuple[str, str, str, str], ...]:
+        return tuple(row for row in self.managed_constraints() if row[1] == "NODE")
+
+    def managed_relationship_constraints(self) -> tuple[tuple[str, str, str, str], ...]:
+        return tuple(row for row in self.managed_constraints() if row[1] == "RELATIONSHIP")
 
     def managed_indexes(self) -> tuple[tuple[str, str, str, str], ...]:
         return tuple(row for row in self.indexes if row[0] in INDEX_NAMES)
@@ -136,8 +202,8 @@ def read_schema(driver: Driver, settings: GraphSettings) -> SchemaState:
     database = settings.resolved_database
     constraints, _, _ = driver.execute_query(
         settings.query(
-            "SHOW CONSTRAINTS YIELD name, labelsOrTypes, properties "
-            "RETURN name, labelsOrTypes, properties"
+            "SHOW CONSTRAINTS YIELD name, entityType, labelsOrTypes, properties "
+            "RETURN name, entityType, labelsOrTypes, properties"
         ),
         database_=database,
     )
@@ -150,7 +216,7 @@ def read_schema(driver: Driver, settings: GraphSettings) -> SchemaState:
     )
     return SchemaState(
         constraints=tuple(sorted(
-            (row["name"], _one(row["labelsOrTypes"]), _one(row["properties"]))
+            (row["name"], row["entityType"], _one(row["labelsOrTypes"]), _one(row["properties"]))
             for row in constraints
         )),
         indexes=tuple(sorted(
@@ -193,12 +259,17 @@ def await_indexes(driver: Driver, settings: GraphSettings, timeout_seconds: int 
 
 
 __all__ = [
+    "CONSTRAINED_RELATIONSHIP_TYPES",
     "CONSTRAINTS",
     "CONSTRAINT_NAMES",
+    "EDGE_KEY_PROPERTY",
     "FULLTEXT_INDEXES",
     "INDEXES",
     "INDEX_NAMES",
     "KEY_PROPERTIES",
+    "NODE_CONSTRAINT_NAMES",
+    "RELATIONSHIP_CONSTRAINTS",
+    "RELATIONSHIP_CONSTRAINT_NAMES",
     "SchemaState",
     "apply_schema",
     "await_indexes",

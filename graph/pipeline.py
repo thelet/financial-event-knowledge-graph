@@ -5,6 +5,17 @@ warnings, project, check, write. Every step is one call into `graph.core` or
 `graph.stages.projection`; no rule about nodes, edges, keys or catalogs is stated here, which
 is the property that lets the projection be tested without ever building a directory.
 
+**Three verbs, and only the first has no database.** `project` writes the export; `load` puts
+one into Neo4j; `verify` reads one back and reconciles it. `load` and `verify` own exactly two
+things the stages below them deliberately do not: opening and closing the driver, and reading
+`manifest.json` to learn which `graph_run_id` a directory holds. Everything else is one call
+into `graph.stages.load`.
+
+The driver is opened here rather than in `cli.py` so a caller with no terminal — a test, a
+notebook — gets the same ordering, and closed in a `with` so a refusal in the middle of a load
+does not leak a connection. `graph/stages/load/connection.py` is still the only module that
+*constructs* one (§11).
+
 **Two orderings are load-bearing and neither is incidental.**
 
 *Warnings before nodes.* `reconcile_warnings` runs before `build_nodes`, which reconciles again
@@ -27,12 +38,14 @@ did not finish.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .context import GraphContext
 from .core.inputs import ExtractionRunInputs, load_run
+from .core.verification_report import VerificationReport
 from .core.manifest import (
     GraphRunManifest,
     build_counts,
@@ -63,6 +76,10 @@ from .stages.projection.export import (
     render_rejections,
     write_artifacts,
 )
+from .stages.load.connection import GraphSettings, driver_for, load_settings
+from .stages.load.lifecycle import LoadOutcome, load_graph_run
+from .stages.load.reader import read_export
+from .stages.load.verification import raise_for_failures, verify_graph
 
 
 @dataclass(frozen=True)
@@ -192,4 +209,85 @@ def project(
         written=written)
 
 
-__all__ = ["ProjectionOutcome", "graph_run_id_for", "project"]
+# -- the two verbs that need a database (§6.1) ---------------------------------------------------
+
+
+def resolve_export(directory: Path | str, *, settings: GraphSettings | None = None) -> Path:
+    """An export directory, given either a path or a bare `graph_run_id`.
+
+    The same two spellings `GraphContext.resolve_extraction_run` accepts, for the same reason: a
+    shell tab-completes the path and a manifest records the id. `graph_runs_root` comes from
+    `config/graph.yaml` rather than from `GraphContext`, because `load` and `verify` are already
+    holding settings for the connection and a second source for one directory name is a second
+    answer.
+    """
+    candidate = Path(directory)
+    if (candidate / MANIFEST_FILENAME).is_file() or candidate.is_dir():
+        return candidate
+    root = (settings or load_settings()).graph_runs_root
+    return root / str(directory)
+
+
+def export_run_id(directory: Path) -> str:
+    """The `graph_run_id` a finished export claims, read from its completion marker.
+
+    `manifest.json` and not the directory name: the name is what somebody typed, the manifest is
+    what the projection wrote last (§6.5). A directory with no manifest did not finish, and
+    loading it would put a half-projection in the database — so this raises rather than falling
+    back to the name. `lifecycle.check_export_run_identity` then re-checks the answer against
+    every row before anything is written.
+    """
+    path = directory / MANIFEST_FILENAME
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{path} does not exist; that projection did not finish (§6.5) and must not be loaded"
+        )
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    run_id = str(manifest.get("graph_run_id", "")).strip()
+    if not run_id:
+        raise ValueError(f"{path} declares no graph_run_id")
+    return run_id
+
+
+def load(directory: Path | str, *, replace: bool = False) -> LoadOutcome:
+    """Read one export and load it, wiping first only if `replace` was explicitly asked for.
+
+    Ordering, which is all this function owns: resolve the directory, read the manifest for the
+    run id, read both artifacts through the strict reader (a malformed property must be refused
+    before a connection is opened, not after 20,000 nodes), *then* open the driver and hand the
+    whole thing to `lifecycle.load_graph_run`, which owns the rest.
+    """
+    settings = load_settings()
+    export = resolve_export(directory, settings=settings)
+    graph_run_id = export_run_id(export)
+    contents = read_export(export)
+    with driver_for(settings) as driver:
+        return load_graph_run(
+            driver, settings, graph_run_id, contents.nodes, contents.edges, replace=replace
+        )
+
+
+def verify(directory: Path | str) -> VerificationReport:
+    """§10's sweep over the loaded graph, against the export it claims to hold.
+
+    Returns the report rather than raising, so a caller can print every failing criterion; the
+    CLI calls `raise_for_failures` after printing. Read-only — nothing here writes to the
+    database, including no completion marker.
+    """
+    settings = load_settings()
+    export = resolve_export(directory, settings=settings)
+    contents = read_export(export)
+    with driver_for(settings) as driver:
+        return verify_graph(driver, settings, contents.nodes, contents.edges)
+
+
+__all__ = [
+    "ProjectionOutcome",
+    "export_run_id",
+    "graph_run_id_for",
+    "load",
+    "project",
+    "raise_for_failures",
+    "resolve_export",
+    "verify",
+]

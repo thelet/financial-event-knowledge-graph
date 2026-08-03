@@ -38,11 +38,15 @@ from graph.stages.load.connection import (
     read_env_file,
 )
 from graph.stages.load.schema import (
+    CONSTRAINED_RELATIONSHIP_TYPES,
     CONSTRAINT_NAMES,
+    EDGE_KEY_PROPERTY,
     FULLTEXT_INDEXES,
     INDEXES,
     INDEX_NAMES,
     KEY_PROPERTIES,
+    NODE_CONSTRAINT_NAMES,
+    RELATIONSHIP_CONSTRAINT_NAMES,
     apply_schema,
     await_indexes,
     constraint_statements,
@@ -57,13 +61,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: `BASE_LABELS`; a test that derived them the same way would only prove the derivation equals
 #: itself, so the plan's own table is transcribed here and compared against the code.
 EXPECTED_CONSTRAINTS = {
-    ("entity_key", "Entity", "entity_id"),
-    ("observation_key", "Observation", "observation_id"),
-    ("event_key", "Event", "event_id"),
-    ("metric_key", "Metric", "metric_id"),
-    ("passage_key", "Passage", "passage_id"),
-    ("document_key", "Document", "document_id"),
-    ("issue_key", "Issue", "issue_id"),
+    ("entity_key", "NODE", "Entity", "entity_id"),
+    ("observation_key", "NODE", "Observation", "observation_id"),
+    ("event_key", "NODE", "Event", "event_id"),
+    ("metric_key", "NODE", "Metric", "metric_id"),
+    ("passage_key", "NODE", "Passage", "passage_id"),
+    ("document_key", "NODE", "Document", "document_id"),
+    ("issue_key", "NODE", "Issue", "issue_id"),
+}
+
+#: §5.2's relationship half, transcribed the same way: one `edge_key` uniqueness constraint per
+#: §3.2 relationship type. Written out rather than derived from
+#: `CONSTRAINED_RELATIONSHIP_TYPES`, so a type quietly dropped from that tuple fails here.
+EXPECTED_RELATIONSHIP_CONSTRAINTS = {
+    (f"{relationship_type.lower()}_edge_key", "RELATIONSHIP", relationship_type, "edge_key")
+    for relationship_type in (
+        "BORROWS_UNDER", "CONCERNS_METRIC", "DISTINCT_FROM", "EVIDENCED_BY", "FOUND_IN",
+        "HAS_OBSERVATION", "HOLDS_POSITION_AT", "OBSERVATION_OF_SUBJECT", "PARTICIPATES_IN",
+        "PART_OF", "PLACEHOLDER_FOR", "RECONCILES_TO",
+    )
 }
 
 #: Names that would mean a credential had been written into a tracked file.
@@ -225,6 +241,32 @@ def test_the_driver_factory_refuses_an_unresolved_target():
         driver_for(settings_for_test(configured_database=""))
 
 
+def test_the_real_config_with_no_env_file_names_a_target_but_cannot_reach_it(tmp_path):
+    """The path the other tests never covered: the **committed** config, no `.env`, empty environ.
+
+    The tests above use a blank environment variable or a synthetic tmp config, and both make
+    `resolved_uri` raise. Neither is the situation `connection.py`'s docstring was making a claim
+    about — a fresh checkout on a machine with no `.env` — and in that situation the claim was
+    wrong: the URI and the database resolve happily, from `config/graph.yaml`. Asserted here in
+    both directions, because the docstring now says exactly this and a docstring nothing executes
+    is a docstring that drifts.
+    """
+    settings = load_settings(env_path=tmp_path / "there-is-no-env-file", environ={})
+
+    # A target *is* resolved — from a tracked file somebody committed, which is what a default in
+    # a config file is for. It is not the driver picking one.
+    assert settings.resolved_uri == "bolt://localhost:7687"
+    assert settings.resolved_database == "neo4j"
+    assert settings.user is None and settings.password is None
+
+    # And the destructive path is still shut, because credentials may only come from the
+    # environment (§5.1) and `driver_for` reads them before it constructs anything.
+    with pytest.raises(MissingGraphCredentialError):
+        settings.auth
+    with pytest.raises(MissingGraphCredentialError):
+        driver_for(settings)
+
+
 def test_a_missing_credential_is_its_own_error():
     with pytest.raises(MissingGraphCredentialError):
         settings_for_test(user=None, password=None).auth
@@ -261,20 +303,56 @@ def test_an_exception_from_an_unresolved_target_carries_no_password():
 
 
 def test_there_is_one_constraint_per_base_label_and_no_more():
-    assert len(CONSTRAINT_NAMES) == len(BASE_LABELS) == 7
+    assert len(NODE_CONSTRAINT_NAMES) == len(BASE_LABELS) == 7
     assert set(KEY_PROPERTIES) == set(BASE_LABELS)
 
 
-def test_the_seven_constraints_are_the_ones_the_plan_names():
+def test_there_is_one_edge_key_constraint_per_relationship_type_and_no_more():
+    """§5.2's relationship half. A type on the loader's allowlist with no constraint here would
+    load with its `edge_key` unprotected, which is the state this review found."""
+    from graph.stages.load.loader import ALLOWED_RELATIONSHIP_TYPES
+
+    assert len(RELATIONSHIP_CONSTRAINT_NAMES) == len(CONSTRAINED_RELATIONSHIP_TYPES) == 12
+    assert set(ALLOWED_RELATIONSHIP_TYPES) == set(CONSTRAINED_RELATIONSHIP_TYPES)
+    assert len(CONSTRAINT_NAMES) == len(set(CONSTRAINT_NAMES)) == 19
+
+
+def test_the_seven_node_constraints_are_the_ones_the_plan_names():
     pattern = re.compile(
         r"CREATE CONSTRAINT (\w+) IF NOT EXISTS FOR \(n:(\w+)\) REQUIRE n\.(\w+) IS UNIQUE$"
     )
     parsed = set()
     for statement in constraint_statements():
         match = pattern.match(statement)
-        assert match is not None, statement
-        parsed.add(match.groups())
+        if match is None:
+            continue
+        name, label, prop = match.groups()
+        parsed.add((name, "NODE", label, prop))
     assert parsed == EXPECTED_CONSTRAINTS
+
+
+def test_the_twelve_relationship_constraints_are_undirected_and_on_edge_key():
+    """The pattern must be `()-[r:T]-()`: a *directed* one is a syntax error on 5.26.28, and
+    `edge_key` identifies the relationship rather than the direction it points."""
+    pattern = re.compile(
+        r"CREATE CONSTRAINT (\w+) IF NOT EXISTS FOR \(\)-\[r:(\w+)\]-\(\) "
+        r"REQUIRE r\.(\w+) IS UNIQUE$"
+    )
+    parsed = set()
+    for statement in constraint_statements():
+        match = pattern.match(statement)
+        if match is None:
+            continue
+        name, relationship_type, prop = match.groups()
+        assert prop == EDGE_KEY_PROPERTY
+        parsed.add((name, "RELATIONSHIP", relationship_type, prop))
+    assert parsed == EXPECTED_RELATIONSHIP_CONSTRAINTS
+    assert not [s for s in constraint_statements() if "]->()" in s], "a directed pattern is refused"
+
+
+def test_every_constraint_statement_is_one_of_the_two_shapes():
+    """No third shape slipped in: 19 statements, 7 node and 12 relationship, nothing else."""
+    assert len(constraint_statements()) == 19
 
 
 def test_every_statement_is_idempotent_by_construction():
@@ -418,17 +496,65 @@ def test_applying_the_schema_twice_leaves_exactly_one_of_each(live_driver):
     assert first == second, "the schema is not idempotent"
 
     assert {row[0] for row in second.managed_constraints()} == set(CONSTRAINT_NAMES)
-    assert len(second.managed_constraints()) == 7
+    assert len(second.managed_constraints()) == 19
+    assert len(second.managed_node_constraints()) == 7
+    assert len(second.managed_relationship_constraints()) == 12
     assert {row[0] for row in second.managed_indexes()} == set(INDEX_NAMES)
     assert len(second.managed_indexes()) == 9
 
 
 @pytest.mark.neo4j
-def test_the_seven_constraints_are_on_the_right_label_and_property(live_driver):
+def test_the_nineteen_constraints_are_on_the_right_label_type_and_property(live_driver):
     driver, settings = live_driver
     apply_schema(driver, settings)
     state = read_schema(driver, settings)
-    assert set(state.managed_constraints()) == EXPECTED_CONSTRAINTS
+    assert set(state.managed_node_constraints()) == EXPECTED_CONSTRAINTS
+    assert set(state.managed_relationship_constraints()) == EXPECTED_RELATIONSHIP_CONSTRAINTS
+    # `entityType` is the server's own word, not this module's naming convention.
+    assert {row[1] for row in state.managed_constraints()} == {"NODE", "RELATIONSHIP"}
+
+
+@pytest.mark.neo4j
+def test_community_accepts_a_relationship_uniqueness_constraint_and_enforces_it(live_driver):
+    """The §5.1 correction, executed on the server that had never been asked.
+
+    Community was assumed to offer node uniqueness only, because the G0 probe pass tried four
+    node-side forms and no relationship one. It accepts `FOR ()-[r:T]-() REQUIRE r.x IS UNIQUE`,
+    reports it as `RELATIONSHIP_UNIQUENESS`, and — the part that matters — **refuses a duplicate
+    between two different endpoint pairs**, which is exactly the case `MERGE` semantics cannot
+    cover: `MERGE` is scoped to one (source, target) pair, so two `EVIDENCED_BY` edges sharing an
+    `edge_key` between different pairs used to coexist happily.
+    """
+    from neo4j.exceptions import ConstraintError
+
+    driver, settings = live_driver
+    apply_schema(driver, settings)
+    database = settings.resolved_database
+    probe_edge_key = "__schema_probe__duplicate_edge_key"
+    seed = (
+        "CREATE (a:Passage {passage_id: $a}), (b:Passage {passage_id: $b}), "
+        "(c:Document {document_id: $c}), (d:Document {document_id: $d})"
+    )
+    keys = {"a": "__probe__p1", "b": "__probe__p2", "c": "__probe__d1", "d": "__probe__d2"}
+    try:
+        driver.execute_query(seed, keys, database_=database)
+        driver.execute_query(
+            "MATCH (a:Passage {passage_id: $a}), (c:Document {document_id: $c}) "
+            "CREATE (a)-[:PART_OF {edge_key: $k}]->(c)",
+            {**keys, "k": probe_edge_key}, database_=database,
+        )
+        with pytest.raises(ConstraintError):
+            driver.execute_query(
+                "MATCH (b:Passage {passage_id: $b}), (d:Document {document_id: $d}) "
+                "CREATE (b)-[:PART_OF {edge_key: $k}]->(d)",
+                {**keys, "k": probe_edge_key}, database_=database,
+            )
+    finally:
+        driver.execute_query(
+            "MATCH (n) WHERE n.passage_id IN $p OR n.document_id IN $d DETACH DELETE n",
+            {"p": [keys["a"], keys["b"]], "d": [keys["c"], keys["d"]]},
+            database_=database,
+        )
 
 
 @pytest.mark.neo4j

@@ -7,11 +7,27 @@ turn `config/graph.yaml` plus the environment into a `GraphSettings`, and hand b
 `graph/stages/load/`, and confining it to one *file* inside that package is what makes
 "nothing else opens a connection" checkable by reading one import line.
 
-**Absent configuration is never a default here.** `resolved_uri` and `resolved_database`
-raise rather than fall back, and `driver_for` reads both before it constructs anything. The
-reason is §6.2's wipe: `MATCH (n) DETACH DELETE n` against "whatever the driver defaults to"
-is a destructive operation aimed at an address nobody chose. A target that cannot be named is
-an error at the boundary, so the destructive stage downstream cannot inherit a guess.
+**What "never a default" does and does not mean here** *(corrected 2026-08-03 after review; the
+paragraph this replaces claimed more than the code delivers)*. `resolved_uri` and
+`resolved_database` refuse to fall back to *the driver's* default, and `driver_for` reads both
+before it constructs anything. The reason is §6.2's wipe: `MATCH (n) DETACH DELETE n` against
+"whatever the driver defaults to" is a destructive operation aimed at an address nobody chose.
+
+But a value **is** resolved from `config/graph.yaml` when nothing in the environment names one,
+and that is by design rather than an oversight: on a machine with no `.env` and an empty
+environ, `resolved_uri` is `bolt://localhost:7687` and `resolved_database` is `neo4j`, straight
+out of the tracked file. That is not a guess — it is a target somebody committed, reviewed and
+documented, which is precisely what a *default* in a tracked config file is for. What is
+refused is an *unnamed* target: no YAML value, no `.env`, no environment variable, or any of
+them set to blank.
+
+So the guarantee the destructive path actually rests on is a pair, not one property: the target
+must be named by somebody, **and** `driver_for` cannot open a connection at all without
+`NEO4J_USER` and `NEO4J_PASSWORD` from the environment (`auth` raises
+`MissingGraphCredentialError`), which `config/graph.yaml` may never carry. A checkout with no
+`.env` therefore cannot reach a server to wipe, even though it can name one.
+`tests/graph/test_schema.py::test_the_real_config_with_no_env_file_names_a_target_but_cannot_reach_it`
+holds this exact statement to the real committed config.
 
 Credentials come from the environment only (§5.1). `config/graph.yaml` carries no user and no
 password, and `GraphSettings` holds the password as a `pydantic.SecretStr` so that a `repr` of
@@ -42,6 +58,10 @@ ENV_USER = "NEO4J_USER"
 ENV_PASSWORD = "NEO4J_PASSWORD"
 ENV_DATABASE = "NEO4J_DATABASE"
 
+#: `load.replace_policy`'s accepted values. **Neither of them can cause a wipe** — see
+#: `lifecycle.decide_replacement`, which takes `--replace` as the only authority. `replace` is
+#: still accepted rather than rejected here so an existing file keeps loading, and it is named in
+#: the refusal it no longer overrides.
 REPLACE_POLICIES = ("refuse", "replace")
 
 
@@ -95,8 +115,8 @@ class GraphSettings:
             raise UnresolvedGraphTargetError(
                 f"no Neo4j URI resolved: set {ENV_URI} in the environment or in "
                 f"{DEFAULT_ENV_PATH.name}, or `neo4j.uri` in config/graph.yaml. Refusing to "
-                "fall back to a default, because the loader's wipe would then target a "
-                "database nobody named."
+                "fall back to the driver's own default, because the loader's wipe would then "
+                "target a database nobody named."
             )
         return self.configured_uri.strip()  # type: ignore[union-attr]
 

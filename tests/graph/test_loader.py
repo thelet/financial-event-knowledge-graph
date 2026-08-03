@@ -41,6 +41,8 @@ from graph.stages.load.loader import (
     DisallowedRelationshipTypeError,
     ShortWriteError,
     batches,
+    check_edge_identities,
+    check_node_identities,
     edge_parameters,
     edge_statement,
     endpoint_diagnostic_statement,
@@ -609,6 +611,100 @@ def test_a_short_edge_batch_names_every_edge_key_and_which_end_was_missing():
     assert "MATCH filters rather than raising" in str(refused.value)
 
 
+def test_the_raw_counts_are_reported_raw_and_the_message_says_what_happened():
+    """§6.3's error must not round off the number that tells the two failures apart.
+
+    `written` used to be `min(written, distinct)`, so a batch in which the server processed
+    *every* row and merged two of them reported the same `written` as a batch in which it
+    processed fewer — while the message said "the server processed fewer rows than were
+    submitted" about the first, which it had not.
+    """
+    rows = [node_parameters(ISSUE), node_parameters(ISSUE)]
+    with pytest.raises(ShortWriteError) as merged:
+        write_node_batch(
+            StubTransaction(written=2, distinct=1), node_statement(("Issue",)), rows,
+            group=":Issue",
+        )
+    assert (merged.value.submitted, merged.value.written, merged.value.distinct) == (2, 2, 1)
+    assert "processed 2 of them and they landed on 1 distinct" in str(merged.value)
+    assert "fewer rows" not in str(merged.value)
+
+    with pytest.raises(ShortWriteError) as short:
+        write_node_batch(
+            StubTransaction(written=1, distinct=1), node_statement(("Issue",)), rows,
+            group=":Issue",
+        )
+    assert (short.value.submitted, short.value.written, short.value.distinct) == (2, 1, 1)
+
+
+# -- the identity check, which is the only thing that can see across batches --------------------
+
+
+def test_two_nodes_sharing_a_key_are_refused_however_far_apart_they_sit():
+    """R1's failure, at the two distances a per-batch `count(DISTINCT n)` cannot cover."""
+    twin = GraphNode(
+        key=ISSUE.key, base_label="Issue", labels=("Issue",),
+        properties={"issue_id": ISSUE.key, "graph_run_id": TEST_RUN_ID, "code": "OTHER"},
+    )
+    with pytest.raises(ShortWriteError) as same_group:
+        check_node_identities((ISSUE, PASSAGE, twin))
+    assert same_group.value.keys == (f"(:Issue) {ISSUE.key}",)
+    assert (same_group.value.submitted, same_group.value.distinct) == (3, 2)
+    # Nothing was sent, so the message must not describe what a server did — R9's own lesson,
+    # applied to the check R1 added.
+    assert same_group.value.sent is False
+    assert "nothing was sent" in str(same_group.value)
+    assert "the server processed" not in str(same_group.value)
+
+    # …and across *label-set groups*, which are two different statements the server never
+    # compares to each other even when the whole load is one batch each.
+    relabelled = twin.model_copy(update={"labels": ("Issue", "Rejected")})
+    with pytest.raises(ShortWriteError):
+        check_node_identities((ISSUE, relabelled))
+
+
+def test_the_same_key_under_two_base_labels_is_not_a_duplicate():
+    """`(:Issue)` and `(:Passage)` carrying one string are two nodes, and always were: §5.2's
+    constraints are per base label and `MERGE` matches on the pair."""
+    twin = GraphNode(
+        key=ISSUE.key, base_label="Passage", labels=("Passage",),
+        properties={"passage_id": ISSUE.key, "graph_run_id": TEST_RUN_ID},
+    )
+    assert check_node_identities((ISSUE, twin)) is None
+
+
+def test_two_edges_sharing_a_type_and_edge_key_are_refused_even_between_different_endpoints():
+    """The case `MERGE` cannot see at all: its identity includes the endpoint pair, so two rows
+    between *different* pairs produce two relationships and no shortfall — while §5.2's
+    relationship constraint now refuses them, and this names both before the server has to."""
+    twin = SYNTHETIC_EDGES[1].model_copy(
+        update={"target_key": DOCUMENT.key, "target_base_label": "Document"}
+    )
+    with pytest.raises(ShortWriteError) as refused:
+        check_edge_identities((SYNTHETIC_EDGES[1], twin))
+    assert refused.value.keys == (f"[:EVIDENCED_BY] {SYNTHETIC_EDGES[1].edge_key}",)
+    assert "across batches" in str(refused.value)
+    # The same edge_key under a different *type* is a different relationship, and allowed.
+    assert check_edge_identities(SYNTHETIC_EDGES) is None
+
+
+def test_a_duplicate_key_is_refused_before_a_single_statement_is_sent():
+    """Detection is not enough on its own — nothing may have been written when it fires."""
+
+    class RefusingDriver:
+        def session(self, **_: Any):  # pragma: no cover - reaching this is the failure
+            raise AssertionError("the loader opened a session before checking identities")
+
+    twin = GraphNode(
+        key=ISSUE.key, base_label="Issue", labels=("Issue", "Rejected"),
+        properties={"issue_id": ISSUE.key, "graph_run_id": TEST_RUN_ID},
+    )
+    with pytest.raises(ShortWriteError):
+        load_export(RefusingDriver(), load_settings(), SYNTHETIC_NODES + (twin,), ())
+    with pytest.raises(ShortWriteError):
+        load_nodes(RefusingDriver(), load_settings(), SYNTHETIC_NODES + (twin,))
+
+
 def test_an_edge_batch_that_wrote_every_row_never_runs_the_diagnostic():
     rows = [edge_parameters(SYNTHETIC_EDGES[0])]
     transaction = StubTransaction(written=1, distinct=1)
@@ -788,7 +884,7 @@ def test_an_edge_whose_endpoint_is_missing_fails_the_load_and_names_the_edge_key
 
 @pytest.mark.neo4j
 def test_two_node_rows_sharing_a_key_fail_the_load_on_the_live_server(live_graph):
-    """The node-side short write, produced rather than stubbed: `count(DISTINCT n)` is 1 of 2."""
+    """The node-side duplicate, against the server rather than stubbed. Nothing lands."""
     driver, settings = live_graph
     twin = GraphNode(
         key=ISSUE.key,
@@ -798,8 +894,48 @@ def test_two_node_rows_sharing_a_key_fail_the_load_on_the_live_server(live_graph
     )
     with pytest.raises(ShortWriteError) as refused:
         load_nodes(driver, settings, (ISSUE, twin))
-    assert refused.value.keys == (ISSUE.key,)
-    assert count_test_nodes(driver, settings) == 0, "the failing batch must roll back"
+    assert refused.value.keys == (f"(:Issue) {ISSUE.key}",)
+    assert count_test_nodes(driver, settings) == 0, "nothing is written before the check"
+
+
+@pytest.mark.neo4j
+def test_a_duplicate_key_split_across_two_batches_does_not_vanish(live_graph):
+    """R1, against the server, with `node_batch_size = 1` so the duplicate cannot share a batch.
+
+    Before the identity check this reported `submitted=2 written=2 batches=2` and left one node
+    in the database — a full success for a row that had ceased to exist. `count(DISTINCT n)` is
+    evaluated inside one statement and can only ever see one batch; nothing per-batch could have
+    caught it.
+    """
+    import dataclasses
+
+    driver, settings = live_graph
+    one_at_a_time = dataclasses.replace(settings, node_batch_size=1, edge_batch_size=1)
+    twin = GraphNode(
+        key=ISSUE.key,
+        base_label="Issue",
+        labels=("Issue",),
+        properties={"issue_id": ISSUE.key, "graph_run_id": TEST_RUN_ID, "code": "OTHER"},
+    )
+
+    with pytest.raises(ShortWriteError) as refused:
+        load_nodes(driver, one_at_a_time, (ISSUE, twin))
+
+    assert refused.value.keys == (f"(:Issue) {ISSUE.key}",)
+    assert (refused.value.submitted, refused.value.distinct) == (2, 1)
+    assert count_test_nodes(driver, settings) == 0
+
+    # And the edge side, whose duplicate the server would have accepted as two relationships:
+    # `MERGE` is scoped to one (source, target) pair.
+    load_nodes(driver, one_at_a_time, SYNTHETIC_NODES)
+    evidence = SYNTHETIC_EDGES[1]
+    elsewhere = evidence.model_copy(
+        update={"target_key": DOCUMENT.key, "target_base_label": "Document"}
+    )
+    with pytest.raises(ShortWriteError) as edge_refusal:
+        load_edges(driver, one_at_a_time, (evidence, elsewhere))
+    assert edge_refusal.value.keys == (f"[:EVIDENCED_BY] {evidence.edge_key}",)
+    assert count_test_edges(driver, settings) == 0
 
 
 @pytest.mark.neo4j

@@ -679,6 +679,25 @@ that" and "the server broke" share an exception class; only the message distingu
 `CREATE FULLTEXT INDEX … IF NOT EXISTS` was probed in the same pass and is accepted, which is
 what §5.3's `passage_text` index depends on.
 
+**Correction: the paragraph above generalised from four node-side probes, and one of the things
+it implied is false** *(2026-08-03, after review; probed on the same running `fkg-neo4j`)*. Every
+form tried in that pass was `FOR (n:Label)`. Nobody asked the server about a *relationship*
+constraint, and "uniqueness constraints only" was read — including by `schema.py` and by this
+document — as "node uniqueness only". A fifth probe settles it:
+
+| Probe | Result |
+| --- | --- |
+| `CREATE CONSTRAINT … FOR ()-[r:PLACEHOLDER_FOR]-() REQUIRE r.edge_key IS UNIQUE` | **accepted.** `SHOW CONSTRAINTS` reports `entityType: RELATIONSHIP`, type `RELATIONSHIP_UNIQUENESS`, and it brings a backing relationship `RANGE` index carrying the constraint's own name |
+| the same with a **directed** pattern, `FOR ()-[r:T]->()` | refused at parse time — the undirected form is the only spelling |
+| a duplicate `edge_key` of one type between **different** endpoint pairs | refused, `Neo.ClientError.Schema.ConstraintValidationFailed` — *"Relationship(26824) already exists with type `PART_OF` and property `edge_key` = …"* *(measured against the loaded 35,603-relationship graph)* |
+
+That third row is the one that mattered. Until it was run, `edge_key` was protected by §6.3's
+`MERGE` semantics alone — and a `MERGE` is scoped to one `(source, target)` pair, so two
+relationships of the same type carrying the same `edge_key` between *different* pairs coexisted
+and nothing in the system had an opinion about it. §5.2 therefore declares **19** constraints,
+not 7, and `config/graph.yaml`'s `schema_version` moves to `1.1.0`. The live schema is 19
+constraints and 30 indexes (9 declared in §5.3, 19 constraint-backing, 2 default token-lookup).
+
 ## 5.2 Constraints
 
 ```cypher
@@ -694,6 +713,30 @@ CREATE CONSTRAINT issue_key       IF NOT EXISTS FOR (n:Issue)       REQUIRE n.is
 The constraint is on the **base** label, so the same `entity_id` cannot exist twice under two
 concrete labels — which is the accidental-merge-adjacent failure a per-concrete-label
 constraint would miss.
+
+And one per §3.2 relationship type, on the `edge_key` §6.3's `MERGE` identifies a relationship
+by *(added 2026-08-03; see §5.1's correction for why these were absent)*:
+
+```cypher
+CREATE CONSTRAINT borrows_under_edge_key          IF NOT EXISTS FOR ()-[r:BORROWS_UNDER]-()          REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT concerns_metric_edge_key        IF NOT EXISTS FOR ()-[r:CONCERNS_METRIC]-()        REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT distinct_from_edge_key          IF NOT EXISTS FOR ()-[r:DISTINCT_FROM]-()          REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT evidenced_by_edge_key           IF NOT EXISTS FOR ()-[r:EVIDENCED_BY]-()           REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT found_in_edge_key               IF NOT EXISTS FOR ()-[r:FOUND_IN]-()               REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT has_observation_edge_key        IF NOT EXISTS FOR ()-[r:HAS_OBSERVATION]-()        REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT holds_position_at_edge_key      IF NOT EXISTS FOR ()-[r:HOLDS_POSITION_AT]-()      REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT observation_of_subject_edge_key IF NOT EXISTS FOR ()-[r:OBSERVATION_OF_SUBJECT]-() REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT participates_in_edge_key        IF NOT EXISTS FOR ()-[r:PARTICIPATES_IN]-()        REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT part_of_edge_key                IF NOT EXISTS FOR ()-[r:PART_OF]-()                REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT placeholder_for_edge_key        IF NOT EXISTS FOR ()-[r:PLACEHOLDER_FOR]-()        REQUIRE r.edge_key IS UNIQUE;
+CREATE CONSTRAINT reconciles_to_edge_key          IF NOT EXISTS FOR ()-[r:RECONCILES_TO]-()          REQUIRE r.edge_key IS UNIQUE;
+```
+
+One per type and not one for "any relationship": Neo4j scopes a relationship constraint to a
+single type and offers no wildcard form, so the list is the closed §3.2 set and a type added to
+the ontology without a line here would load with its `edge_key` unprotected. The loader reads
+the same tuple back as its type allowlist (`schema.CONSTRAINED_RELATIONSHIP_TYPES`), so the two
+cannot drift.
 
 ## 5.3 Indexes
 
@@ -864,6 +907,14 @@ graph load     <graph_run_id>        ->  Neo4j (wipe, constrain, load, verify)
 graph verify   <graph_run_id>        ->  exits non-zero on any inconsistency
 ```
 
+All three are implemented as `python -m graph {project,load,verify}` *(load and verify added
+2026-08-03 after review: `lifecycle.py` had been telling operators to "re-run with `--replace`",
+a flag with no implementation anywhere in the repository, and §10's twenty-seven-check sweep had
+no caller outside the test suite)*. `load` and `verify` take a graph run directory or a bare
+`graph_run_id`, read the connection from `config/graph.yaml` plus `.env` (§5.1), and both exit
+non-zero on a refusal. `load` reads `manifest.json` for the run id and refuses a directory
+without one — a projection with no manifest did not finish (§6.5) and must not be loaded.
+
 Splitting projection from loading is what makes the whole graph model testable with no database
 running, and it is the reason `graph/stages/projection/` may not import a driver (§11). The
 export is also the comparison artifact: rebuild determinism is checked on files, not on a
@@ -873,7 +924,17 @@ database.
 
 V1 loads **one extraction run into an empty database**. `load` refuses to run against a
 database whose `graph_run_id` differs from the one being loaded unless `--replace` is given, and
-`--replace` wipes first:
+`--replace` wipes first.
+
+**`--replace` on the command line is the only thing that may destroy data** *(stated explicitly
+2026-08-03 after review; the implementation had a second authority nobody designed)*. G2 added a
+`load.replace_policy` key to `config/graph.yaml` and read it as the *first* branch of the
+replacement decision, ahead of every guard — so one word in a tracked file made every load
+destructive, including a same-run reload that `MERGE` would have made a no-op, and including a
+database holding rows with no `graph_run_id` at all, which is the exact state the guard it
+jumped ahead of exists to refuse. The key remains, is read, and is named in a refusal so an
+operator can see it was ignored; it cannot wipe. Absence is never destructive and neither is
+presence — only an operator is.
 
 ```cypher
 MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS;
@@ -931,6 +992,16 @@ exactly the edges this design says it refuses. The loader therefore compares `wr
 That comparison is the check; the `MATCH` is only what makes the shortfall detectable. Recorded
 at this length because the first draft of this plan asserted the guarantee and did not have it.
 
+**The per-batch comparison is not sufficient on its own, and the same mistake was made twice**
+*(corrected 2026-08-03 after review)*. `count(DISTINCT n)` is evaluated inside one statement, so
+it sees one batch. Two rows sharing a `MERGE` identity in *different* batches each reported full
+success — `NODES submitted=2 written=2 batches=2` with one node in the database — and the same
+held across label-set groups, where `(:Issue)` and `(:Issue:Rejected)` carrying one key are two
+statements the server never compares. The loader now checks identities over the **whole load**,
+before a single statement is sent: `(base label, key)` for nodes, `(type, edge_key)` for
+relationships, which are exactly what §5.2's constraints are on. A duplicate is refused with
+nothing written rather than detected after half of it has landed.
+
 ## 6.4 Malformed and rejected records
 
 The projection validates every input row against a typed reader. A row it cannot project is
@@ -959,6 +1030,28 @@ is a record of why there is no projection; it may not occupy the name a projecti
 | Load determinism | load twice into a wiped database, compare per-label node counts and per-type edge counts |
 | Idempotence | load the same export twice **without** wiping; counts must not change |
 | Manifest | `data/graph_runs/<id>/manifest.json` records both source run ids, both code commits, the ontology hash, projection version, and every count — written last, after `nodes.jsonl` and `edges.jsonl`, following the repository's completion-marker convention |
+
+**Two of those four rows are asserted only by tests that cannot run in the machine's normal
+state** *(recorded 2026-08-03 after review measured it; this is a limitation, not a plan)*. Load
+determinism and idempotence both need to control the whole database, and the marked tests that
+do refuse to run when they find a graph they did not load — correctly, because
+`MATCH (n) DETACH DELETE n` does not know whose rows it is deleting. With the real run loaded,
+**22 of the graph suite's 37 `neo4j`-marked tests skip**: 9 in `tests/graph/test_lifecycle.py`
+(every destructive one) and 13 in `tests/graph/test_graph_verification.py` (which counts the
+whole database and cannot be measured beside another run's rows). `15 passed` is therefore not a
+full run, and reading it as one was the risk worth writing down.
+
+The gap is closable on demand rather than permanently invisible:
+
+```bash
+FKG_GRAPH_TESTS_MAY_WIPE=1 pytest tests/graph -m neo4j   # 37 pass; every graph is destroyed
+python -m graph load   data/graph_runs/<graph_run_id> --replace
+python -m graph verify data/graph_runs/<graph_run_id>
+```
+
+The opt-in is an environment variable and not a flag in a tracked file, for the same reason
+`load.replace_policy` cannot authorise a wipe (§6.2): destroying data is an operator's decision,
+taken by typing it.
 
 ---
 
@@ -1088,6 +1181,22 @@ any entity mentioned; and an event dated only by `announced_on`.
 
 A build is accepted when all of the following hold, each with an executable check.
 
+**Where each check actually lives, and the three that have none** *(added 2026-08-03 after
+review found five criteria with no check while `verification.py` implied twelve-for-twelve)*.
+`python -m graph verify <export>` runs twenty-seven named checks and exits non-zero on any
+failure; the table in `graph/stages/load/verification.py`'s module docstring maps every one of
+them to a criterion below. What that file does **not** answer, stated here so the criterion list
+is not read as a coverage claim:
+
+| Criterion | Why not in the post-load sweep | Where it is checked instead |
+| --- | --- | --- |
+| 3, stable across two rebuilds | The file half is a byte comparison of two projections and the load half needs two loads; a read of one database can see neither | `tests/graph/test_export_determinism.py` (files) and `tests/graph/test_lifecycle.py` (two loads, subject to §6.5's execution gap) |
+| 8, merge hazards | The criterion says explicitly that these are *findings, not failures*; a verifier that failed a load over them would be wrong | G5's report |
+| 9, the query pack | G4 owns the pack and there is no pack yet | G4 |
+
+Criterion 12 (no custom frontend) is a statement about what the repository does not contain and
+is not executable anywhere.
+
 1. **Rebuild succeeds** from the finalized Stage 13 run, with a non-zero count of observations,
    events, relationships, passages and documents.
 2. **No dangling references.** Zero edges whose endpoint is missing — enforced by §6.3's
@@ -1146,6 +1255,21 @@ A build is accepted when all of the following hold, each with an executable chec
     that `(metric_id, subject_entity_id, period_key, source_lane, passage_id)`. Checked after
     loading, not assumed from the input — the input is clean, and this catches a projection bug
     that manufactured a node the extractor refused.
+    **Matched on three of those five fields, because the projected `:Issue` carries only three**
+    *(measured 2026-08-03: the five `AMBIGUOUS_COLUMN_ALIGNMENT` issues carry `passage_id`, a
+    `row_label`, a `detail` and an empty `concept_ids` — no `subject_entity_id` and no
+    `source_lane`)*. `metric_id` and `period_key` are read out of `detail`, which is the
+    extractor's own sentence: *"2 cells of one row resolve to `adjusted_ebitda` at
+    `2022-01-01_2022-09-30` with different values"*. The run has one `subject_entity_id`
+    altogether (§7.4) and the refused readings are all `normalized_table`, so a resurrected
+    observation would have to differ in metric, period or passage to escape the match — and then
+    it would not be the refused reading. Four identities come out of the five issues: the fifth
+    reports a whole-table ambiguity (*"duration groups cannot be assigned to columns uniquely"*)
+    and names no single reading, which is why the criterion says four.
+    **And the converse is checked with it**, for the reason criterion 5 gives: a refusal is per
+    reading, so the **6** observations the extractor *did* accept on
+    `…q32023formxex991earningsre.htm#p29` must all be present. A projection that emitted nothing
+    at all on that passage would satisfy the first half perfectly.
 11. **Warned nodes match the run's own count.** The re-derived warning set (§5.5) has exactly
     `manifest.verification[ontology_validation].warnings` members — 186 for this run — and every
     one is attached to an `:Observation` that exists.

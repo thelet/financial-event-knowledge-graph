@@ -30,7 +30,12 @@ version: v1
 # Bumped when the constraint or index set in `graph/stages/load/schema.py` changes shape.
 # Independent of `GRAPH_PROJECTION_VERSION` (what a node looks like) and of the ontology
 # version (what a node means) — three things that move for different reasons.
-schema_version: "1.0.0"
+#
+# 1.1.0 (2026-08-03): twelve relationship uniqueness constraints on `edge_key`, one per §3.2
+# type, added after a probe showed Community *does* accept `FOR ()-[r:T]-() REQUIRE r.x IS
+# UNIQUE` (`RELATIONSHIP_UNIQUENESS`). §5.1 had generalised from four node-side probes that it
+# does not. 19 constraints now, not 7.
+schema_version: "1.1.0"
 
 neo4j:
   # Defaults, not credentials. `NEO4J_URI` and `NEO4J_DATABASE` in the environment override
@@ -60,10 +65,19 @@ load:
   node_batch_size: 1000
   edge_batch_size: 1000
 
-  # §6.2: V1 loads one run into an empty database. `refuse` means a load that finds a
-  # *different* `graph_run_id` already present stops instead of merging into it; `--replace`
-  # on the command line is the only way to wipe. The default is the refusing one because the
-  # destructive branch must be asked for, never inherited from an absent setting.
+  # §6.2: V1 loads one run into an empty database. A load that finds a *different*
+  # `graph_run_id` already present stops instead of merging into it, and
+  # `python -m graph load <export> --replace` is the only way to wipe.
+  #
+  # **This key cannot authorise a wipe, and `replace` here does nothing destructive**
+  # *(corrected 2026-08-03 after review)*. It used to: `lifecycle.decide_replacement` read
+  # `if replace or replace_policy == "replace":` as its first branch, so editing one word in
+  # this tracked file made every load destructive — including a same-run reload that MERGE
+  # would have made a no-op, and including a database holding rows with no `graph_run_id` at
+  # all, which is exactly what the guard it jumped ahead of exists to refuse. The comment
+  # above already said `--replace` was the only way to wipe; the code now agrees with it.
+  # `replace` is still accepted rather than rejected so an existing file keeps loading, and a
+  # refusal names it so an operator can see it was read and ignored.
   replace_policy: refuse
 
 paths:

@@ -1,18 +1,32 @@
 """Writing a read export into Neo4j, in batches, without ever losing a row quietly.
 
-The stage's whole claim is in one sentence: **every batch compares the rows it submitted
-against the rows the server says it wrote, and a shortfall aborts the load naming the keys**
+The stage's whole claim is in two sentences: **the whole load compares the MERGE identities it
+is about to submit against each other, and every batch compares the rows it submitted against
+the rows the server says it wrote. Either shortfall aborts the load naming the keys**
 (V1_GRAPH_PROTOTYPE §6.3, acceptance criterion §10.2). `MATCH` filters, it does not raise — a
 relationship row whose endpoint is absent produces zero rows and no error — so the guarantee
 this module offers is the comparison, not the Cypher. The `MATCH` is only what makes the
 shortfall visible.
 
-Three shapes of refusal, in the order they can happen:
+**Why the identity check is per *load* and not per batch** *(corrected 2026-08-03 after
+review; the module previously documented a guarantee it did not provide)*. `count(DISTINCT n)`
+is evaluated inside one statement, so it can only ever see one batch. Two rows sharing a MERGE
+identity in *different* batches therefore each reported full success — `NODES submitted=2
+written=2 batches=2` while one node existed — and the same held across label-set groups, where
+`(:Issue)` and `(:Issue:Rejected)` carrying one key are two statements that can never be
+compared to each other. `check_node_identities` and `check_edge_identities` close that hole by
+counting identities over the whole phase, before a single statement is sent. The per-batch
+`count(DISTINCT …)` stays: it is the server's own answer rather than ours, and it is what would
+notice the two disagreeing.
+
+Four shapes of refusal, in the order they can happen:
 
     read        `reader.py` rejects a map-valued property, a null, a heterogeneous list or a
                 duplicate key **before this module is called at all**
     build       a label or relationship type outside the measured allowlist never reaches a
                 statement, so nothing from the export is ever concatenated into Cypher
+    identity    two rows that would MERGE onto one node or one relationship abort the phase
+                before it starts, wherever in the export they sit
     write       a batch whose `written` count is short rolls its own transaction back and
                 raises `ShortWriteError` with the offending keys
 
@@ -40,6 +54,7 @@ incomplete in exactly the way the repository's atomic-finalization rule requires
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Protocol, Sequence
 
@@ -48,7 +63,7 @@ from neo4j import Driver
 from graph.core.models import BASE_LABELS, GraphEdge, GraphNode
 
 from .connection import GraphSettings
-from .schema import KEY_PROPERTIES
+from .schema import CONSTRAINED_RELATIONSHIP_TYPES, KEY_PROPERTIES
 
 #: A label may only ever be an identifier. This is the injection barrier, not the allowlist:
 #: it is what makes a backtick, a brace or a closing paren unable to reach a statement even if
@@ -85,20 +100,12 @@ ALLOWED_LABELS: tuple[str, ...] = tuple(sorted(set(BASE_LABELS) | set(CONCRETE_L
 #: FOUND_IN 17,127 · PART_OF 8,776 · EVIDENCED_BY 2,713 · HAS_OBSERVATION 2,707 ·
 #: OBSERVATION_OF_SUBJECT 2,707 · CONCERNS_METRIC 1,520 · DISTINCT_FROM 36 · PARTICIPATES_IN 10
 #: · HOLDS_POSITION_AT 3 · RECONCILES_TO 2 · BORROWS_UNDER 1 · PLACEHOLDER_FOR 1.
-ALLOWED_RELATIONSHIP_TYPES: tuple[str, ...] = (
-    "BORROWS_UNDER",
-    "CONCERNS_METRIC",
-    "DISTINCT_FROM",
-    "EVIDENCED_BY",
-    "FOUND_IN",
-    "HAS_OBSERVATION",
-    "HOLDS_POSITION_AT",
-    "OBSERVATION_OF_SUBJECT",
-    "PARTICIPATES_IN",
-    "PART_OF",
-    "PLACEHOLDER_FOR",
-    "RECONCILES_TO",
-)
+#:
+#: Declared in `schema.py` rather than here, because §5.2's relationship uniqueness constraints
+#: are one per type and a second copy of the list would let the allowlist and the constraint set
+#: drift apart — the loader would then happily submit a type the database has no `edge_key`
+#: constraint for. One list, two readers.
+ALLOWED_RELATIONSHIP_TYPES: tuple[str, ...] = CONSTRAINED_RELATIONSHIP_TYPES
 
 #: How many offending keys a `ShortWriteError` message names before it summarises. The full set
 #: is on the exception; the message is read by a human.
@@ -137,10 +144,19 @@ class MissingEndpoint:
 
 
 class ShortWriteError(GraphLoadError):
-    """A batch wrote fewer rows than it submitted.
+    """Fewer rows survived than were submitted — because the server processed fewer, or because
+    two of them landed on the same node or relationship.
 
-    The load-bearing error of this module. `submitted`/`written` are the raw counts and `keys`
-    names the rows that did not land, so the failure is actionable without re-running.
+    The load-bearing error of this module. `submitted`, `written` and `distinct` are **raw**
+    counts, reported exactly as measured, and `keys` names the rows that did not land, so the
+    failure is actionable without re-running.
+
+    **`written` is no longer clamped to `distinct`** *(corrected 2026-08-03 after review)*. It
+    used to be `min(written, distinct)`, which contradicted this docstring and hid the very
+    number that distinguishes the two failures: a duplicate key is `written == submitted` with
+    `distinct < submitted` — the server processed every row and *merged* two of them — while a
+    missing endpoint is `written < submitted`. Reporting one number for both said "the server
+    processed fewer rows" about a batch in which it had processed all of them.
     """
 
     def __init__(
@@ -152,17 +168,31 @@ class ShortWriteError(GraphLoadError):
         keys: tuple[str, ...],
         missing_endpoints: tuple[MissingEndpoint, ...] = (),
         cause: str,
+        distinct: int | None = None,
+        sent: bool = True,
     ) -> None:
         self.group = group
         self.submitted = submitted
         self.written = written
+        #: Distinct nodes/relationships the rows landed, or would land, on. Equal to `written`
+        #: unless two rows merged.
+        self.distinct = written if distinct is None else distinct
+        #: False when the refusal came from the whole-load identity check, which runs before a
+        #: statement is sent. The message must not say the server did anything in that case —
+        #: that is the same shape of lie this class was corrected for.
+        self.sent = sent
         self.keys = keys
         self.missing_endpoints = missing_endpoints
         named = ", ".join(keys[:NAMED_IN_MESSAGE])
         if len(keys) > NAMED_IN_MESSAGE:
             named += f", and {len(keys) - NAMED_IN_MESSAGE} more"
+        counts = (
+            f"the server processed {written} of them and they landed on {self.distinct} distinct"
+            if sent
+            else f"which would land on only {self.distinct} — nothing was sent"
+        )
         super().__init__(
-            f"{group}: submitted {submitted} rows, wrote {written} — {cause}. "
+            f"{group}: submitted {submitted} rows, {counts} — {cause}. "
             f"Offending keys: {named or '<none identified>'}"
         )
 
@@ -414,6 +444,67 @@ def batches(rows: Sequence[Any], size: int) -> Iterator[list[Any]]:
         yield list(rows[start : start + size])
 
 
+# -- the identity check the per-batch counts cannot make ----------------------------------------
+
+
+def _identity_refusal(
+    *, group: str, identities: Sequence[tuple[str, str]], render: Any, subject: str
+) -> None:
+    """Raise if any MERGE identity occurs twice in `identities`. Pure; sends nothing."""
+    counted = Counter(identities)
+    repeated = tuple(sorted(render(identity) for identity, n in counted.items() if n > 1))
+    if not repeated:
+        return
+    raise ShortWriteError(
+        group=group,
+        submitted=len(identities),
+        # Nothing has been sent, so there is no server-reported `written` — `sent=False` is what
+        # keeps the message from inventing one.
+        written=len(identities),
+        distinct=len(counted),
+        sent=False,
+        keys=repeated,
+        cause=(
+            f"{len(identities) - len(counted)} row(s) share a MERGE identity with an earlier "
+            f"row and would overwrite it, leaving {len(counted)} {subject}. The duplicates need "
+            "not sit in one batch — a per-batch count(DISTINCT …) cannot see across batches or "
+            "across label-set groups, which is why this is checked over the whole load"
+        ),
+    )
+
+
+def check_node_identities(nodes: Iterable[GraphNode]) -> None:
+    """No two nodes in the whole load share `(base label, key)` — the `MERGE` identity.
+
+    `(base label, key)` and not `key` alone: §5.2's constraints are per base label, so an
+    `:Issue` and a `:Passage` carrying the same string are two nodes and always were. The pair
+    is exactly what `node_statement`'s `MERGE (n:{base} {{{key_property}: row.key}})` matches on.
+    """
+    _identity_refusal(
+        group="NODES",
+        identities=[(node.base_label, node.key) for node in nodes],
+        render=lambda identity: f"(:{identity[0]}) {identity[1]}",
+        subject="nodes",
+    )
+
+
+def check_edge_identities(edges: Iterable[GraphEdge]) -> None:
+    """No two relationships in the whole load share `(type, edge_key)`.
+
+    Narrower than `edge_statement`'s `MERGE`, which is keyed on the endpoint pair as well, and
+    deliberately so: §5.2's relationship uniqueness constraint is `(type, edge_key)`, so two
+    rows sharing that pair between *different* endpoints are refused by the database rather than
+    quietly stored twice. Refusing them here names both keys instead of surfacing a
+    `ConstraintError` from whichever batch happened to run second.
+    """
+    _identity_refusal(
+        group="EDGES",
+        identities=[(edge.type, edge.edge_key) for edge in edges],
+        render=lambda identity: f"[:{identity[0]}] {identity[1]}",
+        subject="relationships",
+    )
+
+
 # -- the write, and the comparison that makes it trustworthy ------------------------------------
 
 
@@ -445,13 +536,14 @@ def write_node_batch(
         if duplicates
         # No duplicate explains it, so the batch's own keys are all that can honestly be
         # named — the offender is among them, and saying which would be a guess.
-        else "the server processed fewer rows than were submitted; the batch's first keys are"
+        else "the server did not process every submitted row; the batch's first keys are"
         " listed and the offender is one of them"
     )
     raise ShortWriteError(
         group=group,
         submitted=len(rows),
-        written=min(written, distinct),
+        written=written,
+        distinct=distinct,
         keys=duplicates or tuple(keys[:NAMED_IN_MESSAGE]),
         cause=cause,
     )
@@ -488,16 +580,18 @@ def write_edge_batch(
         keys = tuple(endpoint.edge_key for endpoint in missing)
     else:
         cause = (
-            "two or more rows share an edge_key and merged onto one relationship"
+            "two or more rows share an edge_key between the same endpoints and merged onto "
+            "one relationship"
             if distinct < written
-            else "the server processed fewer rows than were submitted"
+            else "the server did not process every submitted row"
         )
         edge_keys = [row["edge_key"] for row in rows]
         keys = tuple(sorted({key for key in edge_keys if edge_keys.count(key) > 1}))
     raise ShortWriteError(
         group=group,
         submitted=len(rows),
-        written=min(written, distinct),
+        written=written,
+        distinct=distinct,
         keys=keys,
         missing_endpoints=missing,
         cause=cause,
@@ -537,7 +631,12 @@ def load_nodes(
     *,
     allowed_labels: Sequence[str] = ALLOWED_LABELS,
 ) -> tuple[NodeGroupLoad, ...]:
-    """Every node, grouped by exact label set. Statements are built before anything is sent."""
+    """Every node, grouped by exact label set. Statements are built before anything is sent.
+
+    The identity check runs first and over *all* the nodes, not per group: two rows sharing
+    `(base label, key)` in two different label sets are two statements the server never compares.
+    """
+    check_node_identities(nodes)
     grouped = group_nodes(nodes)
     statements = {
         labels: node_statement(labels, allowed_labels=allowed_labels) for labels in grouped
@@ -574,6 +673,7 @@ def load_edges(
     allowed_labels: Sequence[str] = ALLOWED_LABELS,
 ) -> tuple[EdgeGroupLoad, ...]:
     """Every relationship, grouped by type and endpoint labels. Call only after `load_nodes`."""
+    check_edge_identities(edges)
     grouped = group_edges(edges)
     statements = {
         key: (
@@ -628,9 +728,12 @@ def load_export(
     nothing and abort the load. Loading all nodes first is what makes a shortfall mean "the
     export references a node it does not contain" rather than "the edges arrived early".
     """
-    # Build every edge statement first, and throw the text away. Constructing one is what
-    # validates its type and endpoint labels, and a relationship type off the allowlist is a
-    # fact about the export that should not be discovered after 28,836 nodes have landed.
+    # Both edge refusals happen before the first node lands. Constructing a statement is what
+    # validates its type and endpoint labels, and a relationship type off the allowlist — or a
+    # repeated `(type, edge_key)` — is a fact about the export that should not be discovered
+    # after 28,836 nodes have been written.
+    check_node_identities(nodes)
+    check_edge_identities(edges)
     for relationship_type, source_label, target_label in group_edges(edges):
         edge_statement(
             relationship_type,
@@ -660,6 +763,8 @@ __all__ = [
     "NodeGroupLoad",
     "ShortWriteError",
     "batches",
+    "check_edge_identities",
+    "check_node_identities",
     "edge_parameters",
     "edge_statement",
     "endpoint_diagnostic_statement",
