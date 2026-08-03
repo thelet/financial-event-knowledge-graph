@@ -17,13 +17,14 @@ provider call was issued, and no guidance is extracted.
 | Issues | 17,127 | 17,130 |
 | Rejected claims | 46 | 49 |
 | Graph nodes / edges | 28,836 / 35,603 | 28,836 / **35,600** |
-| Offline tests | 2,530 | **2,720** passed, 1 skipped, 0 failed |
+| Offline tests | 2,530 | **2,723** passed, 0 skipped, 0 failed |
 | Neo4j tests | 37 | 37 passed |
 | Graph verification | 27/27 | **27/27** |
-| Ontology `definition_hash` | `e8d4af709be2…` | `337e0e595 34d…` |
+| Ontology `definition_hash` | `e8d4af709be2…` | `bb94f522ba12…` |
+| Ontology `semantic_version` | 1.0.0 | **2.0.0** |
 | Graph projection version | 1.1.0 | 1.2.0 |
-| Extraction run | `…-2422c4252c07` | `…-7f72d6172630` |
-| Graph run | `…-886059d862ce` | `…-eeba753149e9` |
+| Extraction run | `…-2422c4252c07` | `…-833f7bcfbce9` |
+| Graph run | `…-886059d862ce` | `…-0483dc6b4b10` |
 
 ---
 
@@ -123,13 +124,26 @@ carries `cik`, `tickers`, `exchange`; `nasdaq` carries `mic: XNAS`; the disclosu
 | 2 | The plan attributed the ontology hash move to the new enum members. Measured: enums are hash-neutral; the cause is `optional_fields` plus the new evidence-type declarations. | `F0_CONTRACT_EXTENSION.md` §5 | **corrected in the plan** |
 | 3 | Two graph tests pinned the extraction code commit and run id as literals — values that legitimately move on every re-run. | `tests/graph/` | **fixed** — read from the fixture's own manifest |
 
+### Found by the adversarial review, after the first six commits
+
+| # | Defect | Severity | Status |
+| --- | --- | --- | --- |
+| 4 | `market_data` and `calculated` were validated, written and projected as nodes, then refused by `EVIDENCED_BY` — its `allowed_target_types` listed five evidence types, not seven. F8 and every calculated fact were blocked on one line of `relationships.yaml` that F0 owned. Invisible because **no test built an EVIDENCED_BY edge for any non-passage kind**, while this module's docstring claimed it proved exactly that. | **blocking** | **fixed** — plus a test that drives `build_nodes` and `build_edges` together |
+| 5 | The flattened-grid refusal grounded on `_locate`, which returns the *first* textual occurrence. Prefixing one ordinary sentence to `#p20` moved it out of the grid and re-admitted the wrong 2023-12-31 reading verbatim; the symmetric case refused correct prose that followed a grid. `#p9`'s survival was ordering luck, not structure. | serious | **fixed** — refuses only when *every* printing falls inside a grid |
+| 6 | `semantic_version` stayed `1.0.0` while `definition_hash` moved twice, so two incompatible vocabularies both called themselves 1.0.0 in every manifest. | serious | **fixed** — `2.0.0`, major because two `required_fields` additions are breaking |
+| 7 | Every manifest recorded `c59818e` — the commit *before* any F0 code — because runs were executed from a working tree committed afterwards. The artifact whose job is tying output to code pointed at a tree that reproduces the pre-F0 output. | serious | **fixed** — all artifacts regenerated at the real HEAD |
+| 8 | Six tests **skipped themselves into a pass**: five pinned the graph run id and one the extraction run id, both content addresses that moved with the vocabulary. Un-skipping them immediately failed on stale counts. | serious | **fixed** — ids resolved or derived; the counts corrected |
+
+Defects 4 and 8 are the same failure in two costumes: a check that reports green because the
+thing it checks is absent. Review named the first; looking for its second form found the rest.
+
 ---
 
 ## 5. Versions moved, and why
 
 | Version | Moved | Reason |
 | --- | --- | --- |
-| Ontology `definition_hash` | `e8d4af709be2…` → `337e0e595 34d…` | `optional_fields` on `EvidenceTypeDefinition` + new evidence types + `GUIDED` + new lanes |
+| Ontology `definition_hash` | `e8d4af709be2…` → `bb94f522ba12…` | `optional_fields` on `EvidenceTypeDefinition` + new evidence types + `GUIDED` + new lanes |
 | Graph projection | 1.1.0 → **1.2.0** | new node label, new node properties |
 | Graph schema | 1.1.0 → **unchanged number, 8 node constraints not 7** | `EvidenceSource` joined `BASE_LABELS` |
 | Observation identity | — → **1.1.0** | additive; no existing id moves |
@@ -150,7 +164,7 @@ python -m extraction rebuild      all seven catalogs byte-identical
 python -m graph project           28,836 nodes / 35,600 edges, warnings reconciled 185/185
 python -m graph load --replace    8 node constraints, 12 relationship constraints, 9 indexes
 python -m graph verify            PASSED — 0 of 27 checks failed
-pytest -m "not live and not neo4j"          2,720 passed, 1 skipped
+pytest -m "not live and not neo4j"          2,723 passed, 0 skipped
 FKG_GRAPH_TESTS_MAY_WIPE=1 pytest -m neo4j  37 passed
 ```
 
@@ -170,11 +184,21 @@ Stated plainly, because they bound what the green suite means.
    against filed data. That is unavoidable at F0 and is why the fixtures exist, but it means F1
    is the first real test of Part B and Part C.
 2. **`:EvidenceSource` node count is 0** in the loaded graph. The label, its constraint and its
-   allowlist entry are exercised; the node is not.
+   allowlist entry are exercised; the node is not. The node *and its edge* are exercised in the
+   projection by contract fixtures (added after review found the edge refusing two kinds), but
+   nothing has loaded one into Neo4j.
 3. **Intermediate commits are not independently green.** The five agents worked in one shared
-   tree, so the six commits split the work by ownership but only the tip was verified. The two
-   data checkpoints in §2 are real and were measured separately; the per-commit test state was
-   not.
+   tree, so the commits split the work by ownership but only the tip was verified. The two data
+   checkpoints in §2 are real and were measured separately; the per-commit test state was not.
+
+5. **Two review findings were recorded rather than fixed**, both minor and both about the
+   `:EvidenceSource` key rather than about any filed fact. `evidence_source_node_key` joins its
+   parts with `:` while the parts themselves contain colons (`us-gaap:Revenues`, an ISO
+   timestamp), so a collision is constructible — `observation_id` uses `\x1f` for exactly this
+   reason and the new key grammar dropped it. And the `xbrl_fact` source key is
+   `(accession, concept)` only, so two taggings of one concept in one filing under different
+   contexts become one node — coarser than the observation identity deliberately, but F1 will
+   inherit it. Both belong in F1, where the first real XBRL row will decide the right shape.
 4. **`PERIOD_NOT_GROUNDED_IN_PASSAGE` has a forward cost.** 111 of the 3,072 selected narrative
    passages carry a flattened grid — a 3.6% ceiling F3 will pay. One recorded answer picked the
    right column by luck and would now be refused. Refusing a lucky guess is intended; the count
