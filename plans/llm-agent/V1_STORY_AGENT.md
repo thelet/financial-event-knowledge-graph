@@ -105,6 +105,43 @@ story of that kind to tell.
 
 ---
 
+## 0c. What the adversarial review found
+
+An independent adversarial pass over the first draft, verified against the corpus and the live
+server, found **eleven shape-changing defects and fourteen wrong numbers**. They are listed
+rather than quietly fixed, because three of them were load-bearing arguments and a reader who
+saw only the corrected text would not know which parts of this plan had already been wrong once.
+
+Every one has the same structure: **a correct number taken over one population, then used to
+justify a rule that operates on a different one.** That is one reviewable habit, not eleven
+mistakes, and correcting it changed no design decision — the deterministic spine, the explicit
+fact bindings, the refusal of a repair loop, and shipping §7 first all survived.
+
+| # | The draft claimed | Measured | Fixed in |
+| --- | --- | --- | --- |
+| 1 | "median cited passage 698 characters … 8 primaries with context ≈ 5,800 tokens — it fits" | 698 is the median over **all 8,776** graph passages. The median passage that **backs an observation** is **2,144.5** characters (n=150). Eight primaries with ±1 context is **~12,900 tokens** — it does not fit the 6,000-token budget, and at p90 it does not fit the server's whole 8,192-token context | §10.2, D3 |
+| 2 | §13.7 Rule A steps 3–4 "stop a right number being read off the wrong row" | **24 of 32 distinct `column_label` values map to more than one `period_key`.** Within a single passage, 179 of 485 `(passage_id, column_label)` pairs are ambiguous, covering **1,656 of 2,704 observations (61.3%)**. And 523 quotes occur more than once in their own passage, so "verbatim occurrence" locates nothing | §13.7 |
+| 3 | `neo4j` confined to `stages/retrieval/`; the no-write test greps `retrieval/` | §7's freshness gate reads Neo4j. As written, L0 cannot be built without failing L1's own structural test, and the plan's primary read-only guarantee did not cover the first stage | §16, §21 |
+| 4 | §10.2 bounds the package | It bounds **7 of 16 sections**. `metrics[]`, `formula_windows[]`, `relationships[]`, `warnings[]`, `conflicts[]`, `compatibility[]` and `retrieval_trace[]` were unbounded, and `compatibility[]` is O(n²) over a 26-quarter series | §10.2 |
+| 5 | D9 fires "when a group holds a `seniority_tier` position" | **`seniority_tier` does not exist anywhere in the repository.** `events.yaml:197` declares `allowed_properties: [change_kind, position, effective_date]`. The rule was exactly as unsatisfiable as the ontology defect this plan files at §18 | §6.6 D9 |
+| 6 | D4 pair `housing_inventory_homes ↔ homes_sold (20)` | `housing_inventory_homes` is **126/126 instant**; `homes_sold` has **0** instants. The overlap is **zero**, and §6.9 R3 must refuse every pair. "20" was one series' length, not the two series' overlap | §6.6 D4 |
+| 7 | `lost_qualifier` is motivated by `pct_>120d` and `contribution_profit` | `contribution_profit` has **no `ambiguities` and `population: None`**. Its cohort caveat lives only in `formulas.yaml` under `adjustment_components[].note`, which §10's `formula_windows[]` did not carry. Half the check's motivation was invisible to it | §10, §13.15 |
+| 8 | `story_run_id` identifies a run | It omits `--limit`, `--candidates`, `--detectors`, `--since`, `--until`, `temperature`, `max_tokens`, schema digests and `provider_model_id`. `story run --limit 3` and `--limit 20` mint the same id, and `os.replace` then silently overwrites — **the same defect this plan discovered in `extraction_run_id`** | §14 |
+| 9 | §13 covers the draft | Nothing constrained a **numeral-free, non-causal `connective` sentence**. Three false ones pass every check, e.g. *"the only quarter with a negative adjusted gross margin"* — `adjusted_gross_margin` is negative in **2022Q4 (−3.2) and 2023Q1 (−3.3)** | §13.14 |
+| 10 | §13.10 B's four conditions license only reported causation | They are co-presence tests, not linkage or polarity tests. **37 passages carry a negated causal construction** (*"not as a result of…"*) and **367 carry two or more distinct markers**, so a sentence can join two terms the passage never joins | §13.10 |
+| 11 | "the planner and writer have no tools", answering "a post writer selecting its own evidence" | True, but D3's own recommended fix — give the writer only the passages the plan cites — let a **model filter the next model's universe**. "No tools" and "no influence over the evidence set" are not the same property | §10.2, §12 |
+
+Fourteen wrong numbers, corrected in place: §1.2's two `file:line` references; §1.3's `:Issue`
+ratio (6:1 → **1.95:1** against passages), claim-free passages (8,757 → **8,624**) and passage
+counts (151/153 → **150/152**); §1.4's RANGE breakdown (26 → **27**); §4's dependency count
+(+10 → **7 net new**); §6.3 F1's "largest single move" (**AGP −$446M and CP −$444M are larger**)
+and F8's quarter count (6 → **7**); §6.6 D1's `polarity` field (**does not exist**); §6.10's
+reversal and delta counts (69/289/16/34 → **84/298/18/35**); §12's collision percentages
+(**measured over the corpus, not over a package that does not exist yet**); §13.5's group name;
+and §28's offline test count (2,530 → **2,567 here, 2,698 on `main`**).
+
+---
+
 ## 1. What the repository already decides
 
 ### 1.1 The graph is stale against its own inputs *(verified 2026-08-03)*
@@ -130,10 +167,10 @@ back in. §7's `package_input_digest_mismatch` is the missing half.
 
 Present and guaranteed:
 
-- `:Passage.text` is the **full** passage text, uncapped (`graph/stages/projection/nodes.py:711`).
+- `:Passage.text` is the **full** passage text, uncapped (`graph/stages/projection/nodes.py:710`).
 - `:Passage.source_url`, `:Document.source_url`, `:Document.accession` are required strings
-  (`graph/core/inputs.py:389-390`), and the URL is denormalised onto evidence, passage and
-  document — a citation needs zero joins to reach a URL.
+  (`graph/core/inputs.py:256, 271, 506, 521`), and the URL is denormalised onto evidence,
+  passage and document — a citation needs zero joins to reach a URL.
 - Passage ids are `{document_id}#p{sequence}`, contiguous `0..n-1` in all 294 documents, so
   previous/next context is string arithmetic on the id (`graph/core/keys.py:163-174`).
 - Every `:Observation` and `:Event` has at least one `EVIDENCED_BY` edge, re-checked post-load
@@ -153,20 +190,23 @@ Absent:
 
 Exactly one `subject_entity_id` exists in the run, so the `opendoor` `:Entity` has degree
 ≥ 2,704 before any other edge. `OBSERVATION_OF_SUBJECT` is the edge a bounded retriever must
-never traverse. `:Issue` outnumbers everything six to one (17,127 nodes), and **10,852 of them
-are `NO_STORED_ANSWER`** — a record that a question was never asked, because the run had
-`provider_calls_permitted: 0`. They cite 8,757 passages no claim touches. Any retriever seeded
-from a passage or an issue drowns unless it filters on `:NotAttempted`.
+never traverse. `:Issue` is the largest node population at 17,127 — 1.95× the 8,776 passages
+and 6.3× the observations — and **10,852 of them are `NO_STORED_ANSWER`**, a record that a
+question was never asked, because the run had `provider_calls_permitted: 0`. **8,624 of the
+cited passages are touched by no claim at all.** Any retriever seeded from a passage or an
+issue drowns unless it filters on `:NotAttempted`.
 
-The counterweight: **all 2,704 observations are backed by only ~151 distinct passages in ~48
-documents, about 78,000 tokens of text in total.** The quantitative spine fits in one context
-window. The 8,776 figure is the passage set touched by claims *or* issues; only ~153 are
-touched by claims.
+The counterweight: **all 2,704 observations are backed by only 150 distinct passages in ~48
+documents, 310,507 characters — about 77,600 tokens.** The whole quantitative spine fits in
+one large context window. The 8,776 figure is the passage set touched by claims *or* issues;
+only **152** are touched by claims. §10.2 depends on the distinction, and the first draft of
+this plan got it wrong.
 
 ### 1.4 Indexes and edition, measured live 2026-08-03
 
-30 indexes exist: 26 RANGE (7 node key + 12 relationship `edge_key` + 7 query indexes),
-2 LOOKUP, **1 FULLTEXT (`passage_text` on `:Passage.text`)**, **0 VECTOR**.
+30 indexes exist: 27 RANGE (7 node key + 12 relationship `edge_key` + 8 query indexes),
+2 LOOKUP, **1 FULLTEXT (`passage_text` on `:Passage.text`)**, **0 VECTOR**. 19 constraints,
+none touching `accession`.
 
 Query-serving RANGE indexes: `obs_metric`, `obs_period`, `obs_subject`, `obs_lane`,
 `evt_type`, `evt_occurred`, `psg_document`, `iss_code`.
@@ -275,7 +315,7 @@ Compared against current primary sources on 2026-08-03 and against this reposito
 | | Fits an existing graph | Cypher control | Vector + hybrid | Attribution | Local model | Core deps | Free-form risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **Driver + custom tool layer** | Perfect | Total | DIY | Total | Already works | **0 new** | None |
-| `neo4j-graphrag` 1.18.0 | Good — no schema assumptions | Full via `retrieval_query` | Both, with score fusion | DIY | Yes, no SDK needed | **+10, incl. `numpy`, `scipy`, `pypdf`** | Low |
+| `neo4j-graphrag` 1.18.0 | Good — no schema assumptions | Full via `retrieval_query` | Both, with score fusion | DIY | Yes, no SDK needed | 10 core, **7 net new**, incl. `numpy`, `scipy`, `pypdf` | Low |
 | LlamaIndex property graph | Poor | Good via `CypherTemplateRetriever` | Vector only, on its own index | Weak | Yes | ~29 | Medium |
 | Microsoft GraphRAG | **No Neo4j support at all** | N/A | Its own store | Rebuilt by LLM | LiteLLM | 25 + 7 siblings + `azure-*` | N/A |
 | Graphiti | **No** — hard-coded labels | None | Its own indices | Its own model | Yes | 7, incl. hard `openai` + `posthog` | **High at construction** |
@@ -342,8 +382,23 @@ tests/story/
 plans/llm-agent/
 ```
 
-**Judgment on proportion.** Eight stage directories is more than `graph/`'s two, and the
-justification is that each one is the boundary of a different failure. `freshness` refuses a
+**Judgment on proportion.** Measured across the repository, eight stage directories is
+**house-standard, not an outlier**:
+
+| package | stage dirs | `.py` files | lines |
+| --- | --- | --- | --- |
+| `graph/` | 2 | 26 | 9,172 |
+| `acquisition/` | 6 | 38 | 4,375 |
+| `normalization/` | 7 | 45 | 5,191 |
+| `extraction/` | **8** | 66 | 13,513 |
+
+The first draft compared only against `graph/` — the smallest package in the tree — and then
+wrote a defensive paragraph. Eight is exactly `extraction/`'s count and above the mean of 5.75.
+The real proportion question is §23's fourteen implementation stages against a package with
+zero lines today, and §23 answers it: L0–L6 and L9 need no model server, and L0 alone
+(the staleness gate) has standalone value.
+
+Each directory is still the boundary of a different failure. `freshness` refuses a
 run; `retrieval` is the only place a driver is imported; `detection` and `ranking` are separate
 because §6.10 forbids a model from ranking and keeping them together invites one function to do
 both; `packaging` is the wall the model cannot see past; `generation` is the only place a
@@ -419,14 +474,14 @@ contrib_m %   1.5  3.1  2.7  5.9 12.6 10.2 10.8  7.5  4.0  6.4 10.1 -0.7 -7.2 -7
 
 | # | Story | Numbers *(verified 2026-08-03)* |
 | --- | --- | --- |
-| **F1** | Adjusted EBITDA sign reversal | `2022Q2 = +$218M` → `2022Q3 = −$211M`; Δ = **−$429M**. Largest single move in the corpus |
+| **F1** | Adjusted EBITDA sign reversal | `2022Q2 = +$218M` → `2022Q3 = −$211M`; Δ = **−$429M**. The largest move that **crosses zero**; `adjusted_gross_profit` (−$446M) and `contribution_profit` (−$444M) are larger in absolute terms in the same quarter, and all three are one event |
 | **F2** | GAAP gross margin goes negative | `2022Q2 = 11.6%` → `2022Q3 = −12.6%`, **−24.2 pp**. The only negative GAAP gross margin in 26 quarters |
 | **F3** | Adjusted-vs-GAAP margin wedge | `2022Q3`: AGM `3.3%` vs GGM `−12.6%`, gap **+15.9 pp** against a 26-quarter mean of `−0.35` and σ `4.04` → **z = +4.02**. Next largest is `2023Q1` at z = −2.07 |
 | **F4** | Inventory drawdown | `2022-09-30 = 16,873` homes → `2023-06-30 = 3,558`, **−78.9% in three quarters** |
 | **F5** | Aging inventory doubles | `pct_>120d`: `2024-09-30 = 23%` → `2024-12-31 = 46%`, **+23 pp**, then 27 → 36 → 51 through `2025-09-30` |
 | **F6** | Acquisition pullback | `homes_purchased`: `2025Q1 = 3,609` → `2025Q3 = 1,169`, **−67.6% in two quarters** |
 | **F7** | Leadership reset | 2025-09-10, one passage: Kaz Nejatian → CEO, Keith Rabois → Chairman, Eric Wu → board. `occurred_on` is **null** on all three |
-| **F8** | Contribution-profit identity closes | `contribution_profit = adjusted_gross_profit + direct_selling_costs + holding_costs` residual is **exactly $0** in all 6 quarters where `holding_costs` is reported |
+| **F8** | Contribution-profit identity closes | `contribution_profit = adjusted_gross_profit + direct_selling_costs + holding_costs` residual is **exactly $0** in all **7** quarters where `holding_costs` is reported (2024Q1–Q3, 2025Q1–Q3, 2026Q1). **Caveat:** this is the sign-flipped, three-term form of `formulas.yaml`'s declared **four**-term expression, which separates current-period from prior-period holding costs. D17 must check the ontology's identity, not this one — see §6.6 |
 
 **F1–F3 are the recommended spike.** They share an anchor quarter, exercise a sign flip, a
 percentage-point move and a cross-metric divergence, and every fact resolves to a passage
@@ -518,28 +573,51 @@ Thresholds are each metric family's own p75 of |QoQ|, not a global constant:
 by percentage are all division by noise.
 
 *False positives in this corpus:* the small-base cases above, and **sign convention** —
-`direct_selling_costs` values are negative, so "costs rose" is a *decrease*. The candidate
-carries `polarity: cost` from `metrics.yaml` and the writer is never allowed to infer direction
-from the sign.
+`direct_selling_costs` values are negative, so "costs rose" is a *decrease*. **`metrics.yaml`
+has no `polarity` key** *(verified — the first draft invented one)*; the nearest declared field
+is `metric_category`. So the polarity table is **story-owned**, declared in `config/story.yaml`
+as an explicit `metric_id → revenue|cost|ratio|count` map with a test asserting it covers all
+26 metrics. The writer is never allowed to infer direction from the sign.
 
 **D2 `trend_reversal`.** Fire at `i` when `min_run` prior deltas all oppose `sign(d[i])` and
 `|d[i]| ≥ max(D1 threshold, 1.0 × σ(d))`. At `min_run = 2` with no magnitude gate the corpus
-yields 69 reversals across 16 metrics — one in three quarter transitions, because a noisy
-series alternates. The σ gate reduces it to the ones worth writing. Exclude any metric whose
-`σ(d)` is under one presentation unit; `market_count` alternates ±0 and produces pure noise.
+yields **84 reversals across 13 metrics** — only 13 metrics have ≥3 consecutive deltas at all —
+because a noisy series alternates. The σ gate reduces it to the ones worth writing. Exclude any
+metric whose `σ(d)` is under one presentation unit; `market_count` alternates ±0 and produces
+pure noise. **Zero-delta handling must be specified, not left to the implementation**: a delta
+of exactly 0 has no sign and breaks a run rather than continuing or reversing it.
 
-**D3 `acceleration`.** Three consecutive same-sign deltas with monotone `|d|` and
-`|d[i]| ≥ 1.5 × |d[i−2]|`. *Dedup requirement:* a deceleration to near-zero is arithmetically
-guaranteed after any shock, and the `2023Q1` decelerations of AGP, CP, CM and AGM are the same
-event four times. Collapse candidates sharing an anchor quarter and a `formulas.yaml`
-`component_metrics` lineage into one, with `correlated_metric_ids[]`.
+**D3 `acceleration`.** Three consecutive same-sign deltas with monotone **increasing** `|d|` and
+`|d[i]| ≥ 1.5 × |d[i−2]|`. Under that literal spec the corpus yields **8 firings across 6
+metrics**, and — a correction — **none of them is a deceleration**, because the monotone-increasing
+condition cannot fire on one. The first draft's dedup example (*"the 2023Q1 decelerations of
+AGP, CP, CM and AGM are the same event four times"*) describes candidates this detector cannot
+produce. **Decision: implement acceleration only in V1.** A deceleration detector needs its own
+rule (monotone *decreasing* `|d|`, same sign) and its own threshold, and it is where the
+correlated-lineage dedup would actually be needed — collapse on shared anchor quarter plus
+`formulas.yaml` `component_metrics` lineage, with `correlated_metric_ids[]`.
 
 **D4 `cross_metric_divergence`.** `gap[t] = v_a[t] − v_b[t]`; `z[t] = (gap[t] − μ)/σ` over the
-pair's own 26-quarter history; fire at `|z| ≥ 1.5`. **Do not build the ordering form.**
-Pairs available: AGM↔GGM (26 quarters), CM↔AGM (26), CP↔AGP (26), CPAI↔CP (11),
-`homes_purchased`↔`homes_sold` (15), `housing_inventory_homes`↔`homes_sold` (20).
+pair's own history; fire at `|z| ≥ 1.5`. **Do not build the ordering form.**
+Pairs available, with their **verified overlapping-quarter counts**: AGM↔GGM 26, CM↔AGM 26,
+CP↔AGP 26, CPAI↔CP 11, `homes_purchased`↔`homes_sold` 15.
 Require `σ(gap) ≥ 2 × tol`, or a 0.1 pp rounding difference produces an enormous z.
 The output must state the definitional relation, not just the numbers.
+
+**`housing_inventory_homes ↔ homes_sold` is removed from the pair list.**
+`housing_inventory_homes` is **126/126 `instant`**; `homes_sold` has **zero** instants. The
+overlap is zero and §6.9 R3 refuses every pair. The first draft's "(20)" was `homes_sold`'s own
+quarterly count, not the pair's overlap. An inventory-versus-sales relationship is real and
+belongs to D8's `sell_through` ratio, which pairs an instant with the *following* duration
+deliberately and labels the result `derived: true`.
+
+**A comparability gap R1–R8 permits and should not.** R2 licenses any two metrics sharing a
+`mutually_distinct_group`, and `profit_measures` contains `contribution_profit` — so the
+shipping `CP↔AGP` pair compares a **cohort** measure against a **period** measure. `formulas.yaml`
+records the reason: contribution profit subtracts *"holding costs incurred in prior periods on
+homes sold in the period"*, so *"a Contribution Profit value is NOT a slice of any single
+period's expenses."* §6.9 gains **R9** and §10.1 gains a mandatory `cohort_vs_period_basis`
+warning.
 
 **D8 `inventory_risk`.** Four independent sub-signals; severity is the count that fire.
 ```
@@ -549,7 +627,16 @@ S3 turnover  sell_through[t] = homes_sold[t] / housing_inventory_homes[t−1]; f
 S4 cover     cover[t] = homes_purchased[t] / homes_sold[t]; fire on crossing 1.0 or |Δ| ≥ 0.30
 ```
 Real hits: `2022Q4` (S2 55%, S4 cover 0.46 from 0.98), `2023Q1` (S2 59%), `2024Q4` (S1 +23 pp,
-S2 46%), `2025Q2` (S4 cover 0.41 from 1.22 — the sharpest inversion), `2025Q3` (S2 51%, S4 0.46).
+S2 46%), `2025Q2` (S4 cover 0.41 from 1.23 — the sharpest inversion), `2025Q3` (S2 51%, S4 0.46).
+
+**Two corrections to the sub-signals as first drafted.** S4 fires **~9 times** across the 15
+overlapping quarters, not the 3 the draft implied — the `|Δcover| ≥ 0.30` arm is far looser
+than the crossing arm and needs either a higher threshold or removal, and the crossing arm
+alone is the one carrying the meaning. And **S1 has no adjacency requirement**: `pct_>120d` has
+a four-quarter hole between `2021-12-31` (8%) and `2022-12-31` (55%), so S1 reads a **+47 pp**
+"aging jump" that is a year of change. Every delta-based sub-signal must require its two points
+to be **consecutive in the canonical series**, not merely adjacent in the sparse one — a rule
+that belongs in §6.9 and applies to D1, D2 and D3 equally.
 **S3 and S4 are derived ratios, not observations** — labelled `derived: true` with their two
 source Points, never rendered as if a filing printed them. The corpus itself refuses printed
 derivations: 174 `DERIVED_CHANGE_COLUMN` + 12 `DERIVED_COMPARISON` issues. Exclude
@@ -558,7 +645,22 @@ single-document. Every `pct_>120d` observation carries `ambiguity_codes:
 ["pct_120_days_denominator"]` and the candidate must surface it.
 
 **D9 `leadership_change`.** Group `executive_change` events by `(passage_id, announced_on ??
-occurred_on)`; fire when a group holds a `seniority_tier` position. One candidate exists.
+occurred_on)`; fire when a group holds a senior position. One candidate exists.
+
+**Correction: there is no `seniority_tier` field.** The first draft's firing rule named one and
+`grep -rn seniority ontology/ extraction/ graph/` returns nothing; `events.yaml:197` declares
+`allowed_properties: [change_kind, position, effective_date]`, and the three real events carry
+only `position` as free text (`"Chief Executive Officer"`, `"Chairman"`, `"member of the Board
+of Directors"`). That made D9's rule exactly as unsatisfiable as the `guidance_issuance` defect
+this plan files at §18 — a rule naming a field that does not exist.
+
+So seniority is **story-owned**: a `config/story.yaml` lexicon of normalised position surfaces
+(`chief executive officer`, `chief financial officer`, `chairman`, `president`, `board of
+directors`, …) matched against `position` after `normalize_alias`, with an unmatched position
+producing a candidate carrying `position_unrecognised` rather than being dropped. Proposing it
+to the ontology as a real `seniority_tier` on `executive_change` is a §18 item, not a
+prerequisite.
+
 Mandatory warnings: `occurred_on` is null on all three (**no effective date is knowable**),
 `date_basis: announced`, and `predecessor_unknown` — no departure event exists, so the
 candidate cannot say who was replaced.
@@ -572,7 +674,12 @@ continuous quarters), interior holes, and per-empty-metric refusal attribution f
 of four populated margin metrics.
 
 **D17 `formula_closure_break`** is a guard: any non-zero residual where all components are
-present **blocks** the affected candidates rather than producing one.
+present **blocks** the affected candidates rather than producing one. It evaluates
+`formulas.yaml`'s **declared** expression — for `contribution_profit_v1` that is the four-term
+cohort form separating current-period from prior-period holding costs — and not F8's collapsed
+three-term convenience identity. §13.9 requires a `formula_version_id` that
+`check_formula_for_date` accepts, so a guard checking a different identity than the ontology
+declares would certify an arithmetic the verifier then rejects.
 
 ### 6.7 Event proximity may never imply causation, structurally
 
@@ -627,7 +734,30 @@ R6 FORMULA   resolve_version(metric, period_end) must agree. Resolution is BY OB
 R7 CANONICAL both sides in {ok, resolved_by_majority}. A conflict slot has no value.
 R8 TOLERANCE for a MOVEMENT claim, |A − B| must exceed max(tol(A), tol(B)), else
              Refuse(WITHIN_PRESENTATION_TOLERANCE) — the two filings just rounded differently.
+R9 BASIS     a cohort measure may not be differenced against a period measure without a
+             cohort_vs_period_basis warning. contribution_profit and
+             contribution_profit_after_interest are cohort measures: formulas.yaml states
+             "a Contribution Profit value is NOT a slice of any single period's expenses."
+             R1-R8 as first drafted permitted the shipping CP<->AGP pair silently.
+R10 ADJACENCY a MOVEMENT or ACCELERATION claim requires its points to be CONSECUTIVE in the
+             canonical series, not merely adjacent in a sparse one. Without it,
+             pct_>120d reads a +47 pp "quarterly jump" across the four-quarter hole
+             between 2021-12-31 (8%) and 2022-12-31 (55%).
 ```
+
+Three latent gaps in R3 and R6, recorded so they are not rediscovered:
+
+- **R3's quarter test does not require `end.day` to be the last day of the month**, so
+  `2022-04-01..2022-06-15` would classify as a quarter. Zero rows today — the only
+  non-canonical windows are the three cross-year ones — so it is latent, not live.
+- **R6 is undefined for instants.** `resolve_version(metric, period_end)` has no answer when
+  `period_end` is null. Harmless today because `adjusted_gross_profit` is the only versioned
+  metric and it is a duration metric; it needs a rule before `inventory_balance` or
+  `borrowing_capacity` is versioned.
+- **Nothing checks `population_definition_raw`.** It is non-null on exactly the 88
+  `pct_>120d` rows, and **3 of those 88 disagree with the other 85** (`"our homes"` ×2,
+  `"our portfolio"` ×1). A comparison can therefore straddle two denominators. §10.1 makes
+  this a warning rather than a refusal — a defensible choice, stated here as one.
 
 **R6 quantified.** `adjusted_gross_profit` is the only metric with two formula versions: v1
 `2020-01-01..2021-12-31` (17 slots, 47 observations), v2 `2022-01-01→` (29 slots, 125). Of 383
@@ -655,9 +785,10 @@ score = 0.40·clip(|z|/4)         magnitude against the metric's own delta histo
 ```
 
 Weights are a stated starting point, not a derivation, and `config/story.yaml` owns them so a
-change is a change of record. Measured to calibrate the gates: across 16 metrics and 289
-consecutive-quarter deltas there are **16 deltas with |z| > 2 and 34 with |z| > 1.5**. So
-`|z| > 2` selects the top 5.5% — the headline gate — and 1.5 is the "worth a paragraph" gate.
+change is a change of record. Measured to calibrate the gates: across **298 consecutive-quarter
+deltas there are 18 with |z| > 2 and 35 with |z| > 1.5**. So `|z| > 2` selects the top 6% — the
+headline gate — and 1.5 is the "worth a paragraph" gate. Only **13** metrics have three or more
+consecutive deltas, which is the population every z-score in this plan is computed over.
 
 **Signals that must NOT become score terms**, and why, so the mistake is not made twice:
 `ambiguity_count` carries zero ranking information because both codes are metric-constant
@@ -722,6 +853,16 @@ Three checks, in the `freshness` stage, runnable with no model and no detector:
 `python -m story doctor` runs all three and exits non-zero on any. **Every command that builds
 a package or a draft runs it first**, and there is no flag to skip it — `config/story.yaml`
 cannot authorise it, in the same spirit as `graph/cli.py:192-195`.
+
+**The gate guards forward only, and that is not sufficient.** An accepted post at
+`accepted/<candidate_id>.md` carries values and is never revisited; after a graph rebuild, §7
+correctly refuses `story rebuild` and leaves the published file on disk, unmarked, holding
+numbers from a run the gate now rejects — §17.8's failure one step later. So §20 gains
+**`python -m story recheck [STORY_RUN_ID]`**: re-resolve every `fact_ledger` entry of every
+accepted post against the *current* graph, and write `retractions.jsonl` naming each post,
+each fact whose value moved or vanished, and the old and new readings. It exits non-zero when
+any accepted post is affected. A post is not retracted automatically — that is a judgment —
+but it can never be silently wrong, which is the property §7 exists to provide.
 
 This is the one deliverable that has value before anything else is written, and it is the only
 check in this plan that catches §17.8.
@@ -820,9 +961,21 @@ a fact returns its `observation_id`/`event_id` and its `passage_id`/`document_id
 `build_story_evidence_package` is deliberately **not** a tool. It is §10's builder, called by
 the pipeline, never by a model — a model that can call it can widen its own universe.
 
-**Universal constraints.** Allowed labels: `Metric, Observation, Event, Passage, Document,
-Entity`. Allowed relationships: `HAS_OBSERVATION, EVIDENCED_BY, PART_OF, PARTICIPATES_IN,
-OBSERVATION_OF_SUBJECT, RECONCILES_TO, DISTINCT_FROM, HOLDS_POSITION_AT, BORROWS_UNDER`.
+**Universal constraints.** Allowed **base** labels: `Metric, Observation, Event, Passage,
+Document, Entity`. Allowed relationships: `HAS_OBSERVATION, EVIDENCED_BY, PART_OF,
+PARTICIPATES_IN, OBSERVATION_OF_SUBJECT, RECONCILES_TO, DISTINCT_FROM, HOLDS_POSITION_AT,
+BORROWS_UNDER, PLACEHOLDER_FOR`.
+
+**The allowlist is over base labels, and it matches by presence, never by exact label set.**
+The live graph carries **22 labels and 12 relationship types**, because `graph/stages/projection/nodes.py`
+adds ontology-derived secondary labels (`Person`, `PublicCompany`, `Company`, `Subsidiary`,
+`CreditFacility`, `StockExchange`, …) and status labels (`Warned` 186, `NotAttempted` 10,852,
+`Rejected` 46, `Unresolved` 1) alongside the operational `GraphLoad` marker. The first draft
+listed 6 labels and 9 types; **three of the omissions are load-bearing** — §9 requires
+excluding `:NotAttempted`, §10.1 requires surfacing `:Warned`, and §7 requires reading
+`:GraphLoad`. A test whitelisting by exact set would reject the nodes this plan depends on.
+`PLACEHOLDER_FOR` was simply missed: it has a backing constraint index
+(`placeholder_for_edge_key`) and is how §13.11 reaches the unresolved borrower.
 **`:Issue`, `FOUND_IN` and `CONCERNS_METRIC` are reachable only by `find_counter_evidence` and
 `story issues`**, and every query touching them excludes `:NotAttempted` — 10,852 of 17,127
 issues record a question never asked, and a retriever that surfaces them is reporting the run's
@@ -838,8 +991,16 @@ refusal that records why", never a silence the model fills.
 
 **Lucene escaping in `search_passages`.** The query string is built from an escaped term list,
 never from model output verbatim. Reserved characters `+ - && || ! ( ) { } [ ] ^ " ~ * ? : \ /`
-are escaped. Fixtures must cover a passage id (`:`), a form (`8-K/A`), a quoted row label, and
-a date range — the four financial surfaces that break Lucene.
+are escaped — which covers the four financial surfaces that break Lucene, and blocks
+field-prefix injection (`text:…`) because `:` is escaped.
+
+**Characters are not enough: `AND`, `OR`, `NOT` and `TO` are Lucene operators and are words.**
+A model-supplied `terms[]` of `["margin", "NOT", "gross"]` becomes a boolean exclusion — a
+change to the query's *meaning*, not its filter, and a model-controlled channel for silently
+suppressing evidence, which is the failure §11 exists to prevent. It cannot escape
+`:Passage.text` and cannot write, so the severity is low and the fix is one line: reserved
+words are quoted or dropped. **Five fixtures**, not four: a passage id, `8-K/A`, a quoted row
+label, a date range, and a bare `NOT`.
 
 ---
 
@@ -860,7 +1021,8 @@ facts[]         observation_id, metric_id, metric_label, period_key, period_star
 metrics[]       full definition rows for every metric referenced: unit, allowed_units,
                 period_type, aliases, distinct_from, mutually_distinct_groups membership,
                 ambiguities (code, description, impact), population, percentage_min/max
-formula_windows[]  metric_id, version_id, valid_from, valid_to, expression, component_metrics
+formula_windows[]  metric_id, version_id, valid_from, valid_to, expression, component_metrics,
+                   adjustment_components[] WITH THEIR `note` TEXT, and basis: cohort|period
 events[]        event_id, event_type_id, occurred_on, announced_on, date_basis, review_flag,
                 properties (verbatim strings), participants with roles, passage_id, quoted_text
 relationships[] relationship_instance_id, predicate, source/target entity ids and types,
@@ -892,30 +1054,70 @@ conflict classification for any used slot.
 
 ### 10.2 Bounds
 
+**Every section is bounded. The first draft bounded seven of sixteen** (§0c item 4), which is
+how `compatibility[]` — specified as "every comparability decision made", O(n²) over a
+26-quarter series — got into a package with a token budget and no cap.
+
 | Section | Default | Ceiling |
 | --- | --- | --- |
 | structured facts | 5–12 | 24 |
 | events | 1–5 | 8 |
-| primary passages | 3–8 | 12 |
-| context passages | ±1 per primary | ±3 |
-| explanatory passages | 2–5 | 10 |
-| counter-evidence | 1–3 | 8 |
+| relationships | 0–4 | 8 |
+| **primary passages** | **2–4** | **6** |
+| context passages | ±1 per primary | ±2 |
+| explanatory passages | 1–3, **excerpted** | 5 |
+| counter-evidence | 1–3, **excerpted** | 6 |
 | documents | derived | 20 |
-| **total token estimate** | **≤ 12,000** | **16,000** |
+| metrics[] | one per referenced metric | 8 |
+| formula_windows[] | one per referenced metric-period | 8 |
+| warnings[] | — | 20 |
+| conflicts[] | — | 8 |
+| compatibility[] | **only decisions the candidate's own comparisons made** | 12 |
+| retrieval_trace[] | — | 40 |
+| **total token estimate** | **≤ 5,000** | **6,000** |
 | graph hops from any seed | 2 | 2 |
 
-The token budget is real, not aspirational: the local runtime is `-c 8192` with
-`max_output_tokens 1024` (`config/extraction.yaml`, verified 2026-08-01). **A 12,000-token
-package does not fit the running server.** That is a decision forced by measurement, recorded
-here rather than discovered at L7: either the server is restarted with a larger context, or the
-package is bounded to ~6,000 tokens and the planner and writer are given different slices.
-**Recommendation: bound to 6,000 tokens for V1 and give the writer the plan plus only the
-passages the plan cites.** Median cited passage is 698 characters (~175 tokens) and a ±1
-context window is ~725 tokens, so 8 primaries with context is ~5,800 tokens — it fits. Recorded
-as open decision **D3**.
+### 10.2.1 The passage budget, measured properly
 
-Sizing evidence: all 2,704 observations are backed by ~151 passages totalling ~78,000 tokens.
-A single story never needs more than a few percent of that.
+The first draft of this section sized passages from a median of 698 characters and concluded
+that eight primaries with context is ~5,800 tokens. **698 is the median over all 8,776 graph
+passages; the median passage that actually backs an observation is 2,144.5 characters**
+(n = 150, mean 2,070, max 4,300) — because a table passage *is* a markdown table and tables
+are long. Corrected arithmetic:
+
+| configuration | ≈ tokens |
+| --- | --- |
+| 1 backing passage, median | 536 |
+| 1 backing passage + ±1 context | ~1,600 |
+| **8 primaries + ±1 context (the first draft's recommendation)** | **~12,900** |
+| 4 primaries + ±1 context | ~6,400 |
+| **3 primaries + ±1 context** | **~4,800** |
+
+The local runtime is `-c 8192` with `max_output_tokens 1024` (`config/extraction.yaml`,
+verified 2026-08-01). So the first draft's package **exceeded its own budget at every
+percentile and exceeded the server's entire context at p90**, before the system prompt.
+
+**Three changes follow, and together they are the resolution of D3.**
+
+1. **Primary passages default to 2–4, ceiling 6** — the table above.
+2. **Explanatory and counter-evidence passages are excerpted, not shipped whole**: a
+   ±400-character window around the matched span, with `char_start`/`char_end` into the full
+   `:Passage.text` so a citation still resolves to the byte and the evidence panel can fetch
+   the rest. Excerpting is *not* applied to a passage a fact is bound to — §13.7's Rule A
+   needs the whole table.
+3. **The planner and the writer see different slices of one package.** The planner gets facts,
+   metrics, events, warnings, conflicts and *excerpts*; the writer gets the accepted plan plus
+   the **full text of every passage any bound fact cites**, chosen by fact binding, **not by
+   the plan's `required_citation_passage_ids`**.
+
+Point 3 is a correction, not a detail. The first draft said "give the writer the plan plus only
+the passages the plan cites" — and `required_citation_passage_ids` is *model output*, so that
+would have let the planner filter the writer's universe (§0c item 11). §2's line is that the
+model chooses words and code chooses facts; **the writer's passage set is therefore derived
+from fact bindings by code**, and the plan can only order and emphasise what is already there.
+
+Sizing sanity check: all 2,704 observations are backed by 150 passages totalling ~77,600
+tokens. A single story needs about 6% of that.
 
 ### 10.3 Identity and reproducibility
 
@@ -956,8 +1158,25 @@ code before the call, not chosen by the model.
 
 **`counterpoints` is required to be non-empty when the package's `counter_evidence` is
 non-empty**, and `unusable_evidence` must account for every counter-evidence item not used.
-That is the mechanism against silent omission: the planner cannot drop counter-evidence, only
-explain why it did.
+
+**That rule is satisfiable vacuously as first drafted, and three things are needed to close
+it.** §15.3 prohibits `minItems`, so "non-empty" cannot be expressed in the schema at all and
+is a post-hoc code check whose only outcome is rejection; nothing constrained content, so
+`{claim: "Margins vary.", required_fact_ids: []}` satisfied it literally; and **no §13 check
+required a counterpoint to reach the draft** — §12's prohibitions covered a dropped
+`required_warning` but not a dropped counterpoint.
+
+1. Every `counterpoint` must carry **at least one `required_fact_id` or
+   `required_citation_passage_id` drawn from `counter_evidence`**. A counterpoint grounded in
+   nothing is not a counterpoint.
+2. `unusable_evidence[].reason` is an **enum**, not a free string — `superseded_by_later_filing`,
+   `different_period_shape`, `different_population`, `immaterial_at_stated_precision`,
+   `outside_thesis_scope` — matching §15.3's rule that every constraint is an enum. A free
+   string in a regime that cannot enforce `pattern` is a box to be filled, not a decision.
+3. §13 gains `required_counterpoint_absent`: every plan counterpoint must appear as a draft
+   sentence binding at least one of its `required_fact_ids`. **REFUSE.** §22 keeps
+   "counter-evidence handling" as a human-judged dimension because fairness of representation
+   is not mechanically checkable — but *presence* now is.
 
 The planner may not retrieve. It has no tools.
 
@@ -977,10 +1196,15 @@ DraftSentence:
   citations[]:      {passage_id, document_id, char_start, char_end}
 ```
 
-**Why the draft is structured and not prose.** Measured over the package: matching a bare
-numeral back to a fact is ambiguous **62.5% of the time at two significant figures** and 37.8%
-at three. Only number + unit + period narrows it to 1.4%. A verifier that reverse-engineers
-which fact the model meant is wrong more often than not. So the writer *declares* its bindings
+**Why the draft is structured and not prose.** Matching a bare numeral back to a fact is
+hopeless. Measured **over the whole corpus** — the only population that exists, since §10's
+builder is unimplemented — a bare number is ambiguous **98.9%** of the time, number + unit
+**97.9%**, and number + unit + period **97.2%**. Restricted to a single candidate's own slice
+the figures fall to roughly 62% / 61% / 1.4%, and it is the last of those that carries the
+argument: **only period disambiguates, and only within a bounded set.** *(The first draft
+quoted the second set as "measured over the package"; the package does not exist yet, so the
+corpus figures are the honest ones and the conclusion is unchanged and stronger.)* A verifier
+that reverse-engineers which fact the model meant is wrong far more often than not. So the writer *declares* its bindings
 with character offsets, and the verifier **checks the binding it was handed and never guesses
 one**. Any numeral in `text` not covered by a binding is `unbound_numeral` — refused.
 
@@ -1023,7 +1247,7 @@ i.e. the fact rounds to the draft's own numeral at the draft's own precision. `"
 against `−27,075,000` gives `d = 3`, window ±50,000, |Δ| = 25,000 → PASS. `"$27 million"` gives
 `d = 2`, window ±500,000 → PASS. Plus an **over-precision WARN** when `d` exceeds the
 significant figures in the fact's printed form, and a **hedge guard**: `approximately`, `about`,
-`roughly` relax nothing and are recorded so §13.14 can check the hedge is not doing work the
+`roughly` relax nothing and are recorded so §13.15 can check the hedge is not doing work the
 number cannot support.
 
 ### 13.2 Units and currency
@@ -1099,7 +1323,7 @@ surface is in `declared_ambiguous`.
 | `contribution` | contribution_margin, contribution_profit, contribution_profit_after_interest | `profit_measures` |
 | `homes` | 4 home counts | `home_counts` |
 | `contracts` | acquisition_contracts, homes_under_contract | `home_counts` |
-| `under contract` | homes_under_contract, homes_under_resale_contract | `buy_side_vs_sell_side` |
+| `under contract` | homes_under_contract, homes_under_resale_contract | `buy_side_vs_sell_side_contracts` |
 | `inventory` | housing_inventory_homes, inventory_balance | **none — a gap, §18** |
 
 Note the consequence: `gaap_gross_margin`'s own label *is* `"Gross Margin"`, so the surface a
@@ -1133,18 +1357,57 @@ have full sentences (median 99–157 characters).
 1. quoted_text occurs verbatim in Passage.text                 (holds 2,714/2,714)
 2. reconstruct(quoted_text, scale, unit) == value              (holds 2,690/2,690)
 3. row_label is a licensed surface for metric_id               (alias index)
-4. column_label resolves to period_key                         (period grammar)
+4. column_label resolves UNIQUELY to period_key WITHIN THIS PASSAGE   (§13.7.1)
 5. the sentence's own metric and period surfaces pass §13.5 and §13.4
 ```
-Steps 3–4 are what stop a right number being read off the wrong row. **A table-backed sentence
-may not paraphrase the passage** — it may state the number, the metric, the period and the
-subject, and nothing else.
+
+#### 13.7.1 Why step 4 needs "uniquely, within this passage" — and what it costs
+
+The first draft wrote step 4 as *"column_label resolves to period_key"* and claimed steps 3–4
+*"stop a right number being read off the wrong row."* Measured, they do not:
+
+- **24 of 32 distinct `column_label` values map to more than one `period_key`.** `"2021"` maps
+  to 11, `"2022"` to 11, `"2020"` to 8.
+- Restricted to a single passage — the only scope in which the check is meaningful —
+  **179 of 485 `(passage_id, column_label)` pairs are ambiguous, covering 1,656 of 2,704
+  observations (61.3%).**
+- **523 of 2,704 `quoted_text` strings occur more than once in their own passage.** At a median
+  of 4 characters, "verbatim occurrence" locates a value in the document but not in the grid.
+
+The concrete failure is the first row of `observations.jsonl`: `adjusted_ebitda_margin`,
+`column_label: "2020"`, period `2020-01-01_2020-06-30` — a half-year. The same passage carries
+`2020-04-01_2020-06-30` under the same label. All five of the draft's steps pass while the
+sentence names the quarter and the value is the half-year — **exactly the conflation §13.4
+calls catastrophic and §17.2 lists as an attack.** The draft's Rule A checked the extractor's
+own recorded labels against each other, so an upstream column misalignment was laundered into
+a verified citation.
+
+**The rule, corrected.** Step 4 refuses when `(passage_id, column_label)` maps to more than one
+`period_key` in the package, with code `column_label_ambiguous_in_passage`. That is a REFUSE on
+61.3% of table observations, and the number is not a reason to weaken the check — it is the
+measurement that says a bare year-column citation is not evidence of a period.
+
+Two escape hatches, both deterministic and both narrow:
+
+1. **A distinguishing sibling label.** When the passage carries a second label that resolves
+   uniquely (`"September 30, 2022"` alongside `"2022"`), the binding may name it instead and
+   the citation cites that column. This is available on the passages that matter most —
+   quarterly tables generally label at least one column fully.
+2. **`year_only_column_ambiguity` classification.** §6.6 D15 already detects exactly this shape
+   and the first draft never connected it to the verifier. When D15 classifies the slot and
+   §6.1 step 4 resolved it by document majority, the binding may proceed **with the
+   classification and the minority reading rendered in the evidence panel**.
+
+Anything else is refused, and `RejectedDraft.remedy` gains `REBIND_TO_DISTINGUISHING_COLUMN`.
+
+**A table-backed sentence may not paraphrase the passage** — it may state the number, the
+metric, the period and the subject, and nothing else.
 
 **Rule B — narrative facts and all `explanatory` sentences.** Support means span containment
 plus lexical grounding: the cited span must exist, contain the evidence span, carry the number
 if the sentence carries one, and every content word of the assertion must appear in the span,
 resolve through a licensed alias, or be in the connective lexicon. REFUSE on span, quote,
-marker and number; WARN on paraphrase distance and escalate to §13.14.
+marker and number; WARN on paraphrase distance and escalate to §13.15.
 
 ### 13.8 Event properties are strings, not facts — REFUSE any numeric binding
 
@@ -1186,7 +1449,7 @@ The sentence itself cites nothing.
 `resulted in`, `stemmed from`, `contributed to`, `owing to`, `was impacted by`, `is why`,
 `explains`, `reflects`, `reflecting`, `thanks to`, `the driver of`, `on the back of`.
 
-**B. Reported causation — permitted under four conjunctive conditions.** A sentence of kind
+**B. Reported causation — permitted under six conjunctive conditions.** A sentence of kind
 `explanatory` may assert causation iff (1) it carries an **attribution frame** naming the
 source in the sentence itself (`the company said/stated`, `management attributed`, `the filing
 states that`, `according to the {10-K, 10-Q, shareholder letter, earnings release}`); (2) the
@@ -1194,6 +1457,28 @@ causal marker appears **inside the cited span**, not merely somewhere in the pas
 run to thousands of characters and whole-passage containment would let any marker license any
 claim; (3) both the cause term and the effect term appear inside the cited span; (4) the frame's
 noun matches the cited document's `document_type`.
+
+**Conditions (5) and (6) exist because the first four are co-presence tests, not linkage or
+polarity tests.** Both holes are live in this corpus:
+
+5. **Polarity.** The cited span must not negate the marker. **37 passages carry a negated
+   causal construction** — e.g. `…tm2017926d1_ex10-5.htm#p6`: *"The Purchaser decided to enter
+   into this Agreement **not as a result of** any general solicitation…"* A span containing
+   `as a result of`, both terms, a frame and a matching document type satisfies conditions 1–4
+   while the filing asserts the **opposite**. Refuse when a negation token (`not`, `no`,
+   `never`, `rather than`, `other than`) precedes the marker within the same clause.
+6. **Linkage.** The marker must syntactically join *the same two terms the sentence joins*.
+   **367 passages carry two or more distinct causal markers.** Given a span holding "X rose due
+   to Y" and "Z fell as a result of W", a sentence asserting "the company attributed Z to Y"
+   satisfies marker-in-span, cause-in-span and effect-in-span, and is false. The cheap
+   deterministic form: cause and effect must fall on the **same side of the same marker
+   occurrence** — cause within N characters after the marker, effect before it — and a span
+   containing more than one marker requires the binding to name which occurrence it relies on.
+
+Neither hole has a model backstop today: §13.15's `temporal_association_turned_causal` is
+advisory, and §13.16 states there is no WARN tier for causation. Conditions 5 and 6 are
+therefore deterministic REFUSEs, and the linkage test is the weakest check in this plan —
+recorded as such rather than presented as solved.
 
 Condition B is cheap to satisfy because the corpus is rich in quotable causal language: `due
 to` appears in 558 passages, `result of` 439, `as a result of` 388, `attributable to` 355,
@@ -1258,7 +1543,53 @@ extraction directory (§7 — **failing today**); no binding may name a refused 
 `refused_identities`, `graph/stages/load/verification.py:427`); and any binding to one of the
 186 `:Warned` observations must surface the warning in the evidence panel.
 
-### 13.14 The model-assisted verifier
+### 13.14 Numeral-free sentences — the hole the first draft left open
+
+Every check above is reached through a numeral, a citation, a calculation or a causal
+construction. **A `connective` sentence with none of those was unconstrained**, and three false
+ones pass the whole of §13:
+
+| Attack | Why it is false in this corpus |
+| --- | --- |
+| *"That was the only quarter in which the company reported a negative adjusted gross margin."* | `adjusted_gross_margin` is negative in **2022Q4 (−3.2) and 2023Q1 (−3.3)**. The same sentence about *GAAP* gross margin is true (2022Q3 only), so the form is unfalsifiable by inspection |
+| *"Contribution profit held up better than adjusted gross profit through the downturn."* | False by $2M — the 2022Q2→Q3 fall is **−$444M** for CP and **−$446M** for AGP. Both facts are in the package; the comparison is over *deltas*, which nothing evaluates |
+| *"Opendoor has not reported revenue growth since 2022."* | `revenue` has **zero** observations. §17.7's `unpopulated_metric` code is reached through §13.1 step 2 — i.e. through a numeral — so an absence claim has nothing to bind and nothing to refuse |
+| *"The board changes took effect before the quarter closed."* | All three `executive_change` events have `occurred_on: null`. §13.8 refuses an asserted effective *date*; this asserts an effective *ordering* |
+
+**The rule.** A `connective` sentence may contain no **claim** — only transition, structure and
+reference to what adjacent sentences already established. Four constructions are refused
+outright wherever they appear, in any sentence kind, with or without a numeral:
+
+```
+superlative / uniqueness   only | sole | first | last | never | always | unprecedented
+                           | worst | best | largest | smallest | record | peak | trough
+comparative across facts   more | less | better | worse | faster | slower | higher | lower
+                           | outpaced | held up | lagged      -- when not inside a Calculation
+existence / absence        has not | did not | no longer | has yet to | remains the only
+temporal ordering          before | after | until | since | by the time   -- when relating
+                           two package items rather than naming a period
+```
+
+Each is permitted only as an **explicit claim with machinery behind it**:
+
+- a **superlative** requires `kind: calculated` with `operation: extremum`, the full comparison
+  set as `input_observation_ids`, and the series window stated in the sentence. The verifier
+  recomputes the extremum over that exact set. *"The only quarter"* over a 26-quarter series
+  means 26 input ids, and the adjusted-gross-margin attack dies on recomputation.
+- a **comparative** requires `operation: compare_deltas` (or `compare_levels`) with both sides'
+  input ids, and the verifier recomputes both and checks the direction. The $2M case fails.
+- an **absence claim** requires `operation: absence` naming the metric and window; the verifier
+  confirms the package's own coverage, and an unpopulated metric returns `unpopulated_metric`
+  with the refusal reason from `issues.jsonl` rather than licensing the sentence.
+- a **temporal ordering** requires both dates to be non-null in the package. The three
+  `executive_change` events cannot satisfy it, which is the correct outcome.
+
+This is the largest single addition the adversarial review forced, and it is where V1 is most
+likely to be over-strict rather than under-strict: some legitimate connective prose will be
+refused. That is the right direction for the failure to point, and §22's readability score is
+where the cost shows up.
+
+### 13.15 The model-assisted verifier
 
 Runs **after** the deterministic layer, on sentences that already passed. Emits structured
 findings, never a verdict. Output schema is flat, one array, `additionalProperties: false`,
@@ -1285,7 +1616,7 @@ sentence produces a row — an empty array is indistinguishable from a truncated
 | --- | --- | --- |
 | `overstatement` | the sentence and its bound facts rendered as `metric · period · value · unit`; **no passage** | WARN only. The deterministic layer already proved the numbers. Targets "collapsed", "record", "consistently" |
 | `temporal_association_turned_causal` | the sentence and the full cited span | Second opinion on §13.10 only. A deterministic REFUSE is never overturned. Catches `following` → `because of` where the marker *is* in the span but means something weaker |
-| `lost_qualifier` | the sentence, the passage, and the metric's `ambiguities` and `population` blocks | **REFUSE on `unsupported`+`high`.** The highest-value model check: `pct_>120d` carries a denominator ambiguity with `impact: high` on all 88 rows and three incompatible readings; `contribution_profit` is a cohort measure that deliberately includes prior-period costs. A dropped denominator qualifier makes a true number a false statement |
+| `lost_qualifier` | the sentence, the passage, the metric's `ambiguities` and `population` blocks, **and its `formula_windows[]` entry including `adjustment_components[].note`** | **REFUSE on `unsupported`+`high`.** The highest-value model check. `pct_>120d` carries a denominator ambiguity with `impact: high` on all 88 rows and three incompatible readings — that half works today. **The second half did not:** `contribution_profit` has **no `ambiguities` and `population: None`**, and its cohort caveat lives only in `formulas.yaml` under `adjustment_components[].note`, which the first draft's `formula_windows[]` did not carry. Widening that schema is what makes the check see what motivates it. Adding `population`/`ambiguities` to `contribution_profit` in the ontology is the better fix and is a §18 item |
 | `explanation_not_in_cited_passages` | the sentence and every cited span, labelled with document type and filing date | REFUSE on `contradicted`, WARN on `unsupported`. Runs only where §13.7 Rule B raised a paraphrase WARN |
 | `counter_evidence_misrepresented` | the sentence, the cited span, every other value in the used slot, and adjacent-period values | REFUSE on `contradicted`. The corpus supplies the trap: a passage reading *"Contribution Margin … was 4.0% versus 12.6% in 4Q20"* — both numbers in the span, only one a package fact for that period |
 
@@ -1294,9 +1625,9 @@ can only downgrade a PASS; any numeral in `explanation` not present in either qu
 discards the finding; `severity` is advisory input, never output; `model_id`, `prompt_version`,
 `content_sha256` and `raw_sha256` are recorded on every finding.
 
-### 13.15 The gate
+### 13.16 The gate
 
-Every deterministic code in §13.1–§13.13 is REFUSE except: `over_precision` and
+Every deterministic code in §13.1–§13.14 is REFUSE except: `over_precision` and
 `paraphrase_distance` (WARN); `event_review_flag`, `conflict_immaterial_at_stated_precision`
 and `warned_observation_used` (ANNOTATE). Model findings REFUSE only for `lost_qualifier`
 `unsupported`+`high`, and `contradicted` on the two passage-relative checks.
@@ -1345,8 +1676,30 @@ data/story_runs/<story_run_id>/          gitignored by .gitignore:3 — no chang
 
 `story_run_id = story-v1-<digest12>` over `(story_layout_version, graph_run_id,
 run_complete_sha256, ontology_definition_hash, config_hash, prompt_version, model_id,
-detector_versions, policy_version)`. Derived, **no clock** — matching
-`graph/core/manifest.py:104-139`.
+provider_model_id, temperature, max_tokens, schema_digests, detector_versions, policy_version,
+selection)` where `selection` is the normalised, sorted tuple of every argument that changes
+*what is in the run* — `--limit`, `--candidates`, `--detectors`, `--since`, `--until` — plus the
+§10.2 budget parameters. Derived, **no clock** — matching `graph/core/manifest.py:104-139`.
+
+**The last seven inputs are a correction.** The first draft's digest covered neither the
+selection flags nor the sampling parameters, so `story run --limit 3` and `story run --limit 20`
+minted **the same id** — and §1.6's atomic finalisation would then `os.replace` the second over
+the first, silently. That is precisely the defect this plan discovered in `extraction_run_id`
+(§0b item 5, §18 row 2), reproduced in its own design. `provider_model_id` is in the digest
+because the extraction data shows it is a filesystem path
+(`/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf`): swapping the GGUF behind an unchanged
+`model_id` changes every generation, and without it nothing would notice.
+
+A test asserts the property rather than the field list, because the field list is the thing that
+drifted: **two runs differing in any one digest input get different ids; two differing in none
+get the same id.**
+
+**A note on §21's byte-identity claim.** It holds in V1 because `generations.jsonl` replays the
+generation server and embeddings are deferred. Once §8's sidecar lands, retrieval order derives
+from vector scores the local server does not reproduce exactly (§8's measured 1.3e-4 drift), so
+`story rebuild` would report a byte difference that is not a defect. **§8 must land with a
+`retrieval_order` recorded in the package and replayed from it**, or the determinism claim has
+to be narrowed at that point. Recorded now rather than discovered at L2.
 
 **Git:** nothing under `data/` is tracked, so no `.gitignore` change is needed. What *is*
 tracked: `config/story.yaml`, `tests/story/fixtures/` (a real slice, never hand-edited, copied
@@ -1439,7 +1792,7 @@ repository's own `schema_violations` ignores anything outside its six keywords. 
 using `minimum`, `pattern`, `anyOf` or `$ref` would be neither enforced by the grammar nor
 caught by the local check — it would simply not apply.
 
-**Every schema in §11, §12 and §13.14 is restricted to: flat `properties`, `type`, `required`,
+**Every schema in §11, §12 and §13.15 is restricted to: flat `properties`, `type`, `required`,
 `items`, `enum`, `additionalProperties: false`.** Numeric bounds are expressed as `enum` or
 re-checked by the adjudicator. `anyOf`, `oneOf`, `$ref`, `prefixItems`, `pattern`,
 `minItems`/`maxItems` and `format` are prohibited, and a test asserts every shipped schema uses
@@ -1470,7 +1823,7 @@ schema failure is a result, not a retry.
 | Max path length | 2 hops, structurally — no tool contains a variable-length pattern |
 | Query timeout | `neo4j.Query(text, timeout=…)` on every statement, from `config/story.yaml` |
 | No APOC | None of `db.index.fulltext.*` or `db.index.vector.*` needs it |
-| No write clauses | Enforced by a test that greps every Cypher constant in `story/stages/retrieval/` for `CREATE|MERGE|SET|DELETE|REMOVE|DROP|CALL {.*}.*SET|LOAD CSV` |
+| No write clauses | Enforced by a test that greps **every Cypher constant in `story/`** — not just `stages/retrieval/` — for `CREATE\|MERGE\|SET\|DELETE\|REMOVE\|DROP\|LOAD CSV`. The first draft scoped this to `retrieval/` while §7's freshness gate also issues Cypher, so the plan's primary read-only guarantee did not cover the stage it says ships first |
 | No schema discovery from user input | No tool takes a label or property name as a parameter |
 | Logging | Query name and parameter *keys* logged; parameter values and `NEO4J_PASSWORD` never. `SecretStr` already masks the password in tracebacks (`connection.py:135-145`) |
 
@@ -1517,7 +1870,7 @@ Each one uses this corpus specifically, and names the check that catches it.
 5. **Citing a passage that contains a better number.** *"Contribution margin was 4.0% in Q4
    2021"* citing a passage reading *"…was 4.0% versus 12.6% in 4Q20."* Every deterministic
    check passes; the sentence is a selective read of a span whose whole point is the collapse.
-   → §13.14 `counter_evidence_misrepresented`, which is shown the adjacent-period values.
+   → §13.15 `counter_evidence_misrepresented`, which is shown the adjacent-period values.
 6. **"Following" laundered into "because of".** The event's `reason` property says the
    pandemic, so a verifier checking "is the cause in the package?" passes — but the *filing*
    says "following", and `reason` is the extractor's field, not the filing's word. → §13.10
@@ -1543,10 +1896,18 @@ Each one uses this corpus specifically, and names the check that catches it.
     §13.8: event properties may only be quoted verbatim.
 12. **Unbounded context by accident.** A retriever returning `node { .* }` on `:Passage` ships
     the full text plus eight provenance properties per hit. → §9's named field lists.
-13. **A post writer selecting its own evidence.** → `build_story_evidence_package` is not a
-    tool (§9); the planner and writer have no tools at all (§11, §12).
-14. **Silent omission of counter-evidence.** → §11 requires `counterpoints` to be non-empty
-    when `counter_evidence` is, and every unused item to appear in `unusable_evidence`.
+13. **A post writer selecting its own evidence.** `build_story_evidence_package` is not a tool
+    (§9) and neither the planner nor the writer has any tool (§11, §12). **But "no tools" and
+    "no influence over the evidence set" are not the same property**, and the first draft's own
+    D3 answer breached the second: giving the writer "only the passages the plan cites" let a
+    model filter the next model's universe, since `required_citation_passage_ids` is model
+    output. → §10.2.1 point 3 — **the writer's passage set is derived from fact bindings by
+    code.**
+14. **Silent omission of counter-evidence.** §11 requires `counterpoints` to be non-empty when
+    `counter_evidence` is. **As first drafted that was satisfiable with one ungrounded
+    sentence**, §15.3 could not express "non-empty" in the schema at all, and no §13 check
+    required a counterpoint to survive into the draft. → §11's three additions, of which
+    `required_counterpoint_absent` (REFUSE) is the one that actually closes it.
 15. **Mutable model output in the factual graph.** → §14: the story package never writes to
     Neo4j and never into `data/extraction_runs/` or `data/graph_runs/`.
 16. **An unreproducible post.** → §14's `generations.jsonl` replays by request digest, and the
@@ -1554,8 +1915,19 @@ Each one uses this corpus specifically, and names the check that catches it.
 17. **Depending on data that does not exist.** → §6.5's status table and §9's three
     `Unavailable(reason)` tools; a detector whose `REQUIRED_FACTS` are unmet is skipped with a
     recorded reason rather than silently absent.
-18. **Architecture too large for a prototype.** → the honest risk in this plan. §5's proportion
-    argument names it; §20's L0–L3 deliver a working spike before the planner or writer exists.
+18. **A false sentence carrying no number.** *"The only quarter with a negative adjusted gross
+    margin"* — it is negative in two. Nothing in the first draft's §13 constrained a
+    numeral-free, non-causal `connective` sentence. → §13.14, the largest change the review
+    forced.
+19. **A causal claim the filing negates, or joins differently.** 37 passages carry a negated
+    causal construction and 367 carry two or more markers; the first draft's four conditions
+    were co-presence tests. → §13.10 conditions 5 and 6.
+20. **A published post silently invalidated by a graph rebuild.** §7 guards forward only. →
+    `story recheck` and `retractions.jsonl` (§7).
+21. **Architecture too large for a prototype.** → measured against the repository, eight stage
+    directories is exactly `extraction/`'s count and above the mean (§5). The live question is
+    fourteen implementation stages against zero lines of code, and §23 answers it: L0–L6 and L9
+    need no model server, and L0 alone has standalone value.
 
 ---
 
@@ -1576,7 +1948,10 @@ None is fixed here; each is named so it is not rediscovered.
 | `adjusted_ebitda` and `adjusted_ebitda_margin` declare no `distinct_from` at all; 13 of 26 metrics have none | `metrics.yaml` | medium; §13.5 must union `distinct_from` with group membership |
 | `AMBIGUOUS_COLUMN_ALIGNMENT` identities are recovered by regexing prose out of `Issue.detail` because `concept_ids` is `[]` on all five | `graph/stages/load/verification.py:225` | inherited fragility |
 | `graph/context.py:8-15` still argues at length that "there is no `config/graph.yaml`" — there is | docstring | minor |
-| `README.md` says 717 tests; 2,530 collect offline today | `README.md:19` | minor |
+| Three `HOLDS_POSITION_AT` rows for Wu, Nejatian and Rabois all carry digest suffix `0365d72eac21` — three distinct relationships share one digest, and only the readable segment separates them | `relationships.jsonl` | medium; readable segments are exactly what must not carry uniqueness |
+| `contribution_profit` has no `ambiguities` and `population: None`; its cohort caveat exists only as a `formulas.yaml` `adjustment_components[].note` | `metrics.yaml` | medium; blocks half of §13.15's `lost_qualifier` |
+| `executive_change` has no seniority field — `allowed_properties: [change_kind, position, effective_date]`; seniority must be inferred from free-text `position` | `events.yaml:197` | medium; §6.6 D9 carries a story-owned lexicon instead |
+| `README.md` says 717 tests; 2,567 collect offline here and 2,698 on `main` | `README.md:19` | minor |
 
 ---
 
@@ -1618,6 +1993,7 @@ python -m story package   CANDIDATE_ID [--run STORY_RUN_ID]
 python -m story plan      CANDIDATE_ID [--run STORY_RUN_ID]
 python -m story draft     CANDIDATE_ID [--run STORY_RUN_ID]
 python -m story verify    [STORY_RUN_ID]
+python -m story recheck   [STORY_RUN_ID]
 python -m story run       [--limit N] [--candidates ID,...]
 python -m story ask       "QUESTION"
 python -m story issues    [--code C] [--limit N]
@@ -1634,9 +2010,17 @@ comma-joined lists rather than `nargs="+"`; `EXIT_OK/EXIT_FAILED/EXIT_USAGE = 0/
 **Exits non-zero when:** `doctor` finds any staleness; `discover` produces zero candidates *or*
 a detector is skipped for unmet requirements without `--allow-skipped`; `verify` has any
 failing check — printing **every** failure, not the first, because a draft wrong in two ways is
-exactly the case a first-failure exit would hide; `run` ends with any draft rejected;
-`rebuild` finds a byte difference; `report` differs from the committed file without `--write`.
-Typed domain refusals print one line and never a traceback.
+exactly the case a first-failure exit would hide; **`plan` or `draft` produces an artifact the
+next stage would reject** (§11's unresolvable-id case, which the first draft left with no
+defined exit behaviour); `run` ends with any draft rejected; `recheck` finds any accepted post
+affected by a graph change; `rebuild` finds a byte difference; `report` differs from the
+committed file without `--write`. Typed domain refusals print one line and never a traceback.
+
+**A note on `plan` and `draft` failing.** With `temperature = 0.0` and a deterministic request
+digest, re-running produces the identical rejected artifact, and §27 D7 forbids a repair loop —
+so the operator's only moves are to change the package (widen the candidate, fix the graph) or
+to change a prompt version. That is the intended behaviour and the exit code says so; it is
+recorded because "the pipeline has no defined state here" was a real gap.
 
 **Naming notes.** `discover` is a soft collision with `python -m acquisition discover`;
 accepted, because `run`/`runs`/`inspect`/`verify`/`report` already repeat across packages by
@@ -1655,7 +2039,7 @@ gitignored real run, with the run id **pinned, not discovered**.
 
 | Area | Tests |
 | --- | --- |
-| Structure | no forbidden import reachable from `story/` (the same AST closure walk, plus `neo4j` confined to `stages/retrieval/` and `httpx` to `providers/`); `graph/` never imports `story`; `contracts.py` imports only typing and `story.core.models`; no stage imports another; no catch-all module names; the stages package holds exactly the stages that exist |
+| Structure | no forbidden import reachable from `story/` (the same AST closure walk); **`neo4j` confined to `stages/retrieval/` and `stages/freshness/`** — two stages, because §7's gate reads the `:GraphLoad` marker, and the first draft's one-stage rule would have made L0 unbuildable without failing L1's own test; `httpx` confined to `providers/`; `graph/` never imports `story`; `contracts.py` imports only typing and `story.core.models`; no stage imports another; no catch-all module names; the stages package holds exactly the stages that exist |
 | Cypher tools | every constant is parameterised (no f-string, no `%`, no `+` into a query); no write keyword in any constant; every statement carries a timeout; `max_rows` enforced and `truncated` returned; Lucene escaping over the four hostile surfaces; `OBSERVATION_OF_SUBJECT` never traversed outward; `:NotAttempted` excluded |
 | Determinism | candidate ids stable across runs and over input reordering; a `detector_version` bump mints a new id; package digest stable; two projections of one package are byte-identical |
 | Detectors | fixture-driven, one committed real slice per detector; thresholds asserted against the measured distributions in §6.6; D17 residual is exactly zero on the six overlapping quarters |
@@ -1713,8 +2097,8 @@ dimensions above.
 | **L6** | Provider abstraction + structured-output client + `AnswerStore` replay (§15) | L0 | **yes** | — |
 | **L7** | Editorial planner (§11) | L5, L6 | needs the local server | **thesis** |
 | **L8** | Constrained writer (§12), style profile separated from facts | L7 | needs the local server | — |
-| **L9** | Deterministic verifier and the gate (§13.1–§13.13, §13.15) | L5, L8 | **yes** | — |
-| **L10** | Model-assisted verifier and adjudicator (§13.14) | L9, L6 | needs the local server | — |
+| **L9** | Deterministic verifier and the gate (§13.1–§13.14, §13.16), incl. `story recheck` | L5, L8 | **yes** | — |
+| **L10** | Model-assisted verifier and adjudicator (§13.15) | L9, L6 | needs the local server | — |
 | **L11** | End-to-end `story run` on F1–F3, offline replay, `report.md` | L9, L10 | **yes** | **publish?** |
 | **L12** | Interactive `story ask` (§19) | L1, L6 | **yes** | — |
 | **L13** | Evaluation harness, gold set, founder rubric (§22) | L11 | **yes** | — |
@@ -1787,7 +2171,7 @@ changes, and `WORKSTREAM_BOUNDARY.md` is where they get recorded when they happe
 | An LLM ranker, or an LLM tie-breaker | A model that orders candidates is a model choosing its own evidence one step earlier (§6.10) |
 | `build_story_evidence_package` as a model-callable tool | A model that can call it can widen its own universe (§9) |
 | Matching a draft's numbers to facts by search | Ambiguous 62.5% of the time at two significant figures. The draft declares its bindings and the verifier checks them (§12) |
-| Per-sentence rejection | Invites the generator to delete the offending sentence rather than fix it (§13.15) |
+| Per-sentence rejection | Invites the generator to delete the offending sentence rather than fix it (§13.16) |
 | A prototype database (SQLite, DuckDB) for agent state | Every other stage uses a directory of JSONL; it diffs and needs no process (§14) |
 | A shared `cli_common.py` | The repository triplicates `_banner` and quadruplicates `EXIT_*` on purpose (§1.6) |
 | Importing `extraction.providers` | Would be the repository's first cross-pipeline import; `extraction.contracts` is not a shared surface (§15.2) |
@@ -1801,7 +2185,7 @@ changes, and `WORKSTREAM_BOUNDARY.md` is where they get recorded when they happe
 | --- | --- | --- | --- | --- |
 | **D1** | Package name — `story/` | **`story/`** | `narration/` reads oddly as a module; `agent/` is a catch-all name saying nothing about what it produces | **before L0 (blocking)** |
 | **D2** | Rebuild the graph before any story work? | **Yes** — the staleness gate refuses it anyway, and every §17 check except §7 passes a stale fact | Proceed on the stale graph and treat §7 as advisory: §17.8 shows a real, citable, retracted fact would publish | **before L1 (blocking)** |
-| **D3** | Package token budget vs the running server's 8,192-token context | **Bound to 6,000 tokens; give the writer the plan plus only the passages it cites** | Restart llama.cpp with a larger context — costs VRAM on a 16 GiB card and changes a measured runtime; or split the package across calls, which reintroduces the "model can widen its universe" risk | **before L5 (blocking)** |
+| **D3** | Package token budget vs the running server's 8,192-token context | **RESOLVED by measurement (§10.2.1).** Primary passages 2–4 (ceiling 6); explanatory and counter-evidence excerpted to ±400 characters; planner and writer get different slices, and **the writer's passage set is derived from fact bindings by code, never from the plan's `required_citation_passage_ids`** | The first draft's answer (8 primaries, writer sees only what the plan cites) both overran the context at every percentile and let a model filter the next model's universe. Restarting llama.cpp with a larger context remains available and costs VRAM on a 16 GiB card | **taken at L5** |
 | **D4** | Embeddings in V1 | **No** — §8's three reasons | Add them and either break `graph verify` or accept a sidecar store plus pure-Python cosine at seconds per query, before fulltext has been measured to be insufficient | **at L2** |
 | **D5** | Server-side read-only enforcement | **Defer** — application controls plus `db.transaction.timeout` in `neo4j.conf` | A read-only serving instance is the only real answer and it is a milestone; Community offers no read-only user at all | **before first non-local use** |
 | **D6** | `audience: internal` candidates (D15, D16) in the same run as external ones | **Same run, flagged** — they are the honest data-quality output and a separate run would hide them | Separate runs; they would stop being read | **at L3** |
@@ -1817,7 +2201,7 @@ graph run plus `config/story.yaml` plus the committed answer store.
 
 Not part of any stage; listed so the sweep is not forgotten.
 
-- `README.md:19` — "717 tests"; 2,530 collect offline today.
+- `README.md:19` — "717 tests"; **2,567** collect offline in this worktree and **2,698** on `main`.
 - `graph/context.py:8-15` — argues at length that `config/graph.yaml` does not exist. It does.
 - `plans/graph/V1_GRAPH_PROTOTYPE.md:1329` — G6's scope is superseded by this plan; add a
   pointer rather than rewriting it.
