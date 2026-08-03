@@ -818,3 +818,110 @@ def test_the_guard_does_not_refuse_a_row_that_merely_repeats_a_value(lane):
     result = lane.extract_table(table, passage_id="norm:x:y:z.htm#p1")
     assert [i for i in result.issues if i.code == "AMBIGUOUS_COLUMN_ALIGNMENT"] == []
     assert any(c.value == -49000000.0 for c in result.claims)
+
+
+# -- F0 Part A, defect A: which duration group a distinct-label column belongs to -------------
+#
+# The *Expansion into New Markets* table of each Q1 10-Q, by passage id. Real filed tables, and
+# the authoritative regression for F0_CONTRACT_EXTENSION §1.2 — one heading over the quarter-end
+# column and one over three prior fiscal years, with no repeated label anywhere in the row.
+EXPANSION_TABLES = {
+    2021: "norm:0001801169:0001801169-21-000021:open-20210331.htm#p144",
+    2022: "norm:0001801169:0001801169-22-000041:open-20220331.htm#p122",
+    2023: "norm:0001801169:0001801169-23-000055:open-20230331.htm#p109",
+    2024: "norm:0001801169:0001801169-24-000085:open-20240331.htm#p112",
+    2025: "norm:0001801169:0001801169-25-000038:open-20250331.htm#p101",
+}
+
+#: `Number of markets (at period end)` as each of those five filings prints it: the quarter-end
+#: instant first, then three fiscal year ends. Read off the filed rows, never hand-adjusted —
+#: which is why 44 appears against 2021-12-31 in two filings and 53 against 2022-12-31 in three.
+EXPANSION_MARKET_COUNTS = {
+    2021: {"2021-03-31": 27.0, "2020-12-31": 21.0, "2019-12-31": 21.0, "2018-12-31": 18.0},
+    2022: {"2022-03-31": 45.0, "2021-12-31": 44.0, "2020-12-31": 21.0, "2019-12-31": 21.0},
+    2023: {"2023-03-31": 53.0, "2022-12-31": 53.0, "2021-12-31": 44.0, "2020-12-31": 21.0},
+    2024: {"2024-03-31": 50.0, "2023-12-31": 50.0, "2022-12-31": 53.0, "2021-12-31": 44.0},
+    2025: {"2025-03-31": 50.0, "2024-12-31": 50.0, "2023-12-31": 50.0, "2022-12-31": 53.0},
+}
+
+
+@pytest.mark.parametrize("year", sorted(EXPANSION_TABLES))
+def test_a_single_run_of_distinct_years_is_bound_by_position_not_by_even_division(
+        lane, passages, year):
+    """Defect A of F0_CONTRACT_EXTENSION §1.2, on the five filed tables that carry it.
+
+    `March 31,` heads one column and `Year Ended December 31,` heads three. Even division split
+    four columns between two headings two-and-two, so the first fiscal year landed under
+    `March 31,` and a whole prior year's market count was emitted as a quarter-end instant —
+    44 as `2021-03-31`, 53 as `2022-03-31`, 50 as `2023-03-31`.
+
+    Asserted as the whole row rather than as the one wrong cell: a fix that moved the value off
+    the wrong period and onto a second wrong one would pass a narrower test.
+    """
+    result = run(lane, passages, EXPANSION_TABLES[year])
+    counts = {c.period.key: c.value for c in result.claims if c.metric_id == "market_count"}
+    assert counts == EXPANSION_MARKET_COUNTS[year]
+
+
+@pytest.mark.parametrize("year", sorted(EXPANSION_TABLES))
+def test_only_the_quarter_end_column_of_those_tables_is_an_instant_heading(
+        lane, passages, year):
+    """The binding itself, before any row label re-reads it as an instant.
+
+    One column under `March 31,` and the rest under `Year Ended December 31,`. Stated over the
+    header because `Number of markets (at period end)` turns every column into an instant, so
+    the claims alone cannot show that the *durations* were kept apart.
+    """
+    result = run(lane, passages, EXPANSION_TABLES[year])
+    groups = [c.group_header for c in result.header.period_columns]
+    assert groups == ["March 31,", *(["Year Ended December 31,"] * 3)]
+
+    # And the fiscal-year columns really are durations at this point, not instants.
+    assert [c.period.is_instant for c in result.header.period_columns] == [
+        True, False, False, False]
+
+
+@pytest.mark.parametrize("year", sorted(EXPANSION_TABLES))
+def test_no_prior_year_of_those_tables_survives_as_a_quarter_end_instant(
+        lane, passages, year):
+    """The negative half. Exactly one March-31 instant exists in each of these tables, and it
+    is the one the header prints a `March 31,` heading over."""
+    result = run(lane, passages, EXPANSION_TABLES[year])
+    march = [c.period.key for c in result.claims if c.period.key.endswith("-03-31")]
+    assert march == [f"{year}-03-31"]
+
+
+def test_repeating_labels_still_divide_evenly_into_parallel_groups(lane, passages):
+    """The rule the discriminator must not break, on the layout it was written for.
+
+    The Q4 2020 reconciliation prints `2020 2019 2020 2019` under `Three Months Ended
+    December 31,` and `Year Ended December 31,`. Position binds it wrongly — the lost `colspan`
+    puts both headings on the first two columns — and even division binds it correctly. A
+    repeated label is what says the groups are parallel, so this table keeps even division.
+    """
+    result = run(lane, passages, RECON_Q4_2020)
+    groups = [(c.column_label, c.group_header) for c in result.header.period_columns]
+    assert groups == [
+        ("2020", "Three Months Ended December 31,"),
+        ("2019", "Three Months Ended December 31,"),
+        ("2020", "Year Ended December 31,"),
+        ("2019", "Year Ended December 31,"),
+    ]
+
+
+def test_distinct_labels_whose_positions_support_nothing_are_refused(lane):
+    """Adversarial, because the corpus has no example: distinct labels *and* an unbindable
+    header.
+
+    The labels say the groups are sequential, so even division is not available. The second
+    heading floats between date columns, so `_positional_spans` supports nothing either.
+    Falling back to the rule the labels have already ruled out is how a guess is smuggled in
+    behind a refusal, so this abstains.
+    """
+    table = ("|  | March 31, |  |  | Year Ended December 31, |  |  |\n"
+             "| --- | --- | --- | --- | --- | --- | --- |\n"
+             "| (in whole numbers) | 2025 |  | 2024 |  | 2023 |  | 2022 |\n"
+             "| Number of markets (at period end) | 50 |  | 50 |  | 50 |  | 53 |")
+    result = lane.extract_table(table, passage_id="norm:x:y:z.htm#p1")
+    assert result.claims == []
+    assert [i.code for i in result.issues] == ["AMBIGUOUS_COLUMN_ALIGNMENT"]

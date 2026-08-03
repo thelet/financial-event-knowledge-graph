@@ -45,6 +45,8 @@ from extraction.stages.narrative import (
     ISSUE_CODES,
     LANE_NAME,
     MIN_OUTPUT_TOKENS,
+    MODEL_ABSTENTION_REASONS,
+    PERIOD_NOT_GROUNDED_IN_PASSAGE,
     PERIOD_NOT_PRINTED,
     PROMPT_EXCEEDS_CONTEXT,
     PROMPT_VERSION,
@@ -1823,3 +1825,269 @@ def test_core_never_imports_a_stage():
     for path in (PACKAGE / "core").rglob("*.py"):
         for name in _imports(path):
             assert ".stages" not in name and not name.startswith("stages"), name
+
+
+# -- F0 Part A, defect B: a narrative passage that is a table with its columns removed --------
+#
+# `q42023formxex992sharehol.htm#p20`, verbatim from the normalized catalog. The Q4 2023
+# shareholder letter's KPI grid carries no table markup, so it normalizes as `passage_kind:
+# narrative` and arrives as one line: seven period headings, then seven values per metric.
+#
+# The narrative lane has no column-binding machinery and cannot acquire any — there are no
+# columns — so the model bound the `December 31, 2022` column to `2023-12-31` and produced
+# market count 53 for 50, 55% for 18%, and 12,788 homes for 5,326
+# (F0_CONTRACT_EXTENSION §1.1, defects 4-6).
+FLATTENED_GRID_PASSAGE = (
+    "22 Three Months Ended Year Ended December 31, December 31, 2023 September 30, 2023 "
+    "June 30, 2023 March 31, 2023 December 31, 2022 2023 2022 Revenue $ 870 $ 980 $ 1,976 "
+    "$ 3,120 $ 2,857 $ 6,946 $ 15,567 Gross profit $ 72 $ 96 $ 149 $ 170 $ 71 $ 487 $ 667 "
+    "Gross Margin 8.3 % 9.8 % 7.5 % 5.4 % 2.5 % 7.0 % 4.3 % Net (loss) income $ (91) $ "
+    "(106) $ 23 $ (101) $ (399) $ (275) $ (1,353) Number of markets (at period end) 50 53 "
+    "53 53 53 50 53 Homes sold 2,364 2,687 5,383 8,274 7,512 18,708 39,183 Homes "
+    "purchased 3,683 3,136 2,680 1,747 3,427 11,246 34,962 Homes in inventory (at period "
+    "end) 5,326 4,007 3,558 6,261 12,788 5,326 12,788 Inventory (at period end) $ 1,775 $ "
+    "1,311 $ 1,149 $ 2,118 $ 4,460 $ 1,775 $ 4,460 Percentage of homes \u201con the market\u201d "
+    "for greater than 120 days (at period end) 18 % 12 % 24 % 59 % 55 % 18 % 55 % "
+    "Non-GAAP Financial Highlights (1) Contribution Profit (Loss) $ 30 $ 43 $ (90) $ "
+    "(241) $ (207) $ (258) $ 525 Contribution Margin 3.4 % 4.4 % (4.6) % (7.7) % (7.2) % "
+    "(3.7) % 3.4 % Adjusted EBITDA $ (69) $ (49) $ (168) $ (341) $ (351) $ (627) $ (168) "
+    "Adjusted EBITDA Margin (7.9) % (5.0) % (8.5) % (10.9) % (12.3) % (9.0) % (1.1) % "
+    "Adjusted Net Loss $ (97) $ (75) $ (197) $ (409) $ (467) $ (778) $ (574) OPENDOOR "
+    "TECHNOLOGIES INC. FINANCIAL HIGHLIGHTS AND OPERATING METRICS (In millions, except "
+    "percentages, homes sold, number of markets, homes purchased, and homes in inventory) "
+    "(Unaudited) (1) See \u201c\u2014Use of Non-GAAP Financial Measures\u201d for further details and a "
+    "reconciliation of such non-GAAP measures to their nearest comparable GAAP measures."
+)
+
+
+# `q42023formxex992sharehol.htm#p9` of the same letter, verbatim. It states the right answer to
+# the very figure #p20 gets wrong — "As of December 31, 2023, 18% of our homes had been listed
+# on the market for more than 120 days" — and it *also* ends in a flattened chart, five quarter
+# labels in a row. Both facts matter: the refusal must fire on the grid and not on the passage,
+# or the correct 18% goes with the wrong 55%.
+PROSE_BESIDE_A_CHART_PASSAGE = (
+    "11 3. Other category is largely comprised of stock-based compensation expense "
+    "capitalized for internally developed software, depreciation and amortization, and "
+    "equity securities fair value adjustment. Financial Highlights 4Q23 Total Capital "
+    "$1.3 billion 4Q23 Cash, Cash Equivalents, and Marketable Securities $1.1 billion "
+    "increase acquisitions, less than 2% of the net inventory balance as of year end is "
+    "from the old book, which is down from 6% at the end of 3Q23. Additionally, as of the "
+    "end of the year, we were in contract to purchase 2,114 homes, up 27% versus 3Q23 and "
+    "up 109% versus 4Q22. As of December 31, 2023, 18% of our homes had been listed on "
+    "the market for more than 120 days versus 21% for the broader market as adjusted for "
+    "our buybox. We have seen a significant improvement in this metric from December 31, "
+    "2022, when 55% of our portfolio had been listed on the market for more than 120 "
+    "days, given our success in selling through our old book of longer-dated inventory. "
+    "OTHER BALANCE SHEET ITEMS We ended the year with $1.3 billion in capital, which "
+    "includes $1.1 billion in unrestricted cash and marketable securities and $161 "
+    "million of equity invested in homes and related assets, net of inventory valuation "
+    "adjustments. This compares to $1.5 billion in capital as of the end of 3Q23, which "
+    "included $1.2 billion in unrestricted cash and marketable securities and $182 "
+    "million of equity invested in homes and related assets, net of inventory valuation "
+    "adjustments. The decrease in capital is primarily driven by the use of $90 million "
+    "in unrestricted cash to repurchase $129 million of our outstanding 2026 convertible "
+    "notes at a substantial discount during the quarter, reducing future debt "
+    "obligations. As shown below, total shareholders\u2019 equity decreased by $53 million in "
+    "the quarter to $967 million as of December 31, 2023. 4Q23 Homes Under Contract to "
+    "Purchase at Quarter End 2,114 1,390 1,011 1,137 2,114 1,661 4Q22 1Q23 2Q23 3Q23 4Q23"
+)
+
+#: The three findings on `#p20` that survived every other check and reached the catalogs, as
+#: the model returned them. Copied out of `benchmarks/extraction/v1/answers/narrative_v1.jsonl`
+#: rather than composed: what is being regressed is the answer that produced the six defects.
+FLATTENED_GRID_FINDINGS = (
+    {
+        "evidence_sentence": "Number of markets (at period end) 50 53 53 53 53 50 53",
+        "metric_id": "market_count", "statement_type": "reported_level",
+        "subject": "the_filing_company", "value_text": "53", "value": 53,
+        "scale": "units", "unit": "markets", "period_kind": "instant",
+        "period_label": "December 31, 2023", "population_text": "",
+    },
+    {
+        "evidence_sentence": (
+            "Homes in inventory (at period end) 5,326 4,007 3,558 6,261 12,788 5,326 12,788"),
+        "metric_id": "housing_inventory_homes", "statement_type": "reported_level",
+        "subject": "the_filing_company", "value_text": "12,788", "value": 12788,
+        "scale": "units", "unit": "homes", "period_kind": "instant",
+        "period_label": "December 31, 2023", "population_text": "",
+    },
+    {
+        "evidence_sentence": (
+            "Percentage of homes “on the market” for greater than 120 days "
+            "(at period end) 18 % 12 % 24 % 59 % 55 % 18 % 55 %"),
+        "metric_id": "pct_homes_on_market_gt_120_days", "statement_type": "reported_level",
+        "subject": "the_filing_company", "value_text": "55 %", "value": 55,
+        "scale": "units", "unit": "percent", "period_kind": "instant",
+        "period_label": "December 31, 2023",
+        "population_text": "homes “on the market” for greater than 120 days",
+    },
+)
+
+#: The correct reading of the same metric on the same date, from `#p9` of the same letter, as
+#: the model returned it. It is the control: whatever refuses the three above must accept this.
+PROSE_FINDING = {
+    "evidence_sentence": (
+        "As of December 31, 2023, 18% of our homes had been listed on the market for more "
+        "than 120 days versus 21% for the broader market as adjusted for our buybox."),
+    "metric_id": "pct_homes_on_market_gt_120_days", "statement_type": "reported_level",
+    "subject": "the_filing_company", "value_text": "18%", "value": 18,
+    "scale": "units", "unit": "percent", "period_kind": "instant",
+    "period_label": "4Q23", "population_text": "our homes",
+}
+
+GRID_SCOPE = frozenset({
+    "market_count", "housing_inventory_homes", "pct_homes_on_market_gt_120_days",
+})
+
+
+def test_the_flattened_grid_fixtures_are_the_filed_passages(repo_config):
+    """The two constants above are the corpus, byte for byte, or this whole section proves
+    nothing about a filing. Skipped rather than failed where the corpus is absent, as the
+    other corpus-backed checks here are."""
+    catalog = repo_config.catalog_root / "passages.jsonl"
+    if not catalog.is_file():
+        pytest.skip("no normalized corpus")
+    rows = {}
+    for line in catalog.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = json.loads(line)
+            rows[row["passage_id"]] = row
+    letter = "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm"
+    assert rows[f"{letter}#p20"]["text"] == FLATTENED_GRID_PASSAGE
+    assert rows[f"{letter}#p9"]["text"] == PROSE_BESIDE_A_CHART_PASSAGE
+    # And both really are `narrative`. If normalization ever learns to keep the grid, #p20
+    # becomes a table and this refusal stops being the right treatment for it.
+    assert rows[f"{letter}#p20"]["passage_kind"] == "narrative"
+    assert rows[f"{letter}#p9"]["passage_kind"] == "narrative"
+
+
+@pytest.mark.parametrize("finding", FLATTENED_GRID_FINDINGS,
+                         ids=[f["metric_id"] for f in FLATTENED_GRID_FINDINGS])
+def test_a_period_read_off_a_flattened_column_header_is_refused(ontology, finding):
+    """Defects 4-6 of F0_CONTRACT_EXTENSION §1.1, on the filed passage and the filed answer.
+
+    Each of these three reached `observations.jsonl` with a period a year wrong. The heading
+    the answer names is printed; it is printed in a row of seven headings with the table gone,
+    so it says which *column title* was chosen and nothing about which of the seven parallel
+    figures on the row it titles.
+    """
+    extraction = map_answer(
+        {"claims": [finding], "abstentions": []}, ontology=ontology,
+        context=context(passage_text=FLATTENED_GRID_PASSAGE,
+                        scope_concept_ids=GRID_SCOPE))
+
+    assert extraction.claims == []
+    assert [i.code for i in extraction.issues] == ["PERIOD_NOT_GROUNDED_IN_PASSAGE"]
+    issue = extraction.issues[0]
+    # A rejection, not a model abstention and not a warning: this lane refused a claim the
+    # model proposed, and §1.4 of the plan asks for exactly that distinction to be visible.
+    assert issue.rejected_claim is True
+    assert issue.raw_finding == finding
+    assert issue.metric_ids == (finding["metric_id"],)
+
+
+def test_the_three_wrong_values_reach_no_claim_at_all(ontology):
+    """Stated over the whole answer rather than per finding: 53 markets, 12,788 homes and 55%
+    are the values the graph held at `2023-12-31`, and none of them may survive in any form."""
+    extraction = map_answer(
+        {"claims": list(FLATTENED_GRID_FINDINGS), "abstentions": []}, ontology=ontology,
+        context=context(passage_text=FLATTENED_GRID_PASSAGE,
+                        scope_concept_ids=GRID_SCOPE))
+    assert [c.value for c in extraction.claims] == []
+    assert len(extraction.rejected_claims) == 3
+
+
+def test_the_refusal_does_not_guess_a_corrected_period(ontology):
+    """The constraint that makes this a refusal rather than a repair.
+
+    50, 5,326 and 18% are the right answers, and they are all printed in the same rows the
+    wrong ones came from. Choosing the first column instead of the last would score better and
+    would still be a guess about a layout that is gone, so nothing here proposes a period.
+    """
+    extraction = map_answer(
+        {"claims": list(FLATTENED_GRID_FINDINGS), "abstentions": []}, ontology=ontology,
+        context=context(passage_text=FLATTENED_GRID_PASSAGE,
+                        scope_concept_ids=GRID_SCOPE))
+    for issue in extraction.issues:
+        assert "2023-12-31" not in issue.detail
+        assert "2022-12-31" not in issue.detail
+
+
+def test_the_correct_prose_reading_of_the_same_metric_and_date_survives(ontology):
+    """Founder gate 3 of F0_CONTRACT_EXTENSION §8, as a test.
+
+    `#p9` of the same letter states 18% at December 31, 2023 in a sentence, and it also ends in
+    a flattened chart — `4Q22 1Q23 2Q23 3Q23 4Q23` — so a rule keyed on "this passage contains
+    a run of period labels" would take this observation with the wrong ones. The period here is
+    grounded outside the run, and the claim stands.
+    """
+    extraction = map_answer(
+        {"claims": [PROSE_FINDING], "abstentions": []}, ontology=ontology,
+        context=context(passage_text=PROSE_BESIDE_A_CHART_PASSAGE,
+                        scope_concept_ids=GRID_SCOPE))
+
+    assert [i.code for i in extraction.issues] == []
+    assert len(extraction.claims) == 1
+    claim = extraction.claims[0]
+    assert claim.metric_id == "pct_homes_on_market_gt_120_days"
+    assert claim.value == 18
+    assert claim.period.instant_date == "2023-12-31"
+
+
+def test_a_passage_with_no_flattened_grid_is_untouched(ontology):
+    """The unrelated case, so the refusal cannot be reached by any passage that reads as prose.
+    `PASSAGE_TEXT` names two periods and no run of them."""
+    extraction = map_answer(
+        {"claims": [claim_finding()], "abstentions": []}, ontology=ontology,
+        context=context())
+    assert [i.code for i in extraction.issues] == []
+    assert len(extraction.claims) == 1
+
+
+def test_a_synthetic_header_run_is_refused_and_the_same_words_in_a_sentence_are_not(ontology):
+    """The adversarial pair, holding metric, value, unit and period fixed and varying only the
+    layout — which is the whole of what this rule is allowed to read.
+
+    The same three date phrases, the same figure, the same chosen period. Abutting, they are a
+    column header; with a verb between them they are a sentence.
+    """
+    grid = ("March 31, 2023 June 30, 2023 September 30, 2023 "
+            "Number of markets (at period end) 51 52 53")
+    finding = {
+        "evidence_sentence": "Number of markets (at period end) 51 52 53",
+        "metric_id": "market_count", "statement_type": "reported_level",
+        "subject": "the_filing_company", "value_text": "53", "value": 53,
+        "scale": "units", "unit": "markets", "period_kind": "instant",
+        "period_label": "March 31, 2023", "population_text": "",
+    }
+    refused = map_answer({"claims": [finding], "abstentions": []}, ontology=ontology,
+                         context=context(passage_text=grid,
+                                         scope_concept_ids=frozenset({"market_count"})))
+    assert [i.code for i in refused.issues] == ["PERIOD_NOT_GROUNDED_IN_PASSAGE"]
+
+    prose = ("We operated 51 markets as of March 31, 2023, unchanged through June 30, 2023 "
+             "and September 30, 2023.")
+    accepted = map_answer(
+        {"claims": [{**finding,
+                     "evidence_sentence": "We operated 51 markets as of March 31, 2023",
+                     "value_text": "51", "value": 51}],
+         "abstentions": []},
+        ontology=ontology,
+        context=context(passage_text=prose, scope_concept_ids=frozenset({"market_count"})))
+    assert [i.code for i in accepted.issues] == []
+    assert accepted.claims[0].period.instant_date == "2023-03-31"
+
+
+def test_the_new_code_is_a_lane_decision_and_never_offered_to_the_model(ontology):
+    """`PERIOD_NOT_GROUNDED_IN_PASSAGE` is a reading of the layout, which a model cannot make,
+    and `MODEL_ABSTENTION_REASONS` is the `reason` enum of `response_schema`.
+
+    Adding it there would change the schema, hence every request digest
+    (`answer_store.request_identity`), hence make every recorded answer unreachable. A
+    correctness fix that silently emptied the replay store would be the worse defect.
+    """
+    assert PERIOD_NOT_GROUNDED_IN_PASSAGE in ISSUE_CODES
+    assert PERIOD_NOT_GROUNDED_IN_PASSAGE not in MODEL_ABSTENTION_REASONS
+    schema = response_schema(("market_count",), ("markets",), ("March 31, 2023",))
+    reasons = schema["properties"]["abstentions"]["items"]["properties"]["reason"]["enum"]
+    assert PERIOD_NOT_GROUNDED_IN_PASSAGE not in reasons

@@ -80,6 +80,28 @@ DERIVED_COMPARISON = "DERIVED_COMPARISON"
 # mines a number out of a definition paragraph is attaching a value to a definition.
 DEFINITIONAL_NOT_OBSERVATIONAL = "DEFINITIONAL_NOT_OBSERVATIONAL"
 
+# The figure's period was read off a column heading in a table this passage no longer has.
+#
+# **Added 2026-08-03 for F0_CONTRACT_EXTENSION §1.3.** A shareholder letter's grid normalizes
+# into a `narrative` passage whenever the HTML carries no table markup, and what arrives is the
+# header row and the data rows flattened onto one line:
+#
+#     22 Three Months Ended Year Ended December 31, December 31, 2023 September 30, 2023
+#     June 30, 2023 March 31, 2023 December 31, 2022 2023 2022 Revenue $ 870 $ 980 …
+#
+# `core.periods.flattened_period_grids` finds the run of abutting period phrases. This lane has
+# no column-binding machinery and cannot acquire any — there are no columns — so a period taken
+# from inside such a run says which *heading* was chosen and nothing about which of the seven
+# parallel figures it heads. On `q42023formxex992sharehol.htm#p20` the December-31-2022 column
+# was read as `2023-12-31`: market count 53 for 50, 55% for 18%, 12,788 homes for 5,326.
+#
+# Distinct from `MISSING_PERIOD`, and the distinction is the point. `MISSING_PERIOD` says the
+# passage does not state this figure's period; this says the passage states seven of them in a
+# row and the layout that told them apart is gone. It refuses rather than repairs: the correct
+# figure is recoverable from the filed table, and guessing a column here would replace a wrong
+# answer with a lucky one.
+PERIOD_NOT_GROUNDED_IN_PASSAGE = "PERIOD_NOT_GROUNDED_IN_PASSAGE"
+
 # §7.1: a metric whose ontology entry declares a `population` must carry the filed denominator
 # wording verbatim, or two observations that are not one series will look like one. Imported
 # rather than re-spelled: `core.assembly` enforces the same policy at the other end, and this
@@ -119,7 +141,15 @@ ISSUE_CODES = frozenset(MODEL_ABSTENTION_REASONS) | frozenset({
     SCALE_NOT_APPLICABLE, SCALE_NOT_DECLARED, QUOTED_SPAN_NOT_IN_PASSAGE,
     VALUE_NOT_IN_QUOTED_SPAN, VALUE_CONTRADICTS_QUOTED_TEXT,
     MISSING_POPULATION_DEFINITION, MODEL_ANSWER_UNUSABLE, PROMPT_EXCEEDS_CONTEXT,
+    PERIOD_NOT_GROUNDED_IN_PASSAGE,
 })
+
+# `PERIOD_NOT_GROUNDED_IN_PASSAGE` is deliberately **not** in `MODEL_ABSTENTION_REASONS`. It is
+# a reading of the passage's layout that `response_mapping` performs, not a judgement a model
+# can make; and that tuple is the `reason` enum of `response_schema`, so adding a member would
+# change the schema, change every prompt digest, and make every recorded answer unreachable
+# (`answer_store.request_identity`). A correctness fix that silently emptied the replay store
+# would be a worse defect than the one it repairs.
 
 # -- the answer's own vocabulary ---------------------------------------------------------------
 

@@ -64,6 +64,55 @@ def test_prose_instant_from_an_as_of_sentence():
     assert period.instant_date == "2023-03-31"
 
 
+def test_a_run_of_abutting_period_phrases_is_read_as_a_flattened_column_header():
+    """The header of `q42023formxex992sharehol.htm#p20`, which normalized as prose.
+
+    Five resolvable phrases with a space between each. Prose puts words between its dates; a
+    column header cannot, because the words were in the cells the parser lost.
+    """
+    text = ("22 Three Months Ended Year Ended December 31, December 31, 2023 "
+            "September 30, 2023 June 30, 2023 March 31, 2023 December 31, 2022 2023 2022 "
+            "Revenue $ 870 $ 980")
+    grids = periods.flattened_period_grids(text)
+    assert len(grids) == 1
+    start, end = grids[0]
+    assert text[start:end] == ("December 31, 2023 September 30, 2023 June 30, 2023 "
+                               "March 31, 2023 December 31, 2022")
+
+
+def test_a_comparative_sentence_naming_two_dates_is_not_a_flattened_header():
+    """The commonest prose shape in this corpus, and the one a run threshold of two would
+    take: an MD&A sentence names its period and its comparative in the same breath."""
+    text = ("Revenue was $870 million for the three months ended December 31, 2023 "
+            "compared to $2,857 million for the three months ended December 31, 2022.")
+    assert periods.flattened_period_grids(text) == ()
+
+
+def test_words_between_two_dates_break_the_run():
+    """The whole of the discriminator, isolated. Same three dates, one word moved."""
+    abutting = "March 31, 2023 June 30, 2023 September 30, 2023"
+    assert len(periods.flattened_period_grids(abutting)) == 1
+    spaced = "March 31, 2023 and June 30, 2023 and September 30, 2023"
+    assert periods.flattened_period_grids(spaced) == ()
+
+
+def test_a_period_phrase_occurring_twice_is_located_twice():
+    """`period_phrases` deduplicates because a prompt enum must; `period_phrase_spans` may not,
+    because the same phrase printed once in a sentence and once in a lost column header is two
+    facts about the layout. `q42023formxex992sharehol.htm#p9` is that passage."""
+    text = ("Financial Highlights 4Q23 Total Capital $1.3 billion. "
+            "Homes Under Contract to Purchase at Quarter End 4Q22 1Q23 2Q23 3Q23 4Q23")
+    assert periods.period_phrases(text) == ("4Q23", "4Q22", "1Q23", "2Q23", "3Q23")
+    assert [p for _, _, p in periods.period_phrase_spans(text)] == [
+        "4Q23", "4Q22", "1Q23", "2Q23", "3Q23", "4Q23"]
+
+    # And only the trailing chart is a grid. The first "4Q23" sits in prose, which is what
+    # keeps the correct 18% of that letter's #p9 out of the refusal.
+    grids = periods.flattened_period_grids(text)
+    assert len(grids) == 1
+    assert grids[0][0] > text.index("4Q23")
+
+
 @pytest.mark.parametrize(
     "start,end,expected",
     [("2023-01-01", "2023-03-31", "2023Q1"), ("2023-10-01", "2023-12-31", "2023Q4"),

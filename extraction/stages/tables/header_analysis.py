@@ -10,10 +10,17 @@ The duration wording sits in the row above and spans several columns. Reading th
 alone yields four annual observations, two of which are wrong by a factor of four in
 duration — right value, right metric, wrong period.
 
-Group assignment is by ordinal division, not column position — see `_assign_groups`. The
+Group assignment is by ordinal division here, not column position — see `_assign_groups`. The
 `colspan` that put "Three Months Ended" above the first two years does not survive the
 Markdown rendering, so the phrases sit at columns 2 and 4 while the years they govern sit at
 2, 4, 6 and 8.
+
+**Ordinal division is not the answer for every layout, and the date labels say which**
+*(corrected 2026-08-03)*. `2020 2019 2020 2019` above repeats, which is what two parallel
+groups must do. The *Expansion into New Markets* table in each Q1 10-Q prints a single
+descending run instead — `March 31,` over `2022`, `Year Ended December 31,` over
+`2021 2020 2019` — and dividing four distinct labels evenly between two headings dated a whole
+prior year as a March-31 instant. `_labels_repeat` records the measurement.
 """
 
 from __future__ import annotations
@@ -233,14 +240,24 @@ def _assign_groups(spans, date_cells) -> tuple[dict[int, str], bool]:
     as FY2022 and `March 31, 2023` and `June 30, 2023` as twelve-month durations: 21
     observations with the wrong period, none of them gold, so every score stayed at 1.000.
 
-    **Even division otherwise.** When every column has the same shape the discriminator says
+    **Even division otherwise, but only where the labels say the groups are parallel**
+    *(narrowed 2026-08-03)*. When every column has the same shape the discriminator above says
     nothing, and N/G consecutive columns per group in document order is what these layouts
-    mean — the Q4 2020 reconciliation's four bare years under two date-supplying phrases.
+    mean — the Q4 2020 reconciliation's four bare years under two date-supplying phrases. It is
+    *not* what every such layout means, and reading the date labels separates the two exactly.
 
-    **Otherwise, refuse.** An uneven split that the shapes cannot resolve is not assigned at
-    all. The caller raises `AMBIGUOUS_COLUMN_ALIGNMENT` and emits nothing, because the
-    period-type check catches an instant read as a duration and *not* a duration read as the
-    wrong duration — the failure that hid here for exactly that reason.
+    **Two column groups presented side by side necessarily repeat their period labels.**
+    `2020 2019 2020 2019` and `2021 2020 2021 2020` are parallel groups: no group reports one
+    period twice, so a label appearing twice can only be one column of each group. A single
+    descending run of *distinct* labels — `2022 2021 2020 2019` — cannot be two parallel
+    groups at all, and even division splitting it 2+2 is the failure this rule removes. See
+    `_labels_repeat` for the measurement.
+
+    **Otherwise, refuse.** An uneven split that the shapes cannot resolve, or a distinct-label
+    layout the positions cannot bind either, is not assigned at all. The caller raises
+    `AMBIGUOUS_COLUMN_ALIGNMENT` and emits nothing, because the period-type check catches an
+    instant read as a duration and *not* a duration read as the wrong duration — the failure
+    that hid here for exactly that reason.
     """
     if not spans:
         return {}, False
@@ -261,16 +278,58 @@ def _assign_groups(spans, date_cells) -> tuple[dict[int, str], bool]:
 
     if len(date_cells) and len(phrases) and len(date_cells) % len(phrases) == 0:
         per_group = len(date_cells) // len(phrases)
-        return {
+        even = {
             cell.column_index: phrases[index // per_group]
             for index, cell in enumerate(date_cells)
-        }, False
+        }
+        # One heading governs every column beneath it and there is nothing to divide, so the
+        # labels are not asked. 297 of the corpus's table headers are this shape *(measured
+        # 2026-08-03)* and none of them poses the question the discriminator answers.
+        if len(spans) < 2 or _labels_repeat(date_cells):
+            return even, False
+        # Distinct labels: the groups are sequential, so position decides. Refuse rather than
+        # fall back to even division when the positions do not support a unique binding — a
+        # layout this rule has already said is *not* parallel must not be split as if it were.
+        positional = _positional_spans(spans, date_cells)
+        if positional is not None:
+            return positional, False
+        return {}, True
 
     positional = _positional_spans(spans, date_cells)
     if positional is not None:
         return positional, False
 
     return {}, True
+
+
+def _labels_repeat(date_cells) -> bool:
+    """Whether the date row prints any label twice — the mark of parallel column groups.
+
+    **The discriminator between even division and position, and it is exact on this corpus**
+    *(measured 2026-08-03 over all 1,935 table passages)*. The two rules disagree on 92 tables:
+
+    | Date labels | Tables | Correct rule |
+    | --- | --- | --- |
+    | Repeat (`2021 2020 2021 2020`) | 87 | even division — parallel groups |
+    | All distinct (`2022 2021 2020 2019`) | 5 | position — sequential groups |
+
+    The 5 are the *Expansion into New Markets* table in each Q1 10-Q
+    (`open-2021/2022/2023/2024/20250331.htm`), whose header reads `March 31,` over one column
+    and `Year Ended December 31,` over three. Even division split 4 by 2 and handed the second
+    column to `March 31,`, so the December-31 market count of a whole prior year was emitted as
+    a March-31 instant — 44 as `2021-03-31`, 53 as `2022-03-31`, 50 as `2023-03-31`
+    (F0_CONTRACT_EXTENSION §1.2, defects 1–3).
+
+    A repeated label cannot occur inside one group, because no group reports one period twice.
+    It is therefore a reading of the rendered header and not a guess about the lost `colspan`,
+    which is the same standard `_positional_spans` is held to.
+
+    Compared on the printed text rather than on the resolved period: what the layout shows is
+    the label, and two columns printing `2021` are two columns printing `2021` whatever a group
+    heading later makes of them.
+    """
+    labels = [cell.text.strip() for cell in date_cells]
+    return len(set(labels)) != len(labels)
 
 
 def _positional_spans(spans, date_cells) -> dict[int, str] | None:

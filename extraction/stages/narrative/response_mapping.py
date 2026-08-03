@@ -78,6 +78,7 @@ from .public import (
     LANE_NAME,
     METRIC_OUT_OF_SCOPE,
     MISSING_POPULATION_DEFINITION,
+    PERIOD_NOT_GROUNDED_IN_PASSAGE,
     PERIOD_NOT_PRINTED,
     PERIOD_OVER_PERIOD_CHANGE,
     QUOTED_SPAN_NOT_IN_PASSAGE,
@@ -431,6 +432,14 @@ def _resolve_period(finding, *, metric, passage_text):
     Still refused, and correctly: a passage whose only period wording is "the third quarter",
     with no date and no shorthand anywhere in it. Resolving that needs the filing date, and
     reading a period off the filing date is an inference the passage does not make.
+
+    **And refused since 2026-08-03: a period phrase grounded inside a flattened column header.**
+    The narrowing above assumes the printed phrase is *prose about the figure*. It is not, when
+    the passage is a table that lost its columns during normalization —
+    `q42023formxex992sharehol.htm#p20` prints seven period headings in a row and then seven
+    values per metric, and choosing one heading says nothing about which of the seven values it
+    governs. That is `PERIOD_NOT_GROUNDED_IN_PASSAGE`; see `core.periods.flattened_period_grids`
+    for the signal and `public.PERIOD_NOT_GROUNDED_IN_PASSAGE` for what it cost.
     """
     label = _text(finding.get("period_label"))
     if label == PERIOD_NOT_PRINTED:
@@ -453,6 +462,19 @@ def _resolve_period(finding, *, metric, passage_text):
         return None, None, (
             MISSING_PERIOD,
             f"the period phrase {label[:60]!r} is not printed in the passage")
+
+    # Checked against the span the period is *grounded on* rather than against every occurrence
+    # of the phrase. A letter that prints "4Q23" in a sentence and again in a chart's axis
+    # labels grounds on the sentence, and refusing there would remove a correctly dated figure
+    # to punish a coincidence of wording — measured on `q42023formxex992sharehol.htm#p9`, whose
+    # 18% is the right answer to the very figure #p20 gets wrong.
+    grids = periods.flattened_period_grids(passage_text)
+    if any(start <= located.start and located.end <= end for start, end in grids):
+        return None, None, (
+            PERIOD_NOT_GROUNDED_IN_PASSAGE,
+            f"the period phrase {located.text[:60]!r} sits inside a run of period headings "
+            "this passage prints with no table structure left to bind them to columns; which "
+            "figure it governs is not readable")
 
     period_type = declared or kind or DURATION
     resolved = periods.resolve_period_phrase(located.text, period_type=period_type)

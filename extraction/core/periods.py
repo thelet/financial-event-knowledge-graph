@@ -235,6 +235,88 @@ def period_phrases(text: str) -> tuple[str, ...]:
     return tuple(sorted(found, key=lambda phrase: (found[phrase], phrase)))
 
 
+#: Between two period phrases of one flattened column header there is punctuation and space and
+#: nothing else. One word between them and they belong to a sentence instead.
+_WORD_CHARACTER = re.compile(r"\w")
+
+#: Three, because two adjacent period phrases are ordinary prose — "December 31, 2023 and
+#: December 31, 2022" loses its "and" to nothing, and a comparative sentence names two periods
+#: routinely. Three abutting phrases with no word between them is a row of column headings that
+#: has lost its columns. Measured 2026-08-03 over all 10,507 narrative passages: 148 carry at
+#: least one such run (111 of the 3,072 the narrative lane selects). Eight were sampled at
+#: random and read; all eight are a de-structured KPI table or a chart's axis labels. The other
+#: 140 are counted, not inspected.
+_GRID_HEADER_RUN = 3
+
+
+def period_phrase_spans(text: str) -> tuple[tuple[int, int, str], ...]:
+    """(start, end, phrase) for every resolvable period phrase occurrence, in printed order.
+
+    `period_phrases` answers "which periods does this passage name", deduplicated, because that
+    is what a prompt enum needs. This answers "where are they", every occurrence kept, because
+    that is what `flattened_period_grids` needs — the same phrase printed once in a sentence and
+    once in a column header is two facts about the layout, not one.
+
+    Overlaps are resolved in favour of the longer match, so `Year Ended December 31, 2022`
+    counts once rather than also as the `December 31, 2022` inside it.
+    """
+    found: list[tuple[int, int, str]] = []
+    for pattern in (_DURATION_PHRASE, _FISCAL_SHORTHAND, _FULL_DATE_IN_TEXT):
+        for match in pattern.finditer(text or ""):
+            phrase = " ".join(match.group(0).split())
+            if any(resolve_period_phrase(phrase, period_type=kind) is not None
+                   for kind in (DURATION, INSTANT)):
+                found.append((match.start(), match.end(), phrase))
+    found.sort()
+    kept: list[tuple[int, int, str]] = []
+    for span in found:
+        if kept and span[0] < kept[-1][1]:
+            if span[1] - span[0] > kept[-1][1] - kept[-1][0]:
+                kept[-1] = span
+            continue
+        kept.append(span)
+    return tuple(kept)
+
+
+def flattened_period_grids(text: str) -> tuple[tuple[int, int], ...]:
+    """(start, end) of every run of abutting period phrases — a column header with no columns.
+
+    **What this reads is a table that did not survive parsing** *(added 2026-08-03)*. A
+    shareholder letter's grid normalizes into a `narrative` passage when the HTML carries no
+    table markup, and what is left is the header row and the data rows run together on one line:
+
+        22 Three Months Ended Year Ended December 31, December 31, 2023 September 30, 2023
+        June 30, 2023 March 31, 2023 December 31, 2022 2023 2022 Revenue $ 870 $ 980 …
+
+    Seven period headings and seven value runs, and no column left to say which belongs to
+    which. `q42023formxex992sharehol.htm#p20` is that passage, and the narrative lane bound the
+    `December 31, 2022` column's figures to `2023-12-31`: market count 53 for 50, 55% for 18%,
+    12,788 homes for 5,326 (F0_CONTRACT_EXTENSION §1.3, defects 4–6).
+
+    The signal is a **run**: period phrases separated by whitespace and punctuation only. Prose
+    puts words between its dates — "As of December 31, 2023, 18% of our homes had been listed"
+    — and a header row cannot, because the words were in the cells that were lost.
+
+    This is a statement about layout, not about a document or a metric. Nothing here reads a
+    filename, a document type or a concept id, and nothing here repairs: a caller that finds a
+    period grounded inside one of these runs refuses the claim. Guessing which of seven columns
+    a figure came from is exactly the move that produced the six wrong observations.
+    """
+    spans = period_phrase_spans(text)
+    runs: list[tuple[int, int]] = []
+    run: list[tuple[int, int, str]] = []
+    for span in spans:
+        if run and not _WORD_CHARACTER.search(text[run[-1][1]:span[0]]):
+            run.append(span)
+            continue
+        if len(run) >= _GRID_HEADER_RUN:
+            runs.append((run[0][0], run[-1][1]))
+        run = [span]
+    if len(run) >= _GRID_HEADER_RUN:
+        runs.append((run[0][0], run[-1][1]))
+    return tuple(runs)
+
+
 # -- the calendar dates a passage prints -------------------------------------------------------
 #
 # A period is not a date. `period_phrases` above answers "which reporting period is this figure
