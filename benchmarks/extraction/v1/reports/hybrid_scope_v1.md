@@ -11,14 +11,14 @@ Durations are deliberately absent: this artifact is byte-identical on regenerati
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `c59818e4a775103c94f3438306c051b66ef54387` |
+| implementation commit | `f8ebd3a964e680801756e1754b4afb132c8b537b` |
 | scope | `hybrid` v`1.0.0` |
-| ontology definition hash | `337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2` |
+| ontology definition hash | `bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34` |
 | embedding model | `Qwen3-Embedding-0.6B-f16.gguf` |
 | dimensions | 1024 |
 | renderer | `v1` |
 | text normalization | `v1` |
-| `cache_key` | `31d2f6ee824ab952788c596c1d16ad93aa1fee0ca6202546f6fbac644ebb5b77` |
+| `cache_key` | `83ed3a402d32d56e28378a227c77470e430f4054e63e5f92ed49701f727043ac` |
 | concepts indexed | 133 |
 | concept cache entries | 134 |
 | text cache entries | 26 |

@@ -1,6 +1,6 @@
 """The node projection, tested against the plan's declared counts and its ten hard rules.
 
-Every number asserted here was measured at G0 against `extract-v1-lexical-7f72d6172630` and is
+Every number asserted here was measured at G0 against `extract-v1-lexical-833f7bcfbce9` and is
 recorded in V1_GRAPH_PROTOTYPE §3.1 / STAGE13_GRAPH_INPUT_HANDOFF §1. The fixture tests run
 from a clean checkout; the ones that assert the run's own totals skip when `data/` — which is
 gitignored — is absent.

@@ -340,7 +340,7 @@ def test_the_fixture_and_the_real_run_project_into_different_directories(
 ):
     """The measured collision, closed. Same manifest fields, two ids."""
     assert (fixture_inputs.manifest.run_id == real_inputs.manifest.run_id
-            == "extract-v1-lexical-7f72d6172630")
+            == "extract-v1-lexical-833f7bcfbce9")
     assert (fixture_inputs.manifest.ontology_definition_hash
             == real_inputs.manifest.ontology_definition_hash)
     assert input_content_digest(fixture_inputs) != input_content_digest(real_inputs)

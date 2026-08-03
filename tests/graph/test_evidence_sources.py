@@ -1,7 +1,7 @@
 """F0 Part E: the node a non-passage citation lands on, and the properties it carries.
 
 Two things are proved here that no run can prove today, because
-`extract-v1-lexical-7f72d6172630` cites nothing but filed passages:
+`extract-v1-lexical-833f7bcfbce9` cites nothing but filed passages:
 
 1. a non-passage evidence row projects to an `:EvidenceSource` node and **never** to a
    fabricated `:Passage`;

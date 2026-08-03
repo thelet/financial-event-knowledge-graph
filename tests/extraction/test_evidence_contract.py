@@ -43,8 +43,21 @@ from ontology.core.models import EvidenceReference, MetricObservation, OntologyC
 from ontology.core.values import EvidenceKind
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "evidence_contract"
-REAL_RUN = (Path(__file__).resolve().parents[2] / "data" / "extraction_runs"
-            / "extract-v1-lexical-2422c4252c07")
+def _real_run() -> Path | None:
+    """The finished run on this machine, whatever it is called.
+
+    Pinned to a run id until F0's review, which found this test skipping silently: the id is a
+    content address over config, corpus and ontology, so it moves whenever any of the three
+    does, and a pinned one turns "the corpus still validates" into "the corpus is absent".
+    A skip that looks like a pass is the failure mode this whole stage is about.
+    """
+    root = Path(__file__).resolve().parents[2] / "data" / "extraction_runs"
+    runs = sorted(p for p in root.glob("extract-v1-*") if (p / "run.complete").is_file()) \
+        if root.is_dir() else []
+    return runs[0] if len(runs) == 1 else None
+
+
+REAL_RUN = _real_run() or Path("/nonexistent")
 
 #: The passage the fixture's two passage rows name. Present so those rows resolve; every other
 #: fixture kind must validate against a corpus that holds nothing at all.

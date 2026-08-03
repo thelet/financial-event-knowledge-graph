@@ -22,9 +22,9 @@
     "observations.jsonl": "b9e267cf117bb1fdba9a00c617f9c29755de3202befd728b4d4551fb9d1e8cfb",
     "rejected_claims.jsonl": "f86584fd88717ee6384a1bf2357b9b629be908779f51dcd319b3053df1c91e95",
     "relationships.jsonl": "bf095051992e7315e03ac8a6c17eabbf59192cae05eba4bdde9ebf97437f0104",
-    "report.md": "6c495809d5f3cb685e71cff520eb22f76f5748915ed495662d74cbad3c202575"
+    "report.md": "d389afc033f9ffbcb38b3eef48a8920b7fbe622667df9b90001f981af7af7dff"
   },
-  "code_commit": "c59818e4a775103c94f3438306c051b66ef54387",
+  "code_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
   "config_hash": "e1bb4eaf254fd61c247e35b847d0d30d0faf0948fa2e7053b8b96e1c4a8b2c2c",
   "corpus": {
     "content_digest": "9992c4eb1888",
@@ -48,7 +48,7 @@
     "relationships": 4,
     "temporal_diagnostics_recorded": 1
   },
-  "created_at": "2026-08-03T13:33:47+00:00",
+  "created_at": "2026-08-03T14:41:10+00:00",
   "dependencies": {
     "httpx": "0.28.1",
     "pydantic": "2.13.4",
@@ -78,7 +78,7 @@
     }
   ],
   "layout_version": "1.0.0",
-  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
+  "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "provider": {
     "context_tokens": 8192,
@@ -86,7 +86,7 @@
     "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
     "recorded_answers": 15
   },
-  "run_id": "extract-v1-lexical-7f72d6172630",
+  "run_id": "extract-v1-lexical-833f7bcfbce9",
   "scope": {
     "scope_name": "lexical",
     "scope_version": "1.0.0",

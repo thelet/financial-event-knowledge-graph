@@ -36,7 +36,7 @@
     "gold_event_types_reached_by_any_scope": 0,
     "score_deltas_that_are_nonzero": {}
   },
-  "implementation_commit": "c59818e4a775103c94f3438306c051b66ef54387",
+  "implementation_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
   "metric_extraction": {
     "cases": 14,
     "cases_with_a_difference": 1,
@@ -70,7 +70,7 @@
     "per_claim_regressions": 0,
     "verdict_recorded_at_step_11": "hybrid reaches more and is not clean on what it reaches"
   },
-  "ontology_definition_hash": "337e0e59534da0d2eb3235152af3d48f0510cdb391feed27956a4e80b0858af2",
+  "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "open_questions": [
     "Population wording is the dimension the one added claim fails, and whether gold's whole clause or the lane's noun phrase is right is a founder decision that would change this verdict if it went the other way.",
     "The second paraphrase probe is unreached under *both* scopes because the concept sits at rank 2 and `top_k` is 2. Raising `top_k` to 3 takes required-concept recall to 1.000 in the committed sensitivity sweep and is not tested against extraction quality at all.",
@@ -86,10 +86,10 @@
     "lexical_scope_size_mean": 17.923077
   },
   "sources": {
-    "event_relationship_v1.json": "c59818e4a775103c94f3438306c051b66ef54387",
-    "hybrid_scope_v1.json": "c59818e4a775103c94f3438306c051b66ef54387",
-    "lexical_scope_v1.json": "c59818e4a775103c94f3438306c051b66ef54387",
-    "narrative_lane_v1.json": "c59818e4a775103c94f3438306c051b66ef54387"
+    "event_relationship_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+    "hybrid_scope_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+    "lexical_scope_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+    "narrative_lane_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b"
   },
   "verdict": {
     "adoption_conditions_met": false,

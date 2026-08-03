@@ -57,7 +57,7 @@ requires_real_run = pytest.mark.skipif(not REAL_RUN_AVAILABLE, reason=REAL_RUN_R
 
 #: What a composition root supplies (§5.5). Fixed values, because two builds must be equal.
 PROVENANCE = {
-    "extraction_run_id": "extract-v1-lexical-7f72d6172630",
+    "extraction_run_id": "extract-v1-lexical-833f7bcfbce9",
     "graph_run_id": "graph-v1-test",
     "graph_projection_version": "1.0.0",
     "ontology_id": "real_estate_marketplace_v1",
@@ -84,7 +84,7 @@ FIXTURE_COUNTS = {
     "RECONCILES_TO": 2,
 }
 
-#: Counts measured from `extract-v1-lexical-7f72d6172630` *(2026-08-02)*.
+#: Counts measured from `extract-v1-lexical-833f7bcfbce9` *(2026-08-02)*.
 #:
 #: `EVIDENCED_BY` is 2,713 = 2,707 observations + 6 events; the 4 relationship evidence rows
 #: are **not** edges — Neo4j has no edge-on-edge, so a relationship's evidence lives in the

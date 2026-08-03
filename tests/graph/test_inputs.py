@@ -2,7 +2,7 @@
 
 Everything here drives the readers through their real inputs. A test that asserted a field
 list against a hand-typed dict would only prove the test and the model were written by the
-same person; these parse the committed slice of `extract-v1-lexical-7f72d6172630` and, where
+same person; these parse the committed slice of `extract-v1-lexical-833f7bcfbce9` and, where
 the run is present, the run itself.
 """
 
@@ -192,7 +192,7 @@ def test_no_reader_declares_a_population_role_or_confidence() -> None:
 def test_manifest_parses_strictly_and_exposes_the_verification_aggregate() -> None:
     raw = json.loads((FIXTURE_RUN / "manifest.json").read_text(encoding="utf-8"))
     manifest = RunManifest(**raw)
-    assert manifest.run_id == "extract-v1-lexical-7f72d6172630"
+    assert manifest.run_id == "extract-v1-lexical-833f7bcfbce9"
     assert manifest.ontology_id == "real_estate_marketplace_v1"
     assert manifest.counts["observations"] == 2704
     assert manifest.ontology_validation_warnings == 185

@@ -400,7 +400,7 @@ def test_index_properties_exist_in_the_committed_projection_fixture():
     The full export lives under gitignored `data/`, so the assertion that can run from a clean
     checkout is the weaker one — every indexed label is a declared base label, and every
     indexed property is one the node builder can emit. The occupancy counts measured against
-    `data/graph_runs/graph-v1-886059d862ce/nodes.jsonl` are recorded in `schema.py`.
+    `data/graph_runs/graph-v1-0483dc6b4b10/nodes.jsonl` are recorded in `schema.py`.
     """
     for _, label, _ in INDEXES + FULLTEXT_INDEXES:
         assert label in BASE_LABELS

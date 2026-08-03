@@ -71,7 +71,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: The finalized G1 projection. Gitignored, so every assertion about it skips when it is absent
 #: rather than failing — the same convention `tests/graph/conftest.py` uses for the run itself.
-REAL_EXPORT = REPO_ROOT / "data" / "graph_runs" / "graph-v1-886059d862ce"
+REAL_EXPORT = REPO_ROOT / "data" / "graph_runs" / "graph-v1-0483dc6b4b10"
 REAL_EXPORT_AVAILABLE = (REAL_EXPORT / NODES_FILENAME).is_file()
 
 #: Every synthetic node and relationship carries this, and cleanup deletes exactly it.
@@ -330,7 +330,7 @@ def test_the_real_export_has_the_fifteen_label_sets_and_thirteen_edge_groups_the
     here rather than as an unexplained statement count in a load report."""
     contents = read_export(REAL_EXPORT)
     assert len(contents.nodes) == 28836
-    assert len(contents.edges) == 35603
+    assert len(contents.edges) == 35600
 
     grouped_nodes = group_nodes(contents.nodes)
     assert len(grouped_nodes) == 15

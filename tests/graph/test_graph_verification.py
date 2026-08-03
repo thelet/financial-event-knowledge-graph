@@ -46,7 +46,7 @@ from typing import Any
 
 import pytest
 
-from graph.core.models import BASE_LABELS, GraphEdge, GraphNode
+from graph.core.models import GRAPH_PROJECTION_VERSION, BASE_LABELS, GraphEdge, GraphNode
 from graph.core.verification_report import MAX_EXAMPLES, Check, VerificationReport
 from graph.stages.load.connection import (
     GraphSettings,
@@ -925,7 +925,7 @@ def test_the_loader_s_own_edge_key_is_documented_rather_than_reported_as_an_inve
 #: — the convention `tests/graph/conftest.py` and `test_loader.py` already use. **Read only.**
 #: 28,836 nodes through the strict reader and the expectation costs 1.8 s and no database
 #: *(measured 2026-08-03)*; loading it is not this file's business.
-REAL_EXPORT = REPO_ROOT / "data" / "graph_runs" / "graph-v1-886059d862ce"
+REAL_EXPORT = REPO_ROOT / "data" / "graph_runs" / "graph-v1-0483dc6b4b10"
 REAL_EXPORT_AVAILABLE = (REAL_EXPORT / "nodes.jsonl").is_file()
 
 real_export_only = pytest.mark.skipif(
@@ -949,22 +949,23 @@ def test_the_expectation_read_off_the_real_export_is_the_run_s_own_manifest(real
     """The numbers the brief quotes, derived rather than typed in — including the four
     relationship-claim edges and the 186 `:Warned` observations §10.11 asks for by name."""
     expected = expected_graph(*real_export)
-    assert (expected.node_count, expected.edge_count) == (28836, 35603)
+    assert (expected.node_count, expected.edge_count) == (28836, 35600)
     assert expected.node_counts_by_base_label == {
-        "Issue": 17127, "Passage": 8776, "Observation": 2707,
+        "Issue": 17130, "Passage": 8776, "Observation": 2704,
         "Document": 185, "Metric": 26, "Entity": 9, "Event": 6,
     }
     assert expected.edge_counts_by_type == {
-        "FOUND_IN": 17127, "PART_OF": 8776, "EVIDENCED_BY": 2713, "HAS_OBSERVATION": 2707,
-        "OBSERVATION_OF_SUBJECT": 2707, "CONCERNS_METRIC": 1520, "DISTINCT_FROM": 36,
+        "FOUND_IN": 17130, "PART_OF": 8776, "EVIDENCED_BY": 2710, "HAS_OBSERVATION": 2704,
+        "OBSERVATION_OF_SUBJECT": 2704, "CONCERNS_METRIC": 1523, "DISTINCT_FROM": 36,
         "PARTICIPATES_IN": 10, "HOLDS_POSITION_AT": 3, "RECONCILES_TO": 2,
         "BORROWS_UNDER": 1, "PLACEHOLDER_FOR": 1,
     }
-    assert expected.secondary_label_counts["Warned"] == 186
+    assert expected.secondary_label_counts["Warned"] == 185
     assert expected.secondary_label_counts["Unresolved"] == 1
     assert len(expected.relationship_claim_edge_keys) == 4
-    assert expected.graph_run_id == "graph-v1-886059d862ce"
-    assert expected.provenance[PROJECTION_VERSION_PROPERTY] == frozenset({"1.1.0"})
+    assert expected.graph_run_id == "graph-v1-0483dc6b4b10"
+    assert expected.provenance[PROJECTION_VERSION_PROPERTY] == frozenset(
+        {GRAPH_PROJECTION_VERSION})
 
 
 @real_export_only
@@ -979,7 +980,7 @@ def test_the_real_export_would_pass_every_check_if_it_loaded_faithfully(real_exp
     nodes, edges = real_export
     report = build_report(expected_graph(nodes, edges), facts_from(nodes, edges))
     assert report.passed, report.describe()
-    assert report.node_count == 28836 and report.relationship_count == 35603
+    assert report.node_count == 28836 and report.relationship_count == 35600
 
 
 # -- statement construction -------------------------------------------------------------------
