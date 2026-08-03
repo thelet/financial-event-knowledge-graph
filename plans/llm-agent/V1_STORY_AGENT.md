@@ -2055,9 +2055,18 @@ instance restored from the ingest instance, and that is a milestone, not a V1 ta
 requiring a restart, because dynamic configuration change is itself Enterprise-only. **Recorded
 as open decision D5.**
 
-`RoutingControl.READ` is set on every call for correctness of intent and is explicitly **not**
-counted as a control: the driver documentation states it is for routing, "not for enforcing
-access control", and on a single instance there is no cluster to route within.
+`RoutingControl.READ` is set on every call. **Correction, measured 2026-08-03 at S0c against
+the live 5.26.28 instance:** this plan called it "intent, not a control … on a single Community
+instance it enforces nothing". That is too pessimistic. A write clause issued under
+`routing_=READ` is refused **by the server** with
+`Neo.ClientError.Statement.AccessMode: Writing in read access mode not allowed` — and the
+identical statement succeeds under `routing_=WRITE`, so the refusal is access mode and not the
+statement. It is a real per-transaction write barrier.
+
+What the driver documentation's caveat does still mean: it is not access *control*, because
+nothing stops code from choosing `WRITE` routing. So story has **two** independent controls, not
+one — the structural scan proving no story Cypher contains a write clause, and the server
+refusing one at runtime if it ever did.
 
 **16.4 If bounded text-to-Cypher is ever added** (§3, option B): explicit
 `--allow-generated-cypher`; `EXPLAIN` first with `summary.query_type == "r"` enforced; a

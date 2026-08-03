@@ -51,6 +51,11 @@ embeddings).
 
 - The story agent is **read-only** against Neo4j — no `CREATE`, `MERGE`, `SET`, `DELETE`, index
   or constraint statement, ever (V1_STORY_AGENT §16). It never runs `graph load --replace`.
+  Enforced two ways as of S0c: a structural scan proving no story Cypher literal contains a
+  write clause, and `routing_=READ`, which the server backs with
+  `Neo.ClientError.Statement.AccessMode` — verified live 2026-08-03 by issuing a `CREATE` under
+  both routing modes and confirming only the WRITE one succeeded (probe node removed; node
+  count back to 28,837).
 - Only the factual-spine session runs `python -m graph load`. The story agent reads whatever is
   loaded and refuses to proceed when it is stale (§7 of the plan).
 - Neither session writes into the other's run directories under `data/`.

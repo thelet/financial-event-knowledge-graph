@@ -123,7 +123,11 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Parallel** | no — S0b and S1 both wait on it |
 | **Tests** | fake executor for normal tests; one `neo4j`-marked live test for connectivity and a real parameterised read; structural test that `neo4j` is imported nowhere else in `story/`; no write keyword in any story Cypher |
 | **Acceptance** | rows cross the boundary as plain dicts — no `neo4j.Record`/`Node` reaches a stage; timeout on every statement; no retrieval tool constructs a driver |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED** 2026-08-03 |
+| **Commit hash** | `9e798b3` |
+| **Delivered** | 1,458 lines; `Neo4jReadExecutor`, `StoryNeo4jSettings`, `StoryContext`, 5 typed errors, `plain_row`/`plain_value` |
+| **Orchestrator validation** | `222 passed` story · `5 passed, 0 skipped` neo4j-marked · offline `2940 passed` (2,890 before) · **4 mutation checks on the widened exemption**: `core/` importing the adapter → 3 failures, a *stage* importing it → 3, all six `neo4j` imports removed → 7 · **drove the real adapter against the live graph myself**: evidence chain resolves, `quote='(211)'` read off the `EVIDENCED_BY` edge (C3), every returned value is a `builtins` type, `heading_path` arrives as a plain `list`, non-positive timeout raises `ValueError`, and a `CREATE` is refused by the server |
+| **Scope deviation** | edited `tests/story/test_story_package_structure.py`, outside its declared `Owns`. **Flagged by the agent, reviewed and accepted** — see below |
 
 ### S0b — Freshness gate
 
@@ -340,6 +344,38 @@ shared tree**. Baseline is now **2,723 passed, 0 skipped, 97 deselected**, match
 | F8 | Two concurrent `pytest` runs collide on extraction report artifacts and produce five spurious failures | **Run the suite serially.** Not a defect |
 
 F5 and F6 are real defects in the approved plan, found by building against it.
+
+### S0c findings and the one scope deviation
+
+**The scope deviation, reviewed.** S0c edited a structural test it did not own, and said so
+rather than burying it. The rule S0 wrote —
+`test_no_driver_is_reachable_from_anything_but_the_connection_module` — walked *everything
+except the adapter* and asserted the closure reached no driver. **D1 makes that unsatisfiable**:
+`story/context.py` is the composition root and must construct the executor, so it reaches
+`neo4j` in one hop by design. Keeping the rule as written would have required a package with no
+composition root, or hiding the import behind `importlib` and defeating the import-graph check
+it belongs to.
+
+The correction is not a weakening, and I mutation-tested it rather than accepting the argument:
+
+| Change | Direction |
+| --- | --- |
+| `escaped == set()` → `importers == {adapter}` | **stronger** — deleting the adapter now fails |
+| exemption `{adapter}` → `{adapter, context.py}` | wider by one file, architecturally required |
+| new `test_the_composition_root_is_the_only_module_outside_providers_that_reaches_the_adapter` | **fences it** — `core/` importing the adapter fails 3 rules, a *stage* importing it fails 3 |
+| new `assert any(p.is_relative_to(PACKAGE / "core"))` | **stronger** — the walked set cannot silently lose `core/` |
+
+This is exactly how `tests/graph/test_graph_package_structure.py` scopes the same rule, to
+`DATABASE_FREE` rather than to "everything but the loader".
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| F9 | **`RoutingControl.READ` is a real server-side write barrier**, not mere routing intent. A `CREATE` under READ is refused `Neo.ClientError.Statement.AccessMode`; the identical statement succeeds under WRITE | **Corrects plan §16**, which was too pessimistic. Story now has two independent controls, not one |
+| F10 | **`timeout=0` means *no timeout*, not "expire immediately"** — a 1.5s statement completed under `0` and `None`, and was terminated under `0.001` | `read()` refuses a non-positive timeout; accepting one would remove §16's ceiling while looking like the tightest possible |
+| F11 | **`Duration` and `Point` are `tuple` subclasses; `neo4j.graph.Entity` is a `Mapping`** | A generic sequence branch turned `Duration(days=3)` into `[0,3,0,0]`; a generic mapping branch flattened a whole `:Node` and dropped its labels. Specific branches now precede general ones; a node is refused, not flattened |
+| F12 | `Driver.verify_connectivity()` fails in 0.0s against a refused port, but `execute_query` retries a managed transaction for **35 seconds** | Health check does the handshake before the probe. **S0b must know this** — a `read()` against a dead server pays 35s |
+| F13 | The graph stores only five property types: Boolean, Double, Long, String, StringArray. No temporal or spatial value exists in it today | The `Date`/`Time`/`Point` conversion branches are unreachable now and exist so a future `date` property cannot leak |
+| F14 | A fifth error type `StoryGraphResultError` beyond the boundary doc's three | Accepted — the conversion needs somewhere to refuse a returned `Node`, and flattening it satisfies "no driver type escaped" while dropping labels, which is worse |
 
 ## 8. Founder gates
 
