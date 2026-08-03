@@ -4,10 +4,11 @@ Connecting a local LLM to the Opendoor graph so it can discover, evidence, draft
 investor posts — without ever being the source of a number.
 
 **Status:** planned, nothing implemented. Written 2026-08-03 in worktree
-`FKG-llm-agent-plan` on branch `plan/llm-graph-agent`, based on `df50be9`. Measured against
-extraction run `extract-v1-lexical-2422c4252c07` **as it stood at 12:20 UTC on 2026-08-03**,
-graph run `graph-v1-886059d862ce`, and the live Neo4j 5.26.28 Community instance at
-`bolt://localhost:7687`.
+`FKG-llm-agent-plan` on branch `plan/llm-graph-agent`. **Rebased onto `edc2d5a` after the
+factual-spine session landed F0 (15 commits); §0d records what that changed and what it
+closed.** Measured against extraction run `extract-v1-lexical-833f7bcfbce9`, graph run
+`graph-v1-0483dc6b4b10`, ontology `2.0.0` / `bb94f522ba12…`, graph projection `1.2.0`, and the
+live Neo4j 5.26.28 Community instance at `bolt://localhost:7687`.
 
 | | |
 | --- | --- |
@@ -32,19 +33,22 @@ beside them. Facts marked *(measured live)* came from a read-only probe of the r
 Neo4j container. Facts marked *(unverified)* are design intent a stage must confirm.
 
 Counts read from `data/` are reproducible only while that directory exists — it is
-gitignored (`.gitignore:3`) and, as §0b records, it was rewritten under an unchanged run id
-while this plan was being written.
+gitignored (`.gitignore:3`) and, as §0b records, it was once rewritten under an unchanged run
+id while this plan was being written.
 
 ---
 
 ## 0. The answer first
 
-1. **The loaded graph is stale, and nothing detects it.** Neo4j holds 2,707 `:Observation`
-   nodes under `graph-v1-886059d862ce`; the extraction directory it names now holds **2,704**.
-   The graph manifest records `inputs.run_complete_sha256 = 7c921bc5…`; that file now hashes
-   `75f47628…`. The run *id* is unchanged, so every id-based consistency check passes.
-   **The first thing the story package must ship is the staleness gate, before any
-   retrieval.** *(verified — §1.1)*
+1. **The graph was stale and nothing detected it; F0 has since rebuilt it, and nothing still
+   detects it.** The defect was real: Neo4j held 2,707 `:Observation` nodes under
+   `graph-v1-886059d862ce` while the extraction directory it named held 2,704, with the run
+   *id* unchanged so every id-based check passed. **As of `edc2d5a` the graph is consistent** —
+   `graph-v1-0483dc6b4b10` records `run_complete_sha256 = 1cc8f7b0…` and the file hashes
+   `1cc8f7b0…` *(verified)*, and Neo4j holds 2,704 observations under that id *(measured live)*.
+   **The staleness gate is still L0 and still ships first**, because nothing in the repository
+   compares those two values on the way back in — the condition is repaired, not prevented, and
+   §17.8 shows every other check in this plan passes a fact from a superseded run. *(§1.1)*
 
 2. **The graph already carries everything a citation needs; it carries nothing a story needs.**
    `:Observation → :EVIDENCED_BY → :Passage{text} → :PART_OF → :Document{source_url,
@@ -125,7 +129,7 @@ fact bindings, the refusal of a repair loop, and shipping §7 first all survived
 | 4 | §10.2 bounds the package | It bounds **7 of 16 sections**. `metrics[]`, `formula_windows[]`, `relationships[]`, `warnings[]`, `conflicts[]`, `compatibility[]` and `retrieval_trace[]` were unbounded, and `compatibility[]` is O(n²) over a 26-quarter series | §10.2 |
 | 5 | D9 fires "when a group holds a `seniority_tier` position" | **`seniority_tier` does not exist anywhere in the repository.** `events.yaml:197` declares `allowed_properties: [change_kind, position, effective_date]`. The rule was exactly as unsatisfiable as the ontology defect this plan files at §18 | §6.6 D9 |
 | 6 | D4 pair `housing_inventory_homes ↔ homes_sold (20)` | `housing_inventory_homes` is **126/126 instant**; `homes_sold` has **0** instants. The overlap is **zero**, and §6.9 R3 must refuse every pair. "20" was one series' length, not the two series' overlap | §6.6 D4 |
-| 7 | `lost_qualifier` is motivated by `pct_>120d` and `contribution_profit` | `contribution_profit` has **no `ambiguities` and `population: None`**. Its cohort caveat lives only in `formulas.yaml` under `adjustment_components[].note`, which §10's `formula_windows[]` did not carry. Half the check's motivation was invisible to it | §10, §13.15 |
+| 7 | `lost_qualifier` is motivated by `pct_>120d` and `contribution_profit` | `contribution_profit` has **no `ambiguities` and `population: None`**. Its cohort caveat lives only in `formulas.yaml` under `adjustment_components[].note`, which §10's `formula_windows[]` did not carry. Half the check's motivation was invisible to it | §10, §13.16 |
 | 8 | `story_run_id` identifies a run | It omits `--limit`, `--candidates`, `--detectors`, `--since`, `--until`, `temperature`, `max_tokens`, schema digests and `provider_model_id`. `story run --limit 3` and `--limit 20` mint the same id, and `os.replace` then silently overwrites — **the same defect this plan discovered in `extraction_run_id`** | §14 |
 | 9 | §13 covers the draft | Nothing constrained a **numeral-free, non-causal `connective` sentence**. Three false ones pass every check, e.g. *"the only quarter with a negative adjusted gross margin"* — `adjusted_gross_margin` is negative in **2022Q4 (−3.2) and 2023Q1 (−3.3)** | §13.14 |
 | 10 | §13.10 B's four conditions license only reported causation | They are co-presence tests, not linkage or polarity tests. **37 passages carry a negated causal construction** (*"not as a result of…"*) and **367 carry two or more distinct markers**, so a sentence can join two terms the passage never joins | §13.10 |
@@ -142,11 +146,81 @@ and §28's offline test count (2,530 → **2,567 here, 2,698 on `main`**).
 
 ---
 
+## 0d. What F0 changed under this plan
+
+The factual-spine session landed F0 in fifteen commits (`df50be9..edc2d5a`) while this plan was
+being reviewed. This branch was rebased onto it and every load-bearing measurement re-taken.
+**Four of this plan's blockers closed, one of its arguments became wrong, and one of its own
+§18 findings turned out to be overstated.** No design decision changed.
+
+### Closed by F0
+
+| This plan said | F0 landed | Effect |
+| --- | --- | --- |
+| The graph is stale; the recorded `run_complete_sha256` no longer matches *(§0.1, §18)* | Extraction rebuilt to `extract-v1-lexical-833f7bcfbce9`, graph to `graph-v1-0483dc6b4b10`, both loaded. Digests match *(verified)* | **Condition repaired.** §7 stays L0 — nothing prevents recurrence |
+| `guidance_issuance.inference_restrictions` demands an `assertion_type` `AssertionType` does not offer, so the rule is **unsatisfiable and untestable** *(§18)* | `AssertionType.GUIDED` added, plus `EventTypeDefinition.forbidden_assertion_types: [reported]` and `check_event_assertion_type` | **Closed and now enforced**, not prose |
+| No future-period guard exists anywhere; `period_end: 2027-12-31` validates *(§6.8, §18)* | `check_future_period` — carrier-relative, never wall-clock; `GUIDED` exempt unconditionally, `CALCULATED` exempt only for metrics named in `constraints.yaml` | **Closed as a contract.** **But it abstains on the whole current corpus**: `reported_at` is populated by no lane, and the check returns early without a carrier date. A story agent may not assume no observation is future-dated |
+| `value: float` cannot hold "4 to 6%", blocking guidance *(§6.5 D10, §6.8)* | The range lives on the **event**, not the observation: `guidance_issuance.properties` gains a typed `property_contract` — `guided_metric`, `low_value`, `high_value`, `unit`, `currency`, with lone-bound, inverted-range, scale-in-string and undeclared-metric all refused | **The schema blocker is gone; the design this plan asked for was rejected in favour of a better one.** D10/D11 remain blocked on the **lane**, which emits no `guidance_issuance` event |
+| The multi-header period bug re-dates `market_count` *(implicit in §0b item 4)* | `_labels_repeat` discriminates parallel from sequential column groups on printed labels; 92 of 1,935 table passages disagreed, 87 repeating and 5 distinct | `market_count` 44 moved from `2021-03-31` to `2021-12-31` (and four more, two of them beyond the six reported). The flattened-grid passage is now refused as `PERIOD_NOT_GROUNDED_IN_PASSAGE` |
+
+### Made wrong by F0
+
+**§13.9's justification, not its rule.** This plan argued a `calculated` sentence must carry no
+citation because *"there is no computed comparison anywhere in the graph… a passage citation on
+a computed number is therefore always a provenance lie."* F0 added `EvidenceKind.CALCULATED` and
+`MARKET_DATA`, gave them graph nodes, and added them to `EVIDENCED_BY.allowed_target_types`. A
+calculated fact is now **first-class and citable**. The rule survives and is stronger: the
+ontology declares `calculated.optional_fields: []` — no filed-passage field is permitted — and
+it is enforced in three places. **The prohibition is now an ontology invariant rather than a
+story-layer policy**, and the "evidence panel renders the expression and both input observation
+ids" design is now the contract's own shape. Rewritten at §13.9.
+
+### A §18 finding of this plan's own that was overstated
+
+§18 filed that the three `HOLDS_POSITION_AT` ids share digest `0365d72eac21`, *"three
+semantically distinct relationships share one digest; only the readable segment separates
+them."* **The ids are unique** — they differ in the `{source}` segment — and
+`duplicate_identities` passes 25,321/0. The digest is a *passage* discriminator by design, and
+`relationship_instance_id` was not what commit `3d32c40` fixed. The row is restated at §18 as
+what it actually is: a digest that carries no discrimination, which is a readability wart, not
+a collision. Recorded rather than deleted, because this plan's §6.11 leans on the same scheme.
+
+### Numbers that moved
+
+| | Before | Now |
+| --- | ---: | ---: |
+| observations / evidence / issues / rejected | 2,707 / 2,717 / 17,127 / 46 | **2,704 / 2,714 / 17,130 / 49** |
+| graph nodes / edges | 28,836 / 35,603 | 28,836 / **35,600** |
+| `:Warned` observations | 186 | **185** |
+| base labels / live labels / relationship types | 7 / 22 / 12 | **8 / 23 / 12** |
+| graph projection version | 1.1.0 | **1.2.0** |
+| ontology semantic version / definition hash | 1.0.0 / `e8d4af70…` | **2.0.0** / `bb94f522…` |
+| offline tests | 2,567 | **2,723**, 0 skipped |
+
+### What did **not** change, re-verified
+
+537 fact-slots, **36 multi-valued, 10 above 1% spread, all thousands-vs-millions rounding** —
+so §0b item 4 stands and there is still no semantic conflict to write about. §13.7.1's column
+measurements are **identical to the digit**: 32 distinct `column_label` values, 24 mapping to
+more than one `period_key`, 179 of 485 `(passage, column)` pairs ambiguous, covering 1,656 of
+2,704 observations, 523 quotes repeated in their own passage. 150 backing passages, median
+2,144.5 characters, 77,626 tokens — §10.2.1 stands. Every spike fixture F1–F6 reproduces
+exactly, and `adjusted_gross_margin` is still negative in two quarters, which is what grounds
+§13.14's superlative attack. `executive_change` still has no seniority field and `inventory` is
+still in no `mutually_distinct_group`, so both §18 rows stay open.
+
+---
+
 ## 1. What the repository already decides
 
-### 1.1 The graph is stale against its own inputs *(verified 2026-08-03)*
+### 1.1 The graph was stale against its own inputs, and could be again *(verified 2026-08-03)*
 
-| Field | Graph manifest records | Extraction directory holds now |
+**F0 has since rebuilt both runs and the condition is cleared** — `graph-v1-0483dc6b4b10`
+records `run_complete_sha256 = 1cc8f7b0…` and the file hashes `1cc8f7b0…`, with 2,704
+observations loaded under that id *(verified after the rebase; §0d)*. What follows is the
+state that motivated §7, kept because the mechanism that allowed it is unchanged.
+
+| Field | Graph manifest recorded | Extraction directory held |
 | --- | --- | --- |
 | `extraction_run_id` | `extract-v1-lexical-2422c4252c07` | `extract-v1-lexical-2422c4252c07` |
 | `run_complete_sha256` | `7c921bc5028032bd68d4d3a78a8bad28783319c93c1bb67b1e196a2a48131d8d` | `75f47628926324f22a0a0449702cd71dafb96ff0eeebc8ed08cfaf3df8761156` |
@@ -155,9 +229,15 @@ and §28's offline test count (2,530 → **2,567 here, 2,698 on `main`**).
 | observations | 2,707 (loaded) | 2,704 |
 
 Read with `json.load` over `data/graph_runs/graph-v1-886059d862ce/manifest.json` and
-`hashlib.sha256` over `data/extraction_runs/extract-v1-lexical-2422c4252c07/run.complete`.
-The `:GraphLoad` marker in Neo4j reports `status: complete`, `node_count: 28836`,
-`edge_count: 35603`, `completed_at: 2026-08-03T01:06:24+00:00` *(measured live)*.
+`hashlib.sha256` over `data/extraction_runs/extract-v1-lexical-2422c4252c07/run.complete`,
+both since superseded. The `:GraphLoad` marker reported `node_count: 28836`,
+`edge_count: 35603`, `completed_at: 2026-08-03T01:06:24+00:00`; it now reports
+`graph-v1-0483dc6b4b10`, `28836 / 35600`, `completed_at: 2026-08-03T16:37:44+00:00`
+*(measured live)*.
+
+**The mechanism is untouched.** A run directory can still be regenerated in place, the graph
+manifest still records the digest that would reveal it, and nothing still reads that digest
+back. F0 repaired an instance; §7 is what prevents the next one.
 
 The graph layer already computes everything needed to detect this — `manifest.py:75-101`
 builds `input_content_digest` from exactly these inputs — and never compares them on the way
@@ -190,7 +270,7 @@ Absent:
 
 Exactly one `subject_entity_id` exists in the run, so the `opendoor` `:Entity` has degree
 ≥ 2,704 before any other edge. `OBSERVATION_OF_SUBJECT` is the edge a bounded retriever must
-never traverse. `:Issue` is the largest node population at 17,127 — 1.95× the 8,776 passages
+never traverse. `:Issue` is the largest node population at 17,130 — 1.95× the 8,776 passages
 and 6.3× the observations — and **10,852 of them are `NO_STORED_ANSWER`**, a record that a
 question was never asked, because the run had `provider_calls_permitted: 0`. **8,624 of the
 cited passages are touched by no claim at all.** Any retriever seeded from a passage or an
@@ -536,8 +616,8 @@ candidate set. A candidate that carried its own score would let a detector rank 
 | D7 | `financing_liquidity` | BLOCKED | 1 `borrowing_capacity` point; a billions-scale lane bug; no facility events |
 | D8 | `inventory_risk` | **NOW** | — |
 | D9 | `leadership_change` | **NOW** (exactly one candidate) | — |
-| D10 | `guidance_revision` | BLOCKED | no guidance lane; `value: float` cannot hold "4 to 6%" |
-| D11 | `guidance_vs_actual` | BLOCKED | D10, and the guided quantities are mostly SBC, not an ontology metric |
+| D10 | `guidance_revision` | BLOCKED — **on the lane only, as of F0** | No lane emits a `guidance_issuance` event. The *schema* blocker is gone: the range is typed on the event as `low_value`/`high_value`/`unit`/`currency`/`guided_metric` |
+| D11 | `guidance_vs_actual` | BLOCKED | D10, and the guided quantities are mostly SBC, which is not one of the 26 declared metrics — `guided_metric` must name a declared `metric_definition` |
 | D12 | `stock_reaction` | BLOCKED | no price source anywhere in the repository |
 | D13 | `management_language_shift` | PARTIAL | text exists in `passages.jsonl`; no lexical projection |
 | D14 | `entity_network` | BLOCKED | 6 entities, 4 edges, one hub |
@@ -698,7 +778,7 @@ The prompt is not where this is enforced. §13.10 refuses the causal wording ind
 
 | Detector | Attaches to | Unblocked by |
 | --- | --- | --- |
-| D10, D11 guidance | `assertion_type == "guidance"`, `value_low`/`value_high`/`qualitative_band` | A guidance lane, **and** an observation schema that can hold a range. `value: float` cannot hold "4 to 6%". 75 forward-looking quantified passages exist and are refused |
+| D10, D11 guidance | `AssertionType.GUIDED` on the observation; `guidance_issuance` events carrying `guided_metric`, `low_value`, `high_value`, `unit`, `currency` | **A guidance lane, and only that.** F0 closed the contract half: the assertion type exists, `forbidden_assertion_types: [reported]` is enforced, and the range is typed and validated (lone bound, inverted range and scale-in-string all refused). 75 forward-looking quantified passages exist and are still refused. **The observation schema was never the right home for a range and this plan asked for the wrong thing** — a guided range is a property of the guidance event, not of an observation |
 | D12 stock reaction | a `market_price` metric, `subject_types: [listed_security]` | A price acquisition stage. 276 passages match price language and **all** are SPAC/warrant boilerplate |
 | D7 financing | a `borrowing_capacity` series | A billions-scale fix in the narrative lane (`"$12.6 billion"` was rejected as `VALUE_CONTRADICTS_QUOTED_TEXT`), a `population_definition` for aggregate/committed/drawn, and facility events |
 | D14 entity network | ≥2 subjects | Entity resolution, deliberately deferred |
@@ -961,23 +1041,31 @@ a fact returns its `observation_id`/`event_id` and its `passage_id`/`document_id
 `build_story_evidence_package` is deliberately **not** a tool. It is §10's builder, called by
 the pipeline, never by a model — a model that can call it can widen its own universe.
 
-**Universal constraints.** Allowed **base** labels: `Metric, Observation, Event, Passage,
-Document, Entity`. Allowed relationships: `HAS_OBSERVATION, EVIDENCED_BY, PART_OF,
-PARTICIPATES_IN, OBSERVATION_OF_SUBJECT, RECONCILES_TO, DISTINCT_FROM, HOLDS_POSITION_AT,
-BORROWS_UNDER, PLACEHOLDER_FOR`.
+**Universal constraints.** Allowed **base** labels — all eight of them:
+`Metric, Observation, Event, Passage, Document, Entity, Issue, EvidenceSource`. Allowed
+relationships — all twelve: `HAS_OBSERVATION, EVIDENCED_BY, PART_OF, PARTICIPATES_IN,
+OBSERVATION_OF_SUBJECT, RECONCILES_TO, DISTINCT_FROM, HOLDS_POSITION_AT, BORROWS_UNDER,
+PLACEHOLDER_FOR, FOUND_IN, CONCERNS_METRIC`.
 
 **The allowlist is over base labels, and it matches by presence, never by exact label set.**
-The live graph carries **22 labels and 12 relationship types**, because `graph/stages/projection/nodes.py`
-adds ontology-derived secondary labels (`Person`, `PublicCompany`, `Company`, `Subsidiary`,
-`CreditFacility`, `StockExchange`, …) and status labels (`Warned` 186, `NotAttempted` 10,852,
-`Rejected` 46, `Unresolved` 1) alongside the operational `GraphLoad` marker. The first draft
-listed 6 labels and 9 types; **three of the omissions are load-bearing** — §9 requires
-excluding `:NotAttempted`, §10.1 requires surfacing `:Warned`, and §7 requires reading
-`:GraphLoad`. A test whitelisting by exact set would reject the nodes this plan depends on.
-`PLACEHOLDER_FOR` was simply missed: it has a backing constraint index
-(`placeholder_for_edge_key`) and is how §13.11 reaches the unresolved borrower.
+The live graph carries **23 labels and 12 relationship types** *(measured live)*, because
+`graph/stages/projection/nodes.py` adds ontology-derived secondary labels (`Person`,
+`PublicCompany`, `Company`, `Subsidiary`, `CreditFacility`, `StockExchange`, …), evidence-kind
+labels (`XbrlFact`, `FilingMetadata`, `ExternalPage`, `MarketData`, `Calculated`) and status
+labels (`Warned` 185, `NotAttempted` 10,852, `Rejected` 49, `Unresolved` 1) alongside the
+operational `GraphLoad` marker. **A test whitelisting by exact set would reject the nodes this
+plan depends on** — §9 excludes `:NotAttempted`, §10.1 surfaces `:Warned`, §7 reads
+`:GraphLoad`.
+
+Two of the eight base labels were missing from the first draft and both matter. `Issue` was used
+throughout the prose and never declared. **`EvidenceSource` is new at F0** — the eighth base
+label, for evidence that names no filed passage. **Zero such nodes exist today** (all 2,714
+evidence rows are `normalized_passage` or `normalized_table`), which is exactly why it must be
+in the allowlist now: a tool that allowlists by presence will start silently dropping citations
+the day the XBRL lane emits one, and a silently dropped citation is the failure §13.7 exists to
+prevent. §13.7's Rule C is its verification counterpart.
 **`:Issue`, `FOUND_IN` and `CONCERNS_METRIC` are reachable only by `find_counter_evidence` and
-`story issues`**, and every query touching them excludes `:NotAttempted` — 10,852 of 17,127
+`story issues`**, and every query touching them excludes `:NotAttempted` — 10,852 of 17,130
 issues record a question never asked, and a retriever that surfaces them is reporting the run's
 own bounds as a finding about Opendoor. **`OBSERVATION_OF_SUBJECT` is never traversed
 outward from `:Entity`**: `opendoor` has degree ≥ 2,704 and one hop is the whole graph.
@@ -1027,6 +1115,10 @@ events[]        event_id, event_type_id, occurred_on, announced_on, date_basis, 
                 properties (verbatim strings), participants with roles, passage_id, quoted_text
 relationships[] relationship_instance_id, predicate, source/target entity ids and types,
                 valid_from, valid_to, quoted_text
+evidence_sources[]      evidence_source_id, evidence_kind, labels, and the kind's own fields
+                        (accession/xbrl_concept | provider/instrument_id/session_date/... |
+                        input_observation_ids/calculation_expression/calculation_version).
+                        EMPTY today; a leaf with no PART_OF edge -- see §13.7.2
 primary_passages[]      passage_id, document_id, text, char_count, heading_path, section_id,
                         passage_kind, source_url
 context_passages[]      the ±1 neighbours of each primary passage, same shape
@@ -1039,13 +1131,15 @@ conflicts[]     slot, clusters with values and documents, classification, resolu
 compatibility[] every comparability decision made and its rule id (§6.9)
 documents[]     document_id, form, filing_date, report_date, accession, source_url,
                 document_type, title, content_sha256
+                NOTE: built only from CITED PASSAGES. An :EvidenceSource carrying a
+                document_id does NOT imply that :Document node exists (§13.7.2)
 retrieval_trace[]  tool name, parameters, row count, truncated, elapsed_ms
 budget          token_estimate, per-section counts, and every cap that bound
 ```
 
 ### 10.1 Warnings the package must carry, and they are all computable today
 
-`validation_state: warned` on any used fact (186 observations carry `unpreferred_source_lane`);
+`validation_state: warned` on any used fact (185 observations carry `unpreferred_source_lane`);
 `ambiguity_codes` on any used fact, with the ontology's own `description` and `impact` text;
 `resolved: false` on any entity mentioned; `occurred_on` absent on any event used;
 `review_flag` on any event used; differing `population_definition_raw` between two compared
@@ -1247,7 +1341,7 @@ i.e. the fact rounds to the draft's own numeral at the draft's own precision. `"
 against `−27,075,000` gives `d = 3`, window ±50,000, |Δ| = 25,000 → PASS. `"$27 million"` gives
 `d = 2`, window ±500,000 → PASS. Plus an **over-precision WARN** when `d` exceeds the
 significant figures in the fact's printed form, and a **hedge guard**: `approximately`, `about`,
-`roughly` relax nothing and are recorded so §13.15 can check the hedge is not doing work the
+`roughly` relax nothing and are recorded so §13.16 can check the hedge is not doing work the
 number cannot support.
 
 ### 13.2 Units and currency
@@ -1391,8 +1485,12 @@ Two escape hatches, both deterministic and both narrow:
 
 1. **A distinguishing sibling label.** When the passage carries a second label that resolves
    uniquely (`"September 30, 2022"` alongside `"2022"`), the binding may name it instead and
-   the citation cites that column. This is available on the passages that matter most —
-   quarterly tables generally label at least one column fully.
+   the citation cites that column. **Measured, this rescues almost nothing: 9 of the 179
+   ambiguous pairs, covering 22 of the 1,656 observations (1.3%)** *(verified against
+   `extract-v1-lexical-833f7bcfbce9`)*. The first draft claimed it was "available on the
+   passages that matter most — quarterly tables generally label at least one column fully";
+   that was an assumption, and it is false. Keep the hatch because it is free and correct where
+   it applies, but **hatch 2 carries the load.**
 2. **`year_only_column_ambiguity` classification.** §6.6 D15 already detects exactly this shape
    and the first draft never connected it to the verifier. When D15 classifies the slot and
    §6.1 step 4 resolved it by document majority, the binding may proceed **with the
@@ -1407,7 +1505,41 @@ metric, the period and the subject, and nothing else.
 plus lexical grounding: the cited span must exist, contain the evidence span, carry the number
 if the sentence carries one, and every content word of the assertion must appear in the span,
 resolve through a licensed alias, or be in the connective lexicon. REFUSE on span, quote,
-marker and number; WARN on paraphrase distance and escalate to §13.15.
+marker and number; WARN on paraphrase distance and escalate to §13.16.
+
+#### 13.7.2 Rule C — evidence that names no filed passage
+
+F0 added a base label `:EvidenceSource` and five kinds that cite no passage: `xbrl_fact`,
+`filing_metadata`, `external_page`, `market_data`, `calculated`. **Zero such nodes exist
+today** — all 2,714 evidence rows are `normalized_passage` or `normalized_table` — but the
+contract exists, and Rules A and B both begin "the cited span must exist in `Passage.text`",
+so both become *partial functions* the day the XBRL lane lands.
+
+The shape matters: an `:EvidenceSource` is a **leaf**. It has no `PART_OF` edge, and
+`:Document` nodes are built only from cited passages — so an `:XbrlFact` carrying a
+`document_id` property does **not** imply that `:Document` node exists. `:MarketData` and
+`:Calculated` carry no `document_id` at all, by design, *"because nobody filed it."*
+
+```
+Fact -[:EVIDENCED_BY]-> (:Passage) -[:PART_OF]-> (:Document)     Rules A and B
+Fact -[:EVIDENCED_BY]-> (:EvidenceSource:XbrlFact)               Rule C — chain ends here
+```
+
+**Rule C: support is coordinate reconstruction or input recursion, never span containment.**
+
+| kind | what "supported" means |
+| --- | --- |
+| `xbrl_fact` | the binding names `accession` + `xbrl_concept`, and the value reconstructs from the fact's own unit and dimensions. Cite `source_url`, which the kind now requires |
+| `filing_metadata` | `accession` resolves and the asserted property is one the filing header carries |
+| `external_page` | `source_url` + `disclosure_channel_id` + `fetched_at` all present; the channel must be one `constraints.yaml` permits for a historical claim |
+| `market_data` | `provider` + `instrument_id` + `session_date` + `row_identity` identify one quote; **`disclosure_channel_id` canonicality decides whether it may support a historical claim at all** |
+| `calculated` | recurse: every `input_observation_id` resolves in the package and each is itself verified under Rule A, B or C. The expression is recomputed (§13.9) |
+
+**V1 behaviour: `Unavailable`, not silence.** Until a lane emits one, a binding to an
+`:EvidenceSource` returns `Unavailable(reason)` from §9's tools and refuses the draft with
+`evidence_kind_not_supported_in_v1`. That is deliberate: an unimplemented rule that silently
+passes is worse than one that refuses, and this is the cheapest possible way to keep the hole
+visible until F1 makes it real.
 
 ### 13.8 Event properties are strings, not facts — REFUSE any numeric binding
 
@@ -1426,18 +1558,42 @@ never be presented as evidence of anything.
 
 ### 13.9 Reported versus calculated — REFUSE
 
-A `calculated` sentence **must** carry a `Calculation` and **must not** carry citations; a
-`reported` sentence must not carry a `Calculation`. The justification is in the package, not in
-policy: there is no computed comparison anywhere in the graph, because the extraction refused
-all 186 it saw. **A passage citation on a computed number is therefore always a provenance
-lie.** Recompute with exact arithmetic, compare after rounding to the draft's precision
+A `calculated` sentence **must** carry a `Calculation` and **must not carry a passage
+citation**; a `reported` sentence must not carry a `Calculation`.
+
+**The rule is now the ontology's, not this plan's — and that is a correction.** The first draft
+justified it from the corpus: *"there is no computed comparison anywhere in the graph, because
+the extraction refused all 186 it saw, so a passage citation on a computed number is always a
+provenance lie."* F0 made that reasoning obsolete by adding `EvidenceKind.CALCULATED` and
+`MARKET_DATA`, giving them graph nodes and adding them to `EVIDENCED_BY.allowed_target_types`.
+A calculated fact is now first-class and **citable**. What F0 also did is declare the
+prohibition properly: `claims.yaml` gives `calculated` the fields
+`input_observation_ids, calculation_expression, calculation_version` and
+**`optional_fields: []`** — *"No filed-passage field is permitted. A calculated value that
+cites a passage is claiming the filing said something it did not."* It is enforced three times
+over: the row model has no `passage_id` column and `extra="forbid"`, the catalog writer never
+emits one, and the validator raises `EVIDENCE_PASSAGE_ON_NON_PASSAGE_KIND`.
+
+So the check is unchanged in effect and stronger in standing: **a passage citation on a
+calculated sentence is an ontology violation, not a house rule.** The premise "no computed
+comparison exists in the graph" remains true of the current run — no lane emits one — but it is
+no longer a property of the schema, and nothing in this plan may rest on it.
+
+Recompute with exact arithmetic, compare after rounding to the draft's precision
 (`5.2 − 2.2 = 3.0000000000000004`; compare at `d = 2`, never by equality), require ≥2 resolving
 inputs sharing metric and unit and passing §13.4, and require a `formula_version_id` that
 `check_formula_for_date` accepts **for the period computed over, not the filing date**.
 
-The calculation is not hidden: the evidence panel renders the expression, both input
-`observation_id`s — which are human-readable by construction — and each input's own passage.
-The sentence itself cites nothing.
+**Five assertion types now, not four.** `AssertionType` gained `GUIDED` at F0
+(`REPORTED, CALCULATED, CLASSIFIED, INFERRED, GUIDED`). A `guided` observation is not a
+reported one and may never be rendered as a level the company achieved; §13.15 governs it. All
+2,704 observations in the current run are still `reported`.
+
+The calculation is not hidden, and the panel design is now the contract's own shape: the
+`calculated` evidence kind carries exactly `calculation_expression`, `calculation_version` and
+`input_observation_ids`, which is what the evidence panel renders — the expression, both input
+`observation_id`s (human-readable by construction), and each input's own passage. The sentence
+itself cites no passage.
 
 ### 13.10 Causation — the crux
 
@@ -1475,8 +1631,8 @@ polarity tests.** Both holes are live in this corpus:
    occurrence** — cause within N characters after the marker, effect before it — and a span
    containing more than one marker requires the binding to name which occurrence it relies on.
 
-Neither hole has a model backstop today: §13.15's `temporal_association_turned_causal` is
-advisory, and §13.16 states there is no WARN tier for causation. Conditions 5 and 6 are
+Neither hole has a model backstop today: §13.16's `temporal_association_turned_causal` is
+advisory, and §13.17 states there is no WARN tier for causation. Conditions 5 and 6 are
 therefore deterministic REFUSEs, and the linkage test is the weakest check in this plan —
 recorded as such rather than presented as solved.
 
@@ -1539,9 +1695,30 @@ bound observation's, and that the named document is its document.
 
 Every `fact_binding` id must resolve in the package; the draft's `verified_against` block must
 equal the package's identity block exactly; the package's `run_complete_sha256` must match the
-extraction directory (§7 — **failing today**); no binding may name a refused reading (reuse
-`refused_identities`, `graph/stages/load/verification.py:427`); and any binding to one of the
-186 `:Warned` observations must surface the warning in the evidence panel.
+extraction directory (§7 — **passing as of F0, and this check is what proves it**); no binding
+may name a refused reading (reuse `refused_identities`,
+`graph/stages/load/verification.py:427`); and any binding to one of the 185 `:Warned`
+observations must surface the warning in the evidence panel.
+
+The identity block, re-pinned after the F0 rebase (§0d):
+
+```
+graph_run_id                  "graph-v1-0483dc6b4b10"
+extraction_run_id             "extract-v1-lexical-833f7bcfbce9"
+run_complete_sha256           "1cc8f7b01c040531..."   <- the field that actually identifies
+ontology_definition_hash      "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34"
+ontology_semantic_version     "2.0.0"
+graph_projection_version      "1.2.0"
+package_content_digest        sha256 over the package's own fact rows, sorted
+```
+
+The previous values -- `graph-v1-886059d862ce`, `extract-v1-lexical-2422c4252c07`,
+`e8d4af70...`, `1.1.0` -- survive in this plan's own history, which is the point of §7: a
+package naming them must be **refused, not repaired**. `ontology_semantic_version` is in the
+block because F0 moved it to `2.0.0` for a breaking reason (`normalized_table` gained a
+required `passage_id`, `xbrl_fact` gained a required `source_url`) after two incompatible
+vocabularies had both been calling themselves `1.0.0` -- a version string that stopped
+distinguishing them is exactly the failure this check exists to catch.
 
 ### 13.14 Numeral-free sentences — the hole the first draft left open
 
@@ -1589,7 +1766,40 @@ likely to be over-strict rather than under-strict: some legitimate connective pr
 refused. That is the right direction for the failure to point, and §22's readability score is
 where the cost shows up.
 
-### 13.15 The model-assisted verifier
+### 13.15 Forward-looking language — REFUSE, and the extension point F0 built
+
+**All 2,704 observations are `assertion_type: reported`.** No lane emits `guidance_issuance`
+and no observation is `guided`. So today **any forward-looking construction in a draft is an
+unconditional REFUSE**: `expects | guidance | outlook | forecasts | targets | anticipates |
+projects | will be | on track to | guided to | plans to reach | full-year target`. There is
+nothing in the package that could support one and nothing that could contradict one. The
+narrative lane's own two `GUIDANCE_NOT_REPORTED` refusals are the citable evidence that the
+question was asked and declined.
+
+**What F0 built, and where the check attaches when a lane lands.** The contract is complete:
+`AssertionType.GUIDED` exists; `guidance_issuance` declares
+`forbidden_assertion_types: [reported]` and a typed `property_contract` over `guided_metric`,
+`low_value`, `high_value`, `unit`, `currency`; a lone bound, an inverted range, a scale carried
+inside a string (`"1.0 billion"`) and a `guided_metric` naming an undeclared concept are each
+refused with their own code; and `check_future_period` exempts `GUIDED` unconditionally while
+refusing a `reported` observation whose period ends after its carrier filing.
+
+So `guidance_vs_actual` becomes, without further contract work: given a `guidance_issuance`
+event and an observation for the same `(guided_metric, period)`, the comparison is a §13.9
+`Calculation` citing the event id and the observation id — **never a passage** — and the
+sentence must name both the guided range and the actual, never one alone. Three additional
+rules this plan owns:
+
+- **A `guided` observation may never be rendered as a level the company achieved.** It is a
+  statement about intent, and the sentence must carry the guidance frame.
+- **A qualitative guidance event carries no number**, and the draft may not invent one. The
+  contract permits qualitative guidance as the absence of both bounds; there is no field for
+  the band text itself, so "mid-single digit" cannot even be quoted from the event (§18).
+- **`check_future_period` abstains on the current corpus** because `reported_at` is unpopulated.
+  A story agent may not infer "no observation is future-dated" from the guard's existence, and
+  §13.4's period rules stand on their own.
+
+### 13.16 The model-assisted verifier
 
 Runs **after** the deterministic layer, on sentences that already passed. Emits structured
 findings, never a verdict. Output schema is flat, one array, `additionalProperties: false`,
@@ -1625,9 +1835,9 @@ can only downgrade a PASS; any numeral in `explanation` not present in either qu
 discards the finding; `severity` is advisory input, never output; `model_id`, `prompt_version`,
 `content_sha256` and `raw_sha256` are recorded on every finding.
 
-### 13.16 The gate
+### 13.17 The gate
 
-Every deterministic code in §13.1–§13.14 is REFUSE except: `over_precision` and
+Every deterministic code in §13.1–§13.15 is REFUSE except: `over_precision` and
 `paraphrase_distance` (WARN); `event_review_flag`, `conflict_immaterial_at_stated_precision`
 and `warned_observation_used` (ANNOTATE). Model findings REFUSE only for `lost_qualifier`
 `unsupported`+`high`, and `contradicted` on the two passage-relative checks.
@@ -1792,7 +2002,7 @@ repository's own `schema_violations` ignores anything outside its six keywords. 
 using `minimum`, `pattern`, `anyOf` or `$ref` would be neither enforced by the grammar nor
 caught by the local check — it would simply not apply.
 
-**Every schema in §11, §12 and §13.15 is restricted to: flat `properties`, `type`, `required`,
+**Every schema in §11, §12 and §13.16 is restricted to: flat `properties`, `type`, `required`,
 `items`, `enum`, `additionalProperties: false`.** Numeric bounds are expressed as `enum` or
 re-checked by the adjudicator. `anyOf`, `oneOf`, `$ref`, `prefixItems`, `pattern`,
 `minItems`/`maxItems` and `format` are prohibited, and a test asserts every shipped schema uses
@@ -1870,7 +2080,7 @@ Each one uses this corpus specifically, and names the check that catches it.
 5. **Citing a passage that contains a better number.** *"Contribution margin was 4.0% in Q4
    2021"* citing a passage reading *"…was 4.0% versus 12.6% in 4Q20."* Every deterministic
    check passes; the sentence is a selective read of a span whose whole point is the collapse.
-   → §13.15 `counter_evidence_misrepresented`, which is shown the adjacent-period values.
+   → §13.16 `counter_evidence_misrepresented`, which is shown the adjacent-period values.
 6. **"Following" laundered into "because of".** The event's `reason` property says the
    pandemic, so a verifier checking "is the cause in the package?" passes — but the *filing*
    says "following", and `reason` is the extractor's field, not the filing's word. → §13.10
@@ -1882,9 +2092,11 @@ Each one uses this corpus specifically, and names the check that catches it.
    rejection says why.
 8. **A right fact from a wrong run.** *"Opendoor operated in 44 markets at end-March 2021."*
    A real node in `graph-v1-886059d862ce` with a real passage, a real quote and a real
-   document — **absent from the current extraction and contradicted by four observations
-   reading 27**. Every check in §13.1–§13.12 passes. → **§7 alone catches it, and §7 is
-   failing right now.**
+   document — and, in the run that superseded it, **44 belongs to `2021-12-31`, not
+   `2021-03-31`**, because F0's multi-header fix re-dated it. Every check in §13.1–§13.12
+   passes on the stale node. → **§7 alone catches it.** This attack is no longer hypothetical
+   in either direction: it was live when written, and the fix that resolved it is exactly the
+   kind of upstream correction that will happen again.
 9. **Resurrecting a refused reading.** A `(metric, period, passage)` identity the extractor
    refused as `AMBIGUOUS_COLUMN_ALIGNMENT` can be satisfied from a *different* passage's value.
    → §13.13, reusing `refused_identities`.
@@ -1940,15 +2152,15 @@ None is fixed here; each is named so it is not rediscovered.
 | Loaded graph is stale against its extraction inputs; no check compares the recorded `run_complete_sha256` on the way back in | `graph/core/manifest.py:75-101` computes it; nothing reads it back | **blocks every story stage** |
 | `extraction_run_id` is not an identity — the directory was regenerated under the same id | `extraction/core/run_directory.py` | high; makes id-based consistency checks vacuous |
 | `formulas.yaml`'s `adjusted_gross_profit` v2 expression omits the prior-period cohort term, so `adjusted_gross_margin < gaap_gross_margin` in 16 of 26 quarters | `ontology/versions/…/definitions/formulas.yaml` | high; invalidates any ordering-based consistency detector |
-| `guidance_issuance.inference_restrictions` demands an `assertion_type` that `AssertionType` does not offer — the rule is unsatisfiable and therefore untestable | ontology | blocks D10/D11 |
-| `value: float` cannot hold a guided range ("4 to 6%", "mid-single digit"); 75 quantified forward-looking passages are refused | extraction observation model | blocks D10/D11 |
+| ~~`guidance_issuance.inference_restrictions` demands an `assertion_type` that `AssertionType` does not offer~~ | ontology | **CLOSED at F0** — `AssertionType.GUIDED` + `forbidden_assertion_types`, enforced and tested |
+| ~~`value: float` cannot hold a guided range~~ | ontology / events | **CLOSED at F0**, differently and better: the range is typed on `guidance_issuance.properties`. **But a qualitative band text ("mid-single digit") still has no field** — the contract permits qualitative guidance only as the *absence* of both bounds, so the phrase itself is unstorable | latent, blocks a faithful D10 |
 | Narrative lane rejects billions-scale figures: `"$12.6 billion"` refused as `VALUE_CONTRADICTS_QUOTED_TEXT` with `"value 12600 is not the magnitude printed"` | extraction narrative lane | blocks D7 |
-| No future-period guard exists anywhere; an observation with `period_end: 2027-12-31` validates today. The run is clean by accident | `ontology/core/constraints.py` | latent |
+| ~~No future-period guard exists anywhere~~ | `ontology/core/constraints.py` | **CLOSED at F0** — `check_future_period`, carrier-relative. **But it abstains on the entire current corpus**: `reported_at` is populated by no lane and the check returns early without a carrier date. The guard is a contract, not yet a property of the data | latent |
 | `inventory` resolves to `housing_inventory_homes` and `inventory_balance` but is in **no** `mutually_distinct_group`, so `check_alias_collisions` never fires on it | `constraints.yaml` | medium |
 | `adjusted_ebitda` and `adjusted_ebitda_margin` declare no `distinct_from` at all; 13 of 26 metrics have none | `metrics.yaml` | medium; §13.5 must union `distinct_from` with group membership |
 | `AMBIGUOUS_COLUMN_ALIGNMENT` identities are recovered by regexing prose out of `Issue.detail` because `concept_ids` is `[]` on all five | `graph/stages/load/verification.py:225` | inherited fragility |
 | `graph/context.py:8-15` still argues at length that "there is no `config/graph.yaml`" — there is | docstring | minor |
-| Three `HOLDS_POSITION_AT` rows for Wu, Nejatian and Rabois all carry digest suffix `0365d72eac21` — three distinct relationships share one digest, and only the readable segment separates them | `relationships.jsonl` | medium; readable segments are exactly what must not carry uniqueness |
+| Three `HOLDS_POSITION_AT` rows carry digest suffix `0365d72eac21`. **This plan overstated it: the ids are unique** (they differ in the `{source}` segment) and `duplicate_identities` passes 25,321/0. The digest is a passage discriminator by design. What remains is that the digest segment carries no discrimination, so it reads like identity and is not | `extraction/core/identifiers.py:343` | low; a readability wart, not a collision |
 | `contribution_profit` has no `ambiguities` and `population: None`; its cohort caveat exists only as a `formulas.yaml` `adjustment_components[].note` | `metrics.yaml` | medium; blocks half of §13.15's `lost_qualifier` |
 | `executive_change` has no seniority field — `allowed_properties: [change_kind, position, effective_date]`; seniority must be inferred from free-text `position` | `events.yaml:197` | medium; §6.6 D9 carries a story-owned lexicon instead |
 | `README.md` says 717 tests; 2,567 collect offline here and 2,698 on `main` | `README.md:19` | minor |
@@ -2097,8 +2309,8 @@ dimensions above.
 | **L6** | Provider abstraction + structured-output client + `AnswerStore` replay (§15) | L0 | **yes** | — |
 | **L7** | Editorial planner (§11) | L5, L6 | needs the local server | **thesis** |
 | **L8** | Constrained writer (§12), style profile separated from facts | L7 | needs the local server | — |
-| **L9** | Deterministic verifier and the gate (§13.1–§13.14, §13.16), incl. `story recheck` | L5, L8 | **yes** | — |
-| **L10** | Model-assisted verifier and adjudicator (§13.15) | L9, L6 | needs the local server | — |
+| **L9** | Deterministic verifier and the gate (§13.1–§13.15, §13.17), incl. `story recheck` | L5, L8 | **yes** | — |
+| **L10** | Model-assisted verifier and adjudicator (§13.16) | L9, L6 | needs the local server | — |
 | **L11** | End-to-end `story run` on F1–F3, offline replay, `report.md` | L9, L10 | **yes** | **publish?** |
 | **L12** | Interactive `story ask` (§19) | L1, L6 | **yes** | — |
 | **L13** | Evaluation harness, gold set, founder rubric (§22) | L11 | **yes** | — |
@@ -2125,7 +2337,7 @@ extending `tests/graph/`.
 
 | Safe to build now | Depends on factual-spine work |
 | --- | --- |
-| Staleness gate, retrieval tools, canonical series, comparability, D1–D4/D8/D9/D15–D17, ranking, evidence-package schema, citation model, provider abstraction, deterministic verifier, CLI skeleton, fake-provider harness, evaluation harness | D10/D11 (guidance lane + range-valued observations), D12 (price acquisition stage), D7 (billions-scale fix + facility events), D13 (lexical projection), D14 and peer divergence (entity resolution + a second subject), §8 embeddings (unaffected but better once more narrative is extracted) |
+| Staleness gate, retrieval tools, canonical series, comparability, D1–D4/D8/D9/D15–D17, ranking, evidence-package schema, citation model, provider abstraction, deterministic verifier, CLI skeleton, fake-provider harness, evaluation harness | D10/D11 (**guidance lane only** — the contract landed at F0), D12 (price acquisition stage), D7 (billions-scale fix + facility events), D13 (lexical projection), D14 and peer divergence (entity resolution + a second subject), §13.7.2 Rule C (an XBRL or market-data lane), §8 embeddings (unaffected) |
 
 **Integration boundary.** The story package consumes only: the graph export directory, the
 `:` labels and relationship types in §9's allowlist, the ontology through `ontology.core.`, and
@@ -2171,7 +2383,7 @@ changes, and `WORKSTREAM_BOUNDARY.md` is where they get recorded when they happe
 | An LLM ranker, or an LLM tie-breaker | A model that orders candidates is a model choosing its own evidence one step earlier (§6.10) |
 | `build_story_evidence_package` as a model-callable tool | A model that can call it can widen its own universe (§9) |
 | Matching a draft's numbers to facts by search | Ambiguous 62.5% of the time at two significant figures. The draft declares its bindings and the verifier checks them (§12) |
-| Per-sentence rejection | Invites the generator to delete the offending sentence rather than fix it (§13.16) |
+| Per-sentence rejection | Invites the generator to delete the offending sentence rather than fix it (§13.17) |
 | A prototype database (SQLite, DuckDB) for agent state | Every other stage uses a directory of JSONL; it diffs and needs no process (§14) |
 | A shared `cli_common.py` | The repository triplicates `_banner` and quadruplicates `EXIT_*` on purpose (§1.6) |
 | Importing `extraction.providers` | Would be the repository's first cross-pipeline import; `extraction.contracts` is not a shared surface (§15.2) |
@@ -2201,7 +2413,14 @@ graph run plus `config/story.yaml` plus the committed answer store.
 
 Not part of any stage; listed so the sweep is not forgotten.
 
-- `README.md:19` — "717 tests"; **2,567** collect offline in this worktree and **2,698** on `main`.
+- `README.md:19` — "717 tests"; **2,723** pass offline as of F0, 0 skipped.
+- `graph/stages/load/loader.py:76-77` — doc-comment still says `Warned 186, Rejected 46` and
+  `FOUND_IN 17,127 · EVIDENCED_BY 2,713 · HAS_OBSERVATION 2,707`. Now 185 / 49 / 17,130 /
+  2,710 / 2,704.
+- `graph/stages/load/schema.py:126-127` — still cites the retired `graph-v1-886059d862ce`.
+- `plans/factual-spine/F0_IMPLEMENTATION_REPORT.md` — worth recording that
+  `check_future_period` abstains on the entire corpus, because `reported_at` is populated by no
+  lane. The guard is correct and currently fires on nothing.
 - `graph/context.py:8-15` — argues at length that `config/graph.yaml` does not exist. It does.
 - `plans/graph/V1_GRAPH_PROTOTYPE.md:1329` — G6's scope is superseded by this plan; add a
   pointer rather than rewriting it.
