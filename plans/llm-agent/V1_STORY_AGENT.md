@@ -1281,6 +1281,34 @@ required a counterpoint to reach the draft** — §12's prohibitions covered a d
    "counter-evidence handling" as a human-judged dimension because fairness of representation
    is not mechanically checkable — but *presence* now is.
 
+**Correction, 2026-08-03 (adversarial review AR1): the evidence set is not entirely
+model-free, and §11's guarantee has to be stated more narrowly.**
+
+This section, and §17.13, rest on the claim that the model cannot influence which evidence
+exists. For structured facts that holds — detectors and the packaging builder select them by
+code. For **explanatory passages it does not**, and the measurement is unambiguous:
+`search_passages` takes a model-supplied `terms[]` and returns `ORDER BY score DESC LIMIT 25`,
+so adding terms **re-ranks and evicts**. Adding three innocuous terms to a two-term query
+dropped **18 of the 25** passages the original query returned.
+
+The operator channel is genuinely closed — escaping was proved effective with numbers
+(escaped `margin "NOT" gross` → 3,318 hits, unescaped → 372, an exclusion). What remains open
+is ordinary top-k displacement, which no amount of escaping addresses.
+
+Three consequences, and S7 must be built to them:
+
+1. **The planner may not choose search terms.** Terms are derived by code from the candidate's
+   metric aliases and period surfaces (§6.4's `EvidenceRequest`), never authored by a model.
+2. **`counter_evidence` may never come from `search_passages`.** It comes from
+   `find_counter_evidence`, which is keyed on `(metric_id, period_key)` and takes no free text —
+   otherwise §11's non-empty-counterpoints rule is satisfiable by a term list that ranks the
+   inconvenient passage out of the top 25.
+3. **The retrieval trace must record the exact terms and the `truncated` flag** for every
+   explanatory search, so a reviewer can see what the bound cut.
+
+The narrower true claim: **numbers, identities, periods and counter-evidence are model-free;
+explanatory passage *ranking* is not, and is bounded and traced instead.**
+
 The planner may not retrieve. It has no tools.
 
 ---
