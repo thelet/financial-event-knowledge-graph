@@ -448,6 +448,87 @@ This is exactly how `tests/graph/test_graph_package_structure.py` scopes the sam
 | F22 | **`db.transaction.monitor.check.interval = 2s`** and `db.transaction.timeout = 0s` (both verified live). The server has no default statement ceiling, and it notices an expired transaction only every two seconds | **This is a real ceiling on §16's whole timeout story, not just on one test.** `FRESHNESS_TIMEOUT_SECONDS = 30.0` is far above it so the gate is unaffected — but **any per-tool budget S11 sets in `config/story.yaml` below ~2 s will be advisory rather than enforced on this instance.** Must be written down before the budgets are chosen |
 | F23 | **The structural bound rule has a hole the aggregate branch opens.** A statement returning `count(n) AS c, collect(DISTINCT n.x) AS xs` passes as "one row by construction" — correct on row count, and an unbounded *payload*. `DATA_NODE_INVENTORY` does exactly this over 28,836 nodes and is legitimately fine today, but the rule as written would equally pass a statement collecting 28,836 ids into one row | The row bound is enforced; the **token** bound §10.2 actually cares about is not. Referred to the adversarial review |
 
+### Adversarial review AR1 — freshness + retrieval *(independent reviewer, 2026-08-03)*
+
+Attacked 17 lines of enquiry against the live graph. **Found one defect that invalidated the
+layer's central guarantee**, plus four evidence-quality defects, three unbounded reads and three
+structural holes. Everything below was re-verified by the orchestrator before repair.
+
+#### The dangerous one — and the fixture that hid it
+
+**A1: the freshness gate hashed `run.complete` and nothing it lists.** `run.complete` *is* a
+digest manifest of the other ten files — `extraction/core/run_directory.py:7-10` says its whole
+purpose is that *"'this run finished' and 'this run still holds what it finished with' are the
+same question"*. The gate never verified the digests inside it.
+
+Orchestrator's own reproduction, before the fix:
+
+```
+baseline, untouched copy                    passed=True   codes=[]
+run.complete byte-identical after tamper:   True
+claims.jsonl replaced with 8 bytes          passed=True   codes=[]
+```
+
+Every other control in the layer is downstream of §7 being true. The gate caught a *regenerated*
+run because the marker moved; it did not catch an *edited* one — which is the §17.8 failure it
+exists to make impossible.
+
+**Why it was invisible:** the offline fixtures staged a marker naming `claims.jsonl` and
+`observations.jsonl` that the fixture builder never wrote, with a comment asserting *"its content
+is irrelevant to every test here"*. **Twenty tests exercised the gate against a run directory
+that had no contents to check.** A fixture that cannot express the failure is why the check was
+never missed — the most transferable lesson of this review.
+
+#### Confirmed and repaired at R2a (`b101382`)
+
+| # | Defect | Fix | Orchestrator verification |
+| --- | --- | --- | --- |
+| A1 | gate hashes only the marker | new `extraction_run_contents` check re-hashes all ten listed files; **reused** `package_input_digest_mismatch` rather than minting a code, because "the marker moved" and "a file it names moved" are one operator action | reproduced tamper → now `passed=False`, naming file and both digests; deleted listed file → refuses; **138–171 ms** on `/mnt/c`, 14 checks (was 13) |
+| C3 | gate *raised* on two paths — `UnicodeDecodeError` (a `ValueError`, not `OSError`) and `PermissionError` outside any handler | both refuse structurally now | verified in the report |
+| C2 | shipped docstring said `RoutingControl.READ` is "intent, not enforcement" — contradicting **F9**, measured twice. A maintainer would have deleted a load-bearing control | corrected in three places incl. a test *name* that restated the false claim | grepped: the only surviving phrase is inside the correction quoting what it fixes |
+
+Sub-decisions worth keeping: a **listed-but-absent** file refuses; a **present-but-unlisted** file
+does **not** (it cannot change a recorded digest, and refusing would stop every command over a
+stray `.DS_Store`) but is named in the check detail.
+
+#### Referred to R2b (retrieval) — see that row
+
+D4 write-scan evadable two ways · D5 `find_counter_evidence` returns `Ok([])` for zero-observation
+metrics · D6 truncation drops `rejection` rows first · D7 `search_passages` 2,306× amplification ·
+D8 `get_passage_context` scans a whole document.
+
+#### Quantified, not theorised — `PROFILE` at each tool's declared bound
+
+| tool | rows | db hits | ratio |
+| --- | ---: | ---: | ---: |
+| `search_passages` | 25 | **57,661** | **2,306×** |
+| `compare_metric_periods` | 2 | 480 | 240× |
+| `get_passage_context` | 3 | 940 | 134× |
+| everything else | — | — | ≤71× |
+
+**F23 is narrower than feared.** The aggregate loophole fires only in the freshness gate
+(192k db hits across four statements) where the payload *is* bounded — one distinct value per
+collected list. In `story/stages/retrieval/` no aggregate runs over an unbounded match. A work
+risk, not the token risk F23 predicted.
+
+#### Design finding the orchestrator owns — not sent to a repair agent
+
+**A4: `search_passages` is model-steerable at top-k.** Escaping closes the *operator* channel
+(proved: escaped `margin "NOT" gross` → 3,318 hits, unescaped → 372), but terms are model-supplied
+and results are `ORDER BY score DESC LIMIT 25`, so **adding three innocuous terms evicted 18 of
+25 previously-returned passages**. That is §11's silent-omission channel controlled by the thing
+being verified. Not a retrieval bug — a fact about the design that **§11 and S7 must account for**.
+
+#### Survived — what tells us the review was real
+
+Cypher injection on every parameter (metric surfaces resolve through the ontology *before* a
+query is built, so a hostile `metric_id` never reaches the database). Lucene operator injection,
+disproved with numbers. `Node`/`Path`/`Date`/`Point`/`Duration`/`set`/`Decimal` all refused by
+`plain_value`, driven against real driver objects. The `LIMIT 2` decision — no scenario flips a
+refusal into a pass. 12 of 13 gate checks, across 18 failure scenarios, all typed refusals.
+Citation resolvability **100% occupied** on all nine tools. Driver confinement caught all five
+mutations. Zero observations produce an `unknown` period shape.
+
 ## 8. Founder gates
 
 | # | Question | Status |
