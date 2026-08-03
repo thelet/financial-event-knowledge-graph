@@ -253,4 +253,4 @@ def test_an_edge_endpoint_label_must_be_a_declared_base_label() -> None:
                   source_base_label="Claim", target_key="norm:x#p1",
                   target_base_label="Passage", properties={})
     assert set(BASE_LABELS) == {"Entity", "Metric", "Observation", "Event", "Passage",
-                                "Document", "Issue"}
+                                "Document", "Issue", "EvidenceSource"}

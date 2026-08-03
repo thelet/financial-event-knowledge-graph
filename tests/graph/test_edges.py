@@ -57,7 +57,7 @@ requires_real_run = pytest.mark.skipif(not REAL_RUN_AVAILABLE, reason=REAL_RUN_R
 
 #: What a composition root supplies (§5.5). Fixed values, because two builds must be equal.
 PROVENANCE = {
-    "extraction_run_id": "extract-v1-lexical-2422c4252c07",
+    "extraction_run_id": "extract-v1-lexical-7f72d6172630",
     "graph_run_id": "graph-v1-test",
     "graph_projection_version": "1.0.0",
     "ontology_id": "real_estate_marketplace_v1",
@@ -84,7 +84,7 @@ FIXTURE_COUNTS = {
     "RECONCILES_TO": 2,
 }
 
-#: Counts measured from `extract-v1-lexical-2422c4252c07` *(2026-08-02)*.
+#: Counts measured from `extract-v1-lexical-7f72d6172630` *(2026-08-02)*.
 #:
 #: `EVIDENCED_BY` is 2,713 = 2,707 observations + 6 events; the 4 relationship evidence rows
 #: are **not** edges — Neo4j has no edge-on-edge, so a relationship's evidence lives in the
@@ -94,13 +94,13 @@ FIXTURE_COUNTS = {
 #: events carry 2+2+2+2+1+1 participants *(counted from `events.jsonl`)*.
 REAL_COUNTS = {
     "BORROWS_UNDER": 1,
-    "CONCERNS_METRIC": 1520,
+    "CONCERNS_METRIC": 1523,
     "DISTINCT_FROM": 36,
-    "EVIDENCED_BY": 2713,
-    "FOUND_IN": 17127,
-    "HAS_OBSERVATION": 2707,
+    "EVIDENCED_BY": 2710,
+    "FOUND_IN": 17130,
+    "HAS_OBSERVATION": 2704,
     "HOLDS_POSITION_AT": 3,
-    "OBSERVATION_OF_SUBJECT": 2707,
+    "OBSERVATION_OF_SUBJECT": 2704,
     "PARTICIPATES_IN": 10,
     "PART_OF": 8776,
     "PLACEHOLDER_FOR": 1,
@@ -651,7 +651,7 @@ def test_evidenced_by_carries_the_filed_evidence_not_only_its_address(
 def test_every_real_evidenced_by_edge_carries_its_quoted_text(real_inputs, real_edges):
     """All 2,713, measured — `quoted_text` is non-empty on all 2,717 evidence rows."""
     edges = _of_type(real_edges, EVIDENCED_BY)
-    assert len(edges) == 2713
+    assert len(edges) == 2710
     assert all(edge.properties["quoted_text"].strip() for edge in edges)
     with_table = [edge for edge in edges if "table_id" in edge.properties]
     # 2,690 of 2,717 evidence rows carry a table id; 4 of them belong to relationship

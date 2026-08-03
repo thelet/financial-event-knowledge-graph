@@ -99,7 +99,7 @@ def test_a_tampered_id_is_caught(fixture_inputs) -> None:
 
 @requires_real_run
 def test_every_real_observation_id_recomputes(real_inputs) -> None:
-    assert len(real_inputs.observations) == 2707
+    assert len(real_inputs.observations) == 2704
     assert mismatched_observation_ids(
         real_inputs.observations, real_inputs.claims_by_id) == ()
 
@@ -122,7 +122,7 @@ def test_reconstruction_never_invents_a_population_role_or_confidence(
 
     The populated case is built by copying a fixture row rather than selecting one: all 30
     fixture observations carry `population_definition_raw: null` *(measured 2026-08-02)*,
-    while 89 of the real run's 2,707 do not. The real-run twin below covers the filed case.
+    while 88 of the real run's 2,704 do not. The real-run twin below covers the filed case.
     """
     without = fixture_inputs.observations[0]
     with_population = without.model_copy(
@@ -139,7 +139,7 @@ def test_reconstruction_never_invents_a_population_role_or_confidence(
 def test_a_filed_population_carries_only_its_raw_definition(real_inputs) -> None:
     filed = [row for row in real_inputs.observations
              if row.population_definition_raw is not None]
-    assert len(filed) == 89
+    assert len(filed) == 88
     for row in filed:
         population = reconstruct_observation(row, ()).population
         assert population is not None
@@ -172,16 +172,16 @@ def test_reconcile_raises_on_a_wrong_manifest_count_and_says_why(
     message = str(caught.value)
     assert "9 warning(s)" in message and "999" in message
     assert "denominators differ" in message
-    assert "2717" in message and "2707" in message
+    assert "2714" in message and "2704" in message
 
 
 @requires_real_run
-def test_the_real_run_yields_one_hundred_and_eighty_six_warnings_and_reconciles(
+def test_the_real_run_warnings_reconcile_with_the_manifest(
         real_inputs, ontology) -> None:
     derived = derive_warnings(real_inputs.observations, real_inputs.evidence, ontology)
-    assert warning_total(derived) == 186
-    assert len(derived) == 186  # one code each, so warned observations equal warnings
+    assert warning_total(derived) == 185
+    assert len(derived) == 185  # one code each, so warned observations equal warnings
     assert {code for codes in derived.values() for code in codes} == {
         "unpreferred_source_lane"}
-    assert reconcile_warning_count(derived, real_inputs.manifest) == 186
-    assert real_inputs.manifest.ontology_validation_warnings == 186
+    assert reconcile_warning_count(derived, real_inputs.manifest) == 185
+    assert real_inputs.manifest.ontology_validation_warnings == 185

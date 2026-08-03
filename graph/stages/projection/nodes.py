@@ -71,6 +71,7 @@ from ...core.keys import (
     require_node_key,
 )
 from ...core.models import GraphNode
+from .evidence_sources import EVIDENCE_SOURCE_LABEL, evidence_sources
 
 # -- refusals, named with §6.4's codes --------------------------------------------------
 
@@ -210,6 +211,7 @@ def build_nodes(
         *_entity_nodes(inputs, registry, shared),
         *_passage_nodes(inputs, cited, shared),
         *_document_nodes(inputs, cited, shared),
+        *_evidence_source_nodes(inputs, shared),
         *_issue_nodes(inputs, shared),
     )
 
@@ -559,6 +561,23 @@ class _EntityDraft:
     texts: set[str] = field(default_factory=set)
     instance_label: str | None = None
     is_ontology_instance: bool = False
+    #: The ontology instance's own declared properties — `cik`, `tickers`, `exchange` on
+    #: `opendoor`, `mic` on `nasdaq`. Empty for every entity that is not a named individual.
+    instance_properties: dict[str, Any] = field(default_factory=dict)
+
+
+def _checked_instance_property(entity_id: str, name: str, value: Any) -> Any:
+    """An ontology instance property, held to the same scalar rule as every other property.
+
+    Neo4j stores scalars and arrays of scalars; a nested mapping would be silently dropped by
+    the driver or stored as a string, and either would make the graph disagree with the YAML
+    it claims to project. Refusing names the file to fix.
+    """
+    if not isinstance(value, _SCALARS):
+        raise NodeProjectionError(
+            f"instance {entity_id!r} property {name!r} is {type(value).__name__}, and §3.1 "
+            "projects scalars only; declare it as a string in the ontology if it is one")
+    return value
 
 
 def _entity_labels(
@@ -615,6 +634,13 @@ def _entity_drafts(
         entry.concept_ids.add(instance.concept_id)
         entry.instance_label = instance.label
         entry.is_ontology_instance = True
+        # F0 Part E: the declaration is the whole source. `entities.yaml` gives `opendoor`
+        # `cik`, `tickers` and `exchange` and `nasdaq` `mic: XNAS`, and the pre-F0 builder
+        # read `instance_id`, `concept_id` and `label` only — so the graph could not answer
+        # "what exchange does OPEN trade on" about a fact it already held. Nothing is
+        # invented and nothing is defaulted: an instance with no `properties` block
+        # contributes no keys.
+        entry.instance_properties.update(getattr(instance, "properties", None) or {})
 
     # 2. Every observation subject.
     for observation in inputs.observations:
@@ -672,6 +698,17 @@ def _entity_nodes(
         )
         if entry.instance_label is not None:
             properties["label"] = entry.instance_label
+        # Declared instance properties, under the same scalar rule every other property obeys.
+        # Written before the reserved keys below so a YAML block can never shadow `entity_id`,
+        # `entity_type` or the run provenance — a property that renamed a node key would be a
+        # far worse defect than the dropped values this fixes.
+        for name in sorted(entry.instance_properties):
+            if name in properties:
+                raise NodeProjectionError(
+                    f"instance {entry.key!r} declares a property named {name!r}, which this "
+                    "layer already uses; §3.1's reserved keys are not overridable from YAML")
+            properties[name] = _checked_instance_property(entry.key, name,
+                                                          entry.instance_properties[name])
         if entry.scoped_to_event_id is not None:
             properties["scoped_to_event_id"] = entry.scoped_to_event_id
         _one_or_variants(properties, "entity_type", concept_ids)
@@ -719,6 +756,38 @@ def _passage_nodes(
             base_label="Passage",
             labels=("Passage",),
             properties=properties,
+        ))
+    return tuple(nodes)
+
+
+def _evidence_source_nodes(
+    inputs: ExtractionRunInputs, shared: Mapping[str, Any]
+) -> tuple[GraphNode, ...]:
+    """One node per distinct non-passage citable thing (F0 §2.3).
+
+    **Zero on `extract-v1-lexical-2422c4252c07`**, whose 2,714 evidence rows are all passage
+    rows — and that is the point. The builder exists so that the `:EvidenceSource` endpoint
+    `edges._evidence_edges` already emits has a node to land on the day F1 writes the first
+    `xbrl_fact` row. Without it that edge dangles, and a dangling endpoint is precisely what
+    `verification` refuses; the contract fixtures in `tests/fixtures/evidence_contract/` are
+    what prove the pair works before any lane emits one.
+
+    `evidence_sources` owns the deduplication and the disagreement refusal: two citations of
+    one XBRL fact are one node, and two rows minting one key while describing it differently
+    are an `EvidenceSourceConflictError` rather than a silent last-writer-wins `MERGE`.
+
+    A fabricated `:Passage` is never an option here — that is the specific lie F0 §2.2 exists
+    to prevent, and it is why the target type is decided by the row's shape rather than by
+    whether some `passage_id` happens to be populated.
+    """
+    rows = [row for rows in inputs.evidence_by_claim_id.values() for row in rows]
+    nodes: list[GraphNode] = []
+    for source in evidence_sources(rows):
+        nodes.append(GraphNode(
+            key=source.key,
+            base_label=EVIDENCE_SOURCE_LABEL,
+            labels=source.labels,
+            properties=_properties(shared, **dict(source.properties)),
         ))
     return tuple(nodes)
 

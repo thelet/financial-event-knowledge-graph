@@ -1,6 +1,6 @@
 """The node projection, tested against the plan's declared counts and its ten hard rules.
 
-Every number asserted here was measured at G0 against `extract-v1-lexical-2422c4252c07` and is
+Every number asserted here was measured at G0 against `extract-v1-lexical-7f72d6172630` and is
 recorded in V1_GRAPH_PROTOTYPE §3.1 / STAGE13_GRAPH_INPUT_HANDOFF §1. The fixture tests run
 from a clean checkout; the ones that assert the run's own totals skip when `data/` — which is
 gitignored — is absent.
@@ -52,8 +52,8 @@ UNRESOLVED_ENTITY_ID = "opendoor_unnamed_subsidiary"
 CREDIT_FACILITY_EVENT = "evt:credit-facility-established:2022-10-19:4b384d2ba0fa"
 
 #: The counts §3.1 declares for the real run, and the fixture's own.
-REAL_COUNTS = {"Entity": 9, "Metric": 26, "Observation": 2707, "Event": 6,
-               "Passage": 8776, "Document": 185, "Issue": 17127}
+REAL_COUNTS = {"Entity": 9, "Metric": 26, "Observation": 2704, "Event": 6,
+               "Passage": 8776, "Document": 185, "Issue": 17130}
 FIXTURE_COUNTS = {"Entity": 9, "Metric": 26, "Observation": 30, "Event": 5,
                   "Passage": 6, "Document": 6, "Issue": 45}
 
@@ -148,8 +148,8 @@ def test_the_real_run_yields_the_declared_secondary_label_counts(
     assert {node.properties["code"] for node in not_attempted} == {NOT_ATTEMPTED_CODE}
     assert len(not_attempted) == len(
         [row for row in real_inputs.issues if row.code == NOT_ATTEMPTED_CODE])
-    assert len(labelled(real_nodes, "Warned")) == 186
-    assert len(labelled(real_nodes, "Rejected")) == 46
+    assert len(labelled(real_nodes, "Warned")) == 185
+    assert len(labelled(real_nodes, "Rejected")) == 49
     assert len(labelled(real_nodes, "Unresolved")) == 1
 
 
@@ -527,7 +527,7 @@ def test_warned_observations_carry_state_codes_and_a_label(fixture_nodes) -> Non
 @requires_real_run
 def test_the_real_run_warns_exactly_the_manifest_count(real_nodes, real_inputs) -> None:
     warned = labelled(real_nodes, "Warned")
-    assert len(warned) == real_inputs.manifest.ontology_validation_warnings == 186
+    assert len(warned) == real_inputs.manifest.ontology_validation_warnings == 185
     assert {code for node in warned for code in node.properties["warning_codes"]} == {
         "unpreferred_source_lane"}
 
@@ -566,7 +566,7 @@ def test_no_population_role_or_confidence_is_ever_projected(
 def test_only_the_filed_population_definitions_are_projected(real_nodes) -> None:
     filed = [node for node in by_label(real_nodes)["Observation"]
              if node.properties.get("population_definition_raw") is not None]
-    assert len(filed) == 89  # §5.4: 89 non-null of 2,707
+    assert len(filed) == 88  # §5.4: 88 non-null of 2,704
 
 
 # -- rule 5: no issue-based suppression -----------------------------------------------------

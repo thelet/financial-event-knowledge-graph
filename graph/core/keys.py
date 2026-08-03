@@ -160,6 +160,39 @@ def issue_row_key(row: IssueRow | RejectedClaimRow) -> str:
     return require_node_key(getattr(row, "rejection_id", None), what="rejection_id")
 
 
+#: The `:EvidenceSource` key grammar's first segment. Short, and unlike every other node key
+#: in this module it is **minted here** rather than taken from the run: an XBRL fact, a market
+#: row and a derivation have no id in `evidence.jsonl` — they have coordinates. The prefix is
+#: what makes such a key recognisable as one this layer built.
+EVIDENCE_SOURCE_PREFIX = "evsrc"
+
+
+def evidence_source_node_key(evidence_kind: str, *identity: str) -> str:
+    """`evsrc:{kind}:{identity…}` — one node per non-passage evidence *source* (F0 §2.3).
+
+    Per source, not per citation: two claims citing one XBRL fact share its node exactly as
+    two claims citing one passage share the `:Passage`. So `claim_id` and `evidence_index` are
+    never identity parts — including them would mint a node per citation and make the graph
+    unable to say that two facts came from the same place.
+
+    The caller supplies the identity parts its kind actually has, most readable first, and
+    digests anything unbounded (a URL, a calculation expression) with
+    `extraction.core.identifiers.digest` before passing it. Readability is the point (§4.1):
+    `evsrc:xbrl_fact:0001801169-21-000021:us-gaap:Revenues` says what it is in a Browser
+    caption, where a bare hash would not. An empty part is refused rather than collapsed,
+    because two sources differing only in a field one of them left blank would otherwise
+    become one node.
+    """
+    require_node_key(evidence_kind, what="evidence_kind")
+    if not identity:
+        raise NodeKeyError(
+            f"{evidence_kind!r} evidence source has no identity parts; a key of the kind alone "
+            "would make every row of that kind one node")
+    parts = [require_node_key(part, what=f"{evidence_kind} identity part {index}")
+             for index, part in enumerate(identity)]
+    return ":".join((EVIDENCE_SOURCE_PREFIX, evidence_kind, *parts))
+
+
 def document_key_of_passage(passage_id: str) -> str:
     """`norm:{cik}:{accession}:{file}#p{n}` → `norm:{cik}:{accession}:{file}` (§4.1).
 
@@ -214,6 +247,7 @@ def derived_edge_key(
 
 
 __all__ = [
+    "EVIDENCE_SOURCE_PREFIX",
     "NodeKeyError",
     "PLACEHOLDER_MARKER",
     "PlaceholderAttributionError",
@@ -223,6 +257,7 @@ __all__ = [
     "document_node_key",
     "entity_node_key",
     "event_node_key",
+    "evidence_source_node_key",
     "is_placeholder",
     "issue_node_key",
     "issue_row_key",

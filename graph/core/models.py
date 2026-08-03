@@ -27,12 +27,27 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 #: dropping for all 2,707 observations. Bumped here rather than left at 1.0.0 because the run
 #: id digests this constant, and two materially different exports sharing one id is the
 #: collision §4.4 exists to prevent. Safe to bump now: nothing consumes the export yet.
-GRAPH_PROJECTION_VERSION = "1.1.0"
+#:
+#: 1.2.0 — F0 Part E. Two shape changes, both additive and neither optional to record:
+#: an eighth base label `:EvidenceSource` for evidence that names no filed passage
+#: (F0 §2.3), and ontology instance properties — `cik`, `tickers`, `exchange`, `mic` — which
+#: `nodes.py` had been dropping on all four declared instances. A consumer that read a 1.1.0
+#: export and a 1.2.0 one as the same shape would see an `:Entity` gain properties and a node
+#: class it has no constraint for; the version is what makes that a stated change rather than
+#: a surprise.
+GRAPH_PROJECTION_VERSION = "1.2.0"
 
-#: The seven base labels §3.1 declares. A base label is what §5.2's uniqueness constraints
-#: are created on, so the set is closed: a projection that invents an eighth would create a
+#: The eight base labels §3.1 declares. A base label is what §5.2's uniqueness constraints
+#: are created on, so the set is closed: a projection that invents a ninth would create a
 #: node class no constraint protects.
-BASE_LABELS = ("Entity", "Metric", "Observation", "Event", "Passage", "Document", "Issue")
+#:
+#: `EvidenceSource` joined the seven on 2026-08-03 (F0 §2.3). It is a *base* label rather than
+#: a concrete one because `EVIDENCED_BY` has to point at it: `GraphEdge` refuses an endpoint
+#: whose base label is not declared here, and the loader `MATCH`es endpoints on the base label
+#: so the match uses a constraint index instead of scanning. The five kinds it covers are
+#: concrete labels on top of it, exactly as `:Entity` carries `:PublicCompany`.
+BASE_LABELS = ("Entity", "Metric", "Observation", "Event", "Passage", "Document", "Issue",
+               "EvidenceSource")
 
 
 class GraphNode(BaseModel):

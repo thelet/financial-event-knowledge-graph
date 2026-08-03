@@ -80,10 +80,14 @@ TYPE_PATTERN = re.compile(r"\A[A-Z][A-Z0-9_]*\Z")
 CONCRETE_LABELS: tuple[str, ...] = (
     "Agreement",
     "AssetBackedDebtFacility",
+    "Calculated",
     "Company",
     "CreditAgreement",
     "CreditFacility",
     "DisclosureChannel",
+    "ExternalPage",
+    "FilingMetadata",
+    "MarketData",
     "NotAttempted",
     "Person",
     "PublicCompany",
@@ -92,6 +96,7 @@ CONCRETE_LABELS: tuple[str, ...] = (
     "Subsidiary",
     "Unresolved",
     "Warned",
+    "XbrlFact",
 )
 
 ALLOWED_LABELS: tuple[str, ...] = tuple(sorted(set(BASE_LABELS) | set(CONCRETE_LABELS)))

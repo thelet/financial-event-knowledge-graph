@@ -2,7 +2,7 @@
 
 Everything here drives the readers through their real inputs. A test that asserted a field
 list against a hand-typed dict would only prove the test and the model were written by the
-same person; these parse the committed slice of `extract-v1-lexical-2422c4252c07` and, where
+same person; these parse the committed slice of `extract-v1-lexical-7f72d6172630` and, where
 the run is present, the run itself.
 """
 
@@ -192,10 +192,10 @@ def test_no_reader_declares_a_population_role_or_confidence() -> None:
 def test_manifest_parses_strictly_and_exposes_the_verification_aggregate() -> None:
     raw = json.loads((FIXTURE_RUN / "manifest.json").read_text(encoding="utf-8"))
     manifest = RunManifest(**raw)
-    assert manifest.run_id == "extract-v1-lexical-2422c4252c07"
+    assert manifest.run_id == "extract-v1-lexical-7f72d6172630"
     assert manifest.ontology_id == "real_estate_marketplace_v1"
-    assert manifest.counts["observations"] == 2707
-    assert manifest.ontology_validation_warnings == 186
+    assert manifest.counts["observations"] == 2704
+    assert manifest.ontology_validation_warnings == 185
     assert manifest.check("ontology_validation").passed is True
 
     with pytest.raises(GraphInputError, match="no verification check"):
@@ -349,19 +349,19 @@ def test_hand_built_inputs_need_no_disk(fixture_inputs) -> None:
 @requires_real_run
 def test_the_real_run_parses_with_the_counts_its_manifest_records(real_inputs) -> None:
     counts = real_inputs.manifest.counts
-    assert len(real_inputs.claims) == counts["claims"] == 2717
-    assert len(real_inputs.observations) == counts["observations"] == 2707
+    assert len(real_inputs.claims) == counts["claims"] == 2714
+    assert len(real_inputs.observations) == counts["observations"] == 2704
     assert len(real_inputs.events) == counts["events"] == 6
     assert len(real_inputs.relationships) == counts["relationships"] == 4
-    assert len(real_inputs.evidence) == counts["evidence_references"] == 2717
-    assert len(real_inputs.issues) == counts["issues"] == 17127
-    assert len(real_inputs.rejected_claims) == counts["rejected_claims"] == 46
+    assert len(real_inputs.evidence) == counts["evidence_references"] == 2714
+    assert len(real_inputs.issues) == counts["issues"] == 17130
+    assert len(real_inputs.rejected_claims) == counts["rejected_claims"] == 49
     assert len(real_inputs.passages) == 12442 and len(real_inputs.documents) == 294
 
 
 @requires_real_run
-def test_the_rejection_issue_join_is_forty_six_of_forty_six_on_the_real_run(
+def test_the_rejection_issue_join_is_complete_on_the_real_run(
         real_inputs) -> None:
     join = real_inputs.rejection_issue_join
-    assert (join.mirrored, join.total, len(join.unmirrored)) == (46, 46, 0)
+    assert (join.mirrored, join.total, len(join.unmirrored)) == (49, 49, 0)
     assert {rejection.refused_by for rejection, _ in join.pairs} == {"lane"}

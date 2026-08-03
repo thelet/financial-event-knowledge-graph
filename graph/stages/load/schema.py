@@ -42,6 +42,7 @@ the server.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from neo4j import Driver, Query
@@ -50,11 +51,25 @@ from graph.core.models import BASE_LABELS
 
 from .connection import GraphSettings
 
+
+def _key_property(label: str) -> str:
+    """`EvidenceSource` -> `evidence_source_id`. Snake-case, not merely lower-case.
+
+    The original rule was `label.lower() + "_id"`, which is correct for every single-word base
+    label and silently wrong for the first multi-word one: F0's `:EvidenceSource` carries
+    `evidence_source_id`, and `evidencesource_id` would have put the uniqueness constraint and
+    the loader's `MERGE` on a property no node has — every source node merging onto one null
+    key. Caught by `test_every_base_label_key_property_exists_on_its_nodes`, which is the
+    reason that test compares against the projection rather than restating this rule.
+    """
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", label).lower() + "_id"
+
+
 #: The key property of each base label. Derived rather than listed because §4.1 makes node keys
-#: the extraction ids and every one of them is `<base label lowercased>_id`; writing the seven
-#: pairs out by hand would let the set drift from `BASE_LABELS`, which is the closed set §3.1
-#: declares and the set §5.2 says constraints exist for — no more, no fewer.
-KEY_PROPERTIES: dict[str, str] = {label: f"{label.lower()}_id" for label in BASE_LABELS}
+#: the extraction ids and every one of them is the snake-cased base label plus `_id`; writing
+#: the pairs out by hand would let the set drift from `BASE_LABELS`, which is the closed set
+#: §3.1 declares and the set §5.2 says constraints exist for — no more, no fewer.
+KEY_PROPERTIES: dict[str, str] = {label: _key_property(label) for label in BASE_LABELS}
 
 #: (constraint name, label). The names are §5.2's.
 CONSTRAINTS: tuple[tuple[str, str], ...] = tuple(

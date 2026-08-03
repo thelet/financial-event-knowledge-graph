@@ -14,7 +14,7 @@ clean on all four today — 0 dangling, 0 duplicates — which is exactly why th
 hand-built counterexample to prove they can fail at all.
 
 **One measured surprise, recorded rather than smoothed over** *(verified 2026-08-02)*:
-`nodes.jsonl` *does* contain absolute filesystem paths — 23 of them on the real run, 9 on the
+`nodes.jsonl` *does* contain absolute filesystem paths — 20 of them on the real run, 9 on the
 fixture — all of them the value of `provider_model_id`, which `claims.jsonl` carries in
 `extractor_metadata` and `nodes._promoted_metadata` promotes to a node property. They are the
 local path of the GGUF model that answered the narrative and event prompts. The export
@@ -72,8 +72,8 @@ requires_real_run = pytest.mark.skipif(not REAL_RUN_AVAILABLE, reason=REAL_RUN_R
 
 #: G0's answer to P11, and the number this stage must keep producing.
 REAL_NODE_COUNT = 28_836
-REAL_EDGE_COUNT = 35_603
-REAL_WARNINGS = 186
+REAL_EDGE_COUNT = 35_600
+REAL_WARNINGS = 185
 
 #: A full ISO timestamp — `2026-08-02T16:02:44+00:00`. Deliberately not a bare date: an
 #: `occurred_on` of `2022-10-19` is a filed fact and belongs in the export; a wall clock does
@@ -340,7 +340,7 @@ def test_the_fixture_and_the_real_run_project_into_different_directories(
 ):
     """The measured collision, closed. Same manifest fields, two ids."""
     assert (fixture_inputs.manifest.run_id == real_inputs.manifest.run_id
-            == "extract-v1-lexical-2422c4252c07")
+            == "extract-v1-lexical-7f72d6172630")
     assert (fixture_inputs.manifest.ontology_definition_hash
             == real_inputs.manifest.ontology_definition_hash)
     assert input_content_digest(fixture_inputs) != input_content_digest(real_inputs)
@@ -445,7 +445,7 @@ def test_the_real_export_inherits_exactly_the_paths_the_catalog_carries(real_pai
     carriers = [row for row in rows(first.directory / NODES_FILENAME)
                 if INHERITED_PATH_PROPERTY in row["properties"]
                 and ABSOLUTE_PATH.search(row["properties"][INHERITED_PATH_PROPERTY])]
-    assert len(carriers) == 23
+    assert len(carriers) == 20
     for row in rows(first.directory / EDGES_FILENAME):
         for value in row["properties"].values():
             assert not (isinstance(value, str) and ABSOLUTE_PATH.search(value))
@@ -523,7 +523,14 @@ def test_the_manifest_names_both_commits_separately(fixture_pair):
     """G0: the extraction manifest's own commit is not the commit that produced its rows."""
     outcome, _ = fixture_pair
     manifest = outcome.manifest
-    assert manifest["extraction_code_commit"] == "4d3ae1e8e2b90356932a33c6b611e444d1396faa"
+    # Read from the fixture's own manifest rather than pinned as a literal. The value is
+    # `git rev-parse HEAD` at run time, so it legitimately moves whenever the run is
+    # re-executed — F0 re-ran it — and a pinned sha would fail for the one reason this test
+    # is not about. What it *is* about is that the two commits are recorded as two fields.
+    fixture_manifest = json.loads(
+        (FIXTURE_RUN / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["extraction_code_commit"] == fixture_manifest["code_commit"]
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["extraction_code_commit"])
     assert "graph_code_commit" in manifest
     assert manifest["graph_projection_version"] == GRAPH_PROJECTION_VERSION
     assert manifest["inputs"]["extraction_run_id"] == manifest["extraction_run_id"]
@@ -829,17 +836,17 @@ def test_real_run_counts(real_pair):
 def test_real_run_nodes_by_label(real_pair):
     first, _ = real_pair
     assert first.manifest["counts"]["nodes_by_label"] == {
-        "Document": 185, "Entity": 9, "Event": 6, "Issue": 17_127, "Metric": 26,
-        "Observation": 2_707, "Passage": 8_776}
+        "Document": 185, "Entity": 9, "Event": 6, "Issue": 17_130, "Metric": 26,
+        "Observation": 2_704, "Passage": 8_776}
 
 
 @requires_real_run
 def test_real_run_edges_by_type(real_pair):
     first, _ = real_pair
     assert first.manifest["counts"]["edges_by_type"] == {
-        "BORROWS_UNDER": 1, "CONCERNS_METRIC": 1_520, "DISTINCT_FROM": 36,
-        "EVIDENCED_BY": 2_713, "FOUND_IN": 17_127, "HAS_OBSERVATION": 2_707,
-        "HOLDS_POSITION_AT": 3, "OBSERVATION_OF_SUBJECT": 2_707, "PARTICIPATES_IN": 10,
+        "BORROWS_UNDER": 1, "CONCERNS_METRIC": 1_523, "DISTINCT_FROM": 36,
+        "EVIDENCED_BY": 2_710, "FOUND_IN": 17_130, "HAS_OBSERVATION": 2_704,
+        "HOLDS_POSITION_AT": 3, "OBSERVATION_OF_SUBJECT": 2_704, "PARTICIPATES_IN": 10,
         "PART_OF": 8_776, "PLACEHOLDER_FOR": 1, "RECONCILES_TO": 2}
 
 

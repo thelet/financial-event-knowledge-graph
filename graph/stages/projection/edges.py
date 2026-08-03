@@ -60,11 +60,13 @@ from graph.core.citations import cited_passage_ids
 from graph.core.inputs import (
     EventRow,
     EvidenceRow,
+    EvidenceRowT,
     ExtractionRunInputs,
     GraphInputError,
     IssueRow,
     ObservationRow,
     RejectedClaimRow,
+    cited_passage_of,
 )
 from graph.core.keys import (
     PLACEHOLDER_MARKER,
@@ -82,6 +84,12 @@ from graph.core.keys import (
     require_node_key,
 )
 from graph.core.models import GraphEdge
+
+from .evidence_sources import (
+    EVIDENCE_SOURCE_LABEL,
+    evidence_source_of,
+    quoted_text_of,
+)
 
 # -- the vocabulary's own names, used as endpoint types --------------------------------
 
@@ -407,16 +415,20 @@ def _fact_provenance(row: Any) -> dict[str, Any]:
     return fields
 
 
-def _first_quoted_text(evidence: Sequence[EvidenceRow]) -> str | None:
+def _first_quoted_text(evidence: Sequence[EvidenceRowT]) -> str | None:
     """The filing's own words for a relationship claim (§3.1, plan §3.1's edge-on-edge note).
 
     Neo4j has no edge-on-edge, so a relationship edge's evidence must live in its own
     properties. The first row carrying text wins; rows are already in catalog order, which
     is the run's order and therefore stable.
+
+    `quoted_text_of` rather than `row.quoted_text` since F0 Part B: three of the seven row
+    shapes have no such column, and this loop is reached by any claim kind's evidence.
     """
     for row in evidence:
-        if row.quoted_text is not None and row.quoted_text.strip():
-            return row.quoted_text
+        text = quoted_text_of(row)
+        if text is not None and text.strip():
+            return text
     return None
 
 
@@ -458,6 +470,29 @@ def _passage_endpoint(passage_id: str, *, evidence_kind: str) -> Endpoint:
         key=passage_node_key(passage_id),
         base_label="Passage",
         type_name=evidence_kind,
+    )
+
+
+def _evidence_source_endpoint(source: Any) -> Endpoint:
+    """An `:EvidenceSource` node, typed by the kind that produced it (F0 §2.3).
+
+    Same rule as `_passage_endpoint` and deliberately so: `EVIDENCED_BY.allowed_target_types`
+    is a list of `EvidenceKind` values, so the endpoint type of *any* citation target is the
+    kind of the row that made it. The label changes; the vocabulary check does not.
+
+    **Two declared kinds are not yet citation targets** *(measured 2026-08-03 against
+    `relationships.yaml`)*. `allowed_target_types` is `[normalized_passage, normalized_table,
+    xbrl_fact, filing_metadata, external_page]` — `market_data` and `calculated` were added to
+    `EvidenceKind` by F0 Part B and to no predicate. A run emitting either therefore stops
+    here with `ENDPOINT_TYPE_NOT_ALLOWED` naming the kind, which is the correct outcome and
+    not a gap to route around: this module reads endpoint types out of the vocabulary
+    precisely so that a projection cannot assert a citation the ontology has not declared.
+    Declaring them is a `relationships.yaml` edit, and it gates F1's market-data lane.
+    """
+    return Endpoint(
+        key=source.key,
+        base_label=EVIDENCE_SOURCE_LABEL,
+        type_name=source.evidence_kind,
     )
 
 
@@ -514,51 +549,79 @@ def _evidence_edges(
     source: Endpoint,
     fact: Mapping[str, Any],
 ) -> None:
-    """One `EVIDENCED_BY` per distinct passage the claim cites.
+    """One `EVIDENCED_BY` per distinct thing the claim cites.
 
-    §2.3 trap 4: evidence identity is `(claim_id, passage_id)`, not `claim_id` alone. §4.1
-    keys `EVIDENCED_BY` on the `(type, source, target)` triple, so two rows of one claim
-    naming one passage would collide — and by the declared identity they cannot exist. The
-    collision is refused by name rather than silently collapsed.
+    §2.3 trap 4: evidence identity is `(claim_id, target)`, not `claim_id` alone. §4.1 keys
+    `EVIDENCED_BY` on the `(type, source, target)` triple, so two rows of one claim naming one
+    target would collide — and by the declared identity they cannot exist. The collision is
+    refused by name rather than silently collapsed.
+
+    **The target is a `:Passage` or an `:EvidenceSource`, decided by the row's shape**
+    (F0 §2.3). `isinstance(row, EvidenceRow)` is the passage test that `graph.core.inputs`
+    declares; the four non-passage readers have no `passage_id` *column*, so the pre-F0 code
+    here — `row.passage_id` read unconditionally — was an `AttributeError` waiting for the
+    first XBRL row. It could not fire on `extract-v1-lexical-2422c4252c07`, where every one of
+    the evidence rows is a passage row, which is exactly why it had to be fixed from the
+    contract rather than from a failing run.
+
+    Passage evidence is **unchanged**: same endpoint, same key, same properties, same refusal
+    for an empty `passage_id`.
     """
     seen: dict[str, str] = {}
     for row in inputs.evidence_by_claim_id.get(claim_id, ()):
-        if row.passage_id is None or not row.passage_id.strip():
-            raise EdgeProjectionError(
-                f"{claim_id}: evidence row {row.evidence_index} has no passage_id, so the "
-                "claim cannot be cited to a passage (§1.5); an empty id is never a node key")
-        previous = seen.get(row.passage_id)
-        if previous is not None:
-            if previous == row.evidence_kind:
-                continue
-            raise EdgeProjectionError(
-                f"{claim_id}: two evidence rows cite {row.passage_id!r} with different "
-                f"kinds ({previous!r}, {row.evidence_kind!r}); evidence identity is "
-                "(claim_id, passage_id) (§2.3 trap 4)")
-        seen[row.passage_id] = row.evidence_kind
-
-        passage = _passage_endpoint(row.passage_id, evidence_kind=row.evidence_kind)
-        collector.add(_declared_edge(
-            vocabulary,
-            edge_type=EVIDENCED_BY,
-            source=source,
-            target=passage,
-            edge_key=derived_edge_key(EVIDENCED_BY, source.key, passage.key),
-            provenance=provenance,
-            evidence_kind=row.evidence_kind,
-            source_url=row.source_url,
+        passage_id = cited_passage_of(row)
+        if isinstance(row, EvidenceRow):
+            if passage_id is None or not passage_id.strip():
+                raise EdgeProjectionError(
+                    f"{claim_id}: evidence row {row.evidence_index} is a filed-passage row "
+                    "with no passage_id, so the claim cannot be cited to a passage (§1.5); an "
+                    "empty id is never a node key")
+            target = _passage_endpoint(passage_id, evidence_kind=row.evidence_kind)
             # The filed sentence itself, and the two locators that say *where inside the
             # passage* it was read. Carried because §1.5's evidence boundary is the passage
             # and §9's EvidencePackage is assembled from this edge: an `:Observation` whose
             # only evidence is an edge naming a passage id makes a reader open the filing to
             # see what was actually quoted, while an `:Event` — which keeps
             # `evidence_quoted_text` on its node — does not. `quoted_text` is non-empty on
-            # all 2,717 evidence rows and `table_id` on 2,690 *(verified 2026-08-02)*.
-            quoted_text=row.quoted_text,
-            table_id=row.table_id,
-            block_ids=list(row.block_ids),
+            # all 2,714 evidence rows and `table_id` on 2,690 *(verified 2026-08-02)*.
+            located: dict[str, Any] = {
+                "table_id": row.table_id,
+                "block_ids": list(row.block_ids),
+                "passage_id": passage_id,
+            }
+        else:
+            # No `passage_id` key at all, not a null one: `_properties` drops a `None`, so a
+            # null would be indistinguishable from absence, and "this citation names no
+            # passage" is the fact the whole contract exists to keep visible.
+            target = _evidence_source_endpoint(evidence_source_of(row))
+            located = {}
+
+        previous = seen.get(target.key)
+        if previous is not None:
+            if previous == row.evidence_kind:
+                continue
+            raise EdgeProjectionError(
+                f"{claim_id}: two evidence rows cite {target.key!r} with different "
+                f"kinds ({previous!r}, {row.evidence_kind!r}); evidence identity is "
+                "(claim_id, cited target) (§2.3 trap 4)")
+        seen[target.key] = row.evidence_kind
+
+        collector.add(_declared_edge(
+            vocabulary,
+            edge_type=EVIDENCED_BY,
+            source=source,
+            target=target,
+            edge_key=derived_edge_key(EVIDENCED_BY, source.key, target.key),
+            provenance=provenance,
+            evidence_kind=row.evidence_kind,
+            # `source_url` and `quoted_text` are the two fields every citing kind may carry,
+            # and both are read through the shape-aware helpers rather than off the row:
+            # three of the seven shapes declare no `quoted_text` and one declares no
+            # `source_url`.
+            source_url=getattr(row, "source_url", None),
+            quoted_text=quoted_text_of(row),
             **{k: v for k, v in fact.items() if k != "passage_id"},
-            passage_id=row.passage_id,
+            **located,
         ))
 
 

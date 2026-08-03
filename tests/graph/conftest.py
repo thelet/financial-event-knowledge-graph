@@ -1,7 +1,7 @@
 """Fixtures for the graph input layer. Offline, no database, no network.
 
 Two corpora, and the difference matters. `tests/fixtures/graph/` is a committed real slice of
-run `extract-v1-lexical-2422c4252c07` — every test that can run from a clean checkout uses
+run `extract-v1-lexical-7f72d6172630` — every test that can run from a clean checkout uses
 it. `data/extraction_runs/` holds the full run and is gitignored (`.gitignore:3`), so the
 tests that assert the run's own measured numbers — 2,707 recomputed ids, 186 warnings,
 46 mirrored rejections — skip when it is absent rather than failing or being marked `live`.
@@ -23,7 +23,7 @@ FIXTURE_CATALOG = FIXTURE_ROOT / "normalization_catalog"
 
 #: Pinned rather than discovered: the numbers these tests assert are *this* run's numbers,
 #: and silently reading a different run would turn a real regression into a mystery.
-REAL_RUN_ID = "extract-v1-lexical-2422c4252c07"
+REAL_RUN_ID = "extract-v1-lexical-7f72d6172630"
 REAL_RUN = REPO_ROOT / "data" / "extraction_runs" / REAL_RUN_ID
 REAL_CATALOG = REPO_ROOT / "data" / "normalization_catalog"
 

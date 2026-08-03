@@ -68,6 +68,10 @@ EXPECTED_CONSTRAINTS = {
     ("passage_key", "NODE", "Passage", "passage_id"),
     ("document_key", "NODE", "Document", "document_id"),
     ("issue_key", "NODE", "Issue", "issue_id"),
+    # F0: the node a non-passage citation lands on. Its key property is the one place the
+    # old `label.lower() + "_id"` rule broke — `EvidenceSource` is the first multi-word base
+    # label, and `evidencesource_id` would have constrained a property no node carries.
+    ("evidencesource_key", "NODE", "EvidenceSource", "evidence_source_id"),
 }
 
 #: §5.2's relationship half, transcribed the same way: one `edge_key` uniqueness constraint per
@@ -303,7 +307,10 @@ def test_an_exception_from_an_unresolved_target_carries_no_password():
 
 
 def test_there_is_one_constraint_per_base_label_and_no_more():
-    assert len(NODE_CONSTRAINT_NAMES) == len(BASE_LABELS) == 7
+    # 8, not 7, since F0 added `:EvidenceSource` to `BASE_LABELS` — the node a non-passage
+    # citation lands on. The identity `len(NODE_CONSTRAINT_NAMES) == len(BASE_LABELS)` is
+    # what this test is really for; the literal is here so adding a label is a deliberate act.
+    assert len(NODE_CONSTRAINT_NAMES) == len(BASE_LABELS) == 8
     assert set(KEY_PROPERTIES) == set(BASE_LABELS)
 
 
@@ -314,10 +321,10 @@ def test_there_is_one_edge_key_constraint_per_relationship_type_and_no_more():
 
     assert len(RELATIONSHIP_CONSTRAINT_NAMES) == len(CONSTRAINED_RELATIONSHIP_TYPES) == 12
     assert set(ALLOWED_RELATIONSHIP_TYPES) == set(CONSTRAINED_RELATIONSHIP_TYPES)
-    assert len(CONSTRAINT_NAMES) == len(set(CONSTRAINT_NAMES)) == 19
+    assert len(CONSTRAINT_NAMES) == len(set(CONSTRAINT_NAMES)) == 20
 
 
-def test_the_seven_node_constraints_are_the_ones_the_plan_names():
+def test_the_node_constraints_are_the_ones_the_plan_names():
     pattern = re.compile(
         r"CREATE CONSTRAINT (\w+) IF NOT EXISTS FOR \(n:(\w+)\) REQUIRE n\.(\w+) IS UNIQUE$"
     )
@@ -351,8 +358,8 @@ def test_the_twelve_relationship_constraints_are_undirected_and_on_edge_key():
 
 
 def test_every_constraint_statement_is_one_of_the_two_shapes():
-    """No third shape slipped in: 19 statements, 7 node and 12 relationship, nothing else."""
-    assert len(constraint_statements()) == 19
+    """No third shape slipped in: 20 statements, 8 node and 12 relationship, nothing else."""
+    assert len(constraint_statements()) == 20
 
 
 def test_every_statement_is_idempotent_by_construction():
@@ -496,8 +503,8 @@ def test_applying_the_schema_twice_leaves_exactly_one_of_each(live_driver):
     assert first == second, "the schema is not idempotent"
 
     assert {row[0] for row in second.managed_constraints()} == set(CONSTRAINT_NAMES)
-    assert len(second.managed_constraints()) == 19
-    assert len(second.managed_node_constraints()) == 7
+    assert len(second.managed_constraints()) == 20
+    assert len(second.managed_node_constraints()) == 8
     assert len(second.managed_relationship_constraints()) == 12
     assert {row[0] for row in second.managed_indexes()} == set(INDEX_NAMES)
     assert len(second.managed_indexes()) == 9
