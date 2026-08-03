@@ -104,8 +104,10 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Rollback** | delete `story/` and `tests/story/` |
 | **Commit** | one |
 | **Risks** | contract churn later; mitigated by freezing names here and treating a change as a versioned break |
-| **Status** | PLANNED |
-| **Commit hash** | — |
+| **Status** | **ACCEPTED** 2026-08-03 |
+| **Commit hash** | `9603cb9` |
+| **Delivered** | 10 files, 3,653 lines, 40 contract types; `ReadQueryExecutor` folded in mid-flight per D1 |
+| **Orchestrator validation** | ownership: 0 files outside `story/`+`tests/story/` · `167 passed` · full offline `2890 passed` = 2,723 baseline + 167, **0 new failures** · **5 independent mutation checks**: `neo4j` in `core/`→3 failures, extra import in `contracts.py`→1, `numpy` anywhere→2, `graph/` importing `story`→1, `extraction.stages` in `story/`→2 · id order-independence and version-bump behaviour re-derived from the code, not the report |
 
 ### S0c — Neo4j read adapter *(added by D1)*
 
@@ -323,6 +325,21 @@ and `catalog` were **copied** (not symlinked — a symlink made `Path.resolve()`
 worktree and one manifest test recorded an absolute path); the rest are symlinks and
 `data/story_runs/` is a real local directory, so **no story artifact is ever written into the
 shared tree**. Baseline is now **2,723 passed, 0 skipped, 97 deselected**, matching F0.
+
+### S0 findings accepted into the record
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| F1 | **`tests/story/__init__.py` cannot exist.** `pythonpath` puts `tests/` on `sys.path`, so with that file present `import story` resolves to `tests/story` and `story.core` disappears. I re-verified by probe: `ModuleNotFoundError: No module named 'story.core'` | **No later step may create it.** No other `tests/` subdirectory has one |
+| F2 | My packet described `graph/core/models.py` as frozen dataclasses. It is frozen **pydantic** with validators; `graph/core/manifest.py` is the dataclass | Packet was wrong, agent followed the code. Contracts are pydantic except `StoryRunManifest` |
+| F3 | `Warning` shadows the builtin | Renamed `PackagedWarning`, matching the other `Packaged*` rows |
+| F4 | §13.17 and §13.7.1 disagree — `REBIND_TO_DISTINGUISHING_COLUMN` is in one remedy list and not the other | Carried; it is the only actionable answer to the refusal §13.7.1 measures at 61.3% of table observations |
+| F5 | **§15.2 is self-contradictory**: it places `GenerationResult` in `story/contracts.py`, which the same plan's import rule forbids because it needs pydantic | Lives in `core/models.py`; a test compares its field set against `extraction.contracts.GenerationResult` so the two cannot drift |
+| F6 | **§10.3's `package_content_digest` has no fixed point** — a digest over a structure that contains it | Computed over the package minus that field: `digestible_payload()` / `with_content_digest()` |
+| F7 | §6.11's published digests are not reproducible — computed against the 2026-08-02 snapshot, and the plan never records the `anchor_input_ids` behind them | Expected; the plan already says "recompute at L3". Deferred to S3 |
+| F8 | Two concurrent `pytest` runs collide on extraction report artifacts and produce five spurious failures | **Run the suite serially.** Not a defect |
+
+F5 and F6 are real defects in the approved plan, found by building against it.
 
 ## 8. Founder gates
 
