@@ -278,7 +278,29 @@ Filled in as steps complete.
 
 | Wave | Steps | Agents | Overlap check |
 | --- | --- | --- | --- |
-| — | recon | 1 read-only | n/a |
+| recon | upstream contract survey | 1, read-only | owns nothing |
+| — | **S0** contracts | 1 | sole writer; everything depends on it |
+| — | **S0c** neo4j adapter | 1 | sole writer; S0b and S1 both wait on it |
+| **A** | **S0b** freshness ∥ **S1** retrieval ∥ **S6** model provider | 3 concurrent | see below |
+
+**Wave A overlap analysis, done before launch.**
+
+| | S0b freshness | S1 retrieval | S6 model provider |
+| --- | --- | --- | --- |
+| writes | `story/stages/freshness/` `story/core/graph_identity.py` `tests/story/test_story_freshness.py` | `story/stages/retrieval/` `tests/story/test_story_retrieval*.py` | `story/providers/openai_compatible.py` `story/providers/answer_store.py` `story/providers/public.py` `tests/story/test_story_provider*.py` |
+| reads | contracts, adapter, context | contracts, conftest fake | contracts, `core/models` |
+| runtime touched | Neo4j (read-only) | Neo4j (read-only) | llama.cpp, or skips |
+| depends on the others' output | no | no | no |
+
+No file is written by two agents. The one shared risk is `story/stages/__init__.py`, which S0b
+and S1 both need: both were told to create it only if absent and otherwise leave it alone.
+Each commits with **explicit paths**, never `git add -A`, so a concurrent working tree cannot
+be swept into someone else's commit. Their tests do not interfere: S0b and S1 read Neo4j and
+write nothing, S6 either reaches llama.cpp or skips.
+
+Not parallelised, deliberately: S2 canonicalisation and S3 detectors (S3 consumes S2's series);
+S5 packaging before the package schema is accepted; S8 writer and S9 verifier before the draft
+bindings are frozen; and any two agents editing one module.
 
 ---
 
