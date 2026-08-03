@@ -529,6 +529,49 @@ refusal into a pass. 12 of 13 gate checks, across 18 failure scenarios, all type
 Citation resolvability **100% occupied** on all nine tools. Driver confinement caught all five
 mutations. Zero observations produce an `unknown` period shape.
 
+### R2b accepted (`070457a`) — and the orchestrator's ruling on the channel it opened
+
+| Defect | Fix | Orchestrator verification |
+| --- | --- | --- |
+| **D4** scan evadable two ways | `_is_cypher` now means "first word is a clause keyword" (not "contains RETURN"); keywords upper-cased; `DETACH` added; a new rule scans **every** non-docstring string in `story/` | **Mutation-tested by me**: no-`RETURN` `DETACH DELETE` → **3 failures**; lowercase `set … return` → **2**. Restored clean, `213 passed` |
+| **D5** `Ok([])` where refusals explain the absence | `Unavailable("no_document_scope")`, reason naming the count. Scope query runs **only** when the first returns zero rows | `revenue`/2022Q3 → `Unavailable`, reason contains `170` |
+| **D6** truncation drops `rejection` first | explicit `severity_rank` CASE; **nothing dropped can outrank anything returned**, so `truncated_below_severity` names the floor with no second query | rank vocabulary confirmed live: refusal 6,228 · rejection 49 · diagnostic 1 |
+| **D7** 2,306× amplification | `{limit: 500}` inside `queryNodes` | `["the"]` **45,972 → 3,430**; top-26 byte-identical on every measured query |
+| **D8** whole-document scan | neighbour ids computed in Python, looked up on the `passage_key` constraint | 453-passage doc: **968 → 113**; rows byte-identical; cost no longer a function of document length |
+
+**A correction R2b made against itself**, worth keeping: a draft comment claimed the
+`collect`/`UNWIND` was cheaper than streaming. Measured, it is **exactly equal at 3,430** — the
+saving came from a shortened `RETURN` list. Corrected in the code and the commit message.
+
+#### Ruling — D7's inner limit opens a filter-starvation channel, and it stays disclosed rather than refused
+
+R2b flagged honestly that `{limit: 500}` applies **before** the document filter, so a filtered
+query can be starved: `["the"]` + `shareholder_letter` returns **9 rows instead of 26**. It
+offered a one-line refusal and asked for a ruling. Measured by the orchestrator before deciding:
+
+| query | pool | rows | starved? |
+| --- | ---: | ---: | --- |
+| `["the"]` | **500 (capped)** | 25 | — |
+| `["the"]` + `shareholder_letter` | **500 (capped)** | **9** | **yes** |
+| `["Adjusted EBITDA"]` | 432 | 25 | no |
+| `["Adjusted EBITDA"]` + `shareholder_letter` | 432 | 25 | no |
+| `["Adjusted EBITDA"]` + `earnings_release` | 432 | 25 | no |
+
+**Starvation requires the pool to cap, and the pool only caps on a degenerate term set.**
+`"the"` matches 6,873 of 8,776 passages. A realistic query — one metric alias — has a pool of
+432, below the limit, and filters are exact.
+
+**Ruling: keep the disclosure, do not refuse in retrieval.** Two reasons. First, §11's
+correction already requires search terms to be **derived by code from the candidate's metric
+aliases and period surfaces**, never authored by a model — a stopword cannot reach this tool on
+the pipeline's path. Second, refusing in retrieval would put an evidence decision in the wrong
+layer; the plan puts those in packaging.
+
+**Therefore S5 owns this, and its packet must carry it:** a `search_passages` result whose
+`candidate_pool_size == inner_limit` **and** which was filtered must not contribute explanatory
+passages to a package — it must raise a package warning instead. Retrieval discloses; packaging
+decides. Recorded here so S5 cannot inherit it as an unstated assumption.
+
 ## 8. Founder gates
 
 | # | Question | Status |
