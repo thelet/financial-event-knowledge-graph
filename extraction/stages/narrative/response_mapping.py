@@ -45,6 +45,7 @@ observations). It does not close it; see `_resolve_period`.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -463,13 +464,25 @@ def _resolve_period(finding, *, metric, passage_text):
             MISSING_PERIOD,
             f"the period phrase {label[:60]!r} is not printed in the passage")
 
-    # Checked against the span the period is *grounded on* rather than against every occurrence
-    # of the phrase. A letter that prints "4Q23" in a sentence and again in a chart's axis
-    # labels grounds on the sentence, and refusing there would remove a correctly dated figure
-    # to punish a coincidence of wording — measured on `q42023formxex992sharehol.htm#p9`, whose
-    # 18% is the right answer to the very figure #p20 gets wrong.
+    # Refused when **every** printing of the phrase sits inside a flattened grid, not merely
+    # the first one.
+    #
+    # `_locate` returns the *first* textual occurrence, which is a position and not a reading.
+    # Grounding the check on it made the rule depend on the order prose and grid happen to
+    # appear in: review demonstrated that prefixing one ordinary sentence to `#p20` moved the
+    # first occurrence out of the grid and re-admitted the wrong 2023-12-31 reading verbatim,
+    # and the symmetric case — correct prose *after* a grid — was refused for the same reason.
+    # `#p9`'s 18% survived on ordering luck rather than on its being grounded in a sentence.
+    #
+    # "Every occurrence is in a grid" is the property that actually matters: if the phrase is
+    # printed nowhere but inside a run of headings with no columns left to bind them to, then
+    # whichever figure it governs is unreadable. If it is also printed in prose, the passage
+    # says it somewhere a reader can follow, and the lane keeps it.
     grids = periods.flattened_period_grids(passage_text)
-    if any(start <= located.start and located.end <= end for start, end in grids):
+    printings = _all_occurrences(passage_text, label) or (located,)
+    if grids and all(
+            any(start <= span.start and span.end <= end for start, end in grids)
+            for span in printings):
         return None, None, (
             PERIOD_NOT_GROUNDED_IN_PASSAGE,
             f"the period phrase {located.text[:60]!r} sits inside a run of period headings "
@@ -649,6 +662,27 @@ def _map_abstention(finding: dict, *, context: MappingContext) -> NarrativeIssue
 def _locate(text: str, candidate: str) -> LocatedSpan | None:
     """`core.text_spans.locate` with this package's typographic fold bound in."""
     return locate(text, candidate, fold=fold)
+
+
+def _all_occurrences(text: str, candidate: str) -> tuple[LocatedSpan, ...]:
+    """Every printing of `candidate`, not just the first.
+
+    `_locate` answers "where is this phrase", which is the right question for quoting and the
+    wrong one for deciding whether a passage states a period readably anywhere. Built by
+    re-locating in the remaining tail and shifting the span back into the original's
+    coordinates, so the folds `locate` applies are applied identically to each occurrence.
+    """
+    spans: list[LocatedSpan] = []
+    offset = 0
+    while offset < len(text):
+        found = locate(text[offset:], candidate, fold=fold)
+        if found is None:
+            break
+        spans.append(dataclasses.replace(
+            found, start=found.start + offset, end=found.end + offset))
+        advance = found.end if found.end > found.start else found.start + 1
+        offset += advance
+    return tuple(spans)
 
 
 def _rejector(finding: dict, context: MappingContext):

@@ -18,7 +18,9 @@ def test_loads_and_validates(ontology):
 def test_metadata_identifies_its_research_source(ontology):
     metadata = ontology.metadata
     assert metadata.ontology_id == "real_estate_marketplace_v1"
-    assert metadata.semantic_version == "1.0.0"
+    # 2.0.0 at F0: two `required_fields` additions make the vocabulary breaking, not
+    # additive, so a reference legal under 1.0.0 can be refused under this one.
+    assert metadata.semantic_version == "2.0.0"
     assert "OPENDOOR_CONCEPT_AND_METRIC_RESEARCH" in metadata.created_from_research_version
 
 

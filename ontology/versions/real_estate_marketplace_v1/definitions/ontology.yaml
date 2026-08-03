@@ -1,6 +1,12 @@
 # Identity of this ontology version. Deterministic: no timestamps, run ids or commits.
 ontology_id: real_estate_marketplace_v1
-semantic_version: "1.0.0"
+# 2.0.0 at F0, and major rather than minor because the change is **breaking**, not additive:
+# `normalized_table.required_fields` gained `passage_id` and `xbrl_fact.required_fields` gained
+# `source_url`, so a reference that was legal under 1.0.0 can be refused under this version.
+# `definition_hash` had already moved twice while this string stayed at 1.0.0, which meant two
+# incompatible vocabularies were both calling themselves 1.0.0 in every exported manifest —
+# the declared version no longer distinguished them. Found by review.
+semantic_version: "2.0.0"
 schema_version: 1
 label: Real-estate marketplace financial-event ontology v1
 description: >-

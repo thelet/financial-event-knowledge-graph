@@ -139,6 +139,51 @@ def test_a_calculated_source_names_its_inputs_and_not_a_passage():
 # -- the real run is unchanged -----------------------------------------------------------------
 
 
+def test_every_non_passage_kind_is_a_declared_evidenced_by_target(ontology):
+    """The edge that carries citations must accept every kind that can be cited.
+
+    Review found `market_data` and `calculated` validated, written and projected as nodes, and
+    then refused by `EVIDENCED_BY` — so F8 and every calculated fact were blocked on one line
+    of `relationships.yaml` that F0 owned. A node with no edge is a lane stopped at the last
+    step, which is the failure F0 exists to prevent.
+    """
+    predicate = ontology.registry.find("evidenced_by")
+    assert set(EVIDENCE_SOURCE_LABELS) <= set(predicate.allowed_target_types)
+
+
+def test_each_non_passage_kind_yields_one_node_and_one_matching_edge(
+        fixture_inputs, ontology, fixture_provenance):  # noqa: F811
+    """The pair, end to end — the claim this module used to make and not prove.
+
+    Building the node without building the edge would have hidden exactly the defect above, so
+    this drives `build_nodes` and `build_edges` over one synthetic claim per kind and asserts
+    the edge's target is the node's key.
+    """
+    import dataclasses
+
+    from graph.stages.projection.edges import build_edges
+
+    rows = [r for r in fixture_rows() if not isinstance(r, EvidenceRow)]
+    assert rows, "the contract fixture must carry non-passage rows"
+    for row in rows:
+        claim = next(c for c in fixture_inputs.claims)
+        stitched = dataclasses.replace(
+            fixture_inputs,
+            evidence_by_claim_id={claim.claim_id: (dataclasses.replace(row, claim_id=claim.claim_id)
+                                                   if dataclasses.is_dataclass(row)
+                                                   else row.model_copy(
+                                                       update={"claim_id": claim.claim_id}),)},
+        )
+        nodes = build_nodes(stitched, ontology=ontology, provenance=fixture_provenance)
+        sources = [n for n in nodes if n.base_label == EVIDENCE_SOURCE_LABEL]
+        assert len(sources) == 1, row.evidence_kind
+        edges = [e for e in build_edges(stitched, ontology=ontology,
+                                        provenance=fixture_provenance)
+                 if e.type == "EVIDENCED_BY"]
+        assert len(edges) == 1, row.evidence_kind
+        assert edges[0].target_key == sources[0].key, row.evidence_kind
+
+
 @requires_real_run
 def test_the_real_run_projects_no_evidence_source(real_inputs):
     """Zero, and that is the point: every one of the run's evidence rows is a filed passage, so

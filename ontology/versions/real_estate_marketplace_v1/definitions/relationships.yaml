@@ -289,8 +289,15 @@ relationships:
       The citation edge. Every asserted claim resolves to at least one of these; without it
       the claim is unverifiable and validation rejects it.
     allowed_source_types: [metric_observation, event_type, relationship_type]
+    # Every declared `evidence_type`, and the list is checked against `EvidenceKind` by
+    # `tests/graph/test_evidence_sources.py`. `market_data` and `calculated` were added at F0
+    # with the kinds themselves: a kind that can be validated and written to a catalog but not
+    # cited by the edge that carries citations is a lane blocked at the last step, which is
+    # what F0 exists to prevent. Review found exactly that — `market_data` and `calculated`
+    # rows projected a node and then failed `EndpointTypeNotAllowedError`, so F8 and every
+    # calculated fact were blocked on this line.
     allowed_target_types: [normalized_passage, normalized_table, xbrl_fact,
-                           filing_metadata, external_page]
+                           filing_metadata, external_page, market_data, calculated]
     inference_level: asserted
 
   - relationship_id: PARTICIPATES_IN

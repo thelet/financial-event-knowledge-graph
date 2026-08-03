@@ -282,11 +282,42 @@ Every version bump is justified or not taken. Candidates:
 | Graph schema / load version | **yes** | new labels, constraints, allowlist entries |
 | Run manifest version | only if its shape changes | |
 
+**Correction — the `definition_hash` row's stated reason is wrong** *(measured 2026-08-03, Part
+B)*. `definition_hash` is taken over `serialization.snapshot`, which holds **only the resolved
+definitions**. The Python enums are not in it, so adding `AssertionType.GUIDED` and new
+`SourceLane` members changes **nothing**:
+
+| Change | `definition_hash` |
+| --- | --- |
+| baseline | `e8d4af709be2…` |
+| `+ EvidenceKind.MARKET_DATA`, `EvidenceKind.CALCULATED` (enum only) | `e8d4af709be2…` — **unchanged** |
+| `+ optional_fields` on `EvidenceTypeDefinition` | `78f89f320461…` |
+| `+ market_data` / `calculated` evidence types, `+ source_url` on `xbrl_fact`, `+ passage_id` on `normalized_table`, `+ fetched_at` on `external_page` | `c4c2b4dec049…` |
+
+So the hash moves because a **definition model or a YAML declaration** changed — Part B's
+evidence-type edits, and D2's typed guidance range if it alters `EventTypeDefinition`. D1 and D4
+are pure enum additions and are hash-neutral. Founder gate 2 still applies; its cause is B, not D.
+
+The cost, measured on the offline suite: **133 tests** pin the old hash, through committed
+benchmark reports, `benchmarks/extraction/v1/reports/scoping_decision_v1.*`, the graph fixture's
+run manifest, and `benchmarks/extraction/v1/vectors/concepts.json`. **The vector cache can only
+be regenerated with the live embedding provider** (`tests/extraction/test_embeddings_live.py`),
+so a hash change makes 25 hybrid-scoping tests unfixable offline until it is rebuilt. That is the
+real price of the row above and it should be paid once, deliberately, for B and D2 together.
+
 For each: record old behaviour, new behaviour, whether old catalogs still read, whether a rebuild
 is required, and that mixed incompatible artifacts **fail loudly** rather than load quietly.
 
 Part A alone changes `observations.jsonl` content but no schema. Parts B–E change schema. The
 commit split keeps these legible.
+
+**Part B changes no catalog row that exists.** `evidence.jsonl` gained five *new row shapes*, one
+per non-passage kind, and left the ten-key filed-passage row untouched; the whole run rebuilds
+byte-identical (`python -m extraction rebuild`, all seven catalogs, 2026-08-03). So
+`RUN_LAYOUT_VERSION` does **not** need to move for existing runs to read — but a run written by a
+lane that emits a non-passage kind is unreadable by an older graph, and that is the boundary the
+version exists to mark. Recommendation: bump `RUN_LAYOUT_VERSION` to `1.1.0` when the first such
+lane lands (F1), not now, and record here that the catalog is additively versioned.
 
 ---
 
