@@ -722,6 +722,41 @@ def test_the_gate_issues_only_the_four_read_statements_the_stage_declares(tmp_pa
     assert [call.statement for call in executor.calls] == list(FRESHNESS_STATEMENTS)
 
 
+def test_the_marker_read_is_bounded_at_two_rows_and_a_second_marker_still_refuses(tmp_path):
+    """The unbounded read this stage shipped with, and the state that made it reachable.
+
+    `LOAD_MARKERS` is the one statement here that returns rows rather than aggregates, and it
+    carried no `LIMIT` — so §16's bound rested on how many `(:GraphLoad)` nodes happen to exist,
+    in the stage that runs before every command. Nothing holds that number at one:
+    `graph/stages/load/schema.py` declares no constraint for the label and
+    `graph/stages/load/lifecycle.py:101` records that concurrency is unguarded. Exactly one
+    marker exists on this machine, which is why the live half of this file could never have
+    caught it and why the second marker below has to be a fixture.
+
+    Two rows and not one: the gate already refuses on a marker count that is not 1, and
+    `LIMIT 1` would have bounded the read by hiding exactly that. The bound must not have
+    changed any verdict, so both halves are asserted — many still refuses with the code it
+    always did, and one still passes every check.
+    """
+    staged = stage_run(tmp_path)
+    first = {"graph_run_id": GRAPH_RUN_ID, "status": "complete", "node_count": NODE_COUNT,
+             "edge_count": EDGE_COUNT, "completed_at": "2026-08-03T16:37:44+00:00"}
+    second = {**first, "graph_run_id": "graph-v1-886059d862ce"}
+
+    assert "LIMIT 2" in loaded_graph_module.LOAD_MARKERS
+
+    two = run_gate(staged, scripted_executor(markers=(first, second)))
+
+    assert two.passed is False
+    assert RefusalCode.LOAD_INCOMPLETE in two.refusal_codes
+    assert two.check("load_marker_present").observed == "2"
+    assert two.check("load_marker_counts").observed == (
+        "edges=<no single marker> nodes=<no single marker>")
+
+    assert run_gate(staged, scripted_executor()).passed is True, (
+        "bounding the read must not change what a correctly loaded graph does")
+
+
 def test_every_statement_the_gate_issues_carries_a_positive_timeout(tmp_path):
     """§16 requires one on every statement, and F10 measured that `0` means *no timeout* rather
     than *expire immediately* — so `read()` refuses a non-positive value and the gate must pass

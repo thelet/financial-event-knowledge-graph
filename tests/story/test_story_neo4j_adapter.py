@@ -2,19 +2,18 @@
 
 Three kinds of test, split by what they need:
 
-    unmarked   the protocol, the `.env` layering, the conversion, the refusals and the
-               structural scan — driven either with `RecordedReadExecutor` or with a driver
-               stub that records what it was handed and connects to nothing
-    @neo4j     the live 5.26.28 Community server: connectivity, one real parameterised read,
-               the plain-types claim against real rows, and the one thing only a server can
-               settle — that the timeout is applied server-side rather than by the client
+    unmarked   the protocol, the `.env` layering, the conversion, the refusals, the structural
+               scan, and the server-side timeout — driven either with `RecordedReadExecutor` or
+               with a driver stub that records what it was handed and connects to nothing
+    @neo4j     the live 5.26.28 Community server: connectivity, one real parameterised read and
+               the plain-types claim against real rows
 
 `pytest -m "not live and not neo4j"` is green with no container running, and the marked tests
 skip in two stages the way `tests/graph/test_loader.py` does: unconfigured is a skip, then
 unreachable is a skip, and neither is a failure.
 
 **Nothing here writes to the database, so there is no cleanup step.** That is not an omission
-and not an oversight: the adapter has no method that could write, the four live tests issue
+and not an oversight: the adapter has no method that could write, the three live tests issue
 `MATCH`/`RETURN` only, and no fixture creates a node, an index or a constraint. A teardown
 here would have nothing to delete. `tests/graph/test_loader.py` needs `delete_test_rows`
 because it loads an export; this file's whole point is that it never could.
@@ -24,13 +23,14 @@ from __future__ import annotations
 
 import ast
 import re
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
 from conftest import RecordedReadExecutor
 from neo4j import Query, RoutingControl
-from neo4j.exceptions import ClientError, ServiceUnavailable
+from neo4j.exceptions import ServiceUnavailable
 from neo4j.graph import Graph, Node
 from neo4j.spatial import CartesianPoint
 from neo4j.time import Date, DateTime, Duration
@@ -85,11 +85,6 @@ PASSAGE_WITH_A_LIST_PROPERTY = (
 EVIDENCE_EDGE_WITH_A_LIST_PROPERTY = (
     "MATCH ()-[e:EVIDENCED_BY]->() WHERE e.block_ids IS NOT NULL "
     "RETURN e.quoted_text AS quoted_text, e.block_ids AS block_ids LIMIT 1"
-)
-#: Slow enough that a 1-millisecond ceiling cannot be met, cheap enough that the server is not
-#: left doing real work if the timeout somehow fails to arrive.
-DELIBERATELY_SLOW = (
-    "UNWIND range(1, $upper) AS x WITH x WHERE x % 7 = 0 RETURN count(x) AS counted"
 )
 
 
@@ -211,11 +206,26 @@ def test_the_recorded_executor_receives_the_statement_character_for_character_to
 
 
 def test_every_statement_is_wrapped_so_the_timeout_is_applied_by_the_server():
-    """A bare `str` would silently drop the timeout — this asserts the wrapping, not the wall clock.
+    """The ceiling leaves this process as transaction metadata, and this process enforces none.
 
-    `neo4j.Query(text, timeout=…)` is the only spelling the driver turns into transaction
-    metadata; passing the same text as a plain string is accepted and ignored. The live test
-    below proves the server honours it.
+    Two halves, because either alone is weak. `neo4j.Query(text, timeout=…)` is the only
+    spelling the driver turns into the `BEGIN` message's transaction metadata — the same text
+    passed as a plain `str` is accepted and the ceiling silently dropped — so the first
+    assertion is that what reaches `execute_query` is a `Query` carrying exactly the value the
+    caller asked for, per call and not once at construction.
+
+    The second is what makes *server-side* a claim rather than a label: a driver that takes
+    fifty times the ceiling to answer still returns its rows. If `read` held a stopwatch of its
+    own, that call could not come back — the adapter would be enforcing the ceiling itself
+    against a server that had never been told about it. It is deterministic in the only
+    direction that matters: a client-side deadline of 1 ms cannot survive a 50 ms call.
+
+    **This replaces a live test that raced a 1 ms ceiling against a 1.4-second statement.**
+    *(Measured 2026-08-03 against 5.26.28, by running the old statement in a loop:
+    `db.transaction.monitor.check.interval` is `2s`, so the server only notices an expired
+    transaction every two seconds, and a statement that finishes inside one window is never
+    terminated. It completed 3 times in 10 with nothing else running.)* A test that has to be
+    re-run teaches a reader to re-run rather than to read.
     """
     driver = CapturingDriver()
     executor = Neo4jReadExecutor(settings(), driver)  # type: ignore[arg-type]
@@ -225,6 +235,20 @@ def test_every_statement_is_wrapped_so_the_timeout_is_applied_by_the_server():
     query = driver.calls[0]["query"]
     assert isinstance(query, Query)
     assert query.timeout == 7.5
+
+    class UnhurriedDriver(CapturingDriver):
+        """Answers, eventually. Nothing else about it differs."""
+
+        def execute_query(self, *args: Any, **kwargs: Any):
+            time.sleep(0.05)
+            return super().execute_query(*args, **kwargs)
+
+    unhurried = UnhurriedDriver(records=({"ok": 1},))
+    rows = Neo4jReadExecutor(settings(), unhurried).read(  # type: ignore[arg-type]
+        CONNECTIVITY_PROBE, {}, timeout_seconds=0.001)
+
+    assert rows == ({"ok": 1},)
+    assert unhurried.calls[0]["query"].timeout == 0.001
 
 
 def test_reads_are_issued_with_read_routing_even_though_it_enforces_nothing():
@@ -388,8 +412,9 @@ def test_a_transport_fault_on_a_read_is_a_story_error_not_a_leaked_driver_except
 
     A `ServiceUnavailable` escaping into a retrieval tool would make every tool import the
     driver's exception module to handle it, which is the coupling the adapter exists to stop.
-    A statement fault — the transaction timeout the live test asserts — is deliberately *not*
-    wrapped, because the server's own code is what the tool has to act on.
+    A statement fault — a `Neo4jError` carrying the server's own code, a transaction timeout
+    among them — is deliberately *not* wrapped, because that code is what the tool has to act
+    on.
 
     Driven with a stub that raises rather than against a dead port: `execute_query` retries a
     managed transaction for 35 seconds before giving up (measured 2026-08-03), and a
@@ -698,19 +723,9 @@ def test_a_returned_row_holds_only_plain_python_types_all_the_way_down(
     assert all(type(item) is str for item in rows[0][expect_list_at])
 
 
-@pytest.mark.neo4j
-def test_the_timeout_is_applied_by_the_server_and_not_by_the_client(live_executor):
-    """The server terminates the transaction and says so. No wall-clock assertion.
-
-    Asserting on elapsed time would test the machine; asserting the server's own error code
-    tests the claim — that `neo4j.Query(text, timeout=…)` becomes transaction metadata rather
-    than a client-side stopwatch. The same statement completes under a generous ceiling, which
-    is what rules out "the query was simply broken".
-    """
-    with pytest.raises(ClientError) as raised:
-        live_executor.read(DELIBERATELY_SLOW, {"upper": 50_000_000}, timeout_seconds=0.001)
-
-    assert "TransactionTimedOut" in (raised.value.code or "")
-
-    completed = live_executor.read(DELIBERATELY_SLOW, {"upper": 1_000}, timeout_seconds=30.0)
-    assert completed == ({"counted": 142},)
+# There is deliberately no live test that the server *fires* the timeout. Firing it requires a
+# statement that outlives `db.transaction.monitor.check.interval` (`2s` on this instance,
+# measured 2026-08-03), and the one that shipped here did not: a 1.4-second statement under a
+# 1 ms ceiling completed 3 times in 10. What the ceiling is for — that it leaves this process as
+# transaction metadata and is enforced by nobody here — is settled offline and deterministically
+# by `test_every_statement_is_wrapped_so_the_timeout_is_applied_by_the_server`.

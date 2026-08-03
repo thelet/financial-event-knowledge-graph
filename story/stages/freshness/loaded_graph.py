@@ -16,6 +16,10 @@ transaction timeout of `0` as *no timeout* rather than as *expire immediately*, 
 `Neo4jReadExecutor.read` refuses a non-positive value outright. `FRESHNESS_TIMEOUT_SECONDS` is
 the ceiling, not the expectation — see its note for what the four statements actually cost.
 
+**A hard bound on every statement** (§16), and this module shipped without one. The three
+inventory statements return only aggregates, which is one row by construction; `LOAD_MARKERS`
+returns a row per marker and carried no `LIMIT` — see its note for why the bound is 2 and not 1.
+
 **Two counts, and the `:GraphLoad` marker is why.** The loader writes one
 `(:GraphLoad {graph_run_id, status, node_count, edge_count})` node of its own, excluded from
 every count it takes, so its `node_count` is 28,836 against a database holding 28,837 nodes
@@ -53,15 +57,29 @@ RUN_ID_PROPERTY = "graph_run_id"
 #: S11's `config/story.yaml` owns per-tool budgets; this constant moves there when it exists.
 FRESHNESS_TIMEOUT_SECONDS = 30.0
 
-#: Every `:GraphLoad` node, with the four properties §7 compares. Named fields rather than
-#: `properties(m)`: §9's rule, and `plain_value` refuses a whole node anyway. `ORDER BY` so a
-#: database that somehow holds two markers reports them the same way twice.
+#: Every `:GraphLoad` node the gate is willing to read, with the four properties §7 compares.
+#: Named fields rather than `properties(m)`: §9's rule, and `plain_value` refuses a whole node
+#: anyway. `ORDER BY` so a database that somehow holds two markers reports them the same way
+#: twice.
+#:
+#: **`LIMIT 2`, and it shipped without any bound at all.** This was the one statement in the
+#: stage that returns rows rather than aggregates, so §16's "a hard `LIMIT` in every statement"
+#: rested on nothing but how many markers happen to exist. Nothing keeps that number at one:
+#: `graph/stages/load/schema.py` declares no constraint for the label and
+#: `graph/stages/load/lifecycle.py:101` says outright that concurrency is unguarded, so markers
+#: accumulate one per load. Exactly one exists on this machine, which is why it went unnoticed.
+#:
+#: Two rather than one, because one would bound the read by hiding the state the gate refuses
+#: on: `loaded_graph_checks` compares `len(markers)` against 1, so `LIMIT 1` would turn "two
+#: loads landed in this database" into a passing gate. Two rows is the least that still answers
+#: "is there more than one". Above two the refusal reports `2` instead of the true total; the
+#: verdict and the refusal code are identical either way, and that is the trade the bound buys.
 LOAD_MARKERS = (
     f"MATCH (m:{LOAD_MARKER_LABEL}) "
     f"RETURN m.{RUN_ID_PROPERTY} AS graph_run_id, m.status AS status, "
     "m.node_count AS node_count, m.edge_count AS edge_count, "
     "m.completed_at AS completed_at "
-    "ORDER BY graph_run_id, status"
+    "ORDER BY graph_run_id, status LIMIT 2"
 )
 
 #: One pass over the loaded nodes answering three of §7's questions at once: how many there are,
