@@ -9,7 +9,7 @@ The scope never removes anything. There is no threshold, no top-k and no filter 
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `f8ebd3a964e680801756e1754b4afb132c8b537b` |
+| implementation commit | `e3c4da07f446194c2e274b7f19d6e7d6025796c0` |
 | scope | `lexical` v`1.0.0` |
 | ontology definition hash | `bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34` |
 | normalized documents | 294 |
@@ -22,10 +22,10 @@ STAGE_08 §8 sets three gates. Two hold; one does not, and is reported as a fail
 
 | Gate | Required | Measured | Denominator | |
 | --- | --- | --- | --- | --- |
-| required-concept recall | 1.000 | **0.960** | 50 | **FAIL** |
+| required-concept recall | 1.000 | **0.959** | 49 | **FAIL** |
 | critical-concept recall | 1.000 | **1.000** | 23 | PASS |
 | ambiguity preservation | 1.000 | **1.000** | 1 | PASS |
-| known-instance recall | — | 1.000 | 22 | reported |
+| known-instance recall | — | 1.000 | 21 | reported |
 
 `known-instance recall` carries no gate because it cannot fail as posed: the only ontology instance any gold annotation names is `opendoor`, and `opendoor` is one of the three stable-core concepts every scope contains unconditionally. It is reported so the denominator is visible rather than implied — the `known_instance` reason code's own count below is the number that would move if instance matching broke.
 
@@ -149,7 +149,7 @@ Scored separately because an aggregate hides them. A check exists for every case
 | [`kpi-table-q1-2025-middle-columns`](#kpi-table-q1-2025-middle-columns) | tables | 21 | 8 | 0 | 3 |
 | [`kpi-table-q1-2025-prior-period-column`](#kpi-table-q1-2025-prior-period-column) | tables | 21 | 3 | 0 | 3 |
 | [`kpi-table-q1-2026-earnings`](#kpi-table-q1-2026-earnings) | tables | 20 | 1 | 0 | 3 |
-| [`kpi-table-q4-2023-earnings`](#kpi-table-q4-2023-earnings) | tables | 21 | 1 | 0 | 3 |
+| [`kpi-table-q4-2023-earnings`](#kpi-table-q4-2023-earnings) | tables | 21 | 2 | 0 | 3 |
 | [`letter-prose-inventory-and-120d-q2-2022`](#letter-prose-inventory-and-120d-q2-2022) | narrative | 19 | 2 | 1 | 5 |
 | [`letter-prose-multiple-metrics-q4-2021`](#letter-prose-multiple-metrics-q4-2021) | narrative | 22 | 3 | 0 | 3 |
 | [`letter-prose-run-together-kpi-row-q1-2025`](#letter-prose-run-together-kpi-row-q1-2025) | narrative | 22 | 2 | 0 | 3 |
@@ -164,7 +164,7 @@ Scored separately because an aggregate hides them. A check exists for every case
 | [`recon-q1-2021-holding-costs-split-rows`](#recon-q1-2021-holding-costs-split-rows) | tables | 20 | 2 | 0 | 3 |
 | [`recon-q1-2021-thousands-in-table`](#recon-q1-2021-thousands-in-table) | tables | 20 | 4 | 0 | 3 |
 | [`recon-q4-2020-mixed-period-lengths`](#recon-q4-2020-mixed-period-lengths) | tables | 22 | 2 | 0 | 3 |
-| [`recon-shareholder-letter-table-as-prose`](#recon-shareholder-letter-table-as-prose) | narrative | 21 | 2 | 0 | 3 |
+| [`recon-shareholder-letter-table-as-prose`](#recon-shareholder-letter-table-as-prose) | narrative | 21 | 0 | 0 | 3 |
 
 ## drift-adjusted-gross-profit-2020-vs-2021
 
@@ -483,7 +483,7 @@ Confusion-group expansions: `homes_purchased` → `acquisition_contracts`, `home
 - passage: `norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16`
 - scope size 21 · all 21 protected · 3 confusion-group expansions
 - reasons: `ambiguous_alias` 13, `canonical_label` 12, `confusion_sibling` 1, `exact_alias` 11, `normalized_alias` 1, `stable_core` 3, `table_label` 17
-- gold metrics: `pct_homes_on_market_gt_120_days`
+- gold metrics: `housing_inventory_homes`, `pct_homes_on_market_gt_120_days`
 - missed: none
 
 | Concept | Reasons | Surfaces |
@@ -962,7 +962,7 @@ Confusion-group expansions: `homes_purchased` → `acquisition_contracts`, `home
 - passage: `norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p20`
 - scope size 21 · all 21 protected · 3 confusion-group expansions
 - reasons: `ambiguous_alias` 13, `canonical_label` 12, `confusion_sibling` 1, `exact_alias` 11, `known_instance` 1, `normalized_alias` 1, `stable_core` 3
-- gold metrics: `housing_inventory_homes`, `pct_homes_on_market_gt_120_days`
+- gold metrics: none
 - missed: none
 
 | Concept | Reasons | Surfaces |

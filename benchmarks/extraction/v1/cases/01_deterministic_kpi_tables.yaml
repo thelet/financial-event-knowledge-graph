@@ -240,6 +240,26 @@ cases:
         column_label: "December 31, 2022"
         population:
           definition_raw: 'Percentage of homes “on the market” for greater than 120 days (at period end)'
+      # Added at F0, when `recon-shareholder-letter-table-as-prose` was reclassified as
+      # must-refuse. That case was the only gold coverage of `housing_inventory_homes` at
+      # 2023-12-31, and it read the figure out of a *flattened* copy of this very table, in
+      # the same quarter's EX-99.2. Here the parser kept the columns, so the same fact is
+      # attributable rather than guessed — which is the point of the reclassification: the
+      # fact keeps its benchmark, the unsafe way of reading it does not.
+      - metric_id: housing_inventory_homes
+        value: 5326
+        unit: homes
+        instant_date: "2023-12-31"
+        subject_entity_id: opendoor
+        subject_type: public_company
+        source_lane: normalized_table
+        assertion_type: reported
+        column_label: "December 31, 2023"
+        note: >-
+          Row label says "(at period end)" — an instant, not a duration. The row also ends
+          "5,326 12,788" under `Year Ended December 31, | 2023 | 2022`, so 5,326 is printed
+          twice; with the columns intact both printings resolve to the same instant, which is
+          exactly what the flattened copy could not do.
     abstentions:
       - reason: UNAVAILABLE_REQUIRED_SOURCE_LANE
         detail: 'Row "Inventory (at period end)" reads 1,775 / 4,460 but belongs to inventory_balance.'

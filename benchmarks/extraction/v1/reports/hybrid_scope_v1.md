@@ -11,7 +11,7 @@ Durations are deliberately absent: this artifact is byte-identical on regenerati
 | | |
 | --- | --- |
 | benchmark version | `v1` |
-| implementation commit | `f8ebd3a964e680801756e1754b4afb132c8b537b` |
+| implementation commit | `e3c4da07f446194c2e274b7f19d6e7d6025796c0` |
 | scope | `hybrid` v`1.0.0` |
 | ontology definition hash | `bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34` |
 | embedding model | `Qwen3-Embedding-0.6B-f16.gguf` |
@@ -35,7 +35,7 @@ The concept cache holds one entry more than the vocabulary: the ablation arm of 
 
 | # | Criterion | Measured | Holds |
 | --- | --- | --- | --- |
-| 1 | required-concept recall strictly greater than lexical's 0.960 measured in this same run, and both `pct_homes_on_market_gt_120_days` paraphrases recovered | required_concept_recall 0.980; lexical_required_concept_recall 0.960; stage_09_lexical_recall_as_measured 0.959; paraphrases_recovered ('letter-prose-inventory-and-120d-q2-2022', 'pct_homes_on_market_gt_120_days'); paraphrases_missed ('population-our-homes-in-inventory-q1-2023', 'pct_homes_on_market_gt_120_days') | **no** |
+| 1 | required-concept recall strictly greater than lexical's 0.959 measured in this same run, and both `pct_homes_on_market_gt_120_days` paraphrases recovered | required_concept_recall 0.980; lexical_required_concept_recall 0.959; stage_09_lexical_recall_as_measured 0.959; paraphrases_recovered ('letter-prose-inventory-and-120d-q2-2022', 'pct_homes_on_market_gt_120_days'); paraphrases_missed ('population-our-homes-in-inventory-q1-2023', 'pct_homes_on_market_gt_120_days') | **no** |
 | 2 | critical-concept recall 1.000 and ambiguity preservation 1.000, unchanged | critical_concept_recall 1.000; ambiguity_preservation 1.000 | yes |
 | 3 | scope size mean no worse than +25% over lexical's 17.9 of 133 measured in this same run | lexical_mean 17.923; hybrid_mean 18.500; growth 0.032; budget 0.250 | yes |
 | 4 | no semantic addition displaces or outranks a protected candidate | violations none | yes |
@@ -60,10 +60,10 @@ For completeness, and not as a recommendation: at `top_k` 3 both paraphrases are
 
 | Score | `lexical` | `embedding_only` | `hybrid` | Denominator |
 | --- | --- | --- | --- | --- |
-| required-concept recall | 0.960 | 0.220 | 0.980 | 50 |
+| required-concept recall | 0.959 | 0.204 | 0.980 | 49 |
 | critical-concept recall | 1.000 | 0.000 | 1.000 | 23 |
 | ambiguity preservation | 1.000 | 0.000 | 1.000 | 1 |
-| known-instance recall | 1.000 | 0.000 | 1.000 | 22 |
+| known-instance recall | 1.000 | 0.000 | 1.000 | 21 |
 
 | Scope size | `lexical` | `embedding_only` | `hybrid` |
 | --- | --- | --- | --- |
@@ -227,7 +227,7 @@ Excluding the corpus-fitted content changes no ranking. The exclusion is therefo
 
 | `top_k` | required recall | critical recall | known-instance recall | ambiguity | paraphrases (of 2) | scope mean | growth | unrequired additions | §7.2 | §7.3 | §7.4 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.960 | 1.000 | 1.000 | 1.000 | 0 | 18.192 | +1.5% | 7 | yes | yes | yes |
+| 1 | 0.959 | 1.000 | 1.000 | 1.000 | 0 | 18.192 | +1.5% | 7 | yes | yes | yes |
 | **2** | 0.980 | 1.000 | 1.000 | 1.000 | 1 | 18.500 | +3.2% | 14 | yes | yes | yes |
 | 3 | 1.000 | 1.000 | 1.000 | 1.000 | 2 | 18.769 | +4.7% | 20 | yes | yes | yes |
 | 4 | 1.000 | 1.000 | 1.000 | 1.000 | 2 | 19.077 | +6.4% | 28 | yes | yes | yes |
@@ -346,7 +346,7 @@ Selected: `contribution_margin` 0.7025, `contribution_margin_v1` 0.6883
 | [`kpi-table-q1-2025-middle-columns`](#kpi-table-q1-2025-middle-columns) | 21 | 2 | 22 | 8 | 0 | 2 |
 | [`kpi-table-q1-2025-prior-period-column`](#kpi-table-q1-2025-prior-period-column) | 21 | 2 | 22 | 3 | 0 | 2 |
 | [`kpi-table-q1-2026-earnings`](#kpi-table-q1-2026-earnings) | 20 | 2 | 21 | 1 | 0 | 2 |
-| [`kpi-table-q4-2023-earnings`](#kpi-table-q4-2023-earnings) | 21 | 2 | 22 | 1 | 0 | 2 |
+| [`kpi-table-q4-2023-earnings`](#kpi-table-q4-2023-earnings) | 21 | 2 | 22 | 2 | 0 | 2 |
 | [`letter-prose-inventory-and-120d-q2-2022`](#letter-prose-inventory-and-120d-q2-2022) | 19 | 2 | 20 | 2 | 0 | 2 |
 | [`letter-prose-multiple-metrics-q4-2021`](#letter-prose-multiple-metrics-q4-2021) | 22 | 2 | 22 | 3 | 0 | 2 |
 | [`letter-prose-run-together-kpi-row-q1-2025`](#letter-prose-run-together-kpi-row-q1-2025) | 22 | 2 | 22 | 2 | 0 | 2 |
@@ -361,7 +361,7 @@ Selected: `contribution_margin` 0.7025, `contribution_margin_v1` 0.6883
 | [`recon-q1-2021-holding-costs-split-rows`](#recon-q1-2021-holding-costs-split-rows) | 20 | 2 | 21 | 2 | 0 | 2 |
 | [`recon-q1-2021-thousands-in-table`](#recon-q1-2021-thousands-in-table) | 20 | 2 | 21 | 4 | 0 | 2 |
 | [`recon-q4-2020-mixed-period-lengths`](#recon-q4-2020-mixed-period-lengths) | 22 | 2 | 23 | 2 | 0 | 2 |
-| [`recon-shareholder-letter-table-as-prose`](#recon-shareholder-letter-table-as-prose) | 21 | 2 | 21 | 2 | 0 | 2 |
+| [`recon-shareholder-letter-table-as-prose`](#recon-shareholder-letter-table-as-prose) | 21 | 2 | 21 | 0 | 0 | 2 |
 
 ## drift-adjusted-gross-profit-2020-vs-2021
 
@@ -780,7 +780,7 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5897)
 - scope size lexical 21 · embedding_only 2 · hybrid 22
 - 21 protected of 22
 - reasons: `ambiguous_alias` 13, `canonical_label` 12, `confusion_sibling` 1, `exact_alias` 11, `normalized_alias` 1, `semantic_neighbour` 2, `stable_core` 3, `table_label` 17
-- gold metrics: `pct_homes_on_market_gt_120_days`
+- gold metrics: `housing_inventory_homes`, `pct_homes_on_market_gt_120_days`
 - missed (hybrid): none
 
 | Rank | Concept | Similarity | Selected |
@@ -791,7 +791,7 @@ Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 2 (0.5897)
 | 3 | `housing_inventory_homes` | 0.5876 | no |
 | 4 | `contribution_profit` | 0.5834 | no |
 
-Gold metrics in the ranking: `pct_homes_on_market_gt_120_days` rank 1 (0.5962)
+Gold metrics in the ranking: `housing_inventory_homes` rank 3 (0.5876), `pct_homes_on_market_gt_120_days` rank 1 (0.5962)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |
@@ -1393,7 +1393,7 @@ Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.5043), `adjusted
 - scope size lexical 21 · embedding_only 2 · hybrid 21
 - 21 protected of 21
 - reasons: `ambiguous_alias` 13, `canonical_label` 12, `confusion_sibling` 1, `exact_alias` 11, `known_instance` 1, `normalized_alias` 1, `semantic_neighbour` 2, `stable_core` 3
-- gold metrics: `housing_inventory_homes`, `pct_homes_on_market_gt_120_days`
+- gold metrics: none
 - missed (hybrid): none
 
 | Rank | Concept | Similarity | Selected |
@@ -1403,8 +1403,6 @@ Gold metrics in the ranking: `adjusted_gross_margin` rank 14 (0.5043), `adjusted
 | 2 | `housing_inventory_homes` | 0.5255 | no |
 | 3 | `contribution_profit_v1` | 0.5252 | no |
 | 4 | `homes_purchased` | 0.5210 | no |
-
-Gold metrics in the ranking: `housing_inventory_homes` rank 2 (0.5255), `pct_homes_on_market_gt_120_days` rank 1 (0.5328)
 
 | Concept | Reasons | Surfaces |
 | --- | --- | --- |

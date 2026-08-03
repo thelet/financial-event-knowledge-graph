@@ -190,7 +190,7 @@
     "properties_wrong",
     "silence_broken"
   ],
-  "implementation_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+  "implementation_commit": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
   "lane": {
     "name": "normalized_narrative_events",
     "prompt_version": "1.0.0",

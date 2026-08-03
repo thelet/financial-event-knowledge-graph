@@ -137,7 +137,9 @@ def test_the_width_is_the_count_of_cases_that_could_distinguish_the_scopes(decis
         + events["cases"] - events["cases_with_identical_requests"])
     assert decision.width["reviewed_cases_that_could_distinguish_the_scopes"] == 1
     assert decision.width["required_concepts_that_distinguish_the_scopes"] == 1
-    assert decision.width["required_concepts_compared"] == 50
+    # 49, not 50: `recon-shareholder-letter-table-as-prose` became a must-refuse case at
+    # F0, so its gold claims no longer contribute a required concept to compare.
+    assert decision.width["required_concepts_compared"] == 49
 
 
 def test_the_verdict_states_its_width_and_calls_itself_weak(decision):

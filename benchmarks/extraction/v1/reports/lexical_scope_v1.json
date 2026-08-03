@@ -3176,6 +3176,7 @@
         "opendoor"
       ],
       "gold_metric_ids": [
+        "housing_inventory_homes",
         "pct_homes_on_market_gt_120_days"
       ],
       "known_instance_ids": [
@@ -7376,16 +7377,9 @@
       },
       "critical_checks": [],
       "document_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm",
-      "gold_instance_ids": [
-        "opendoor"
-      ],
-      "gold_metric_ids": [
-        "housing_inventory_homes",
-        "pct_homes_on_market_gt_120_days"
-      ],
-      "known_instance_ids": [
-        "opendoor"
-      ],
+      "gold_instance_ids": [],
+      "gold_metric_ids": [],
+      "known_instance_ids": [],
       "lane": "narrative",
       "missed_instance_ids": [],
       "missed_metric_ids": [],
@@ -7439,7 +7433,7 @@
       "homes_purchased"
     ]
   ],
-  "implementation_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+  "implementation_commit": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
   "known_misses": [
     {
       "case_id": "letter-prose-inventory-and-120d-q2-2022",
@@ -7767,8 +7761,8 @@
     "denominators": {
       "ambiguity_cases": 1,
       "critical_checks": 23,
-      "known_instances": 22,
-      "required_concepts": 50
+      "known_instances": 21,
+      "required_concepts": 49
     },
     "scope_size": {
       "max": 22,
@@ -7780,7 +7774,7 @@
       "ambiguity_preservation": 1.0,
       "critical_concept_recall": 1.0,
       "known_instance_recall": 1.0,
-      "required_concept_recall": 0.96
+      "required_concept_recall": 0.959184
     }
   }
 }

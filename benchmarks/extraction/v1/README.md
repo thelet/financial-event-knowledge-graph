@@ -167,7 +167,7 @@ would be unrecoverable is the opposite, so the numbers that matter are recalls.
 
 | Gate (STAGE_08 §8) | Required | Measured |
 | --- | --- | --- |
-| required-concept recall | 1.000 | **0.960** (48/50) — **FAIL** |
+| required-concept recall | 1.000 | **0.959** (47/49) — **FAIL** |
 | critical-concept recall | 1.000 | 1.000 (23/23) |
 | ambiguity preservation | 1.000 | 1.000 (1/1) |
 

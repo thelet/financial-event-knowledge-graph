@@ -36,7 +36,7 @@
     "gold_event_types_reached_by_any_scope": 0,
     "score_deltas_that_are_nonzero": {}
   },
-  "implementation_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+  "implementation_commit": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
   "metric_extraction": {
     "cases": 14,
     "cases_with_a_difference": 1,
@@ -77,19 +77,19 @@
     "Hybrid's corpus-scale cost is unmeasured. Measuring it needs an embedding cache this repository does not commit, which is a build decision rather than a scoring one."
   ],
   "reachability": {
-    "denominator": 50,
-    "hybrid_required_concept_recall": 0.98,
+    "denominator": 49,
+    "hybrid_required_concept_recall": 0.979592,
     "hybrid_scope_size_mean": 18.5,
     "hybrid_stage_09_criterion_1_holds": false,
-    "lexical_only_report_recall": 0.96,
-    "lexical_required_concept_recall": 0.96,
+    "lexical_only_report_recall": 0.959184,
+    "lexical_required_concept_recall": 0.959184,
     "lexical_scope_size_mean": 17.923077
   },
   "sources": {
-    "event_relationship_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b",
-    "hybrid_scope_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b",
-    "lexical_scope_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b",
-    "narrative_lane_v1.json": "f8ebd3a964e680801756e1754b4afb132c8b537b"
+    "event_relationship_v1.json": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
+    "hybrid_scope_v1.json": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
+    "lexical_scope_v1.json": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
+    "narrative_lane_v1.json": "e3c4da07f446194c2e274b7f19d6e7d6025796c0"
   },
   "verdict": {
     "adoption_conditions_met": false,
@@ -98,7 +98,7 @@
     "why_weak": "The two scopes issue identical request digests on 13 of 14 narrative cases and on 3 of 3 event cases — the event lane takes no scope at all — so the whole extraction comparison rests on 1 of 17 reviewed cases. A decision resting on one case is a weak decision whichever way it goes."
   },
   "width": {
-    "required_concepts_compared": 50,
+    "required_concepts_compared": 49,
     "required_concepts_only_lexical_reaches": 0,
     "required_concepts_that_distinguish_the_scopes": 1,
     "reviewed_cases_compared": 17,

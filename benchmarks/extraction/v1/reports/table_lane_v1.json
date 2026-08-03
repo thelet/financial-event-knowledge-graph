@@ -8436,11 +8436,11 @@
       "category": "deterministic_kpi_table",
       "counts": {
         "emitted": 70,
-        "gold": 2,
+        "gold": 3,
         "issues": 5,
-        "matched": 2,
+        "matched": 3,
         "missed": 0,
-        "unmatched_emitted": 62
+        "unmatched_emitted": 61
       },
       "document_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm",
       "document_type": "earnings_release",
@@ -9848,6 +9848,16 @@
       ],
       "gold": [
         {
+          "column_label": "December 31, 2023",
+          "currency": null,
+          "metric_id": "housing_inventory_homes",
+          "period_key": "2023-12-31",
+          "scale_applied": "units",
+          "subject_entity_id": "opendoor",
+          "unit": "homes",
+          "value": 5326
+        },
+        {
           "column_label": "December 31, 2022",
           "currency": null,
           "metric_id": "pct_homes_on_market_gt_120_days",
@@ -9946,6 +9956,30 @@
           "emitted": {
             "scale": "units",
             "subject_entity_id": "opendoor",
+            "unit": "homes",
+            "value": 5326.0
+          },
+          "expected": {
+            "scale": "units",
+            "subject_entity_id": "opendoor",
+            "unit": "homes",
+            "value": 5326
+          },
+          "metric_id": "housing_inventory_homes",
+          "period_key": "2023-12-31"
+        },
+        {
+          "dimensions": {
+            "evidence_ok": true,
+            "period_ok": true,
+            "scale_ok": true,
+            "subject_ok": true,
+            "unit_ok": true,
+            "value_ok": true
+          },
+          "emitted": {
+            "scale": "units",
+            "subject_entity_id": "opendoor",
             "unit": "percent",
             "value": 55.0
           },
@@ -9987,7 +10021,7 @@
       "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16",
       "scores": {
         "evidence_accuracy": 1.0,
-        "matched_over_emitted": 0.028571,
+        "matched_over_emitted": 0.042857,
         "metric_recall": 1.0,
         "period_accuracy": 1.0,
         "scale_accuracy": 1.0,
@@ -10209,10 +10243,6 @@
         {
           "metric_id": "housing_inventory_homes",
           "period_key": "2023-09-30"
-        },
-        {
-          "metric_id": "housing_inventory_homes",
-          "period_key": "2023-12-31"
         },
         {
           "metric_id": "market_count",
@@ -12873,7 +12903,7 @@
       ]
     }
   ],
-  "implementation_commit": "f8ebd3a964e680801756e1754b4afb132c8b537b",
+  "implementation_commit": "e3c4da07f446194c2e274b7f19d6e7d6025796c0",
   "known_misses": [
     {
       "candidate_concept_ids": [
@@ -12947,7 +12977,7 @@
   "totals": {
     "cases": 11,
     "emitted_observations": 410,
-    "gold_observations": 49,
+    "gold_observations": 50,
     "issues": 94,
     "issues_by_code": {
       "AMBIGUOUS_ALIAS": 43,
@@ -12955,12 +12985,12 @@
       "DERIVED_CHANGE_COLUMN": 16,
       "UNRESOLVED_METRIC": 24
     },
-    "matched_observations": 46,
+    "matched_observations": 47,
     "missed_observations": 3,
     "scores": {
       "evidence_accuracy": 1.0,
-      "matched_over_emitted": 0.112195,
-      "metric_recall": 0.938776,
+      "matched_over_emitted": 0.114634,
+      "metric_recall": 0.94,
       "period_accuracy": 1.0,
       "scale_accuracy": 1.0,
       "subject_accuracy": 1.0,
