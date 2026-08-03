@@ -180,7 +180,13 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Founder constraint** | **Smallest correct fix, no scope expansion.** `LIMIT 2` only if the code already needs to detect more than one marker, else `LIMIT 1`. **No lifecycle redesign, no new marker concepts, no new refusal code.** Current freshness behaviour preserved. **One** focused regression test. For the flake: **no wall-clock race** — a fake/recording driver asserting the configured timeout reaches the query execution call; any live timeout test stays optional and `neo4j`-marked |
 | **Owns** | `story/stages/freshness/*` `tests/story/test_story_freshness.py` `tests/story/test_story_neo4j_adapter.py` |
 | **Acceptance** | both failures green, nothing else broken, full `tests/story/` green **three consecutive times** |
-| **Status** | RUNNING |
+| **Status** | **ACCEPTED** 2026-08-03 |
+| **Commit hash** | `ff95671` |
+| **Delivered** | 3 files, +108/−40. `LIMIT 2`, one regression test, wall-clock race deleted |
+| **Orchestrator validation** | scope: 3 files · **three consecutive runs `781 passed`** (7.71s/7.27s/7.50s) · `32 passed, 0 skipped` neo4j-marked · verified `LIMIT 2` is the correct minimal bound because `gate.py:272` already branches on `len(loaded.markers) != 1` — `LIMIT 1` would have bounded the read while hiding the exact state the gate refuses on · read the replacement test in full |
+| **Re-diagnosis** | **The flake was not load-dependent.** `SHOW SETTINGS` reports `db.transaction.monitor.check.interval = 2s` (verified by me), so the server notices an expired transaction only every two seconds and a 1.4 s statement can finish inside one window untouched. Measured 3 completions in 10 standalone. Plan warmth and load were both red herrings |
+| **What the replacement proves** | (a) what reaches `execute_query` is a `neo4j.Query` carrying the caller's exact ceiling — a bare `str` is accepted and the ceiling silently dropped, so this is what makes it transaction metadata at all; (b) a driver taking 50 ms under a 1 ms ceiling still returns rows, so `read` holds no client-side stopwatch. Server-side proven negatively, deterministically |
+| **What is lost** | No test that the server *fires* the timeout. A deterministic live version exists (at `upper=200_000_000` the statement runs 6.0 s = three monitor intervals; measured **15/15 terminations, slowest kill 1.47 s**) but it still uses a 1 ms ceiling, which the founder's correction rules out. **Not built. Available on request** |
 
 **Orchestrator note, recorded against myself.** My R1 packet invited the scope creep the founder then had to rule out — it asked the agent to decide whether a multi-marker graph "is itself a fact worth refusing on", which opens a new refusal code and new marker semantics for a defect whose fix is one token. The founder's constraint is narrower and correct. Corrected mid-flight.
 
@@ -434,6 +440,13 @@ This is exactly how `tests/graph/test_graph_package_structure.py` scopes the sam
 | F19 | **Extraction's `\x1f` digest join is ambiguous once a second free-text field exists.** Reproduced: `('planner\x1f','write')` and `('planner','\x1fwrite')` share a digest | Story digests each text field before joining. **Extraction is not currently vulnerable** — only `prompt` is genuinely free-text there — but story with `system` *and* `prompt` would have inherited it |
 | F20 | **§15.3's six keywords are not sufficient alone.** An object without `additionalProperties:false` admits any key; an array without `items` admits any element | `validate_portable_schema` enforces those beyond the keyword list and refuses `description`/`title`. **Constrains what S7/S8 may write** — flagged for those packets |
 | F21 | **The local model server is down.** Nothing on `:8080` or `:8081` | S12 will run on recorded responses. Reported honestly rather than worked around; see §8 |
+
+### R1 findings — two that outlive the repair
+
+| # | Finding | Why it matters |
+| --- | --- | --- |
+| F22 | **`db.transaction.monitor.check.interval = 2s`** and `db.transaction.timeout = 0s` (both verified live). The server has no default statement ceiling, and it notices an expired transaction only every two seconds | **This is a real ceiling on §16's whole timeout story, not just on one test.** `FRESHNESS_TIMEOUT_SECONDS = 30.0` is far above it so the gate is unaffected — but **any per-tool budget S11 sets in `config/story.yaml` below ~2 s will be advisory rather than enforced on this instance.** Must be written down before the budgets are chosen |
+| F23 | **The structural bound rule has a hole the aggregate branch opens.** A statement returning `count(n) AS c, collect(DISTINCT n.x) AS xs` passes as "one row by construction" — correct on row count, and an unbounded *payload*. `DATA_NODE_INVENTORY` does exactly this over 28,836 nodes and is legitimately fine today, but the rule as written would equally pass a statement collecting 28,836 ids into one row | The row bound is enforced; the **token** bound §10.2 actually cares about is not. Referred to the adversarial review |
 
 ## 8. Founder gates
 
