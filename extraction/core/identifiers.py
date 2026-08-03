@@ -38,16 +38,67 @@ digest cannot tell those columns apart. Four of the 58 carry disagreeing values,
 extension `event_id` took when participants entered its digest, and additive in the same way:
 an empty `structural_position` reproduces the previous id byte for byte, so a narrative claim,
 which has no grid position to state, keeps the id it already had.
+
+**A lane with neither a passage nor a position had no identity at all, and the module said so
+by returning a constant** *(verified 2026-08-03: `digest()` over no parts, and over only blank
+parts, is `e3b0c44298fc`)*. An XBRL fact has no passage and no grid, so every XBRL reading of
+one `(metric, subject, period, lane)` minted `obs:…:xbrl:e3b0c44298fc` — one id for the
+original 10-K, the next year's comparative and the year after's, which is the "silently
+discarding whichever arrived second" failure this module exists to prevent, arriving through
+the one door it had left open. Two changes close it, F0 §3:
+
+* `digest` **refuses** an input whose parts are all empty rather than minting the constant. A
+  lane that supplies no discriminator is a lane whose ids are not unique, and an exception at
+  the point of minting is cheaper than a duplicate found in a catalog;
+* `xbrl_structural_position` states what an XBRL fact supplies *instead of* a grid coordinate —
+  the filing it was tagged in, and the fact's coordinates within it.
+
+The XBRL lane is not implemented here (F1/F2 own it). What is implemented is the identity
+contract it must use, so that it cannot be written against the collision.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
+# `typing`, not `collections.abc`: the narrative lane's import allowlist
+# (`tests/extraction/test_narrative_lane.py:1644`) admits the first and not the second, and
+# widening a guard that exists to keep a wire format out of the lane is not worth a spelling
+# preference. Caught by that test, which is what it is for.
+from typing import Iterable, Mapping, Sequence
 
 DIGEST_CHARS = 12
 
+#: The version of the *identity rule*, not of the code around it.
+#:
+#: 1.0.0 is the unversioned rule that minted every id in `extract-v1-lexical-2422c4252c07`:
+#: `digest(passage_id, *structural_position)`, with the grid discriminator added at step 12.
+#: 1.1.0 is this module: the empty-digest refusal and the XBRL structural position. **Minor,
+#: because it is additive** — every one of that run's 2,707 observation ids recomputes byte for
+#: byte under it *(verified 2026-08-03 via `graph.core.derivation.mismatched_observation_ids`
+#: over the full run: 2,707 recomputed, 0 mismatches, id-set sha256 unchanged at
+#: `7e31fb6d867e…`)*. 1.1.0 mints ids 1.0.0 could not mint; it changes none that it could.
+#:
+#: **Deliberately not a digest part.** Folding the version into the hash would change all
+#: 2,707 ids, which is exactly what F0 §3.3 forbids, and would make every future clarification
+#: of this file a corpus rebuild. It is a declaration for a manifest to record, not an input.
+OBSERVATION_IDENTITY_VERSION = "1.1.0"
+
 _SAFE = re.compile(r"[^a-z0-9]+")
+
+
+class EmptyIdentityError(ValueError):
+    """An id was asked for from inputs that discriminate nothing.
+
+    Raised rather than defaulted, for the same reason `MissingIdentityError` is raised in the
+    catalog stage: an id that every caller with no information shares is not an id. It joins
+    every such row to every other, and whichever row is written second wins.
+    """
+
+
+def _all_blank(parts: Iterable[object]) -> bool:
+    """True when nothing in `parts` carries a character. Empty input included."""
+    return all(str(part).strip() == "" for part in parts)
 
 
 def _slug(value: str) -> str:
@@ -61,7 +112,21 @@ def digest(*parts: str, length: int = DIGEST_CHARS) -> str:
 
     Parts are joined with a separator that cannot occur in a slug, so ("a", "bc") and
     ("ab", "c") cannot collide.
+
+    **Refuses an input that carries nothing** — no parts, or parts that are all empty or
+    whitespace. Both are `sha256("")` and both used to return `e3b0c44298fc`, a constant that
+    reads like an identity and is the absence of one.
+
+    The test is *all* parts, not any: `digest("", "accession=…")` is a legitimate call, and it
+    is the shape the XBRL lane makes — no passage, but a position. One blank part beside a
+    real one still discriminates, and blanks are how an absent optional component keeps its
+    slot (`fy=` below) instead of shifting every part after it.
     """
+    if _all_blank(parts):
+        raise EmptyIdentityError(
+            f"digest() over {len(parts)} part(s) that carry no characters: an id built from "
+            "this is the constant every empty input shares, not an identity. The lane must "
+            "supply a discriminator — a passage, a grid coordinate, an XBRL position.")
     joined = "\x1f".join(str(p) for p in parts)
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:length]
 
@@ -71,7 +136,7 @@ def observation_id(
     subject_entity_id: str,
     period_key: str,
     lane: str,
-    passage_id: str,
+    passage_id: str | None,
     structural_position: tuple[str, ...] = (),
 ) -> str:
     """`obs:{metric}:{subject}:{period}:{lane}:{digest12}` over the reading's position.
@@ -88,15 +153,120 @@ def observation_id(
     and `digest(*[passage_id])` are the same call — so the extension is additive and every
     narrative-lane id is unchanged by it. This is the discipline `event_id` used when
     `participants` entered its digest; see that docstring.
+
+    `passage_id` may be `None` — an XBRL fact is tagged in an instance document, not read out
+    of a normalized passage, and F0 §2.2 makes fabricating a passage id for it the specific
+    failure the evidence contract exists to prevent. A lane with no passage must then carry the
+    whole discriminator in `structural_position`; supplying neither raises
+    `EmptyIdentityError`, and the refusal is precisely the collision in F0 §3.1.
+
+    The empty passage keeps its slot in the digest rather than being dropped, so an XBRL
+    position `(p,)` cannot collide with a passage id that happens to read `p`.
     """
+    parts = (passage_id or "", *structural_position)
+    if _all_blank(parts):
+        raise EmptyIdentityError(
+            f"{metric_id}/{subject_entity_id}/{period_key} on lane {lane!r}: no passage_id and "
+            "no structural_position, so every reading of this metric, subject, period and lane "
+            "would mint one id. A lane with no passage must state its own position — see "
+            "`xbrl_structural_position`.")
     return ":".join((
         "obs",
         _slug(metric_id),
         _slug(subject_entity_id),
         period_key,
         _slug(lane),
-        digest(passage_id, *structural_position),
+        digest(*parts),
     ))
+
+
+def xbrl_structural_position(
+    *,
+    accession: str,
+    concept: str,
+    fiscal_year: str | int | None = None,
+    fiscal_period: str | None = None,
+    context_id: str | None = None,
+    unit: str | None = None,
+    dimensions: Mapping[str, str] | Sequence[tuple[str, str]] = (),
+) -> tuple[str, ...]:
+    """Where an XBRL fact sits, as ordered digest parts — the grid coordinates of a filing.
+
+    This is the same mechanism `LaneClaim.structural_position` uses and not a second identity
+    system: an ordered tuple of self-describing parts, fed to `observation_id`, derived only
+    from where the fact was tagged and never from what it says.
+
+    ::
+
+        ("accession=0001801169-22-000027", "fy=2021", "fp=FY",
+         "concept=us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+         "context=", "unit=USD")
+
+    **`accession` is what makes the FY2020 revenue triple three observations.** The plan needs
+    2,583,121,000 from the FY2020 10-K (`0001801169-21-000011`), 2,583,000,000 from the FY2021
+    10-K's comparative column (`-22-000027`) and 2,583,000,000 again from the FY2022 10-K
+    (`-23-000024`) to exist as three rows: same metric, same subject, same period, same lane,
+    three filings. Accession separates them, and it separates an amendment from what it amends
+    for the same reason — a `10-K/A` is filed under its own accession, so no `form` part is
+    needed to tell the two apart.
+
+    The remaining parts:
+
+    * `fy`/`fp` — the *filing's* fiscal frame, which is not the fact's period. Companyfacts
+      states both beside every fact, and they differ exactly for a comparative: the FY2021 10-K
+      reports FY2020 revenue with `fy=2021, fp=FY` *(unverified — F1 owns acquisition and no
+      Companyfacts fixture is committed yet; this is the API's documented fiscal-year and
+      fiscal-period focus, not a measurement)*. Carried because they are the filing coordinate
+      a reader needs to see why two ids differ, and because a filing can restate one period in
+      two frames. Absent, they are empty and accession alone still discriminates.
+    * `concept` — two concepts can map to one metric (`Revenues` and
+      `RevenueFromContractWithCustomerExcludingAssessedTax`), and V1 §2.5 requires the
+      extension concept and the standard one to be separate readings, not one overwritten.
+    * `context` — the instance document's `contextRef`. **Empty for a Companyfacts fact, and
+      that is correct rather than missing**: the Companyfacts API states `start`/`end`/`accn`/
+      `fy`/`fp`/`form`/`filed`/`frame` and no context id, having already collapsed contexts to
+      the consolidated dimensionless series *(unverified, same reason as `fy`/`fp`)*.
+      Inline-XBRL parsing (F1) has contexts and fills it. Requiring it here would have blocked
+      the Companyfacts lane, which is why it is optional and accession is not.
+    * `unit` — an XBRL fact is identified by concept, context *and* unit (the spec's own
+      duplicate-fact rule), so a per-share and a total tagged under one concept and context are
+      two facts.
+    * `dimensions` — one `dim:{axis}={member}` part per axis, **sorted by axis**, so a
+      dimensional identity read out of a dict, a list or a shuffled list is one tuple. Absent
+      dimensions add no parts: the dimensionless Companyfacts series keeps the shortest tuple,
+      and a segmented fact can never collide with it because it carries parts the other lacks.
+
+    Absent optional components render as an empty value (`fy=`) rather than being dropped, so
+    the tuple's shape is fixed and "the source did not state one" cannot be confused with a
+    neighbouring component shifting into the slot.
+
+    Values are used verbatim, not `_slug`ged: `us-gaap:Revenues` and `dei:Revenues` differ by
+    a character `_slug` folds, and an accession's hyphens are its format. `_slug` is for
+    readable segments, and none of these appear in one.
+
+    Rejected: the instance document's own `id` attribute on the fact element. It is unique
+    within one rendering and not stable across re-renderings of the same filing, so an id built
+    on it would fail to reproduce on a second parse — the property every other id here has.
+    """
+    accession = str(accession).strip()
+    concept = str(concept).strip()
+    if not accession or not concept:
+        raise EmptyIdentityError(
+            "an XBRL structural position needs at least the filing it was tagged in and the "
+            f"concept it was tagged as; got accession={accession!r}, concept={concept!r}")
+
+    pairs = (tuple(dimensions.items()) if isinstance(dimensions, Mapping)
+             else tuple(dimensions))
+    return (
+        f"accession={accession}",
+        f"fy={'' if fiscal_year is None else str(fiscal_year).strip()}",
+        f"fp={'' if fiscal_period is None else str(fiscal_period).strip()}",
+        f"concept={concept}",
+        f"context={'' if context_id is None else str(context_id).strip()}",
+        f"unit={'' if unit is None else str(unit).strip()}",
+        *(f"dim:{str(axis).strip()}={str(member).strip()}"
+          for axis, member in sorted(pairs, key=lambda pair: (str(pair[0]), str(pair[1])))),
+    )
 
 
 def claim_id(claim_kind: str, payload_id: str) -> str:
