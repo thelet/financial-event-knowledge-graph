@@ -56,6 +56,19 @@ class InMemoryPassages:
 PASSAGE_ID = "norm:0001801169:0001801169-25-000037:q12025formxex991earningsre.htm#p14"
 DOCUMENT_ID = PASSAGE_ID.split("#")[0]
 
+#: The corpus row `build_evidence` reads its `table_id` from. Needed since F0 Part B, which
+#: began enforcing `claims.yaml`'s long-declared `normalized_table` requirement of a
+#: `table_id`: `to_claim(claim)` with no passage row builds a table-lane reference that names
+#: no table, which the vocabulary has always said is not a table citation.
+TABLE_PASSAGE_ROW = {
+    "passage_id": PASSAGE_ID,
+    "document_id": DOCUMENT_ID,
+    "table_id": DOCUMENT_ID + "#b3",
+    "block_ids": [DOCUMENT_ID + "#b3"],
+    "source_url": ("https://www.sec.gov/Archives/edgar/data/1801169/000180116925000037/"
+                   "q12025formxex991earningsre.htm"),
+}
+
 
 def make_lane_claim(**overrides) -> LaneClaim:
     base = dict(
@@ -335,7 +348,7 @@ def test_a_dangling_evidence_anchor_fails_the_run(ontology):
 
 
 def test_a_resolvable_anchor_passes(ontology):
-    claim = to_claim(make_lane_claim())
+    claim = to_claim(make_lane_claim(), TABLE_PASSAGE_ROW)
     result = validate([claim], ontology=ontology,
                       passages=InMemoryPassages({PASSAGE_ID: "Homes sold | 2,946"}))
     assert result.ok, [f"{f.code}: {f.detail}" for f in result.errors]

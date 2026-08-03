@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .inputs import ExtractionRunInputs, GraphInputError
+from .inputs import ClaimRow, ExtractionRunInputs, GraphInputError, cited_passage_of
 
 
 class EmptyPassageCitationError(GraphInputError):
@@ -61,6 +61,15 @@ def cited_passage_ids(inputs: ExtractionRunInputs) -> tuple[str, ...]:
     """
     cited: set[str] = set()
     for claim in inputs.claims:
+        if not claim.passage_id and not cites_a_passage(inputs, claim):
+            # F0 Part B. `claims.jsonl` writes `passage_id: ""` when the claim's evidence
+            # names no passage (`jsonl_catalog._anchor`), which is now a legal state rather
+            # than a broken row: an XBRL fact, a market-data row and a calculated value cite
+            # no passage and never will. The refusal below is kept for the case it was
+            # written for — a claim whose evidence *does* name a passage and whose own
+            # `passage_id` is empty is still a fact with unlocatable evidence, and the two
+            # are told apart by reading the evidence rather than by trusting the empty string.
+            continue
         cited.add(required_passage_id(claim.passage_id, cited_by=claim.claim_id))
     for issue in inputs.issues:
         cited.add(required_passage_id(issue.passage_id, cited_by=issue.issue_id))
@@ -68,12 +77,26 @@ def cited_passage_ids(inputs: ExtractionRunInputs) -> tuple[str, ...]:
         cited.add(required_passage_id(
             rejection.passage_id, cited_by=rejection.rejection_id))
     for row in inputs.evidence:
-        # `EvidenceReference.passage_id` is declared optional and is a string on all 2,717
-        # rows here. `None` means "this evidence names no passage", which the edge builder
-        # refuses by name when it needs one; it is not a citation, so it adds nothing here.
-        if row.passage_id is not None:
-            cited.add(required_passage_id(row.passage_id, cited_by=row.claim_id))
+        # `None` means "this evidence names no passage" — either a passage row that left the
+        # field null, or a row of a kind that has no such column at all. Neither is a
+        # citation, so neither adds anything here.
+        passage_id = cited_passage_of(row)
+        if passage_id is not None:
+            cited.add(required_passage_id(passage_id, cited_by=row.claim_id))
     return tuple(sorted(cited))
+
+
+def cites_a_passage(inputs: ExtractionRunInputs, claim: ClaimRow) -> bool:
+    """Whether any of this claim's evidence rows names a filed passage.
+
+    Read from `evidence.jsonl` rather than from `claims.passage_id`, because the empty string
+    is exactly the value being interpreted and cannot also be the evidence for the
+    interpretation. `check_evidence_claim_ids` has already guaranteed every claim has at least
+    one evidence row, so an empty answer here means "every reference this claim carries is of
+    a kind that names no passage" and not "we found nothing".
+    """
+    return any(cited_passage_of(row) is not None
+               for row in inputs.evidence_by_claim_id.get(claim.claim_id, ()))
 
 
 def documents_of(inputs: ExtractionRunInputs, passage_ids: Iterable[str]) -> tuple[str, ...]:
@@ -91,6 +114,7 @@ def documents_of(inputs: ExtractionRunInputs, passage_ids: Iterable[str]) -> tup
 __all__ = [
     "EmptyPassageCitationError",
     "cited_passage_ids",
+    "cites_a_passage",
     "documents_of",
     "required_passage_id",
 ]

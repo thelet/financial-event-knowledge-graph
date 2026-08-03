@@ -1,0 +1,126 @@
+[
+  {
+    "case": "xbrl_fact_naming_a_passage",
+    "why": "The failure F0 §2.2 exists to prevent: a tagged fact presented as something a passage said.",
+    "expected_codes": ["EVIDENCE_PASSAGE_ON_NON_PASSAGE_KIND"],
+    "reference": {
+      "evidence_kind": "xbrl_fact",
+      "accession": "0001801169-21-000021",
+      "xbrl_concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116921000021/open-20210331.htm",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1"
+    }
+  },
+  {
+    "case": "calculated_citing_a_filed_passage",
+    "why": "A re-derived value that cites a filing claims the filing stated it. F0 §2.2 forbids it by name.",
+    "expected_codes": ["EVIDENCE_PASSAGE_ON_NON_PASSAGE_KIND", "EVIDENCE_KIND_MIXED"],
+    "reference": {
+      "evidence_kind": "calculated",
+      "input_observation_ids": ["obs:revenue:opendoor:2021Q1:normalized-table:0000000000aa"],
+      "calculation_expression": "revenue - cost_of_revenue",
+      "calculation_version": "gross_profit_v1",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1",
+      "document_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm"
+    }
+  },
+  {
+    "case": "calculated_with_a_table_id_only",
+    "why": "block_ids and table_id are filed-passage fields too; the rule is about the source, not the field name.",
+    "expected_codes": ["EVIDENCE_PASSAGE_ON_NON_PASSAGE_KIND"],
+    "reference": {
+      "evidence_kind": "calculated",
+      "input_observation_ids": ["obs:revenue:opendoor:2021Q1:normalized-table:0000000000aa"],
+      "calculation_expression": "revenue - cost_of_revenue",
+      "calculation_version": "gross_profit_v1",
+      "table_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#b8"
+    }
+  },
+  {
+    "case": "xbrl_fact_without_its_accession",
+    "why": "A concept name alone does not locate a fact: every filing that tags it would answer.",
+    "expected_codes": ["EVIDENCE_FIELD_MISSING"],
+    "reference": {
+      "evidence_kind": "xbrl_fact",
+      "xbrl_concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116921000021/open-20210331.htm"
+    }
+  },
+  {
+    "case": "market_data_without_fetched_at",
+    "why": "A provider row is mutable. Undated, the citation cannot be checked against the provider later.",
+    "expected_codes": ["EVIDENCE_FIELD_MISSING"],
+    "reference": {
+      "evidence_kind": "market_data",
+      "provider": "example_market_data_provider",
+      "source_identity": "example/equities/daily_close",
+      "row_identity": "OPEN:2026-07-31:close",
+      "instrument_id": "instrument:open:xnas",
+      "session_date": "2026-07-31"
+    }
+  },
+  {
+    "case": "market_data_carrying_an_xbrl_concept",
+    "why": "One reference is one kind. A price row that also names a tagged concept is two claims in one object.",
+    "expected_codes": ["EVIDENCE_KIND_MIXED"],
+    "reference": {
+      "evidence_kind": "market_data",
+      "provider": "example_market_data_provider",
+      "source_identity": "example/equities/daily_close",
+      "row_identity": "OPEN:2026-07-31:close",
+      "instrument_id": "instrument:open:xnas",
+      "session_date": "2026-07-31",
+      "fetched_at": "2026-08-03T09:15:00+00:00",
+      "xbrl_concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
+    }
+  },
+  {
+    "case": "external_page_without_a_channel",
+    "why": "The channel's canonicality decides whether the page may support a historical claim at all.",
+    "expected_codes": ["EVIDENCE_FIELD_MISSING"],
+    "reference": {
+      "evidence_kind": "external_page",
+      "source_url": "https://www.opendoor.com/w/where-we-buy-houses",
+      "fetched_at": "2026-08-03T09:15:00+00:00"
+    }
+  },
+  {
+    "case": "calculated_without_its_version",
+    "why": "An expression with no calculator version cannot be reproduced once the calculator changes.",
+    "expected_codes": ["EVIDENCE_FIELD_MISSING"],
+    "reference": {
+      "evidence_kind": "calculated",
+      "input_observation_ids": ["obs:revenue:opendoor:2021Q1:normalized-table:0000000000aa"],
+      "calculation_expression": "revenue - cost_of_revenue"
+    }
+  },
+  {
+    "case": "normalized_passage_without_its_document",
+    "why": "The passage contract is unchanged and still requires both fields.",
+    "expected_codes": ["EVIDENCE_FIELD_MISSING"],
+    "reference": {
+      "evidence_kind": "normalized_passage",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1"
+    }
+  },
+  {
+    "case": "normalized_passage_naming_a_passage_the_corpus_lacks",
+    "why": "The check this module was written for, unweakened.",
+    "expected_codes": ["EVIDENCE_UNRESOLVED"],
+    "reference": {
+      "evidence_kind": "normalized_passage",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p999999",
+      "document_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm"
+    }
+  },
+  {
+    "case": "normalized_table_with_no_table_id",
+    "why": "Declared required by the vocabulary and carried by all 2,690 table references in the run.",
+    "expected_codes": ["EVIDENCE_FIELD_MISSING"],
+    "reference": {
+      "evidence_kind": "normalized_table",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1",
+      "document_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm"
+    }
+  }
+]

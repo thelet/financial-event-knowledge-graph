@@ -4,18 +4,30 @@
 # They are grouped in one file because none of them is large enough to justify its own, and
 # splitting them would be symmetry for its own sake.
 
+# `required_fields` and `optional_fields` together are the *whole* contract for a kind:
+# permitted = required | optional, and a reference populating anything outside that is a
+# mixture of two kinds and is refused (F0 §2.2). `extraction.core.validation` reads these and
+# hard-codes no field list of its own, so a kind is added here and nowhere else.
 evidence_types:
   - concept_id: normalized_passage
     label: Normalized passage
     description: A passage from the normalized corpus, addressed by passage id.
     evidence_kind: normalized_passage
     required_fields: [passage_id, document_id]
+    optional_fields: [table_id, block_ids, char_start, char_end, quoted_text, source_url]
 
   - concept_id: normalized_table
     label: Normalized table
     description: A table extracted during normalization, addressed by table id.
     evidence_kind: normalized_table
-    required_fields: [table_id, document_id]
+    # `passage_id` is required here as well as `table_id`, which is stricter than F0 §2.2's
+    # "passage_id *or* table_id". A table id in this corpus is a block id *inside* a passage
+    # (`...htm#b8`), so a table citation that named no passage could not be resolved against
+    # the passage catalog - and dropping that resolution would weaken the one check every one
+    # of the 2,690 normalized_table references passes today. All 2,690 carry both
+    # *(verified 2026-08-03 against extract-v1-lexical-2422c4252c07)*.
+    required_fields: [passage_id, table_id, document_id]
+    optional_fields: [block_ids, char_start, char_end, quoted_text, source_url]
 
   - concept_id: xbrl_fact
     label: XBRL fact
@@ -23,13 +35,18 @@ evidence_types:
       A tagged fact in an inline-XBRL document. The strongest evidence available - it
       carries its own period, unit and context.
     evidence_kind: xbrl_fact
-    required_fields: [xbrl_concept, accession]
+    # `source_url` added 2026-08-03 (F0 §2.2): an accession and a concept name locate the fact
+    # inside a filing, and nothing without the document URL locates the filing itself.
+    # Context and fact coordinates join this list when F1 exists; they are not guessed here.
+    required_fields: [xbrl_concept, accession, source_url]
+    optional_fields: [document_id, quoted_text]
 
   - concept_id: filing_metadata
     label: Filing metadata
     description: Submission-level metadata - accession, form, filing date, items.
     evidence_kind: filing_metadata
     required_fields: [accession]
+    optional_fields: [document_id, source_url]
 
   - concept_id: external_page
     label: External page
@@ -37,7 +54,35 @@ evidence_types:
       A page outside EDGAR, such as the company dashboard. Its channel's canonicality
       decides whether it may support a historical claim.
     evidence_kind: external_page
-    required_fields: [source_url, disclosure_channel_id]
+    # A page is mutable and undated by anything outside itself, so `fetched_at` is required
+    # where a filing needs no such field: without it the citation cannot be checked against
+    # the page later, and "the dashboard said 100" is unfalsifiable.
+    required_fields: [source_url, disclosure_channel_id, fetched_at]
+    optional_fields: [quoted_text]
+
+  - concept_id: market_data
+    label: Market data row
+    description: >-
+      One row of a price or market series from a data provider. Not a disclosure: nobody
+      filed it, and it is reproducible only against the provider, the series and the row.
+    evidence_kind: market_data
+    # Six fields because five of them are individually insufficient. Provider and series
+    # identify what was read, session date and instrument identify which quantity, row
+    # identity survives a provider revising a session, and fetched_at dates the reading.
+    required_fields:
+      [provider, source_identity, row_identity, instrument_id, session_date, fetched_at]
+    optional_fields: [source_url, disclosure_channel_id]
+
+  - concept_id: calculated
+    label: Calculated value
+    description: >-
+      A value re-derived from other observations. Its evidence is the derivation, not a
+      source: given the inputs and the expression, anyone can recompute it.
+    evidence_kind: calculated
+    # No filed-passage field is permitted. A calculated value that cites a passage is
+    # claiming the filing said something it did not; F0 §2.2 names this explicitly.
+    required_fields: [input_observation_ids, calculation_expression, calculation_version]
+    optional_fields: []
 
 claim_types:
   - concept_id: metric_observation_claim

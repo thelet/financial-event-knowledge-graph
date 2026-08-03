@@ -46,7 +46,7 @@ def verify(catalogs, *, ontology, passages) -> VerificationResult:
     """All five, in §5's order. Structural problems surface before vocabulary ones."""
     claims = list(catalogs.claims)
     return VerificationResult(checks=[
-        _evidence_resolution(claims, passages),
+        _evidence_resolution(claims, passages, ontology),
         _ontology_validation(claims, ontology),
         _forbidden_lanes(claims, ontology),
         _duplicate_identities(catalogs),
@@ -54,8 +54,11 @@ def verify(catalogs, *, ontology, passages) -> VerificationResult:
     ])
 
 
-def _evidence_resolution(claims, passages) -> CheckResult:
-    """Anchors resolve, and quotations are quotations.
+def _evidence_resolution(claims, passages, ontology) -> CheckResult:
+    """Evidence satisfies its kind's contract, and quotations are quotations.
+
+    `ontology` threaded through in F0 Part B: the evidence contract is declared per kind in
+    the vocabulary, so the check cannot be made without it.
 
     The quoted-span half is a *warning*, matching `core.validation`'s own judgement: whitespace
     normalisation between a lane's reading and the catalog's text can legitimately differ, and
@@ -65,7 +68,8 @@ def _evidence_resolution(claims, passages) -> CheckResult:
     return CheckResult(
         check=EVIDENCE_RESOLUTION,
         failures=[CheckFinding(f.code, f.detail, f.claim_id)
-                  for f in validate_evidence_resolves(claims, passages)],
+                  for f in validate_evidence_resolves(
+                      claims, passages, ontology=ontology)],
         warnings=[CheckFinding(f.code, f.detail, f.claim_id)
                   for f in validate_quoted_text(claims, passages)],
         examined=anchors)

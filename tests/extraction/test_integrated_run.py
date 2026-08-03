@@ -277,10 +277,17 @@ def test_the_manifest_is_the_one_place_the_environment_is_recorded(directory):
 
 
 def test_every_catalog_row_carries_the_id_its_catalog_is_keyed_by(outcome):
+    """Present, not truthy: `evidence_index` is legitimately `0` on a claim's first reference.
+
+    `render` makes the same distinction, and for the same reason — a first reference is not a
+    missing one.
+    """
     for name in CATALOG_FILES:
         for row in RunDirectory(outcome.path).rows(name):
             for field_name in IDENTITY_FIELDS[name]:
-                assert row.get(field_name), f"{name}: {field_name} missing from {sorted(row)}"
+                value = row.get(field_name)
+                assert value is not None and value != "", (
+                    f"{name}: {field_name} missing from {sorted(row)}")
 
 
 def test_a_row_without_its_id_is_refused_rather_than_written():
@@ -845,9 +852,29 @@ def test_the_manifest_and_the_report_state_the_same_five_results(outcome, ontolo
 
 
 def test_identity_of_uses_the_compound_key_evidence_needs():
-    row = {"claim_id": "claim:event:abc", "passage_id": "norm:x#p1"}
-    assert identity_of(EVIDENCE, row) == "claim:event:abc\x1fnorm:x#p1"
+    """`(claim_id, evidence_index)` since F0 Part B — see `IDENTITY_FIELDS`.
+
+    It was `(claim_id, passage_id)` until the evidence contract was discriminated by kind, at
+    which point an `xbrl_fact` or `market_data` row stopped having a `passage_id` column at
+    all and the old key could not be formed. `evidence_index` is total over every kind and
+    still separates two references of one claim, which is what the compound key was for.
+    """
+    row = {"claim_id": "claim:event:abc", "evidence_index": 0, "passage_id": "norm:x#p1"}
+    assert identity_of(EVIDENCE, row) == "claim:event:abc\x1f0"
     assert identity_of(CLAIMS, {"claim_id": "claim:event:abc"}) == "claim:event:abc"
+
+
+def test_a_second_reference_on_one_claim_is_a_second_identity():
+    """The index, not the passage, is what makes two references two rows.
+
+    Two references of one claim to *one* passage were one identity under the old key and are
+    two under this one. That is the point: they are two rows, and a duplicate-identity check
+    that called them one could not tell a genuine collision from a claim citing a passage
+    twice.
+    """
+    first = {"claim_id": "claim:event:abc", "evidence_index": 0, "passage_id": "norm:x#p1"}
+    second = {**first, "evidence_index": 1}
+    assert identity_of(EVIDENCE, first) != identity_of(EVIDENCE, second)
 
 
 # -- the CLI, driven -----------------------------------------------------------------------------

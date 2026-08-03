@@ -232,6 +232,41 @@ class EventParticipant(_Frozen):
     cardinality: Literal["one", "many"] = "one"
 
 
+class EventPropertyContract(_Frozen):
+    """Types for the properties an event type declares in `allowed_properties`.
+
+    `allowed_properties` is a bare list of names, and `EventInstance.properties` is
+    `dict[str, Any]` — so `low_value: "1.0 billion"` entered a guidance event silently while
+    every observation lane enforced scale discipline *(V1 §5.2 defect 2)*. This declares what
+    each named property must **be**, so the check that reads it names no concept and a second
+    event type with a value range costs a YAML edit rather than a code edit.
+
+    Optional by design: an event type that carries only free-form strings declares nothing here
+    and is checked exactly as it was before *(added 2026-08-03, F0 Part D2)*.
+
+    | Field | Meaning |
+    | --- | --- |
+    | `required_properties` | must be present and non-empty |
+    | `numeric_properties` | must parse as a plain number — not `"1.0 billion"`, not `"1,000"` |
+    | `metric_reference_properties` | must name a declared `metric_definition` |
+    | `unit_property` | must hold a member of `KNOWN_UNITS` |
+    | `currency_property` | must be present when the unit is monetary |
+    | `range_low_property` / `range_high_property` | the two bounds of one value range |
+
+    The range pair is named rather than inferred from `numeric_properties` because "these two
+    numbers bound one value" is a stronger statement than "these two properties are numbers",
+    and only the first justifies refusing a lone bound.
+    """
+
+    required_properties: tuple[str, ...] = ()
+    numeric_properties: tuple[str, ...] = ()
+    metric_reference_properties: tuple[str, ...] = ()
+    unit_property: str | None = None
+    currency_property: str | None = None
+    range_low_property: str | None = None
+    range_high_property: str | None = None
+
+
 class EventTypeDefinition(ConceptDefinition):
     category: Literal[ConceptCategory.EVENT_TYPE] = ConceptCategory.EVENT_TYPE
     participants: tuple[EventParticipant, ...] = ()
@@ -245,9 +280,15 @@ class EventTypeDefinition(ConceptDefinition):
     #: record what the passage actually states. Empty means no alternative requirement.
     required_temporal_any_of: tuple[str, ...] = ()
     allowed_properties: tuple[str, ...] = ()
+    #: Types for the names in `allowed_properties`. See `EventPropertyContract`.
+    property_contract: EventPropertyContract | None = None
     evidence_required: bool = True
     allowed_metric_relationships: tuple[str, ...] = ()
     allowed_relationships: tuple[str, ...] = ()
+    #: Assertion types this event type refuses. `inference_restrictions` below is prose that no
+    #: code has ever read; where a restriction is mechanical it belongs here instead, so the
+    #: rule can be tested rather than only stated *(added 2026-08-03, F0 Part D1)*.
+    forbidden_assertion_types: tuple[AssertionType, ...] = ()
     inference_restrictions: str | None = None
     sec_item_codes: tuple[str, ...] = ()
 
@@ -271,9 +312,27 @@ class RelationshipDefinition(ConceptDefinition):
 
 
 class EvidenceTypeDefinition(ConceptDefinition):
+    """One evidence kind and the shape a reference of that kind must have.
+
+    `required_fields` was declared from the start and read by nothing until F0 Part B; it is
+    now the single source of what each kind must carry, so a vocabulary change cannot silently
+    disagree with the validator — the same argument `deferred_metric_ids` already wins.
+
+    `optional_fields` is the other half of a *discriminated* contract and is new
+    *(2026-08-03)*. Without it "required" alone cannot say that an `xbrl_fact` may not carry a
+    `passage_id`: every field would be permitted everywhere and the only enforceable rule would
+    be presence. Permitted is `required_fields | optional_fields`; anything else populated on a
+    reference of this kind is a mixture of two kinds and is refused.
+    """
+
     category: Literal[ConceptCategory.EVIDENCE_TYPE] = ConceptCategory.EVIDENCE_TYPE
     evidence_kind: EvidenceKind
     required_fields: tuple[str, ...] = ()
+    optional_fields: tuple[str, ...] = ()
+
+    @property
+    def permitted_fields(self) -> frozenset[str]:
+        return frozenset(self.required_fields) | frozenset(self.optional_fields)
 
 
 class ClaimTypeDefinition(ConceptDefinition):
@@ -331,10 +390,32 @@ class OntologyMetadata(_Frozen):
 
 
 class EvidenceReference(BaseModel):
-    """A pointer into the normalized corpus.
+    """A pointer at one citable source, of exactly one `EvidenceKind`.
 
     Deliberately a small boundary model of ids and primitives. The ontology never imports a
     normalization class, so either side can change without breaking the other.
+
+    **The field list is a union across kinds and the model does not police which apply.** That
+    is deliberate: which fields a kind requires and permits is declared in `claims.yaml`, so a
+    new kind is a vocabulary edit rather than a model edit, and the check that reads it lives
+    in `extraction.core.validation`. What this class guarantees is only that a field means the
+    same thing whichever kind carries it.
+
+    Field groups, by the kind that owns them:
+
+    | Group | Fields |
+    | --- | --- |
+    | filed passage | `passage_id`, `document_id`, `table_id`, `block_ids`, `char_start`, `char_end` |
+    | any source | `quoted_text`, `source_url` |
+    | XBRL / filing | `xbrl_concept`, `accession` |
+    | external page | `disclosure_channel_id`, `fetched_at` |
+    | market data | `provider`, `source_identity`, `row_identity`, `instrument_id`, `session_date`, `fetched_at` |
+    | calculated | `input_observation_ids`, `calculation_expression`, `calculation_version` |
+
+    The last two groups are new *(2026-08-03, F0 Part B)*. `calculation_version` is separate
+    from `MetricObservation.formula_version_id` on purpose: the observation records which
+    formula it was derived under, and the evidence records which version of the *calculator*
+    produced this citation. They are usually equal and are not the same statement.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -351,13 +432,37 @@ class EvidenceReference(BaseModel):
     xbrl_concept: str | None = None
     accession: str | None = None
     disclosure_channel_id: str | None = None
+    #: When a non-filed source was read. A filing is immutable and dated by EDGAR; a page and
+    #: a price series are not, so a citation to one that does not say when it was fetched
+    #: cannot be checked against anything later.
+    fetched_at: str | None = None
+    provider: str | None = None
+    #: The provider-stable name of the series or dataset — not the URL, which may be a query
+    #: that stops resolving. `source_url` stays available beside it for a human to follow.
+    source_identity: str | None = None
+    #: Which row of that series. A session date alone does not identify a row when a provider
+    #: revises one.
+    row_identity: str | None = None
+    instrument_id: str | None = None
+    session_date: str | None = None
+    input_observation_ids: tuple[str, ...] = ()
+    calculation_expression: str | None = None
+    calculation_version: str | None = None
 
     @property
     def has_anchor(self) -> bool:
-        """True when the reference identifies a citable source of any supported kind."""
+        """True when the reference identifies a citable source of any supported kind.
+
+        Widened 2026-08-03 for the non-filed kinds. It stays a coarse "points at something"
+        test — `ontology.core.constraints.check_evidence` uses it to ask whether a claim is
+        evidenced at all — while the per-kind field contract is checked in
+        `extraction.core.validation`, which can read the vocabulary. Every reference that
+        anchored before still anchors: the change only adds disjuncts.
+        """
         return bool(
             self.passage_id or self.table_id or self.xbrl_concept
-            or self.document_id or self.accession
+            or self.document_id or self.accession or self.source_url
+            or self.source_identity or self.input_observation_ids
         )
 
 

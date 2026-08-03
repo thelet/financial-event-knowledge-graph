@@ -28,7 +28,13 @@ from extraction.core.models import PeriodRef
 from ontology.contracts import Ontology
 from ontology.core.models import EvidenceReference, MetricObservation, Population
 
-from .inputs import ClaimRow, EvidenceRow, GraphInputError, ObservationRow, RunManifest
+from .inputs import (
+    ClaimRow,
+    EvidenceRowT,
+    GraphInputError,
+    ObservationRow,
+    RunManifest,
+)
 
 #: The `extractor_metadata` keys that reproduce a table reading's grid coordinates.
 #: **`value_column_index` is a different column** and reproduces only 582 of 2,707 ids
@@ -132,25 +138,28 @@ def check_observation_ids(
 # -- warning derivation ----------------------------------------------------------------
 
 
-def _evidence_reference(row: EvidenceRow) -> EvidenceReference:
+def _evidence_reference(row: EvidenceRowT) -> EvidenceReference:
     """The evidence row as the ontology's boundary model.
 
     Char offsets are absent by construction — the catalog writer drops them (§2.3 trap 3) —
     so they are left at their defaults rather than reconstructed from somewhere else.
+
+    Written from the row's *own* fields rather than from a fixed list (F0 Part B): the seven
+    evidence kinds have six row shapes between them, and naming `passage_id` unconditionally
+    would make this raise on an `xbrl_fact` row that legitimately has no such column. Every
+    key a row carries is a field of `EvidenceReference` by construction — the writer builds
+    the row from one — so this is a projection, not a translation, and a field that stopped
+    lining up would fail here on `extra="forbid"` rather than be dropped.
     """
-    return EvidenceReference(
-        evidence_kind=row.evidence_kind,
-        passage_id=row.passage_id,
-        document_id=row.document_id,
-        table_id=row.table_id,
-        block_ids=row.block_ids,
-        quoted_text=row.quoted_text,
-        source_url=row.source_url,
-    )
+    carried = row.model_dump()
+    carried.pop("claim_id", None)
+    carried.pop("claim_kind", None)
+    carried.pop("evidence_index", None)
+    return EvidenceReference(**carried)
 
 
 def reconstruct_observation(
-    observation: ObservationRow, evidence: Sequence[EvidenceRow]
+    observation: ObservationRow, evidence: Sequence[EvidenceRowT]
 ) -> MetricObservation:
     """A `MetricObservation` from the two catalogs that hold one, and nothing invented.
 
@@ -191,7 +200,7 @@ def reconstruct_observation(
 
 def derive_warnings(
     observations: Sequence[ObservationRow],
-    evidence: Sequence[EvidenceRow],
+    evidence: Sequence[EvidenceRowT],
     ontology: Ontology,
 ) -> dict[str, tuple[str, ...]]:
     """`claim_id -> warning codes`, for the claims that carry one.
@@ -201,7 +210,7 @@ def derive_warnings(
     warned observation carries exactly one code; they are different quantities and §5.5
     reconciles on the second.
     """
-    by_claim: dict[str, list[EvidenceRow]] = {}
+    by_claim: dict[str, list[EvidenceRowT]] = {}
     for row in evidence:
         by_claim.setdefault(row.claim_id, []).append(row)
 

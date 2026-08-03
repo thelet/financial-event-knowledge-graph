@@ -18,6 +18,11 @@ Three rules run through the module, all from §2.2–§2.3:
   have projected zero participants and 10 missing `PARTICIPATES_IN` edges without a word.
 * **`lane` is not `source_lane`.** Routing vocabulary and ontology vocabulary. Both are
   carried and neither is mapped onto the other.
+* **`evidence.jsonl` has one row shape per evidence kind** *(F0 Part B, 2026-08-03)*. Six of
+  the seven catalogs are single-shaped; that one is discriminated by `evidence_kind`, because
+  an `xbrl_fact` or a `market_data` row names no passage and a widened row with a nullable
+  `passage_id` everywhere would let a non-filed source carry an invented one. `EvidenceRow`
+  keeps exactly the ten keys it always had; `parse_evidence_row` picks the reader.
 * **`passage_id` / `document_id` / `document_type` may be empty strings**
   (`jsonl_catalog.py:170-173`). The reader accepts `""` — it is what the run may legally
   contain — and `graph.core.keys` refuses it as a node key. Rejecting it here would make a
@@ -204,25 +209,151 @@ class RelationshipRow(_CatalogRow):
     lane: str
 
 
-class EvidenceRow(_CatalogRow):
-    """`evidence.jsonl` (`:285-300`).
+class _EvidenceRowBase(_CatalogRow):
+    """The four keys every `evidence.jsonl` row carries, whatever kind it is.
 
-    Identity is `(claim_id, passage_id)`, not `claim_id` alone (§2.3 trap 4) — one row per
-    claim in this run, and nothing may be built on that. No char offsets: `char_start` /
-    `char_end` are dropped by the writer (trap 3). `passage_id` / `document_id` are optional
-    because `EvidenceReference` declares them so; both are strings on all 2,717 rows here.
+    Identity is `(claim_id, evidence_index)` (F0 Part B; previously `(claim_id, passage_id)`,
+    which no longer exists as a column on every row) — one row per claim in this run, and
+    nothing may be built on that.
     """
 
     claim_id: str
     claim_kind: str
     evidence_index: int
     evidence_kind: str
+
+
+class EvidenceRow(_EvidenceRowBase):
+    """A filed-passage evidence row: `normalized_passage` or `normalized_table`.
+
+    **The ten keys `evidence.jsonl` has always had, unchanged.** F0 Part B added evidence
+    kinds that name no passage; it did not touch this shape, so every one of the 2,714 rows
+    the current run holds parses here exactly as before.
+
+    No char offsets: `char_start` / `char_end` are dropped by the writer (§2.3 trap 3).
+    `passage_id` / `document_id` are optional because `EvidenceReference` declares them so;
+    both are strings on every row of this run.
+    """
+
     passage_id: str | None
     document_id: str | None
     table_id: str | None
     block_ids: tuple[str, ...]
     source_url: str | None
     quoted_text: str | None
+
+
+class XbrlEvidenceRow(_EvidenceRowBase):
+    """`xbrl_fact` — a tagged fact, located by accession and concept.
+
+    Context and fact coordinates join this row when F1 ingests XBRL; they are absent rather
+    than guessed, and adding them is a further row-shape change with its own version bump.
+    """
+
+    document_id: str | None
+    accession: str
+    xbrl_concept: str
+    source_url: str
+    quoted_text: str | None
+
+
+class FilingMetadataEvidenceRow(_EvidenceRowBase):
+    """`filing_metadata` — submission-level facts, located by accession alone."""
+
+    document_id: str | None
+    accession: str
+    source_url: str | None
+
+
+class ExternalPageEvidenceRow(_EvidenceRowBase):
+    """`external_page` — a page outside EDGAR, dated by when it was read."""
+
+    source_url: str
+    disclosure_channel_id: str
+    fetched_at: str
+    quoted_text: str | None
+
+
+class MarketDataEvidenceRow(_EvidenceRowBase):
+    """`market_data` — one row of a provider's series.
+
+    Nothing here names a passage or a document, because nobody filed it.
+    """
+
+    provider: str
+    source_identity: str
+    row_identity: str
+    instrument_id: str
+    session_date: str
+    fetched_at: str
+    source_url: str | None
+    disclosure_channel_id: str | None
+
+
+class CalculatedEvidenceRow(_EvidenceRowBase):
+    """`calculated` — the derivation *is* the evidence.
+
+    It carries no filed-passage field and cannot: `extra="forbid"` makes a `passage_id` on
+    this row a parse failure by name, which is the F0 §2.2 rule enforced structurally rather
+    than by a check that a future writer could skip.
+    """
+
+    input_observation_ids: tuple[str, ...]
+    calculation_expression: str
+    calculation_version: str
+
+
+#: Any evidence row, whatever its kind. Note `EvidenceRow` is *not* the base: code that wants
+#: "a row that names a filed passage" should test `isinstance(row, EvidenceRow)` — see
+#: `cited_passage_of`.
+EvidenceRowT = (
+    EvidenceRow | XbrlEvidenceRow | FilingMetadataEvidenceRow | ExternalPageEvidenceRow
+    | MarketDataEvidenceRow | CalculatedEvidenceRow
+)
+
+#: Which reader parses which kind. Hand-maintained beside
+#: `extraction.stages.catalog.jsonl_catalog._EVIDENCE_ROW_FIELDS`, which is the writer's half
+#: of the same contract — §0b's rule that the graph declares the shape the catalog *emits*
+#: rather than importing the model behind it. `tests/graph/test_inputs.py` holds the two to
+#: each other so the duplication cannot drift silently.
+EVIDENCE_ROW_MODELS: Mapping[str, type[BaseModel]] = MappingProxyType({
+    "normalized_passage": EvidenceRow,
+    "normalized_table": EvidenceRow,
+    "xbrl_fact": XbrlEvidenceRow,
+    "filing_metadata": FilingMetadataEvidenceRow,
+    "external_page": ExternalPageEvidenceRow,
+    "market_data": MarketDataEvidenceRow,
+    "calculated": CalculatedEvidenceRow,
+})
+
+
+class UnknownEvidenceKindError(GraphInputError):
+    """A row declares an evidence kind this reader has no shape for.
+
+    Refused rather than read as a passage row: the whole point of the discriminated contract
+    is that a source which is not a filed passage cannot be made to look like one.
+    """
+
+
+def parse_evidence_row(row: Mapping[str, Any]) -> EvidenceRowT:
+    """One `evidence.jsonl` row, through the reader its declared kind selects."""
+    kind = row.get("evidence_kind")
+    model = EVIDENCE_ROW_MODELS.get(str(kind))
+    if model is None:
+        raise UnknownEvidenceKindError(
+            f"evidence row for claim {row.get('claim_id')!r} declares evidence_kind "
+            f"{kind!r}; known kinds are {', '.join(sorted(EVIDENCE_ROW_MODELS))}")
+    return model(**row)  # type: ignore[return-value]
+
+
+def cited_passage_of(row: EvidenceRowT) -> str | None:
+    """The passage this row cites, or `None` when its kind cites none.
+
+    An `isinstance` test rather than `getattr(row, "passage_id", None)`: the second would
+    silently return `None` for a passage row whose field was renamed, and the point of these
+    readers is that a shape change stops the run.
+    """
+    return row.passage_id if isinstance(row, EvidenceRow) else None
 
 
 class IssueRow(_CatalogRow):
@@ -451,7 +582,7 @@ def check_payload_ids(
 
 
 def check_evidence_claim_ids(
-    claims: Sequence[ClaimRow], evidence: Sequence[EvidenceRow]
+    claims: Sequence[ClaimRow], evidence: Sequence[EvidenceRowT]
 ) -> None:
     """Every claim is evidenced and every evidence row belongs to a claim (§2.2 P11)."""
     declared = {claim.claim_id for claim in claims}
@@ -505,7 +636,7 @@ def check_cross_catalog_consistency(
     observations: Sequence[ObservationRow],
     events: Sequence[EventRow],
     relationships: Sequence[RelationshipRow],
-    evidence: Sequence[EvidenceRow],
+    evidence: Sequence[EvidenceRowT],
 ) -> None:
     """Every join the projection relies on, checked once at load."""
     check_claims_agree_with_observations(claims, observations)
@@ -587,13 +718,13 @@ class ExtractionRunInputs:
     observations: tuple[ObservationRow, ...]
     events: tuple[EventRow, ...]
     relationships: tuple[RelationshipRow, ...]
-    evidence: tuple[EvidenceRow, ...]
+    evidence: tuple[EvidenceRowT, ...]
     issues: tuple[IssueRow, ...]
     rejected_claims: tuple[RejectedClaimRow, ...]
     passages: tuple[PassageRow, ...]
     documents: tuple[DocumentRow, ...]
     claims_by_id: Mapping[str, ClaimRow]
-    evidence_by_claim_id: Mapping[str, tuple[EvidenceRow, ...]]
+    evidence_by_claim_id: Mapping[str, tuple[EvidenceRowT, ...]]
     passages_by_id: Mapping[str, PassageRow]
     documents_by_id: Mapping[str, DocumentRow]
     rejection_issue_join: RejectionIssueJoin
@@ -607,7 +738,7 @@ class ExtractionRunInputs:
         observations: Sequence[ObservationRow] = (),
         events: Sequence[EventRow] = (),
         relationships: Sequence[RelationshipRow] = (),
-        evidence: Sequence[EvidenceRow] = (),
+        evidence: Sequence[EvidenceRowT] = (),
         issues: Sequence[IssueRow] = (),
         rejected_claims: Sequence[RejectedClaimRow] = (),
         passages: Sequence[PassageRow] = (),
@@ -620,7 +751,7 @@ class ExtractionRunInputs:
             claims=claims, observations=observations, events=events,
             relationships=relationships, evidence=evidence)
 
-        by_claim: dict[str, list[EvidenceRow]] = {}
+        by_claim: dict[str, list[EvidenceRowT]] = {}
         for row in evidence:
             by_claim.setdefault(row.claim_id, []).append(row)
 
@@ -717,11 +848,18 @@ def load_run(
 
     models: dict[str, type[BaseModel]] = {
         "claims": ClaimRow, "observations": ObservationRow, "events": EventRow,
-        "relationships": RelationshipRow, "evidence": EvidenceRow, "issues": IssueRow,
+        "relationships": RelationshipRow, "issues": IssueRow,
         "rejected_claims": RejectedClaimRow,
     }
-    rows = {name: _parse(directory / f"{name}.jsonl", models[name])
-            for name in CATALOG_FILES}
+    # `evidence.jsonl` is the one catalog with more than one row shape, so its reader is
+    # chosen per row by the kind the row declares rather than once by the file.
+    rows: dict[str, tuple[Any, ...]] = {
+        name: _parse(directory / f"{name}.jsonl", models[name])
+        for name in CATALOG_FILES if name in models
+    }
+    rows["evidence"] = tuple(
+        parse_evidence_row(row)
+        for row in _read_jsonl(directory / "evidence.jsonl"))
 
     resolved = (Path(catalog_directory) if catalog_directory is not None
                 else _default_catalog_directory(directory))
@@ -740,15 +878,21 @@ def load_run(
 
 __all__ = [
     "CATALOG_FILES",
+    "CalculatedEvidenceRow",
     "CatalogRowConflict",
     "CatalogSetMismatch",
     "ClaimRow",
     "DocumentRow",
+    "EVIDENCE_ROW_MODELS",
     "EventRow",
     "EvidenceRow",
+    "EvidenceRowT",
+    "ExternalPageEvidenceRow",
     "ExtractionRunInputs",
+    "FilingMetadataEvidenceRow",
     "GraphInputError",
     "IssueRow",
+    "MarketDataEvidenceRow",
     "MissingCatalogError",
     "ObservationRow",
     "Participant",
@@ -759,12 +903,16 @@ __all__ = [
     "RunManifest",
     "SHARED_CLAIM_OBSERVATION_FIELDS",
     "SHARED_CLAIM_PAYLOAD_FIELDS",
+    "UnknownEvidenceKindError",
     "VerificationCheck",
+    "XbrlEvidenceRow",
     "check_claims_agree_with_observations",
+    "check_claims_agree_with_payloads",
     "check_cross_catalog_consistency",
     "check_evidence_claim_ids",
-    "check_claims_agree_with_payloads",
     "check_payload_ids",
+    "cited_passage_of",
     "join_rejections_to_issues",
     "load_run",
+    "parse_evidence_row",
 ]

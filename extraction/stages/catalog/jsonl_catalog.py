@@ -282,19 +282,66 @@ def _relationship_row(claim, document_type: str) -> dict[str, Any]:
     }
 
 
+class UnknownEvidenceKindError(ValueError):
+    """An evidence kind with no declared catalog row shape.
+
+    Raised rather than written into the passage-shaped row it does not fit. A run that wrote
+    an XBRL fact as a `passage_id: null` row would produce a catalog whose readers accept it
+    and whose graph projects a citation to nothing — the exact silence the discriminated
+    contract exists to remove. Reachable only by adding an `EvidenceKind` member without
+    adding its row here; `tests/extraction/test_evidence_contract.py` fails first.
+    """
+
+
+#: The four keys every evidence row carries, whatever its kind.
+_EVIDENCE_ROW_COMMON = ("claim_id", "claim_kind", "evidence_index", "evidence_kind")
+
+#: The filed-passage row: the ten keys `evidence.jsonl` has always had, unchanged.
+_PASSAGE_EVIDENCE_FIELDS = (
+    "passage_id", "document_id", "table_id", "block_ids", "source_url", "quoted_text")
+
+#: The reference fields each kind writes, beyond `_EVIDENCE_ROW_COMMON`.
+#
+# **One shape per kind, not one widened row** (F0 §2.2). A `market_data` row has no
+# `passage_id` *column*, so `graph.core.inputs`' `extra="forbid"` reader refuses a fabricated
+# one structurally — there is no check to forget. It also keeps the 2,714 filed rows at
+# exactly the keys they already have, so no existing row changes and no reader of them breaks.
+#
+# These are a *subset* of what `claims.yaml` permits for the kind, and deliberately so: the
+# ontology declares what an `EvidenceReference` may carry, and this declares what survives
+# into the catalog. `char_start`/`char_end` are permitted by the vocabulary and dropped by the
+# writer, as they always have been (V1_GRAPH_PROTOTYPE §2.3 trap 3).
+_EVIDENCE_ROW_FIELDS: dict[str, tuple[str, ...]] = {
+    "normalized_passage": _PASSAGE_EVIDENCE_FIELDS,
+    "normalized_table": _PASSAGE_EVIDENCE_FIELDS,
+    "xbrl_fact": ("document_id", "accession", "xbrl_concept", "source_url", "quoted_text"),
+    "filing_metadata": ("document_id", "accession", "source_url"),
+    "external_page": ("source_url", "disclosure_channel_id", "fetched_at", "quoted_text"),
+    "market_data": ("provider", "source_identity", "row_identity", "instrument_id",
+                    "session_date", "fetched_at", "source_url", "disclosure_channel_id"),
+    "calculated": ("input_observation_ids", "calculation_expression", "calculation_version"),
+}
+
+
+def _evidence_value(reference, name: str) -> Any:
+    value = getattr(reference, name)
+    return list(value) if isinstance(value, tuple) else _enum(value)
+
+
 def _evidence_rows(claim) -> list[dict[str, Any]]:
-    return [
-        {
+    rows: list[dict[str, Any]] = []
+    for index, reference in enumerate(claim.payload_evidence):
+        kind = _enum(reference.evidence_kind)
+        fields = _EVIDENCE_ROW_FIELDS.get(kind)
+        if fields is None:
+            raise UnknownEvidenceKindError(
+                f"{claim.claim_id} carries evidence of kind {kind!r}, which has no catalog "
+                "row shape in _EVIDENCE_ROW_FIELDS")
+        rows.append({
             "claim_id": claim.claim_id,
             "claim_kind": _enum(claim.claim_kind),
             "evidence_index": index,
-            "evidence_kind": _enum(reference.evidence_kind),
-            "passage_id": reference.passage_id,
-            "document_id": reference.document_id,
-            "table_id": reference.table_id,
-            "block_ids": list(reference.block_ids),
-            "source_url": reference.source_url,
-            "quoted_text": reference.quoted_text,
-        }
-        for index, reference in enumerate(claim.payload_evidence)
-    ]
+            "evidence_kind": kind,
+            **{name: _evidence_value(reference, name) for name in fields},
+        })
+    return rows

@@ -1,0 +1,85 @@
+[
+  {
+    "case": "xbrl_row_with_a_passage_id",
+    "why": "The XBRL row shape has no passage_id column, so a fabricated one is a parse failure by name rather than a check somebody could skip.",
+    "expects": "extra_field",
+    "field": "passage_id",
+    "row": {
+      "claim_id": "claim:contract-bad-xbrl",
+      "claim_kind": "metric_observation",
+      "evidence_index": 0,
+      "evidence_kind": "xbrl_fact",
+      "document_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm",
+      "accession": "0001801169-21-000021",
+      "xbrl_concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116921000021/open-20210331.htm",
+      "quoted_text": null,
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1"
+    }
+  },
+  {
+    "case": "calculated_row_with_a_passage_id",
+    "why": "Same rule, on the kind that may cite no filed source at all.",
+    "expects": "extra_field",
+    "field": "passage_id",
+    "row": {
+      "claim_id": "claim:contract-bad-calculated",
+      "claim_kind": "metric_observation",
+      "evidence_index": 0,
+      "evidence_kind": "calculated",
+      "input_observation_ids": ["obs:revenue:opendoor:2021Q1:normalized-table:0000000000aa"],
+      "calculation_expression": "revenue - cost_of_revenue",
+      "calculation_version": "gross_profit_v1",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1"
+    }
+  },
+  {
+    "case": "market_data_row_missing_fetched_at",
+    "why": "Every declared field is required; a writer that stopped emitting one must stop the run, not default it.",
+    "expects": "missing_field",
+    "field": "fetched_at",
+    "row": {
+      "claim_id": "claim:contract-bad-market",
+      "claim_kind": "metric_observation",
+      "evidence_index": 0,
+      "evidence_kind": "market_data",
+      "provider": "example_market_data_provider",
+      "source_identity": "example/equities/daily_close",
+      "row_identity": "OPEN:2026-07-31:close",
+      "instrument_id": "instrument:open:xnas",
+      "session_date": "2026-07-31",
+      "source_url": null,
+      "disclosure_channel_id": null
+    }
+  },
+  {
+    "case": "passage_row_missing_block_ids",
+    "why": "The ten-key passage row is unchanged, including the fields the graph does not read.",
+    "expects": "missing_field",
+    "field": "block_ids",
+    "row": {
+      "claim_id": "claim:contract-bad-passage",
+      "claim_kind": "metric_observation",
+      "evidence_index": 0,
+      "evidence_kind": "normalized_passage",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1",
+      "document_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm",
+      "table_id": null,
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116921000021/open-20210331.htm",
+      "quoted_text": null
+    }
+  },
+  {
+    "case": "row_of_an_undeclared_kind",
+    "why": "An unknown kind has no shape and no contract; reading it as a passage row is the one thing that must not happen.",
+    "expects": "unknown_kind",
+    "field": "evidence_kind",
+    "row": {
+      "claim_id": "claim:contract-bad-kind",
+      "claim_kind": "metric_observation",
+      "evidence_index": 0,
+      "evidence_kind": "transcript_utterance",
+      "passage_id": "norm:0001801169:0001801169-21-000021:open-20210331.htm#p1"
+    }
+  }
+]

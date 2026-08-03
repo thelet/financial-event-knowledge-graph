@@ -41,20 +41,40 @@ CATALOG_FILES: tuple[str, ...] = (
 # plus `passage_id`". One claim may cite more than one passage, so the claim id alone is not an
 # identity there — and a table that pretended otherwise would make the duplicate check flag
 # every multi-anchor claim as a collision.
+#
+# **The evidence key became `(claim_id, evidence_index)` on 2026-08-03** (F0 Part B). The
+# reason is not a preference: with a discriminated evidence contract, an `xbrl_fact`,
+# `market_data` or `calculated` row has **no `passage_id` column at all**, so `render` would
+# have refused to write one under `MissingIdentityError`. `evidence_index` is the position the
+# reference already occupies on its claim — total for every kind, and still distinguishing two
+# references of one claim, which is what STAGE_13 §3 asked `passage_id` for. Two references of
+# one claim to *one* passage were previously one identity and are now two, which is the more
+# honest answer: they are two rows. Verified 2026-08-03 to leave `evidence.jsonl` byte-identical
+# on the current run, where every claim carries exactly one reference at index 0.
 IDENTITY_FIELDS: dict[str, tuple[str, ...]] = {
     CLAIMS: ("claim_id",),
     OBSERVATIONS: ("observation_id",),
     EVENTS: ("event_id",),
     RELATIONSHIPS: ("relationship_instance_id",),
-    EVIDENCE: ("claim_id", "passage_id"),
+    EVIDENCE: ("claim_id", "evidence_index"),
     ISSUES: ("issue_id",),
     REJECTED: ("rejection_id",),
 }
 
 
+def _identity_part(value: Any) -> str:
+    """One identity field as a string, with `0` a value and `None` an absence.
+
+    `str(value or "")` was the same thing until an identity field could be an integer:
+    `evidence_index=0` is the first reference on a claim, and truthiness would have erased it
+    into the same key as a row with no index at all.
+    """
+    return "" if value is None else str(value)
+
+
 def identity_of(name: str, row: dict[str, Any]) -> str:
     """A row's identity as one string, for sorting and for collision detection."""
-    return "\x1f".join(str(row.get(field) or "") for field in IDENTITY_FIELDS[name])
+    return "\x1f".join(_identity_part(row.get(field)) for field in IDENTITY_FIELDS[name])
 
 
 class MissingIdentityError(ValueError):
@@ -78,7 +98,10 @@ def render(name: str, rows: Sequence[dict[str, Any]]) -> str:
     encoded: list[tuple[str, str]] = []
     for row in rows:
         for field_name in IDENTITY_FIELDS[name]:
-            if not row.get(field_name):
+            # `is None or == ""` rather than falsy: an id of `""` is still the absence this
+            # refuses, and `evidence_index=0` is a real position that truthiness would reject.
+            value = row.get(field_name)
+            if value is None or value == "":
                 raise MissingIdentityError(
                     f"a {name} row carries no {field_name}: {sorted(row)[:8]}")
         encoded.append((identity_of(name, row), json.dumps(
