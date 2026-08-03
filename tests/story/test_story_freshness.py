@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import pytest
 
+from extraction.core.run_directory import render_marker
 from graph.core.manifest import GraphRunManifest
 from ontology import load_ontology
 
@@ -77,11 +78,36 @@ OBSERVATION_COUNT = FIXTURE["counts"]["nodes_by_label"]["Observation"]
 ONTOLOGY_ID = FIXTURE["ontology_id"]
 ONTOLOGY_HASH = FIXTURE["ontology_definition_hash"]
 
-#: Arbitrary bytes standing in for a real `run.complete`. Its *content* is irrelevant to every
-#: test here — what matters is that two different byte strings hash differently, which is the
-#: only property §7 check 1 rests on.
-FIRST_RUN_BYTES = b"6ff6  claims.jsonl\n1a2b  observations.jsonl\n"
-REGENERATED_RUN_BYTES = b"6ff6  claims.jsonl\n9c9c  observations.jsonl\n"
+#: The two catalogs a staged extraction run holds. Real content is unnecessary — nothing here
+#: parses them — but they must **exist and hash to what the marker records**, because §7 check
+#: 1 verifies the digests `run.complete` lists and not only its own bytes (R2a). Before that
+#: fix this file staged a marker naming files that were never written, and the gate passed.
+FIRST_RUN_ITEMS = {
+    "claims.jsonl": b'{"claim_id": "claim-1"}\n',
+    "observations.jsonl": b'{"observation_id": "obs-1"}\n',
+}
+
+#: The same run regenerated in place: same names, one different byte string.
+REGENERATED_RUN_ITEMS = {
+    **FIRST_RUN_ITEMS,
+    "observations.jsonl": b'{"observation_id": "obs-2"}\n',
+}
+
+
+def marker_for(items: dict[str, bytes]) -> bytes:
+    """`{sha256}  {name}` per line, sorted — `render_marker`'s format, built from bytes.
+
+    Re-derived rather than imported for the reason `RUN_COMPLETE` is: a fixture that used the
+    writer's own renderer could not fail if the renderer changed shape. The round-trip test
+    below is what ties the two together, and it is the one place the import belongs.
+    """
+    return "".join(
+        f"{hashlib.sha256(items[name]).hexdigest()}  {name}\n" for name in sorted(items)
+    ).encode("utf-8")
+
+
+FIRST_RUN_BYTES = marker_for(FIRST_RUN_ITEMS)
+REGENERATED_RUN_BYTES = marker_for(REGENERATED_RUN_ITEMS)
 
 
 # -- staging a graph run and an extraction run under tmp_path -----------------------------------
@@ -102,15 +128,17 @@ def stage_run(
     tmp_path: Path,
     *,
     run_complete: bytes | None = FIRST_RUN_BYTES,
+    items: dict[str, bytes] = FIRST_RUN_ITEMS,
     recorded_digest: str | None = None,
     mutate: Callable[[dict[str, Any]], None] | None = None,
     extraction_manifest: dict[str, Any] | None = None,
 ) -> StagedRun:
     """The real manifest, re-pointed at a synthetic extraction run, then optionally tampered.
 
-    `recorded_digest` defaults to the true digest of `run_complete`, so the staged run is
-    *fresh* unless a test says otherwise. Every staleness fixture below is one deviation from
-    this baseline, which is what makes each test's subject a single line.
+    `recorded_digest` defaults to the true digest of `run_complete`, and `items` are written
+    beside the marker, so the staged run is *fresh* in both halves of check 1 unless a test says
+    otherwise. Every staleness fixture below is one deviation from this baseline, which is what
+    makes each test's subject a single line.
     """
     graph_runs_root = tmp_path / "data" / "graph_runs"
     directory = graph_runs_root / GRAPH_RUN_ID
@@ -121,6 +149,8 @@ def stage_run(
     digest = ""
     if run_complete is not None:
         extraction_directory.mkdir(parents=True)
+        for name, content in items.items():
+            (extraction_directory / name).write_bytes(content)
         (extraction_directory / RUN_COMPLETE).write_bytes(run_complete)
         digest = hashlib.sha256(run_complete).hexdigest()
     if extraction_manifest is not None:
@@ -310,11 +340,16 @@ def test_a_matching_graph_passes_every_check_and_the_report_says_which(tmp_path)
     assert report.refusals == ()
     assert report.refusal_codes == ()
     assert {check.name for check in report.checks} == {
-        "graph_manifest", "extraction_run_directory", "package_input_digest", "graph_reachable",
+        "graph_manifest", "extraction_run_directory", "package_input_digest",
+        "extraction_run_contents", "graph_reachable",
         "load_marker_present", "load_status_complete", "load_marker_graph_run_id",
         "node_graph_run_id", "edge_graph_run_id", "observation_graph_run_id",
         "load_marker_counts", "loaded_element_counts", "node_ontology_definition_hash"}
     assert report.check("package_input_digest").observed == staged.run_complete_sha256
+    assert report.check("extraction_run_contents").observed == "<empty>", (
+        "no differences is the healthy answer; the files verified are named in the detail")
+    assert f"{len(FIRST_RUN_ITEMS)} files listed" in (
+        report.check("extraction_run_contents").detail)
 
 
 def test_the_gate_compares_against_the_ontology_this_checkout_loads_when_none_is_supplied(
@@ -358,12 +393,18 @@ def test_the_digest_check_catches_a_regenerated_run_that_the_id_check_would_have
     """§7's whole reason to exist, as a fixture rather than as a paragraph.
 
     The extraction run was regenerated in place: same directory, same `run_id` in its own
-    manifest, different bytes in `run.complete`. Nothing about its *identity* moved, and the
-    graph on top of it is now describing rows that no longer exist.
+    manifest, different bytes in `observations.jsonl` and therefore in `run.complete`. Nothing
+    about its *identity* moved, and the graph on top of it is now describing rows that no
+    longer exist.
+
+    The staged `manifest.json` is not one of the files `run.complete` lists here, which makes
+    this fixture also an instance of the unlisted-file decision recorded in
+    `gate.py:_contents_check`: it is not checked and it is not a refusal.
     """
     staged = stage_run(
         tmp_path,
         run_complete=REGENERATED_RUN_BYTES,
+        items=REGENERATED_RUN_ITEMS,
         recorded_digest=hashlib.sha256(FIRST_RUN_BYTES).hexdigest(),
         extraction_manifest={"run_id": EXTRACTION_RUN_ID},
     )
@@ -380,6 +421,107 @@ def test_the_digest_check_catches_a_regenerated_run_that_the_id_check_would_have
     assert refusal.expected == hashlib.sha256(FIRST_RUN_BYTES).hexdigest()
     assert refusal.observed == hashlib.sha256(REGENERATED_RUN_BYTES).hexdigest()
     assert refusal.expected != refusal.observed
+    assert report.check("extraction_run_contents").passed is True, (
+        "the regenerated run is internally consistent — its files hash to its own marker. "
+        "The two halves of check 1 catch different tampering and neither subsumes the other")
+
+
+# -- the check the marker alone could not make: the files it lists ------------------------------
+
+
+def test_the_marker_parser_reads_back_exactly_what_the_extraction_writer_renders():
+    """The one place the format is shared rather than restated, so the two cannot drift.
+
+    `gate.marker_contents` parses `run.complete` by hand because this stage needs a parse that
+    can fail into a refusal rather than an exception. That is a second statement of a format
+    `extraction/core/run_directory.py:render_marker` owns, so the round trip is asserted against
+    the writer itself — a change to either side fails here rather than making the gate verify
+    digests it misread.
+    """
+    recorded = {name: hashlib.sha256(content).hexdigest()
+                for name, content in FIRST_RUN_ITEMS.items()}
+
+    assert gate_module.marker_contents(render_marker(recorded)) == recorded
+    assert render_marker(recorded).encode("utf-8") == FIRST_RUN_BYTES
+
+
+def test_a_tampered_item_file_refuses_even_though_run_complete_is_byte_identical(tmp_path):
+    """The defect R2a repairs, as the fixture that reproduces it.
+
+    `run.complete` is a manifest of the other files, so overwriting one of them leaves the
+    marker untouched. The gate as shipped hashed only the marker and answered `passed=True`
+    with no codes against a `claims.jsonl` replaced with eight bytes — the control every other
+    control in this layer stands on, silent about a corpus nobody validated (§17.8).
+    """
+    staged = stage_run(tmp_path)
+    marker_before = (staged.extraction_directory / RUN_COMPLETE).read_bytes()
+    tampered = staged.extraction_directory / "claims.jsonl"
+    original = hashlib.sha256(tampered.read_bytes()).hexdigest()
+    tampered.write_bytes(b"tampered")
+
+    report = run_gate(staged, scripted_executor())
+
+    assert (staged.extraction_directory / RUN_COMPLETE).read_bytes() == marker_before, (
+        "the fixture is only a reproduction if the marker is untouched")
+    assert report.check("package_input_digest").passed is True, (
+        "the marker's own digest still agrees — which is exactly why hashing it proved nothing")
+    assert report.passed is False
+    assert report.refusal_codes == (RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,)
+    observed = report.check("extraction_run_contents").observed
+    assert "claims.jsonl" in observed
+    assert original in observed and hashlib.sha256(b"tampered").hexdigest() in observed
+    assert "observations.jsonl" not in observed, (
+        "the refusal names the file that moved, not every file in the run")
+
+
+def test_a_file_the_marker_lists_but_the_directory_no_longer_holds_refuses(tmp_path):
+    """A deleted catalog is not an unfinished run — the marker is still there claiming it."""
+    staged = stage_run(tmp_path)
+    (staged.extraction_directory / "observations.jsonl").unlink()
+
+    report = run_gate(staged, scripted_executor())
+
+    assert report.passed is False
+    assert report.refusal_codes == (RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,)
+    observed = report.check("extraction_run_contents").observed
+    assert "observations.jsonl" in observed and "absent" in observed
+
+
+def test_a_marker_naming_a_path_outside_the_run_directory_refuses_without_reading_it(tmp_path):
+    """`RunDirectoryWriter.write` takes names, not paths. A marker that names something else is
+    a marker to disbelieve, and this check must not be what reaches out and hashes it."""
+    staged = stage_run(tmp_path)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_bytes(b"not part of the run\n")
+    (staged.extraction_directory / RUN_COMPLETE).write_bytes(
+        marker_for(FIRST_RUN_ITEMS)
+        + f"{hashlib.sha256(b'').hexdigest()}  ../../outside.jsonl\n".encode("utf-8"))
+
+    report = run_gate(staged, scripted_executor())
+
+    assert report.passed is False
+    observed = report.check("extraction_run_contents").observed
+    assert "not a name inside the run directory" in observed
+    assert "claims.jsonl" not in observed, "the files that are inside still verified normally"
+
+
+def test_a_file_the_marker_does_not_list_is_reported_but_is_not_a_refusal(tmp_path):
+    """The decision, made explicit rather than left to fall out of the loop.
+
+    An unlisted file cannot change any digest `run.complete` records, so no fact the graph
+    quotes can have moved, and every consumer of a run directory reads its catalogs by name.
+    Refusing here would stop every command over a stray `.DS_Store` or an operator's copy of a
+    catalog — a false refusal in the gate that guards everything else. It is named in the
+    detail so a reader can still see it.
+    """
+    staged = stage_run(tmp_path)
+    (staged.extraction_directory / "scratch.jsonl").write_bytes(b"an operator's copy\n")
+
+    report = run_gate(staged, scripted_executor())
+
+    assert report.passed is True
+    assert "scratch.jsonl" in report.check("extraction_run_contents").detail
+    assert "not listed and not checked" in report.check("extraction_run_contents").detail
 
 
 # -- the gate, refusing -----------------------------------------------------------------------
@@ -396,6 +538,8 @@ def test_a_missing_extraction_directory_refuses_instead_of_raising_file_not_foun
     assert str(staged.extraction_directory) in report.check("extraction_run_directory").observed
     with pytest.raises(KeyError):
         report.check("package_input_digest")
+    with pytest.raises(KeyError):
+        report.check("extraction_run_contents")
 
 
 def test_an_extraction_directory_without_a_completion_marker_refuses_on_the_digest(tmp_path):
@@ -412,6 +556,75 @@ def test_an_extraction_directory_without_a_completion_marker_refuses_on_the_dige
     assert report.check("package_input_digest").passed is False
     assert report.refusal_codes == (RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,)
     assert RUN_COMPLETE in report.check("package_input_digest").observed
+    with pytest.raises(KeyError):
+        report.check("extraction_run_contents"), "there is no manifest of files to verify"
+
+
+def test_a_graph_manifest_holding_bytes_that_are_not_utf8_refuses_rather_than_raising(tmp_path):
+    """D2, first path. `UnicodeDecodeError` is a `ValueError` and not an `OSError`, so the
+    two-arm handler this reader shipped with let a decode error out of the stage §7 runs before
+    every command. A traceback is not a structured refusal."""
+    directory = tmp_path / "data" / "graph_runs" / GRAPH_RUN_ID
+    directory.mkdir(parents=True)
+    (directory / GRAPH_MANIFEST_FILENAME).write_bytes(b'{"graph_run_id": "\xff\xfe\x00"}')
+
+    report = check_freshness(
+        executor=scripted_executor(), graph_run_id=GRAPH_RUN_ID,
+        graph_runs_root=tmp_path / "data" / "graph_runs", root=tmp_path)
+
+    assert report.passed is False
+    assert report.refusal_codes == (RefusalCode.GRAPH_MANIFEST_UNREADABLE,)
+    assert "UnicodeDecodeError" in report.check("graph_manifest").observed
+
+
+def test_a_completion_marker_that_cannot_be_read_refuses_rather_than_raising(tmp_path):
+    """D2, second path. `file_digest()` sat outside every handler, so a `run.complete` whose
+    permissions changed raised `PermissionError` out of the gate."""
+    staged = stage_run(tmp_path)
+    marker = staged.extraction_directory / RUN_COMPLETE
+    marker.chmod(0o000)
+    try:
+        marker.read_bytes()
+    except PermissionError:
+        pass
+    else:
+        pytest.skip("this user can read a mode-000 file (root, or a filesystem without modes)")
+
+    try:
+        report = run_gate(staged, scripted_executor())
+    finally:
+        marker.chmod(0o644)
+
+    assert report.passed is False
+    assert report.refusal_codes == (RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,)
+    assert "PermissionError" in report.check("package_input_digest").observed
+    assert report.check("extraction_run_directory").passed is True, (
+        "the directory is still there; only its marker cannot be read")
+    with pytest.raises(KeyError):
+        report.check("extraction_run_contents")
+
+
+def test_a_completion_marker_that_is_not_the_format_the_writer_renders_refuses(tmp_path):
+    """A marker this reader cannot parse is a marker whose claims it cannot check, which is not
+    the same as one whose claims hold — so it refuses rather than verifying nothing quietly."""
+    staged = stage_run(tmp_path)
+    (staged.extraction_directory / RUN_COMPLETE).write_bytes(b"claims.jsonl was fine, honest\n")
+
+    report = run_gate(staged, scripted_executor())
+
+    assert report.passed is False
+    assert report.refusal_codes == (RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,)
+    assert "ValueError" in report.check("package_input_digest").observed
+
+
+def test_a_completion_marker_holding_bytes_that_are_not_utf8_refuses(tmp_path):
+    staged = stage_run(tmp_path)
+    (staged.extraction_directory / RUN_COMPLETE).write_bytes(b"\xffnot text  claims.jsonl\n")
+
+    report = run_gate(staged, scripted_executor())
+
+    assert report.passed is False
+    assert "UnicodeDecodeError" in report.check("package_input_digest").observed
 
 
 def test_an_unreadable_graph_manifest_refuses_with_a_code_rather_than_raising(tmp_path):
@@ -872,7 +1085,9 @@ def test_the_loaded_run_passes_every_freshness_check_against_the_real_graph(live
         root=REPO_ROOT)
 
     assert report.passed is True, report.describe()
-    assert len(report.checks) == 13
+    assert len(report.checks) == 14
+    assert report.check("extraction_run_contents").passed is True, (
+        "every file run.complete lists, re-hashed against the digest it records")
     assert report.check("package_input_digest").observed == (
         "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e")
 
@@ -903,6 +1118,30 @@ def test_the_marker_the_loader_wrote_carries_the_property_names_this_stage_reads
     assert rows[0]["graph_run_id"] == GRAPH_RUN_ID
     assert rows[0]["status"] == gate_module.STATUS_COMPLETE
     assert (rows[0]["node_count"], rows[0]["edge_count"]) == (NODE_COUNT, EDGE_COUNT)
+
+
+@pytest.mark.neo4j
+def test_the_real_extraction_run_is_verified_in_full_against_its_own_marker():
+    """Ten files and 33 MB, hashed — the cost of the R2a fix, paid against the real run.
+
+    Marked `neo4j` for this suite's reason rather than because it opens a connection: it is
+    this file's spelling of "the loaded run is present on this machine", and the extraction
+    directory exists only on a checkout that has `data/`. No database is touched.
+
+    Measured 2026-08-03 over the whole of `extraction_input_checks`: **113-136 ms** with the
+    repository on `/mnt/c` (WSL's drvfs mount), **9-22 ms** for the same bytes on a native
+    Linux filesystem. That is why check 1 hashes all ten rather than sampling. No wall-clock
+    assertion is made — this suite already carried one flaky timing test, and a second would be
+    worse than recording the number here.
+    """
+    directory = REPO_ROOT / "data" / "extraction_runs" / EXTRACTION_RUN_ID
+    recorded = gate_module.marker_contents(
+        (directory / RUN_COMPLETE).read_text(encoding="utf-8"))
+
+    assert len(recorded) == 10
+    assert set(recorded) >= {"claims.jsonl", "observations.jsonl", "manifest.json"}
+    assert [name for name, sha in recorded.items()
+            if hashlib.sha256((directory / name).read_bytes()).hexdigest() != sha] == []
 
 
 @pytest.mark.neo4j

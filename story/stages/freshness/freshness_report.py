@@ -55,8 +55,18 @@ class RefusalCode(str, Enum):
     #: action from hashing to the wrong thing.
     EXTRACTION_RUN_DIRECTORY_MISSING = "extraction_run_directory_missing"
 
-    #: §7 check 1. `sha256(run.complete)` is not what the manifest recorded — the extraction run
-    #: was regenerated under the bytes the graph was projected from. **The one that matters.**
+    #: §7 check 1. `sha256(run.complete)` is not what the manifest recorded, **or** a file
+    #: `run.complete` lists no longer holds the digest it records — the extraction run was
+    #: regenerated or written into under the bytes the graph was projected from. **The one that
+    #: matters.**
+    #:
+    #: One code for both, deliberately (R2a). `run.complete` *is* the manifest of the other
+    #: files, so "the marker moved" and "a file the marker names moved" are the same sentence —
+    #: the extraction inputs are not what the graph was built from — and the same operator
+    #: action: rebuild the graph from the run it actually reads, or restore the run. A second
+    #: code would ask every caller to branch on a distinction that changes nothing it does,
+    #: and §7's list is short because a code a caller does not act on is noise. The two are
+    #: still separate *checks*, so the report names which one refused and why.
     PACKAGE_INPUT_DIGEST_MISMATCH = "package_input_digest_mismatch"
 
     #: The database did not answer. Reported as a refusal rather than raised, for the same

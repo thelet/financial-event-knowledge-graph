@@ -175,8 +175,14 @@ def read_graph_identity(graph_runs_root: Path, graph_run_id: str) -> GraphIdenti
             "this directory is an unfinished projection rather than a run to read")
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise GraphIdentityError(f"{manifest_path} could not be read: {exc}") from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # `UnicodeDecodeError` is named because it is a `ValueError` and **not** an `OSError`:
+        # the two-arm form this line shipped with let a `manifest.json` holding non-UTF-8 bytes
+        # raise straight out of §7's gate, which promises a structured refusal from the stage
+        # that runs before every command. `json.JSONDecodeError` is a `ValueError` too — the
+        # arm that was already here is the reason the gap was not obvious.
+        raise GraphIdentityError(
+            f"{manifest_path} could not be read: {type(exc).__name__}: {exc}") from exc
     try:
         document = GraphRunManifestDocument.model_validate(payload)
     except ValidationError as exc:

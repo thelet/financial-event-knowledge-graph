@@ -8,10 +8,20 @@ from a graph that no longer exists is the failure mode the rest of the plan cann
 The three checks, and which one carries the weight:
 
 1. **Graph vs extraction** — `sha256(run.complete)` of the directory the graph manifest names
-   against `inputs.run_complete_sha256`. **Digest-based, and that is the whole point.** An
-   extraction run was once regenerated in place under an unchanged `run_id` (§18); an id
-   comparison passes that, a digest does not. `tests/story/test_story_freshness.py` builds
-   exactly that fixture and asserts the id check would have let it through.
+   against `inputs.run_complete_sha256`, **and then the digests `run.complete` itself records
+   for the ten files beside it**. **Digest-based, and that is the whole point.** An extraction
+   run was once regenerated in place under an unchanged `run_id` (§18); an id comparison passes
+   that, a digest does not. `tests/story/test_story_freshness.py` builds exactly that fixture
+   and asserts the id check would have let it through.
+
+   Hashing the marker alone was not enough, and shipping it that way was the defect R2a
+   repairs. `run.complete` is a *manifest* of the other files
+   (`extraction/core/run_directory.py:7-10`: "this run finished" and "this run still holds what
+   it finished with" are the same question only because the marker lists them), so overwriting
+   `claims.jsonl` leaves the marker byte-identical and the gate silent — measured, before the
+   fix, as `passed=True codes=[]` against a `claims.jsonl` replaced with eight bytes. The gate
+   is what every other control in this layer stands on, so it verifies what the marker records
+   rather than only that the record is unchanged.
 2. **Neo4j vs export** — the `:GraphLoad` marker's `graph_run_id`, its `status`, its counts, and
    the distinct `graph_run_id` across the loaded nodes and the `:Observation`s.
 3. **Ontology** — `ontology_definition_hash` on the loaded nodes against the loaded ontology's.
@@ -136,10 +146,14 @@ def extraction_input_checks(
 ) -> tuple[FreshnessCheck, ...]:
     """§7 check 1, on the filesystem alone. No database, no ontology, no network.
 
-    Two checks and not one: "the directory the manifest names is not here" and "it is here and
-    holds different bytes" are different operator actions — restore an archive, or rebuild the
-    graph — and collapsing them into one refusal would make the report say `digest mismatch`
-    about a digest nobody could compute.
+    Three checks and not one: "the directory the manifest names is not here", "it is here and
+    its marker holds different bytes" and "the marker is unchanged and the files it lists are
+    not" are three different operator actions — restore an archive, rebuild the graph, or find
+    out who wrote into a finished run — and collapsing them would make the report say `digest
+    mismatch` about a digest nobody could compute.
+
+    The third is the one R2a added. See the module docstring: the marker is a manifest, and a
+    gate that hashed only the manifest passed a `claims.jsonl` replaced with eight bytes.
     """
     directory = identity.extraction_run_path(root)
     marker = directory / COMPLETION_MARKER
@@ -155,14 +169,17 @@ def extraction_input_checks(
                        f"{identity.extraction_run_id}; without its bytes the digest §7 checks "
                        "cannot be computed at all"),
         )
+
+    present = FreshnessCheck.comparing(
+        "extraction_run_directory",
+        RefusalCode.EXTRACTION_RUN_DIRECTORY_MISSING,
+        expected="present",
+        observed="present",
+        detail=str(directory))
+
     if not marker.is_file():
         return (
-            FreshnessCheck.comparing(
-                "extraction_run_directory",
-                RefusalCode.EXTRACTION_RUN_DIRECTORY_MISSING,
-                expected="present",
-                observed="present",
-                detail=str(directory)),
+            present,
             FreshnessCheck.refusing(
                 "package_input_digest",
                 RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,
@@ -173,14 +190,27 @@ def extraction_input_checks(
                        "the run this graph was projected from"),
         )
 
-    observed = file_digest(marker)
+    # D2: `file_digest` and `read_text` both reach the filesystem, and the gate runs before
+    # every command — a marker whose permissions changed, or whose bytes are not UTF-8, is a
+    # state to report. `UnicodeDecodeError` is a `ValueError` and *not* an `OSError`, which is
+    # the exact confusion that let a traceback out of this stage once already.
+    try:
+        observed = file_digest(marker)
+        recorded = marker_contents(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return (
+            present,
+            FreshnessCheck.refusing(
+                "package_input_digest",
+                RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,
+                expected=identity.run_complete_sha256 or "<none recorded>",
+                observed=f"{marker} could not be read: {type(exc).__name__}: {exc}",
+                detail="the completion marker is the extraction run's manifest of itself; one "
+                       "that cannot be read leaves every digest below it uncomputable"),
+        )
+
     return (
-        FreshnessCheck.comparing(
-            "extraction_run_directory",
-            RefusalCode.EXTRACTION_RUN_DIRECTORY_MISSING,
-            expected="present",
-            observed="present",
-            detail=str(directory)),
+        present,
         FreshnessCheck.comparing(
             "package_input_digest",
             RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,
@@ -189,7 +219,101 @@ def extraction_input_checks(
             detail=f"sha256({marker}); the extraction run id "
                    f"{identity.extraction_run_id!r} is *not* what identifies these bytes — one "
                    "id has named two different runs (§18), which is why this check hashes"),
+        _contents_check(directory, recorded),
     )
+
+
+def marker_contents(text: str) -> dict[str, str]:
+    """`run.complete` parsed back into `{name: sha256}`, the inverse of `render_marker`.
+
+    Parsed here rather than through `extraction.core.run_directory.RunDirectory` because that
+    type reads catalogs and raises `IncompleteRunError`, and this stage needs a parse that can
+    fail into a refusal. The format is three lines of code, and
+    `tests/story/test_story_freshness.py` round-trips it against `render_marker` itself so the
+    two cannot drift apart silently.
+
+    A line that is not `{digest}  {name}` raises `ValueError`: the caller turns that into a
+    refusal, because a marker this reader cannot parse is a marker whose claims it cannot
+    check, which is not the same as one whose claims hold.
+    """
+    files: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        digest, separator, name = line.partition("  ")
+        if not separator or not name.strip():
+            raise ValueError(
+                f"{line!r} is not a '{{sha256}}  {{name}}' line; see "
+                "extraction/core/run_directory.py:render_marker for the format")
+        files[name] = digest
+    return files
+
+
+def _contents_check(directory: Path, recorded: dict[str, str]) -> FreshnessCheck:
+    """Every file `run.complete` lists, re-hashed against the digest it records.
+
+    **Unlisted files are not a refusal, and that is a decision rather than an omission.** An
+    extra file cannot change any digest the marker records, so no fact the graph quotes can
+    have moved; every consumer of a run directory reads the catalogs it was told about by name.
+    Refusing here would mean a stray editor swap file, a `.DS_Store` or an operator's copy of a
+    catalog turning the gate that runs before *every* command into a hard stop over bytes
+    nothing reads. They are named in `detail` instead, so a reader can still see them.
+
+    Cost, measured 2026-08-03 over the whole of `extraction_input_checks` on the real run
+    (`extract-v1-lexical-833f7bcfbce9`, ten files, 33 MB): **113–136 ms** with the repository on
+    `/mnt/c` (the WSL drvfs mount, which is what makes it that slow) and **9–22 ms** for the
+    same bytes on a native Linux filesystem. Both are affordable in a gate §7 says runs before
+    every command — F12 already measured a dead server costing 35 s through `execute_query`, so
+    a tenth of a second of hashing is not what makes this gate skippable. It therefore hashes
+    all ten files rather than sampling; sampling would leave the defect this check exists to
+    close open for whichever file was not drawn.
+
+    `expected` is the empty list of differences and `observed` is the differences found, so the
+    verdict is a comparison of real values rather than a string built to agree with itself. A
+    healthy row therefore renders `<empty>`; the count of files verified is in `detail`.
+    """
+    differences: list[str] = []
+    for name in sorted(recorded):
+        if Path(name).is_absolute() or ".." in Path(name).parts:
+            # The writer takes names, not paths (`RunDirectoryWriter.write`), so a marker
+            # naming something outside its own directory is a marker to disbelieve — and this
+            # check must not be the thing that reaches out and hashes it.
+            differences.append(f"{name}: not a name inside the run directory")
+            continue
+        path = directory / name
+        if not path.is_file():
+            differences.append(f"{name}: listed as {recorded[name]} but the file is absent")
+            continue
+        try:
+            actual = file_digest(path)
+        except OSError as exc:
+            differences.append(
+                f"{name}: listed as {recorded[name]} but could not be read: "
+                f"{type(exc).__name__}: {exc}")
+            continue
+        if actual != recorded[name]:
+            differences.append(f"{name}: {COMPLETION_MARKER} records {recorded[name]}, "
+                               f"the file holds {actual}")
+
+    try:
+        unlisted = sorted(
+            entry.name for entry in directory.iterdir()
+            if entry.is_file() and entry.name != COMPLETION_MARKER and entry.name not in recorded)
+    except OSError:
+        # A directory listing that fails cannot change any verdict above — every listed file
+        # was reached by name — and this stage does not raise (D2), so the note is dropped.
+        unlisted = []
+    detail = (f"{len(recorded)} files listed by {COMPLETION_MARKER} under {directory}, each "
+              "re-hashed; the marker is a manifest of the run, so verifying only the marker's "
+              "own bytes verifies nothing it lists")
+    if unlisted:
+        detail += f"; not listed and not checked: {', '.join(unlisted)}"
+    return FreshnessCheck.comparing(
+        "extraction_run_contents",
+        RefusalCode.PACKAGE_INPUT_DIGEST_MISMATCH,
+        expected=(),
+        observed=tuple(differences),
+        detail=detail)
 
 
 def loaded_graph_checks(
@@ -315,4 +439,5 @@ __all__ = [
     "check_freshness",
     "extraction_input_checks",
     "loaded_graph_checks",
+    "marker_contents",
 ]

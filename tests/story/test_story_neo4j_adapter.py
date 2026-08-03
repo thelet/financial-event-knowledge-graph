@@ -251,13 +251,21 @@ def test_every_statement_is_wrapped_so_the_timeout_is_applied_by_the_server():
     assert unhurried.calls[0]["query"].timeout == 0.001
 
 
-def test_reads_are_issued_with_read_routing_even_though_it_enforces_nothing():
-    """Intent, not a control (§16).
+def test_reads_are_issued_with_read_routing_because_the_server_refuses_a_write_under_it():
+    """The second of story's two write controls, pinned so it cannot be quietly dropped.
 
-    Recorded as a test because the *reason* it is not a control has to travel with it: the
-    driver's documentation says routing is not access control, and this Community instance is
-    a single server with no cluster to route within and no role-based access control at all.
-    What makes the adapter read-only is that it issues no write clause.
+    F9, measured twice against this 5.26.28 Community instance: a write clause under
+    `routing_=READ` is refused by the *server* with `Neo.ClientError.Statement.AccessMode`, and
+    the identical statement is accepted under `routing_=WRITE`. §16 originally called routing
+    "intent, not a control" and this test's name said so too; both were wrong, and a maintainer
+    who believed them would delete the argument this test asserts.
+
+    It is still not access *control* — nothing stops this module from being changed to WRITE —
+    so the structural scan proving no story statement holds a write clause remains the first
+    control. The live half of the claim is deliberately not asserted anywhere in this suite:
+    proving it means issuing a write clause against the loaded graph, which this workstream may
+    not do. It rests on F9's two measurements, recorded in
+    `plans/llm-agent/IMPLEMENTATION_STEPS.md`.
     """
     driver = CapturingDriver()
     Neo4jReadExecutor(settings(), driver).read(  # type: ignore[arg-type]

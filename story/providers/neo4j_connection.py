@@ -24,13 +24,22 @@ here would be the defect, not the duplication.
 `edge_batch_size`, `replace_policy`, `graph_runs_root` and `schema_version`. `StoryNeo4jSettings`
 is a different type with a different job, and a load setting on it would be an invitation.
 
-**`RoutingControl.READ` is intent, not enforcement** (plan §16). The driver documentation is
-explicit that routing is not access control, and on a single Community instance there is no
-cluster to route within; Community also has no role-based access control at all
-(`SHOW ROLES` -> `UnsupportedAdministrationCommand`, measured 2026-08-03), so a read-only
-database user is not available either. The controls that actually hold are that this module
-issues no write clause, that every statement is code-owned upstream of it, and that values
-arrive only as bound parameters.
+**`RoutingControl.READ` is a real write barrier, and it is still not access control.**
+Finding F9, measured twice on this server (5.26.28 Community) by two independent agents: a
+write clause issued under `routing_=READ` is refused **by the server** with
+`Neo.ClientError.Statement.AccessMode`, and the identical statement is accepted under
+`routing_=WRITE` — so the refusal is the access mode and not the statement. The earlier text
+here called it "intent, not enforcement" (plan §16, corrected by F9); that was too pessimistic
+and, read literally, invites a maintainer to delete the argument as decorative. It is
+load-bearing: **do not remove it.**
+
+What the driver documentation's caveat does still mean is that routing is not access *control*
+— nothing stops code in this module from choosing `RoutingControl.WRITE`, and Community has no
+role-based access control to fall back on (`SHOW ROLES` -> `UnsupportedAdministrationCommand`,
+measured 2026-08-03), so a read-only database user is not available either. So the story layer
+has **two** independent controls rather than one: the structural scan proving no statement it
+issues contains a write clause, and the server refusing one at runtime if it ever did. Every
+statement is code-owned upstream of this module and values arrive only as bound parameters.
 """
 
 from __future__ import annotations
@@ -389,11 +398,13 @@ class Neo4jReadExecutor:
     ) -> tuple[dict[str, Any], ...]:
         """Run one read statement with a server-side timeout and return plain rows.
 
-        `routing_=RoutingControl.READ` is **intent, not enforcement** (§16): the driver's own
-        documentation says routing is not for enforcing access control, and against a single
-        Community instance there is no cluster to route within. It is set because a statement
-        this module issues is a read and should say so — the controls that hold are that
-        nothing here writes and that `parameters` is the only place a caller value can go.
+        `routing_=RoutingControl.READ` is **load-bearing, not decorative** (F9, correcting
+        §16): the server refuses a write clause in a READ-routed transaction with
+        `Neo.ClientError.Statement.AccessMode`, and accepts the same statement under WRITE. It
+        is not access *control* — nothing stops this line from being changed to WRITE — so the
+        structural no-write scan over the statements this module is given is still the first
+        control, and this is the second. Removing this argument would delete one of the two.
+        `parameters` remains the only place a caller value can go.
         """
         query = self._settings.read_query(statement, timeout_seconds)
         try:
