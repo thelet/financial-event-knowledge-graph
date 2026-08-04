@@ -1445,16 +1445,25 @@ def test_live_every_section_of_every_spike_package_is_inside_its_bound(live_pack
 
 @pytest.mark.neo4j
 def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget(live_packages):  # type: ignore[no-untyped-def]
-    """Measured 2026-08-04 against `graph-v1-0483dc6b4b10`: F1 = 4,261, F2 = 4,136,
-    F3 = 4,473 tokens, all under §10.2's 5,000. Every one of the three is trimmed to get there
-    and every one reports `token_budget` in `caps_hit` — the fifteen sections beside the
-    passages cost about 1,700 tokens, which §10.2.1's own arithmetic never counted.
+    """Measured 2026-08-04 against `graph-v1-0483dc6b4b10`: F1 = 4,331, F2 = 4,206,
+    F3 = 4,544 tokens, all under §10.2's 5,000. Every one of the three is *trimmed* to get
+    there and every one reports `token_budget` in `caps_hit`, ending with **two** primary
+    passages and **zero** context — because the fifteen sections beside the passages cost about
+    1,700 tokens (`retrieval_trace` alone is 1,617 at 30 entries) and §10.2.1's arithmetic
+    counted none of them.
+
+    The band is asserted rather than the three numbers: a change that moves a package by sixty
+    tokens is not a regression and one that halves it is. `caps_hit` is what pins the finding —
+    if a package ever stops needing the trim, §10.2's total and §10.2.1's table have been
+    reconciled and this docstring is stale.
     """
     packages = live_packages["packages"]
     measured = {name: packages[name].budget.token_estimate for name in SPIKE_IDS}
 
     assert all(estimate <= 5000 for estimate in measured.values()), measured
     assert all(estimate > 3000 for estimate in measured.values()), measured
+    assert all("token_budget" in packages[name].budget.caps_hit for name in SPIKE_IDS)
+    assert all(len(packages[name].primary_passages) >= 2 for name in SPIKE_IDS)
     assert packages["counter"].budget.token_estimate <= MAX_TOTAL_TOKENS_CEILING
 
 
