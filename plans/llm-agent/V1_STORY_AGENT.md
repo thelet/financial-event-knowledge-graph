@@ -935,7 +935,7 @@ candidates is a model choosing its own evidence one step earlier than the writer
 
 ```
 score = 0.40·clip(|z|/4)         magnitude against the metric's own delta history
-      + 0.20·clip(Δpct/p90)      magnitude in the metric's own units
+      + 0.20·clip(|Δ|/p90(|Δ|))  magnitude in the metric's own units   <- founder-corrected, §6.10.1
       + 0.15·clip(n_docs/5)      corroboration across distinct filings
       + 0.10·novelty             1/(1+prior candidates for this metric+detector), plus
                                  is_first_occurrence (e.g. the first negative value ever)
@@ -945,6 +945,44 @@ score = 0.40·clip(|z|/4)         magnitude against the metric's own delta histo
       − 0.25·repetition          cosine over the candidate's (metric_ids, period_keys, story_type)
                                  against the last N accepted posts' candidates
 ```
+
+### 6.10.1 Founder-approved correction — the magnitude-units term *(2026-08-04, gate G2)*
+
+| | |
+| --- | --- |
+| **Old formula** | `0.20 · clip(Δpct / p90)` |
+| **New formula** | `0.20 · clip(\|Δ\| / p90(\|Δ\|))`, where `p90` is over **absolute step magnitudes for that metric under the accepted canonical series and adjacency policy** |
+| **Affected population** | **130 of 262 candidates (49%) carry no `delta_pct` at all** *(measured 2026-08-04)*, so the old term was silent for half the corpus |
+| **F1 ranking** | **16th of 262 under the new term; 37th under the old** — out of the top decile (26), penalised for having crossed zero. F2 5th, F3 6th |
+
+**Why the old formula could not stand.** It is silent wherever `delta_pct` is suppressed, and
+`delta_pct` is suppressed **for factual-safety reasons that remain unchanged**: a relative
+change across a sign flip is what §13.3 calls *"arithmetically defined and rhetorically
+meaningless"*, and `story/core/numerals.relative_change_across_zero` refuses it. The detector
+therefore publishes no `delta_pct` when a step crosses zero, when `v0 == 0`, or for any
+`unit == percent` metric. **That rule is not relaxed by this correction** — the ranking term was
+changed *around* it, not the other way about. `adjusted_ebitda 2022Q2→2022Q3`, δ = `−429,000,000`,
+the largest sign flip in the corpus, has `delta_pct = None` by design.
+
+**Why this form.** Every defect this corpus produced on the relative form came from the **base
+it divides by**, never from the percentile: P10's factor of twelve on the margin bars,
+`adjusted_ebitda 2021Q4→2022Q1` reading `+43,900%` off a `$0.4M` base, and the `−221%` of the
+cross-zero case. Dividing by the metric's own p90 does the within-metric normalising the
+relative form was there for, **without an unstable starting-value denominator**. It also matches
+this line's own descriptor — *"magnitude in the metric's own units"* — which `Δpct/p90`, a
+relative measure, never did.
+
+**Rejected:** restoring `Δpct/p90` literally (silent on 49%); a hybrid relative-where-available
+form (two magnitude scales in one weighted term make `total` incomparable across candidates,
+which defeats a ranking); dropping the term (loses "how big is this *for this metric*").
+
+**Versioning.** §14 requires `story_run_id` to cover **every behaviour-changing input**. The
+ranking formula decides which candidate becomes a post and is therefore behaviour-changing —
+and the contract as built had **no ranking version at all**: `story_run_id` covers
+`detector_versions` and the canonicalisation `policy_version`, neither of which moves when a
+scoring term changes. **`RANKING_POLICY_VERSION` is introduced at `1.1.0`** (`1.0.0` being the
+`Δpct/p90` form that never shipped) and added to the `story_run_id` digest, so this correction
+is visible in run identity rather than silently re-ranking a rerun.
 
 Weights are a stated starting point, not a derivation, and `config/story.yaml` owns them so a
 change is a change of record. Measured to calibrate the gates: across **298 consecutive-quarter
