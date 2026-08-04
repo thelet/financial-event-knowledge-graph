@@ -99,9 +99,12 @@ class StoryRunManifest:
     max_tokens: int
     schema_digests: dict[str, str]
 
-    #: What decided the candidates.
+    #: What decided the candidates, and — `ranking_policy_version` — what decided which of them
+    #: could become a post. §6.10's score is behaviour-changing and had no version of its own
+    #: until founder gate G2 changed the units term and nothing in the record moved.
     detector_versions: dict[str, str]
     policy_version: str
+    ranking_policy_version: str
     selection: dict[str, Any]
     budget: dict[str, Any]
 
@@ -145,6 +148,7 @@ def build_manifest(
     schema_digests: dict[str, str],
     detector_versions: dict[str, str],
     policy_version: str,
+    ranking_policy_version: str,
     selection: dict[str, Any],
     budget: dict[str, Any],
     counts: dict[str, Any],
@@ -184,6 +188,7 @@ def build_manifest(
         schema_digests=dict(schema_digests),
         detector_versions=dict(detector_versions),
         policy_version=policy_version,
+        ranking_policy_version=ranking_policy_version,
         selection=dict(selection),
         budget=dict(budget),
         counts=dict(counts),

@@ -224,6 +224,7 @@ def story_run_id(
     schema_digests: Mapping[str, str],
     detector_versions: Mapping[str, str],
     policy_version: str,
+    ranking_policy_version: str,
     selection: RunSelection,
     budget: BudgetParameters | None = None,
     story_layout_version: str = STORY_LAYOUT_VERSION,
@@ -236,7 +237,7 @@ def story_run_id(
     list is the thing that drifted in the first draft, so asserting it directly would assert
     the drift.
 
-    Three inputs are here because leaving them out was a measured defect rather than an
+    Four inputs are here because leaving them out was a measured defect rather than an
     oversight:
 
     * `selection` — `--limit 3` and `--limit 20` minted one id, and §1.6's atomic
@@ -245,6 +246,13 @@ def story_run_id(
     * `provider_model_id` — the extraction data shows it is a filesystem path
       (`…/Qwen3.5-9B-Q4_K_M.gguf`). Swapping the GGUF behind an unchanged `model_id` changes
       every generation, and without this nothing would notice.
+    * `ranking_policy_version` — §6.10's score decides which candidate becomes a post, and
+      neither `detector_versions` nor `policy_version` moves when a scoring term does. Founder
+      gate G2 changed the units term with nothing in the id to show for it, which is the
+      `selection` defect again. It arrives as a **parameter** rather than as an import because
+      `core/` may not import a stage (`test_core_never_imports_a_stage_a_provider_or_the_cli`);
+      `story.stages.ranking.RANKING_POLICY_VERSION` is the value a caller passes, exactly as
+      `detector_versions` and `policy_version` are already threaded in from the detectors.
 
     Parts are labelled `name=value` so an empty optional keeps its slot instead of shifting
     every part after it, and so two string inputs cannot be swapped without changing the
@@ -259,6 +267,7 @@ def story_run_id(
         model_id=model_id,
         provider_model_id=provider_model_id,
         policy_version=policy_version,
+        ranking_policy_version=ranking_policy_version,
         story_layout_version=story_layout_version,
     )
     parameters = budget if budget is not None else BudgetParameters()
@@ -280,6 +289,7 @@ def story_run_id(
         "detector_versions=" + ",".join(
             f"{name}={detector_versions[name]}" for name in sorted(detector_versions)),
         f"policy_version={policy_version}",
+        f"ranking_policy_version={ranking_policy_version}",
         *selection.digest_parts(),
         *parameters.digest_parts(),
     )

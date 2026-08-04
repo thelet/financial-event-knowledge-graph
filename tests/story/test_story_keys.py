@@ -49,6 +49,7 @@ RUN = dict(
     schema_digests={"editorial_plan": "aaaa", "draft": "bbbb"},
     detector_versions={"detector:metric_move": "1.0.0"},
     policy_version="canon-policy:1.0.0",
+    ranking_policy_version="1.1.0",
     selection=RunSelection(limit=3, detector_ids=("detector:metric_move",)),
     budget=BudgetParameters(),
 )
@@ -262,6 +263,9 @@ DIGEST_INPUTS: dict[str, Any] = {
     "schema_digests": {"editorial_plan": "cccc", "draft": "bbbb"},
     "detector_versions": {"detector:metric_move": "1.0.1"},
     "policy_version": "canon-policy:1.1.0",
+    # §6.10's score decides which candidate becomes a post, so two formulas are two runs.
+    # Before this row, gate G2's change to the units term moved no id at all.
+    "ranking_policy_version": "1.2.0",
     "selection": RunSelection(limit=20, detector_ids=("detector:metric_move",)),
     "budget": BudgetParameters(max_primary_passages=6),
     "story_layout_version": "2.0.0",
@@ -348,7 +352,8 @@ def test_the_story_run_id_reads_no_clock():
 
 @pytest.mark.parametrize(
     "blank", ["graph_run_id", "run_complete_sha256", "ontology_definition_hash", "config_hash",
-              "prompt_version", "model_id", "provider_model_id", "policy_version"])
+              "prompt_version", "model_id", "provider_model_id", "policy_version",
+              "ranking_policy_version"])
 def test_a_story_run_id_is_refused_when_a_required_input_is_blank(blank):
     with pytest.raises(EmptyIdentityError):
         keys.story_run_id(**replacing(RUN, **{blank: ""}))

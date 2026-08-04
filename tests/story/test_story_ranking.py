@@ -396,6 +396,40 @@ def test_the_weights_are_the_eight_section_6_10_states():
     }
 
 
+def test_the_ranking_policy_version_is_1_1_0_and_scoring_py_is_the_only_place_it_is_assigned():
+    """The version §14 was missing: nothing in `story_run_id` moved when a scoring term did.
+
+    `1.1.0` and not `1.0.0` on purpose. `1.0.0` names §6.10's literal `Δpct/p90` units term,
+    which never shipped — measured, it drops §6.3's F1 from 16th to 37th of 262 for having
+    crossed zero. `1.1.0` is the `|Δ|/p90(|Δ|)` correction the founder approved at gate G2 on
+    2026-08-04 (§6.10.1). A `1.0.0` here would name a formula no run ever used.
+
+    Asserted against the source and not only against the value, mirroring the `DELTA_PRECISION`
+    guard in `test_story_detector_census.py`: a second module that happened to say `"1.1.0"`
+    today would pass a value check and still be two places to edit, and a version that can
+    disagree with itself is worse than no version.
+    """
+    assigning = sorted(
+        path.relative_to(PACKAGE).as_posix()
+        for path in PACKAGE.rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "RANKING_POLICY_VERSION"
+            for target in node.targets
+        )
+    )
+
+    assert assigning == ["stages/ranking/scoring.py"], assigning
+    assert scoring.RANKING_POLICY_VERSION == "1.1.0"
+
+    # Reachable as the stage's own export, because `story/core/keys.py` may not import a stage
+    # and a caller has to be able to reach the value it threads in as `ranking_policy_version`.
+    import story.stages.ranking as ranking_package
+
+    assert ranking_package.RANKING_POLICY_VERSION is scoring.RANKING_POLICY_VERSION
+
+
 def test_no_weight_is_written_as_a_literal_anywhere_but_its_own_declaration():
     """A weight repeated at a call site is a weight that can change in one place only.
 

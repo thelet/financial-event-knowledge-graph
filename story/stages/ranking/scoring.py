@@ -76,6 +76,25 @@ from story.stages.ranking.metric_history import MIN_DELTA_POPULATION, MetricHist
 
 # -- §6.10's weights ------------------------------------------------------------------------
 
+#: The version of §6.10's scoring rule, and a digest input to `story_run_id` (§14).
+#:
+#: **`1.1.0` and not `1.0.0`.** `1.0.0` names §6.10's literal `Δpct/p90` units term, which this
+#: repository never shipped — the module docstring's first departure records the measurement that
+#: rejected it. `1.1.0` is the `|Δ|/p90(|Δ|)` correction the founder approved at gate G2 on
+#: 2026-08-04 and recorded at §6.10.1. Starting at `1.0.0` would name a formula no run ever used.
+#:
+#: **Bump rule: it moves whenever two runs over one graph could rank differently.** Concretely —
+#: a scoring term added or removed, any weight in `WEIGHTS`, any saturation, horizon or precision
+#: constant below, the ordering key in `candidate_ranking.py`, or §6.6 D3's dedup rule in
+#: `deduplication.py`, because deduplication elects the representative and so decides which
+#: candidate can become a post. It does *not* move for a docstring, a rename or a refactor that
+#: leaves every total and every position identical.
+#:
+#: It exists because the contract as built carried no ranking version at all: two runs under two
+#: formulas minted one `story_run_id`, and §1.6's atomic finalisation would then `os.replace` one
+#: over the other — the defect §0b item 5 records against `extraction_run_id`.
+RANKING_POLICY_VERSION = "1.1.0"
+
 WEIGHT_MAGNITUDE_Z = 0.40
 WEIGHT_MAGNITUDE_UNITS = 0.20
 WEIGHT_CORROBORATION = 0.15
@@ -513,6 +532,7 @@ __all__ = [
     "DIVERGENCE_STORY_TYPE",
     "MAGNITUDE_SIGNAL",
     "NOVELTY_FIRST_OCCURRENCE_BONUS",
+    "RANKING_POLICY_VERSION",
     "RECENCY_ANCHOR_DATE",
     "RECENCY_ANCHOR_PERIOD_KEY",
     "RECENCY_HORIZON_QUARTERS",

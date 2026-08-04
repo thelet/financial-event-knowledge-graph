@@ -48,6 +48,7 @@ from story.stages.ranking.metric_history import (
     build_metric_history,
 )
 from story.stages.ranking.scoring import (
+    RANKING_POLICY_VERSION,
     SCORE_PRECISION,
     WEIGHTS,
     AcceptedPost,
@@ -59,6 +60,7 @@ from story.stages.ranking.scoring import (
 __all__ = [
     "AUDIENCE_ORDER",
     "MIN_DELTA_POPULATION",
+    "RANKING_POLICY_VERSION",
     "SCORE_PRECISION",
     "WEIGHTS",
     "AcceptedPost",
