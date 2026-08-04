@@ -29,6 +29,18 @@ subtraction. R8 now rounds before comparing, the step is refused, and the window
 detector's rule is unchanged: **the plan's 8 rested on a float residue and the true figure is
 7.** Recorded rather than restored.
 
+**A run's direction comes from `detector_config`, and the arithmetic sign is not it.** The
+candidate carried `delta_sign` alone until R4b, and the live `direct_selling_costs ('2021Q1',
+'2021Q2', '2021Q3', '2021Q4')` firing is the case that makes that wrong: the metric is stored
+negative by convention (46 of 46 values, measured in `detector_config`), its three deltas are
+negative, and what accelerated is *costs rising*. A reader taking `delta_sign = -1` at face
+value reads the opposite of the finding. `polarity` and `direction` now come from
+`METRIC_POLARITY` and `quantity_direction` exactly as `metric_move` and `trend_reversal` take
+them, `delta_sign` stays as the arithmetic fact beside them, and a metric whose sign convention
+is `UNVERIFIED` — `cost_of_revenue`, `inventory_valuation_adjustment`, neither of which has an
+observation in this run — gets **no** direction and carries `metric_sign_convention_unverified`
+instead. Nothing about the rule moved: the census is 9 all-shapes and 7 quarters as before.
+
 **Thresholds are this module's own constants; the shared ones are not.** `MAGNITUDE_RATIO` and
 `RUN_LENGTH` are §6.6 D3's own rule and are declared here, because no other detector can
 meaningfully use them. `DELTA_PRECISION` and `COMPARABLE_SHAPES` are imported from
@@ -55,7 +67,13 @@ from story.core.series import (
     comparable,
 )
 from story.stages.detection.canonicalization import POLICY_VERSION, ObservationLoad, canonicalize
-from story.stages.detection.detector_config import COMPARABLE_SHAPES, DELTA_PRECISION
+from story.stages.detection.detector_config import (
+    COMPARABLE_SHAPES,
+    DELTA_PRECISION,
+    SIGN_CONVENTION_UNVERIFIED,
+    polarity_of,
+    quantity_direction,
+)
 
 DETECTOR_ID = "detector:acceleration"
 DETECTOR_VERSION = "1.0.0"
@@ -285,18 +303,50 @@ def _candidate(
     those four slots — the readings that back the canonical value — and never the minority ones,
     which §10.1 discloses separately and which back a number this run did not use.
 
-    Signals are numbers only. There is no headline, no thesis and no score here by construction
-    (§6.4): `StoryCandidate` forbids extra fields, and every value below is a float or an int.
+    Signals are numbers and closed words. There is no headline, no thesis and no score here by
+    construction (§6.4): `StoryCandidate` forbids extra fields, and every value below is a
+    number or a word from `detector_config`'s own enums.
+
+    **`direction` is `detector_config`'s answer and never the sign of the deltas**, exactly as
+    `metric_move` and `trend_reversal` build it. `direct_selling_costs 2021Q1 → 2021Q4` is the
+    live case: it is stored negative by convention (46 of 46 values), its three deltas are
+    negative, and the quantity accelerating is *costs rising*. Until R4b this candidate carried
+    `delta_sign = -1` and nothing else, which reads as a fall to anyone who does not already
+    know the convention. `delta_sign` stays — it is the arithmetic fact and a reader checks the
+    word against it — and any of the three deltas answers for the run, because `accelerates`
+    has already held them to one sign.
     """
     metric_id = window[0].metric_id
     period_keys = tuple(sorted(point.period.key for point in window))
     observation_ids = tuple(
         sorted({obs for point in window for obs in point.supporting_observation_ids})
     )
-    warnings = tuple(
-        sorted({warning for point in window for warning in point.warnings}
-               | set(comparability_warnings))
-    )
+    direction = quantity_direction(metric_id, deltas[0])
+    polarity = polarity_of(metric_id)
+    signals: dict[str, bool | int | float | str] = {
+        "delta_1": deltas[0],
+        "delta_2": deltas[1],
+        "delta_3": deltas[2],
+        # `+1`/`−1`, and the *arithmetic* sign of the stored values — not a direction. The two
+        # differ for a metric stored negative by convention, which is why `direction` is beside
+        # it and comes from `detector_config` rather than from this number.
+        "delta_sign": 1 if deltas[0] > 0 else -1,
+        "magnitude_ratio": round(abs(deltas[-1]) / abs(deltas[0]), DELTA_PRECISION),
+        "window_delta": round(sum(deltas), DELTA_PRECISION),
+        "run_length": RUN_LENGTH,
+    }
+    if direction is not None:
+        signals["direction"] = direction
+    if polarity is not None:
+        signals["polarity"] = polarity.value
+    warning_codes = {warning for point in window for warning in point.warnings}
+    warning_codes.update(comparability_warnings)
+    if direction is None:
+        # `cost_of_revenue` and `inventory_valuation_adjustment` have no observation in this
+        # run, so their sign convention is unmeasured and no direction may be stated. The run
+        # is real and citable, so the candidate is emitted carrying the gap rather than dropped.
+        warning_codes.add(SIGN_CONVENTION_UNVERIFIED)
+    warnings = tuple(sorted(warning_codes))
     return StoryCandidate(
         candidate_id=candidate_id(
             detector_id=DETECTOR_ID,
@@ -319,18 +369,7 @@ def _candidate(
         metric_ids=(metric_id,),
         anchor_period_keys=period_keys,
         anchor_observation_ids=observation_ids,
-        signals={
-            "delta_1": deltas[0],
-            "delta_2": deltas[1],
-            "delta_3": deltas[2],
-            # `+1`/`−1` rather than a word: direction of *value*, not polarity. §6.6 D1 records
-            # that `metrics.yaml` has no polarity key and that the story layer owns that map, so
-            # a detector calling a rise "growth" would be inventing the answer.
-            "delta_sign": 1 if deltas[0] > 0 else -1,
-            "magnitude_ratio": round(abs(deltas[-1]) / abs(deltas[0]), DELTA_PRECISION),
-            "window_delta": round(sum(deltas), DELTA_PRECISION),
-            "run_length": RUN_LENGTH,
-        },
+        signals=signals,
         warnings=warnings,
         evidence_request=EvidenceRequest(
             metric_ids=(metric_id,),

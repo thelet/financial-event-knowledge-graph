@@ -58,6 +58,15 @@ from story.stages.detection.canonicalization import (
     canonicalize,
     load_observations,
 )
+from story.stages.detection.detector_config import (
+    DIRECTION_DECREASE,
+    DIRECTION_INCREASE,
+    DIRECTION_UNCHANGED,
+    SIGN_CONVENTION_UNVERIFIED,
+    MetricPolarity,
+    ValueSign,
+    value_sign_of,
+)
 
 GRAPH_RUN_ID = "graph-v1-0483dc6b4b10"
 
@@ -164,13 +173,14 @@ def test_three_same_sign_deltas_of_growing_magnitude_are_one_acceleration_candid
 
 def test_a_falling_series_accelerates_downward_and_is_the_same_candidate_shape():
     """Same sign, not same direction: three deltas of −1, −3, −6 accelerate exactly as +1, +3,
-    +6 do. The candidate says so with `delta_sign`, and never with a word like *"decline"* —
-    §6.6 D1 records that polarity is story-owned config and not a detector's to infer."""
+    +6 do. `delta_sign` is the arithmetic fact; the *word* comes from `detector_config`'s
+    polarity map and never from that sign — which for a positively-stored margin agree."""
     result = detect(quarterly([11.0, 10.0, 7.0, 1.0]))
 
     assert len(result.candidates) == 1
     assert result.candidates[0].signals["delta_sign"] == -1
     assert result.candidates[0].signals["window_delta"] == -10.0
+    assert result.candidates[0].signals["direction"] == DIRECTION_DECREASE
 
 
 def test_decreasing_delta_magnitude_does_not_fire():
@@ -365,6 +375,71 @@ def test_only_the_shapes_r3_admits_are_scanned():
 
 
 # ---------------------------------------------------------------------------------------
+# Which way the quantity moved — §6.6 D1's map, and never the sign of the deltas
+# ---------------------------------------------------------------------------------------
+
+
+def usd_quarterly(
+    values: Sequence[float], *, metric_id: str, first: tuple[int, int] = (2021, 1)
+) -> list[ObservationRecord]:
+    """Consecutive quarters of a USD metric, filed in whole dollars as this corpus files them."""
+    year, quarter = first
+    records = []
+    for value in values:
+        records.append(quarter_record(metric_id, year, quarter, value,
+                                      unit="USD", scale="units", currency="USD",
+                                      quoted_text=f"${value:,.0f}"))
+        year, quarter = (year + 1, 1) if quarter == 4 else (year, quarter + 1)
+    return records
+
+
+def test_a_cost_stored_negative_accelerates_upward_and_the_candidate_says_which_way():
+    """The live firing that made this a defect, in the shape the graph holds it.
+
+    `direct_selling_costs 2021Q1 → 2021Q4` is one of the seven quarterly firings, and the metric
+    is stored **negative by convention** — 46 of 46 values, measured in `detector_config`,
+    because the filings print *"Direct selling costs (54,175)"* inside a subtotal. Its three
+    deltas are negative and what accelerated is costs *rising*. Until R4b the candidate carried
+    `delta_sign = -1` and nothing else, which reads as a fall to anyone who does not already
+    know the convention — and knowing it is precisely what the polarity map exists to remove
+    the need for.
+
+    Both are on the candidate: the arithmetic sign, and the word that is not derived from it.
+    """
+    assert value_sign_of("direct_selling_costs") is ValueSign.NEGATIVE
+
+    result = detect(usd_quarterly([-1.0e7, -1.1e7, -1.4e7, -2.0e7],
+                                  metric_id="direct_selling_costs"))
+    candidate = result.candidates[0]
+
+    assert len(result.candidates) == 1
+    assert [candidate.signals[f"delta_{n}"] for n in (1, 2, 3)] == [-1.0e6, -3.0e6, -6.0e6]
+    assert candidate.signals["delta_sign"] == -1
+    assert candidate.signals["direction"] == DIRECTION_INCREASE
+    assert candidate.signals["polarity"] == MetricPolarity.COST.value
+    assert SIGN_CONVENTION_UNVERIFIED not in candidate.warnings
+
+
+def test_a_metric_whose_sign_convention_is_unmeasured_states_no_direction_and_warns():
+    """`cost_of_revenue` has zero observations in this run, so nothing establishes whether it
+    would arrive positive or negative — and the two costs the corpus *does* print are both
+    negative, so a default of positive would be a guess dressed as a reading.
+
+    The candidate is emitted rather than dropped: the run is real and citable and only the
+    sentence describing it is unavailable, which is what the warning says.
+    """
+    assert value_sign_of("cost_of_revenue") is ValueSign.UNVERIFIED
+
+    candidate = detect(usd_quarterly([1.0e7, 1.1e7, 1.4e7, 2.0e7],
+                                     metric_id="cost_of_revenue")).candidates[0]
+
+    assert candidate.signals["delta_sign"] == 1
+    assert "direction" not in candidate.signals
+    assert candidate.signals["polarity"] == MetricPolarity.COST.value
+    assert SIGN_CONVENTION_UNVERIFIED in candidate.warnings
+
+
+# ---------------------------------------------------------------------------------------
 # What the candidate carries — §6.4, §6.11, §10
 # ---------------------------------------------------------------------------------------
 
@@ -391,8 +466,15 @@ def test_the_candidate_carries_no_prose_no_headline_and_no_score():
 
     Asserted as the field set rather than as four `hasattr` checks — `extra="forbid"` stops a
     field being added by accident, and this stops one being added on purpose.
+
+    **Every signal is a number or a word from a closed enum.** It was numbers only until R4b
+    added `direction` and `polarity`; the vocabularies are enumerated from `detector_config`
+    rather than typed out, so a detector that invented a fifth polarity or wrote a sentence into
+    a signal fails here exactly as it would have before.
     """
     candidate = detect(quarterly([1.0, 2.0, 5.0, 11.0])).candidates[0]
+    closed_words = {polarity.value for polarity in MetricPolarity} | {
+        DIRECTION_INCREASE, DIRECTION_DECREASE, DIRECTION_UNCHANGED}
 
     assert set(candidate.model_dump()) == {
         "candidate_id", "detector_id", "detector_version", "policy_version", "graph_run_id",
@@ -400,7 +482,8 @@ def test_the_candidate_carries_no_prose_no_headline_and_no_score():
         "anchor_observation_ids", "signals", "warnings", "evidence_request", "audience",
     }
     assert all(
-        isinstance(value, (bool, int, float)) for value in candidate.signals.values()
+        isinstance(value, (bool, int, float)) or value in closed_words
+        for value in candidate.signals.values()
     ), candidate.signals
 
 
@@ -675,6 +758,36 @@ def test_live_not_one_candidate_in_the_run_is_a_deceleration(live_scan):  # type
         assert accelerates(deltas), candidate.candidate_id
         assert abs(deltas[2]) > abs(deltas[0])
         assert candidate.signals["magnitude_ratio"] >= MAGNITUDE_RATIO
+
+
+@pytest.mark.neo4j
+def test_live_every_firing_states_a_direction_and_the_cost_one_reads_upward(live_scan):  # type: ignore[no-untyped-def]
+    """§6.6 D1's map over the whole census, and the one row where it changes the reading.
+
+    Eight of the nine firings are positively-stored metrics whose direction is the sign of their
+    deltas. `direct_selling_costs 2021Q1 → 2021Q4` is the ninth: `delta_sign = -1` and
+    `direction = increase`, because the metric is stored negative and the costs rose. No metric
+    in this run has an unverified convention, so no firing carries the warning — asserted,
+    because an empty warning channel and an unset one look the same from the outside.
+    """
+    _load, points = live_scan
+
+    stated = {
+        (candidate.metric_ids[0], candidate.anchor_period_keys[0]): (
+            candidate.signals["delta_sign"], candidate.signals.get("direction"),
+            candidate.signals.get("polarity"))
+        for candidate in detect_acceleration(points, graph_run_id=GRAPH_RUN_ID).candidates
+    }
+
+    assert stated[("direct_selling_costs", "2021Q1")] == (
+        -1, DIRECTION_INCREASE, MetricPolarity.COST.value)
+    assert stated[("adjusted_ebitda_margin", "2020Q1")] == (
+        -1, DIRECTION_DECREASE, MetricPolarity.RATIO.value)
+    assert all(direction is not None for _sign, direction, _polarity in stated.values())
+    assert all(
+        SIGN_CONVENTION_UNVERIFIED not in candidate.warnings
+        for candidate in detect_acceleration(points, graph_run_id=GRAPH_RUN_ID).candidates
+    )
 
 
 @pytest.mark.neo4j

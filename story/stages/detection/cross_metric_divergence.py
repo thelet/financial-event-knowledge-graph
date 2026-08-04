@@ -51,11 +51,58 @@ raw 26-quarter figures reproduce the plan exactly (mean −0.3462, σ 4.0382, z 
 difference is the rule and not the arithmetic. Clamping `2019Q4` to v1 would assert a
 definition the ontology does not declare, which C4 forbids.
 
-**Variance floor.** `pstdev(gap)` must reach `2 × tol` for the pair's unit, or a single 0.1 pp
-rounding difference in an otherwise flat gap produces `z ≈ 4.9` out of presentation noise. `tol`
-is `presentation_tolerance` over the population's own points, so a USD pair filed in millions
-carries a $2M floor and a percentage pair 0.2 pp. It refuses nothing on this run and exists for
-the pair that would.
+**The two metrics of a pair must share a sign convention, and that is checked before any gap is
+computed.** `direct_selling_costs` is stored negative — 46 of 46 values, per `detector_config`'s
+own measured note — so `adjusted_gross_profit − direct_selling_costs` is `512M − (−136M)`, the
+**sum** of a profit and a cost wearing a minus sign. R2 licenses that pair (both are components
+of `adjusted_gross_profit`'s formula, so the relation is `co_component`), R4 and R5 pass (both
+are USD), and before R4b it produced three candidates, `2022Q1` at `z = 2.574` over a "gap" of
+`648000000.0`. A quantity stored under one convention minus a quantity stored under another is
+not a difference and no z-score over it means anything, so the pair is refused by name with
+`SIGN_CONVENTION_MISMATCH`. **`UNVERIFIED` does not match anything, including `POSITIVE`**:
+`cost_of_revenue` and `inventory_valuation_adjustment` have no observation in this run and the
+two costs the corpus does print are negative, so a pair joining one of them to a positive metric
+is exactly the hazard above with the evidence missing. Two `UNVERIFIED` metrics *are* equal and
+pass; the candidate then carries `metric_sign_convention_unverified` and states no direction.
+None of the five shipped pairs is affected — all ten metrics are `POSITIVE` — which is the point:
+`DivergencePair` is public and `pairs=` is a public parameter, so the refusal exists for the pair
+that is one line away from being declared.
+
+**Variance floor, and the single-point excursion it did not stop.** `pstdev(gap)` must reach
+`2 × tol` for the pair's unit, or a single 0.1 pp rounding difference in an otherwise flat gap
+produces `z ≈ 4.9` out of presentation noise. `tol` is `presentation_tolerance` over the
+population's own points, so a USD pair filed in millions carries a $2M floor and a percentage
+pair 0.2 pp. **That test alone defends against a 0.1 pp step and nothing larger.** A constructed
+population of 25 quarters flat at 0.0 with one quarter at 1.05 pp has σ = 0.20576, clears the
+0.2 floor by 0.0058, and the anchor scores 4.899 — which is the *maximum possible* |z| for a
+member of its own 25-point population, √(n−1). A one-quarter step minting a ten-sigma candidate
+is the defect the floor was written to prevent, one printed unit further out.
+
+So the floor is applied **twice: to the population, and to the population with the anchor
+removed.** The dispersion a z-score is measured against must exist independently of the
+excursion being scored; a σ the anchor created by itself is not a history. The z-score itself is
+still taken over the whole population, anchor included, so no published number moves. Measured
+live 2026-08-04 on `graph-v1-0483dc6b4b10`, the leave-one-out σ clears the floor for **all 15**
+candidates — the narrowest margin is 3.3×, the seven `AGM↔CM` candidates holding σ ≈ 0.65 pp
+against a 0.2 pp floor — so the census is unchanged at 15 and every z is the number it was.
+The gap's own dispersion is published as `gap_pstdev_excluding_anchor`. Excluding the
+anchor from the *population* as well was measured and rejected: it moves the census to 16 (adds
+`AGP↔CP 2023Q1` and `CP↔CPAI 2022Q2`, drops `AGP↔CP 2021Q4` whose v1-era population falls from 8
+to 7 and under `MIN_POPULATION`) and moves F3 from 3.9454 to 6.793. It is arguably the better
+statistic and it is not this repair's to make.
+
+**A `CONFLICT` slot narrowed a population silently, and now it does not.** `_gap_series` built
+from `valued_points`, so a conflicted period vanished *before* `_population` saw it: a
+constructed 25-quarter pair with two right-side slots forced to `CONFLICT` reported `n = 23`,
+`comparable_overlap = 23`, `periods_excluded = 0` and no warning — the population was narrowed
+by two and nothing on the candidate said so, while `_population`'s own docstring claimed a
+conflicted slot *"must remove a period from the population too, and none of those needs new
+code"*. It removed it one layer earlier and without the disclosure. The scan now hands every
+period both sides hold to `comparable`, which refuses it under **R7/NOT_CANONICAL** — R7's own
+rule, not a restatement — and the count reaches the candidate as `periods_unresolved`, inside
+`population_excluded_by`, and under the same `divergence_population_excludes_periods` warning
+the R6 case already used. No live pair loses a period this way, so the refusal census is
+unchanged.
 
 **`housing_inventory_homes ↔ homes_sold` is not a pair.** `housing_inventory_homes` is 126/126
 `instant` and `homes_sold` has zero instants, so the overlap is **zero** and R3 refuses every
@@ -102,7 +149,14 @@ from story.core.series import (
     default_authority,
 )
 from story.stages.detection.canonicalization import POLICY_VERSION
-from story.stages.detection.detector_config import MIN_DELTA_POPULATION
+from story.stages.detection.detector_config import (
+    MIN_DELTA_POPULATION,
+    SIGN_CONVENTION_UNVERIFIED,
+    ValueSign,
+    polarity_of,
+    quantity_direction,
+    value_sign_of,
+)
 
 #: §6.4's closed enum member and §6.11's detector slug source.
 DETECTOR_ID = "detector:cross_metric_divergence"
@@ -147,6 +201,9 @@ POPULATION_TOO_SMALL = "POPULATION_TOO_SMALL"
 LOW_VARIANCE_PRESENTATION_NOISE = "LOW_VARIANCE_PRESENTATION_NOISE"
 SERIES_ABSENT = "SERIES_ABSENT"
 RELATION_UNDECLARED = "RELATION_UNDECLARED"
+#: The two metrics are not stored under one sign convention, so `left − right` is not a
+#: difference. Raised per pair, before a single gap is taken. See the module docstring.
+SIGN_CONVENTION_MISMATCH = "SIGN_CONVENTION_MISMATCH"
 
 #: The rule id this module refuses under. `D4` and not `R…`: R1–R10 are comparability's and are
 #: quoted verbatim when they fire, so a reader of a refusal can tell which layer declined.
@@ -155,7 +212,14 @@ RULE_ID = "D4"
 #: §10.1 carries this onto the package. Raised when the anchor's population is narrower than
 #: the pair's comparable overlap — the CP↔AGP formula split is the live case — so a reader is
 #: told the mean was taken over part of the history rather than discovering it from a count.
+#: It covers **both** ways a population narrows: R6 refusing a period against the anchor, and
+#: R7 refusing a period whose slot holds no canonical value on either side.
 POPULATION_EXCLUDES_PERIODS = "divergence_population_excludes_periods"
+
+#: The `rule/reason` token a period lost to a `CONFLICT` slot is disclosed under, in the same
+#: `population_excluded_by` field R6's own token appears in. Both come from `comparable`; this
+#: one is named because the count that carries it is assembled a layer above the verdicts.
+UNRESOLVED_PERIOD_RULE = "R7/NOT_CANONICAL"
 
 
 class RelationKind(str, Enum):
@@ -304,6 +368,19 @@ def detect_cross_metric_divergence(
     refusals: list[DivergenceRefusal] = []
 
     for pair in sorted(pairs, key=lambda item: (item.metric_ids, item.left)):
+        # Before the series are even looked up: this is a statement about the pair's
+        # *declaration*, and a pair that may not be differenced may not be differenced whether
+        # or not the run holds its numbers. See the module docstring for the
+        # `adjusted_gross_profit − direct_selling_costs` sum this refuses.
+        left_sign, right_sign = value_sign_of(pair.left), value_sign_of(pair.right)
+        if left_sign is not right_sign:
+            refusals.append(DivergenceRefusal(
+                pair.metric_ids, "", None, RULE_ID, SIGN_CONVENTION_MISMATCH,
+                f"{pair.left} is stored {left_sign.value} and {pair.right} is stored "
+                f"{right_sign.value}, so {pair.left} − {pair.right} does not difference two "
+                "quantities and a z-score over it measures nothing",
+            ))
+            continue
         left_series = series_by_metric.get(pair.left)
         right_series = series_by_metric.get(pair.right)
         if left_series is None or right_series is None:
@@ -319,12 +396,14 @@ def detect_cross_metric_divergence(
             ))
             continue
         for shape in shapes:
-            found, declined = _gap_series(pair, left_series, right_series, shape, resolved)
+            found, declined, unresolved = _gap_series(
+                pair, left_series, right_series, shape, resolved)
             refusals.extend(declined)
             if not found:
                 continue
             emitted, more = _candidates_for_shape(
                 pair, found, shape, resolved,
+                unresolved=unresolved,
                 graph_run_id=graph_run_id,
                 z_min=z_min,
                 min_population=min_population,
@@ -342,29 +421,45 @@ def _gap_series(
     right_series: CanonicalSeries,
     shape: PeriodShape,
     authority: ComparabilityAuthority,
-) -> tuple[tuple[GapPoint, ...], tuple[DivergenceRefusal, ...]]:
+) -> tuple[tuple[GapPoint, ...], tuple[DivergenceRefusal, ...], tuple[str, ...]]:
     """Every period of one shape where the two metrics may be subtracted, in series order.
 
     `ClaimKind.DIVERGENCE` is the only kind R2 lets name two metrics, and it is the kind that
     carries R9's cohort warning. R8 and R10 do not apply to it and that is correct: a gap is
     not a step, so there is nothing for a tolerance floor or an adjacency rule to be about.
+
+    **Built from every point of the shape, not from `valued_points`.** A `CONFLICT` slot holds
+    no value and must not enter a gap history — but filtering it out here made it vanish
+    before anything counted it, and the population silently lost a period with
+    `periods_excluded = 0` on the candidate. R7 is the rule that refuses a slot emitting no
+    value, so the pair is handed to `comparable` and R7 declines it by name; the third return
+    is those period keys, so the candidate can say how much of its history was never available.
+    A period only one side reports is still skipped in silence: there is no pair to refuse.
     """
-    right_points = {point.period.key: point for point in right_series.valued_points(shape)}
+    right_points = {
+        point.period.key: point
+        for point in right_series.points
+        if point.period.shape is shape
+    }
     found: list[GapPoint] = []
     refusals: list[DivergenceRefusal] = []
+    unresolved: list[str] = []
     for left in sorted(
-        left_series.valued_points(shape),
+        (point for point in left_series.points if point.period.shape is shape),
         key=lambda point: (point.period.anchor_date or "", point.period.key),
     ):
         right = right_points.get(left.period.key)
-        if right is None or left.value is None or right.value is None:
+        if right is None:
             continue
         verdict = comparable(left, right, claim=ClaimKind.DIVERGENCE, authority=authority)
         if not verdict:
             refusals.append(DivergenceRefusal(
                 pair.metric_ids, shape.value, left.period.key,
                 verdict.rule, verdict.reason, verdict.detail))
+            if verdict.rule == "R7":
+                unresolved.append(left.period.key)
             continue
+        assert left.value is not None and right.value is not None  # R7 passed
         found.append(GapPoint(
             period_key=left.period.key,
             anchor_date=left.period.anchor_date or "",
@@ -374,7 +469,7 @@ def _gap_series(
             right=right,
             warnings=tuple(sorted(warning.code for warning in verdict.warnings)),
         ))
-    return tuple(found), tuple(refusals)
+    return tuple(found), tuple(refusals), tuple(unresolved)
 
 
 def _candidates_for_shape(
@@ -383,6 +478,7 @@ def _candidates_for_shape(
     shape: PeriodShape,
     authority: ComparabilityAuthority,
     *,
+    unresolved: Sequence[str],
     graph_run_id: str,
     z_min: float,
     min_population: int,
@@ -405,14 +501,24 @@ def _candidates_for_shape(
         mean = statistics.fmean(values)
         deviation = statistics.pstdev(values)
         floor = variance_floor_multiple * max(point.tolerance for point in population)
-        if deviation < floor:
+        # The same floor, against the population the anchor is not a member of. σ over the
+        # whole population passes it on a single excursion in an otherwise flat gap — 25 flat
+        # quarters and one 1.05 pp step give σ = 0.20576 against a 0.2 floor and score the
+        # maximum |z| a member of its own population can reach — and a dispersion the anchor
+        # created by itself is not a history to measure the anchor against. The z-score below
+        # is still taken over the whole population, so this refuses without moving a number.
+        rest = [point.gap for point in population if point.period_key != anchor.period_key]
+        deviation_without_anchor = statistics.pstdev(rest) if len(rest) > 1 else 0.0
+        if deviation < floor or deviation_without_anchor < floor:
             refusals.append(DivergenceRefusal(
                 pair.metric_ids, shape.value, anchor.period_key, RULE_ID,
                 LOW_VARIANCE_PRESENTATION_NOISE,
                 f"the gap between {pair.left} and {pair.right} has a population standard "
-                f"deviation of {deviation} over {len(population)} {shape.value} periods, "
-                f"under the {floor} floor that {variance_floor_multiple} × presentation "
-                f"tolerance sets; a z-score here would measure rounding",
+                f"deviation of {deviation} over {len(population)} {shape.value} periods, and "
+                f"{deviation_without_anchor} over the {len(rest)} of them that are not "
+                f"{anchor.period_key}; the {floor} floor that {variance_floor_multiple} × "
+                "presentation tolerance sets applies to both, and a z-score here would "
+                "measure rounding or measure the anchor against its own excursion",
             ))
             continue
         z_score = (anchor.gap - mean) / deviation
@@ -429,10 +535,12 @@ def _candidates_for_shape(
             continue
         candidates.append(_candidate(
             pair, anchor, population, excluded, relation, shape,
+            unresolved=unresolved,
             graph_run_id=graph_run_id,
             z_score=z_score,
             mean=mean,
             deviation=deviation,
+            deviation_without_anchor=deviation_without_anchor,
             floor=floor,
             overlap=len(gaps),
         ))
@@ -452,8 +560,14 @@ def _population(
 
     R6 is what this is for. R3 is a second beneficiary and is redundant here only because the
     caller already partitions by shape; leaving the check whole rather than narrowing it to R6
-    is deliberate — a unit change, a currency change or a slot that turns `conflict` on a later
-    run must remove a period from the population too, and none of those needs new code.
+    is deliberate — a unit change or a currency change must remove a period from the population
+    too, and neither needs new code.
+
+    **A slot that turns `conflict` never reaches here**, and the first draft of this docstring
+    claimed it did. R7 refuses it in `_gap_series`, one layer earlier, so it is absent from
+    `gaps` before this function is called: the period is removed, correctly, but not by this
+    rule and not with this function's `excluded` list to show for it. `_gap_series` returns
+    those keys separately and `_candidate` discloses them as `periods_unresolved`.
     """
     kept: list[GapPoint] = []
     excluded: list[tuple[str, str]] = []
@@ -522,10 +636,12 @@ def _candidate(
     relation: DefinitionalRelation,
     shape: PeriodShape,
     *,
+    unresolved: Sequence[str],
     graph_run_id: str,
     z_score: float,
     mean: float,
     deviation: float,
+    deviation_without_anchor: float,
     floor: float,
     overlap: int,
 ) -> StoryCandidate:
@@ -536,14 +652,32 @@ def _candidate(
     the history it measured them against. A population that changed without the anchor changing
     would then reuse an id; `detector_version` is the field that mints a new one when the rule
     that built the population changes, which is what §6.11 puts it in the digest for.
+
+    **`polarity` and `direction` are `detector_config`'s answers and never the sign of the
+    gap**, exactly as `metric_move` builds them. The two sides carry their polarity separately —
+    a pair is two metrics and one word could only describe one of them — and there is a single
+    `gap_direction`, which is well defined *because* the pair was refused unless both sides are
+    stored under one sign convention. `sign_convention` states which one. Two `UNVERIFIED`
+    metrics agree with each other and are not refused, so `quantity_direction` returns `None`,
+    no direction is stated, and `metric_sign_convention_unverified` says why.
     """
     observation_ids = tuple(sorted(
         set(anchor.left.supporting_observation_ids)
         | set(anchor.right.supporting_observation_ids)
     ))
     warnings = set(anchor.warnings) | set(anchor.left.warnings) | set(anchor.right.warnings)
-    if excluded:
+    if excluded or unresolved:
         warnings.add(POPULATION_EXCLUDES_PERIODS)
+
+    # The guard in `detect_cross_metric_divergence` has already refused the pair unless the two
+    # agree, so either id answers for both and `gap_direction` is a statement about the gap
+    # rather than about whichever metric happened to be on the left.
+    sign_convention = value_sign_of(pair.left)
+    gap_direction = quantity_direction(pair.left, anchor.gap - mean)
+    if gap_direction is None:
+        # The divergence is real and citable; only the word describing which way it went is
+        # unavailable, so the candidate carries the gap rather than being dropped.
+        warnings.add(SIGN_CONVENTION_UNVERIFIED)
 
     signals: dict[str, bool | int | float | str] = {
         "left_metric_id": pair.left,
@@ -554,22 +688,38 @@ def _candidate(
         "z": z_score,
         "gap_mean": mean,
         "gap_pstdev": deviation,
+        "gap_pstdev_excluding_anchor": deviation_without_anchor,
         "variance_floor": floor,
         "population_size": len(population),
         "population_first_period": population[0].period_key,
         "population_last_period": population[-1].period_key,
+        # The periods the two metrics could actually be differenced over. Periods lost to a
+        # `CONFLICT` slot are **not** in it — they never became a gap — so `periods_unresolved`
+        # is published beside it rather than folded into it: a reader adding the two gets the
+        # overlap the pair would have had, and a reader taking this one alone gets what was
+        # measured. Before R4b the second number did not exist and the loss was invisible.
         "comparable_overlap": overlap,
         "periods_excluded": len(excluded),
+        "periods_unresolved": len(unresolved),
         "period_shape": shape.value,
         "unit": anchor.left.unit,
+        "sign_convention": sign_convention.value,
         "relation": relation.kind.value,
     }
-    if excluded:
-        # The *rule* that narrowed the population, not just the count. On `CP↔AGP` this reads
+    if gap_direction is not None:
+        signals["gap_direction"] = gap_direction
+    for side, metric_id in (("left", pair.left), ("right", pair.right)):
+        polarity = polarity_of(metric_id)
+        if polarity is not None:
+            signals[f"{side}_polarity"] = polarity.value
+    if excluded or unresolved:
+        # The *rules* that narrowed the population, not just the counts. On `CP↔AGP` this reads
         # `R6/FORMULA_VERSION_MISMATCH`, which is the whole reason the mean was taken over one
         # formula era; a count alone would leave a reader to guess.
-        signals["population_excluded_by"] = ",".join(
-            sorted({rule for rule, _period in excluded}))
+        rules = {rule for rule, _period in excluded}
+        if unresolved:
+            rules.add(UNRESOLVED_PERIOD_RULE)
+        signals["population_excluded_by"] = ",".join(sorted(rules))
     if relation.shared_component_metrics:
         signals["shared_component_metrics"] = ",".join(relation.shared_component_metrics)
     if relation.component_metric_id is not None:
@@ -634,7 +784,9 @@ __all__ = [
     "RELATION_UNDECLARED",
     "RULE_ID",
     "SERIES_ABSENT",
+    "SIGN_CONVENTION_MISMATCH",
     "STORY_TYPE",
+    "UNRESOLVED_PERIOD_RULE",
     "VARIANCE_FLOOR_MULTIPLE",
     "Z_MIN",
     "DefinitionalRelation",

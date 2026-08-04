@@ -25,6 +25,7 @@ from story.core.series import (
     COHORT_VS_PERIOD_BASIS,
     CanonicalPoint,
     CanonicalStatus,
+    ComparabilityAuthority,
     build_series,
     default_authority,
 )
@@ -37,11 +38,22 @@ from story.stages.detection.cross_metric_divergence import (
     POPULATION_EXCLUDES_PERIODS,
     POPULATION_TOO_SMALL,
     SERIES_ABSENT,
+    SIGN_CONVENTION_MISMATCH,
     STORY_TYPE,
+    UNRESOLVED_PERIOD_RULE,
     DivergencePair,
     RelationKind,
     definitional_relation,
     detect_cross_metric_divergence,
+)
+from story.stages.detection.detector_config import (
+    DIRECTION_DECREASE,
+    DIRECTION_INCREASE,
+    DIRECTION_UNCHANGED,
+    SIGN_CONVENTION_UNVERIFIED,
+    MetricPolarity,
+    ValueSign,
+    value_sign_of,
 )
 
 GRAPH_RUN_ID = "graph-v1-0483dc6b4b10"
@@ -122,6 +134,19 @@ def usd_point(metric_id: str, key: str, value: float, **overrides: Any) -> Canon
     fields: dict[str, Any] = dict(unit="USD", scale="millions", currency="USD")
     fields.update(overrides)
     return quarter_point(metric_id, key, value, **fields)
+
+
+def wobble(index: int) -> float:
+    """A deterministic ±$20M swing, so a constructed gap history is a distribution.
+
+    **Three fixtures below used to build a perfectly flat gap and push one quarter out of it.**
+    That is exactly the single-point excursion R4b's variance floor now refuses — the σ of such
+    a population is the anchor's own excursion and nothing else — so they were testing R6 and R9
+    through a population the detector should never have scored. The wobble gives the gap five
+    distinct levels; its σ is ≈ $14M against the $2M floor a millions-scale USD pair carries,
+    with or without the anchor.
+    """
+    return 1.0e7 * ((index % 5) - 2)
 
 
 def plan_series(*metric_ids: str, quarters: Sequence[str] = QUARTERS) -> dict[str, Any]:
@@ -271,18 +296,15 @@ def test_a_metric_that_changes_its_own_formula_version_splits_the_gap_history_in
     name with R6's own reason.
     """
     keys = QUARTERS[1:]  # 2020Q1 onward; 2019Q4 is undeclared for both metrics
-    points = [
-        usd_point(metric_id, key, value)
-        for metric_id, base in (("contribution_profit", -60e6),
-                                ("adjusted_gross_profit", 0.0))
-        for key, value in ((k, base - 5e6 * i) for i, k in enumerate(keys))
-    ]
     # One quarter in each era is pushed far from its own era's mean, so both eras fire.
+    spike = {"2021Q2": -2.0e8, "2023Q2": -2.0e8}
     points = [
-        usd_point(p.metric_id, p.period.key, p.value - 2.0e8)
-        if (p.metric_id == "contribution_profit" and p.period.key in ("2021Q2", "2023Q2"))
-        else p
-        for p in points
+        usd_point("adjusted_gross_profit", key, -5e6 * index)
+        for index, key in enumerate(keys)
+    ] + [
+        usd_point("contribution_profit", key,
+                  -60e6 - 5e6 * index + wobble(index) + spike.get(key, 0.0))
+        for index, key in enumerate(keys)
     ]
 
     result = detect_cross_metric_divergence(
@@ -304,9 +326,14 @@ def test_a_metric_that_changes_its_own_formula_version_splits_the_gap_history_in
 
 
 def test_a_pair_whose_metrics_never_change_definition_excludes_no_period(margin_result):  # type: ignore[no-untyped-def]
-    """The other half of the rule: it must not narrow a population it has no reason to."""
+    """The other half of the rule: it must not narrow a population it has no reason to.
+
+    Both counts, because R4b added a second way a population narrows: a period lost to an
+    unresolved slot. Neither may fire on a run with nothing to disclose.
+    """
     for candidate in margin_result.candidates:
         assert candidate.signals["periods_excluded"] == 0
+        assert candidate.signals["periods_unresolved"] == 0
         assert "population_excluded_by" not in candidate.signals
         assert POPULATION_EXCLUDES_PERIODS not in candidate.warnings
 
@@ -442,6 +469,67 @@ def test_a_flat_gap_disturbed_by_one_rounding_step_is_refused_as_presentation_no
         "FORMULA_VERSION_UNDECLARED", LOW_VARIANCE_PRESENTATION_NOISE}
 
 
+def test_a_single_step_in_an_otherwise_flat_gap_cannot_mint_a_ten_sigma_candidate(
+    authority,  # type: ignore[no-untyped-def]
+):
+    """The defect the `2 × tol` floor did **not** catch, and the arm R4b added for it.
+
+    A 0.1 pp step is refused by the floor as written. A 1.05 pp step in the same flat gap is
+    not: σ over the 25-quarter population is 0.20576, which clears the 0.2 floor by 0.0058, and
+    the anchor then scores 4.899 — the largest |z| a member of its own 25-point population can
+    reach, √(n−1). One quarter minting a "ten-sigma" divergence out of an otherwise motionless
+    gap is the same finding the floor exists to refuse, one printed unit further out.
+
+    So the floor is applied to the population **without** the anchor as well. The dispersion
+    the z-score is taken against has to exist independently of the excursion being scored; here
+    it is exactly 0. The z-score itself is still computed over the whole population, which is
+    why no live number moved.
+    """
+    values = [8.0] * len(QUARTERS)
+    points = [
+        quarter_point("gaap_gross_margin", key, value)
+        for key, value in zip(QUARTERS, values)
+    ] + [
+        quarter_point("adjusted_gross_margin", key,
+                      value + (1.05 if key == "2023Q2" else 0.0))
+        for key, value in zip(QUARTERS, values)
+    ]
+
+    import statistics
+    gaps = [1.05 if key == "2023Q2" else 0.0 for key in QUARTERS if key != "2019Q4"]
+    assert round(statistics.pstdev(gaps), 5) == 0.20576  # above the 0.2 floor
+    assert round(
+        (1.05 - statistics.fmean(gaps)) / statistics.pstdev(gaps), 4) == 4.8990
+    assert round(len(gaps) ** 0.5, 4) != 4.8990 and round((len(gaps) - 1) ** 0.5, 4) == 4.8990
+
+    result = detect_cross_metric_divergence(
+        build_series(points),
+        graph_run_id=GRAPH_RUN_ID,
+        authority=authority,
+        pairs=(DivergencePair("adjusted_gross_margin", "gaap_gross_margin"),),
+    )
+
+    assert result.candidates == ()
+    assert LOW_VARIANCE_PRESENTATION_NOISE in {r.reason for r in result.refusals}
+
+
+def test_the_real_wedge_clears_the_floor_with_its_own_anchor_taken_out(margin_result):  # type: ignore[no-untyped-def]
+    """The arm above refuses nothing real, stated as the number that proves it.
+
+    F3's gap history has σ = 4.1182 with 2022Q3 in it and 2.4915 without — the pair moves on
+    its own account, twelve times the 0.2 floor, and the spike is not the only thing in the
+    distribution. Measured live on all five pairs the narrowest margin is
+    `homes_purchased ↔ homes_sold 2023Q1`, at 1518 against a floor of 2.0.
+    """
+    candidate = only(margin_result.candidates, "2022Q3")
+
+    assert round(float(candidate.signals["gap_pstdev"]), 4) == MEASURED_PSTDEV
+    assert round(float(candidate.signals["gap_pstdev_excluding_anchor"]), 4) == 2.4915
+    assert float(candidate.signals["gap_pstdev_excluding_anchor"]) > float(
+        candidate.signals["variance_floor"])
+    assert round(float(candidate.signals["z"]), 4) == MEASURED_Z
+
+
 def test_the_variance_floor_is_two_presentation_units_of_the_pairs_own_scale(margin_result):  # type: ignore[no-untyped-def]
     """0.2 pp for a percentage pair, and the real wedge clears it by a factor of twenty."""
     candidate = only(margin_result.candidates, "2022Q3")
@@ -473,6 +561,153 @@ def test_a_usd_pair_filed_in_millions_carries_a_two_million_dollar_variance_floo
 
 
 # ---------------------------------------------------------------------------------------
+# 4b. A pair must be stored under one sign convention before it may be differenced
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_profit_against_a_negatively_stored_cost_is_refused_before_any_gap_is_taken(
+    authority,  # type: ignore[no-untyped-def]
+):
+    """The pair `DivergencePair` was one line away from licensing.
+
+    `direct_selling_costs` is stored negative — 46 of 46 values, measured in `detector_config` —
+    so `adjusted_gross_profit − direct_selling_costs` is `512M − (−136M)`, the **sum** of a
+    profit and a cost. R2 licenses the pair (both are components of `adjusted_gross_profit`'s
+    formula, so the relation is `co_component`), R4 and R5 pass because both are USD, and the
+    detector emitted three candidates from it — 2022Q1 at `z = 2.574` over a "gap" of
+    `648000000.0`. Nothing downstream could have caught it: the arithmetic is correct and the
+    number is meaningless.
+    """
+    assert value_sign_of("adjusted_gross_profit") is ValueSign.POSITIVE
+    assert value_sign_of("direct_selling_costs") is ValueSign.NEGATIVE
+
+    points = [
+        usd_point("adjusted_gross_profit", key, 5.0e8 + 1.0e7 * index)
+        for index, key in enumerate(QUARTERS[1:])
+    ] + [
+        usd_point("direct_selling_costs", key, -1.3e8 - wobble(index))
+        for index, key in enumerate(QUARTERS[1:])
+    ]
+
+    result = detect_cross_metric_divergence(
+        build_series(points),
+        graph_run_id=GRAPH_RUN_ID,
+        authority=authority,
+        pairs=(DivergencePair("adjusted_gross_profit", "direct_selling_costs"),),
+    )
+
+    assert result.candidates == ()
+    assert [(r.rule, r.reason, r.metric_ids) for r in result.refusals] == [
+        ("D4", SIGN_CONVENTION_MISMATCH,
+         ("adjusted_gross_profit", "direct_selling_costs"))]
+
+
+def test_the_sign_refusal_needs_no_series_because_it_is_about_the_declaration(authority):  # type: ignore[no-untyped-def]
+    """It fires with nothing loaded at all: a pair that may not be differenced may not be
+    differenced whether or not the run holds its numbers, which is what "before any gap is
+    computed" means. `SERIES_ABSENT` never gets the chance to speak."""
+    result = detect_cross_metric_divergence(
+        {},
+        graph_run_id=GRAPH_RUN_ID,
+        authority=authority,
+        pairs=(DivergencePair("adjusted_gross_profit", "direct_selling_costs"),),
+    )
+
+    assert [r.reason for r in result.refusals] == [SIGN_CONVENTION_MISMATCH]
+    assert SERIES_ABSENT not in {r.reason for r in result.refusals}
+
+
+def test_an_unverified_sign_matches_nothing_including_positive(authority):  # type: ignore[no-untyped-def]
+    """`cost_of_revenue` has zero observations in this run, so its convention is unmeasured.
+
+    `detector_config` refuses to guess it, and the two cost metrics the corpus *does* print are
+    both negative — so pairing an unverified metric with a positive one is the same hazard as
+    the test above with the evidence missing. Equality of `ValueSign` is the rule, and
+    `UNVERIFIED` is equal only to itself.
+    """
+    assert value_sign_of("cost_of_revenue") is ValueSign.UNVERIFIED
+
+    result = detect_cross_metric_divergence(
+        {},
+        graph_run_id=GRAPH_RUN_ID,
+        authority=authority,
+        pairs=(DivergencePair("gaap_gross_profit", "cost_of_revenue"),),
+    )
+
+    assert [r.reason for r in result.refusals] == [SIGN_CONVENTION_MISMATCH]
+
+
+def test_two_unverified_metrics_agree_and_are_scored_without_a_direction():
+    """The other side of the same rule, and the only way an unverified metric reaches a
+    candidate.
+
+    Two `UNVERIFIED` metrics carry the same declaration, so the sign guard has nothing to
+    refuse — and `quantity_direction` still cannot answer, so the candidate states no
+    `gap_direction` and carries `metric_sign_convention_unverified` instead. It is not dropped:
+    the divergence is real and citable and only the word for it is unavailable.
+
+    **The shipped ontology relates the two unverified metrics in none of R2's four ways**
+    *(verified: `definitional_relation` returns `None` for the pair, and `comparable` refuses
+    every period of it with `R2/UNRELATED_METRICS`)*, which is why this drives a hand-built
+    `ComparabilityAuthority` declaring them mutually distinct — the state the ontology would be
+    in if either metric ever arrived. Asserted both ways so the test says which part is real:
+    the branch is correct and no pair the ontology declares today can reach it.
+    """
+    pair = DivergencePair("cost_of_revenue", "inventory_valuation_adjustment")
+    assert value_sign_of(pair.left) is value_sign_of(pair.right) is ValueSign.UNVERIFIED
+    assert definitional_relation(pair, default_authority(), "2022-09-30") is None
+
+    declared = ComparabilityAuthority(
+        groups={metric: frozenset({"cost_measures"}) for metric in pair.metric_ids})
+    points = [
+        usd_point(pair.left, key, 4.0e8 + wobble(index))
+        for index, key in enumerate(QUARTERS[1:])
+    ] + [
+        usd_point(pair.right, key, 1.0e7 + (3.0e8 if key == "2024Q2" else 0.0))
+        for index, key in enumerate(QUARTERS[1:])
+    ]
+
+    refused = detect_cross_metric_divergence(
+        build_series(points), graph_run_id=GRAPH_RUN_ID, pairs=(pair,))
+    result = detect_cross_metric_divergence(
+        build_series(points), graph_run_id=GRAPH_RUN_ID, authority=declared, pairs=(pair,))
+    candidate = only(result.candidates, "2024Q2")
+
+    assert {(r.rule, r.reason) for r in refused.refusals} == {("R2", "UNRELATED_METRICS")}
+    assert candidate.signals["sign_convention"] == ValueSign.UNVERIFIED.value
+    assert "gap_direction" not in candidate.signals
+    assert SIGN_CONVENTION_UNVERIFIED in candidate.warnings
+
+
+def test_the_five_shipped_pairs_all_share_one_sign_convention(authority):  # type: ignore[no-untyped-def]
+    """Why the live census is untouched by any of the above: all ten metrics are `POSITIVE`."""
+    signs = {
+        metric_id: value_sign_of(metric_id)
+        for pair in DIVERGENCE_PAIRS
+        for metric_id in pair.metric_ids
+    }
+
+    assert set(signs.values()) == {ValueSign.POSITIVE}
+    assert all(value_sign_of(p.left) is value_sign_of(p.right) for p in DIVERGENCE_PAIRS)
+
+
+def test_the_candidate_states_each_sides_polarity_and_which_way_the_gap_went(margin_result):  # type: ignore[no-untyped-def]
+    """§6.6 D1's map, on a D4 candidate. Two polarities because a pair is two metrics, and one
+    `gap_direction` because the sign guard above has established that both sides are stored the
+    same way — without it the phrase would have no referent."""
+    candidate = only(margin_result.candidates, "2022Q3")
+
+    assert candidate.signals["left_polarity"] == MetricPolarity.RATIO.value
+    assert candidate.signals["right_polarity"] == MetricPolarity.RATIO.value
+    assert candidate.signals["sign_convention"] == ValueSign.POSITIVE.value
+    # +15.9 pp against a mean of −0.348: the wedge opened.
+    assert candidate.signals["gap_direction"] == DIRECTION_INCREASE
+    assert only(margin_result.candidates, "2023Q1").signals[
+        "gap_direction"] == DIRECTION_DECREASE
+    assert DIRECTION_UNCHANGED not in set(candidate.signals.values())
+
+
+# ---------------------------------------------------------------------------------------
 # 5. Cohort ↔ period pairs carry the mandatory warning
 # ---------------------------------------------------------------------------------------
 
@@ -482,15 +717,13 @@ def test_the_contribution_profit_pair_carries_the_cohort_versus_period_warning(a
     any single period's expenses."* It warns; it does not refuse."""
     keys = QUARTERS[10:]  # 2022Q1 onward — one formula era for adjusted_gross_profit
     points = [
-        usd_point(metric_id, key, value)
-        for metric_id, base in (("contribution_profit", -6.0e7),
-                                ("adjusted_gross_profit", 0.0))
-        for key, value in ((k, base - 1.0e7 * i) for i, k in enumerate(keys))
-    ]
-    points = [
-        usd_point(p.metric_id, p.period.key, p.value - 3.0e8)
-        if (p.metric_id == "contribution_profit" and p.period.key == "2024Q2") else p
-        for p in points
+        usd_point("adjusted_gross_profit", key, -1.0e7 * index)
+        for index, key in enumerate(keys)
+    ] + [
+        usd_point("contribution_profit", key,
+                  -6.0e7 - 1.0e7 * index + wobble(index)
+                  + (-3.0e8 if key == "2024Q2" else 0.0))
+        for index, key in enumerate(keys)
     ]
 
     result = detect_cross_metric_divergence(
@@ -513,16 +746,11 @@ def test_two_cohort_measures_differenced_against_each_other_carry_no_basis_warni
     """
     keys = QUARTERS[1:]
     points = [
-        usd_point(metric_id, key, value)
-        for metric_id, base in (("contribution_profit_after_interest", -2.0e7),
-                                ("contribution_profit", 0.0))
-        for key, value in ((k, base) for k in keys)
-    ]
-    points = [
-        usd_point(p.metric_id, p.period.key, p.value - 3.0e8)
-        if (p.metric_id == "contribution_profit_after_interest"
-            and p.period.key == "2024Q2") else p
-        for p in points
+        usd_point("contribution_profit", key, 0.0) for key in keys
+    ] + [
+        usd_point("contribution_profit_after_interest", key,
+                  -2.0e7 + wobble(index) + (-3.0e8 if key == "2024Q2" else 0.0))
+        for index, key in enumerate(keys)
     ]
 
     result = detect_cross_metric_divergence(
@@ -617,7 +845,12 @@ def test_every_string_signal_is_an_ontology_identifier_or_the_ontologys_own_expr
     """The stronger half of "no prose": each string is checked against where it came from.
 
     A rendered sentence would fail this even if it read like a fact, because the only strings
-    permitted are ids this module was given and expression strings `formulas.yaml` states.
+    permitted are ids this module was given, expression strings `formulas.yaml` states, and
+    words from `detector_config`'s two closed enums. `gap_direction`, `left_polarity`,
+    `right_polarity` and `sign_convention` are the last of those: R4b put them here because a
+    candidate that stated only the arithmetic gap left a reader of a negative-convention pair to
+    infer the direction from a minus sign, which is the inference §6.6 D1's polarity map exists
+    to forbid.
     """
     candidate = only(margin_result.candidates, "2022Q3")
     left = authority.registry.formula_for("adjusted_gross_margin", "2022-09-30")
@@ -631,6 +864,10 @@ def test_every_string_signal_is_an_ontology_identifier_or_the_ontologys_own_expr
         "population_last_period": "2026Q1",
         "period_shape": "quarter",
         "unit": "percent",
+        "sign_convention": "positive",
+        "gap_direction": "increase",
+        "left_polarity": "ratio",
+        "right_polarity": "ratio",
         "relation": "shared_components",
         "shared_component_metrics": "revenue",
         "relation_group_ids": "margin_measures",
@@ -712,21 +949,25 @@ def test_a_pair_with_no_series_at_all_is_refused_by_name_rather_than_skipped(aut
         (SERIES_ABSENT, ("adjusted_gross_margin", "gaap_gross_margin"))]
 
 
-def test_a_conflicted_slot_emits_no_value_and_leaves_the_period_out_of_the_history(authority):  # type: ignore[no-untyped-def]
-    """R7 through `valued_points`: a slot the run could not resolve is not a zero."""
-    points = [
+def conflicted(*keys: str) -> Sequence[Any]:
+    """§6.2's two margins with `gaap_gross_margin` unresolved at `keys`."""
+    return [
         quarter_point(metric_id, key, PLAN_SERIES[metric_id][QUARTERS.index(key)])
         for metric_id in ("adjusted_gross_margin", "gaap_gross_margin")
         for key in QUARTERS
-        if not (metric_id == "gaap_gross_margin" and key == "2024Q2")
+        if not (metric_id == "gaap_gross_margin" and key in keys)
     ] + [
-        quarter_point("gaap_gross_margin", "2024Q2", None,
+        quarter_point("gaap_gross_margin", key, None,
                       status=CanonicalStatus.CONFLICT,
-                      representative_observation_id=None, supporting_observation_ids=()),
+                      representative_observation_id=None, supporting_observation_ids=())
+        for key in keys
     ]
 
+
+def test_a_conflicted_slot_emits_no_value_and_leaves_the_period_out_of_the_history(authority):  # type: ignore[no-untyped-def]
+    """R7: a slot the run could not resolve is not a zero, and it is not a population member."""
     result = detect_cross_metric_divergence(
-        build_series(points),
+        build_series(conflicted("2024Q2")),
         graph_run_id=GRAPH_RUN_ID,
         authority=authority,
         pairs=(DivergencePair("adjusted_gross_margin", "gaap_gross_margin"),),
@@ -735,6 +976,42 @@ def test_a_conflicted_slot_emits_no_value_and_leaves_the_period_out_of_the_histo
 
     assert candidate.signals["population_size"] == MEASURED_QUARTERS - 1
     assert candidate.signals["comparable_overlap"] == MEASURED_QUARTERS - 1
+
+
+def test_a_conflicted_slot_says_it_narrowed_the_population_and_by_how_much(authority):  # type: ignore[no-untyped-def]
+    """The disclosure R4b added, because the narrowing was silent.
+
+    `_gap_series` built from `valued_points`, so a conflicted period vanished before
+    `_population` ever saw it: with two slots conflicted the candidate reported a population of
+    23, a `comparable_overlap` of 23, `periods_excluded = 0` and no warning. A reader had no
+    way to tell a 23-quarter pair from a 25-quarter pair that lost two — which is the state
+    §10.1's disclosure exists to prevent, and which the module already handled for R6 two lines
+    away.
+
+    The count is published beside `comparable_overlap` rather than folded into it: the two
+    periods were never comparable, so adding them to a field named for comparability would be
+    the opposite error.
+    """
+    result = detect_cross_metric_divergence(
+        build_series(conflicted("2024Q2", "2024Q3")),
+        graph_run_id=GRAPH_RUN_ID,
+        authority=authority,
+        pairs=(DivergencePair("adjusted_gross_margin", "gaap_gross_margin"),),
+    )
+    candidate = only(result.candidates, "2022Q3")
+
+    assert candidate.signals["population_size"] == MEASURED_QUARTERS - 2
+    assert candidate.signals["comparable_overlap"] == MEASURED_QUARTERS - 2
+    assert candidate.signals["periods_unresolved"] == 2
+    assert candidate.signals["periods_excluded"] == 0
+    assert candidate.signals["population_excluded_by"] == UNRESOLVED_PERIOD_RULE
+    assert POPULATION_EXCLUDES_PERIODS in candidate.warnings
+
+    # And the two periods are refused by name, under R7's own rule id rather than this
+    # module's: a detector that dropped them from the population without saying so was the
+    # defect, and a detector that restated R7 would be a second copy of it.
+    assert {(r.rule, r.reason, r.period_key) for r in result.refusals if r.rule == "R7"} == {
+        ("R7", "NOT_CANONICAL", "2024Q2"), ("R7", "NOT_CANONICAL", "2024Q3")}
 
 
 # ---------------------------------------------------------------------------------------
@@ -947,7 +1224,14 @@ def test_live_the_run_yields_fifteen_candidates_and_all_of_them_are_quarters(liv
 def test_live_the_only_refusal_reasons_are_the_formula_window_and_the_population_floor(
     live_result,  # type: ignore[no-untyped-def]
 ):
-    """Named so a new refusal reason cannot appear without a test noticing."""
+    """Named so a new refusal reason cannot appear without a test noticing.
+
+    The three R4b added are all absent, and each absence is a measurement:
+    `SIGN_CONVENTION_MISMATCH` because all ten declared metrics are `POSITIVE`,
+    `R7/NOT_CANONICAL` because no declared pair holds a conflicted slot at a period the other
+    side also reports, and the strengthened `LOW_VARIANCE_PRESENTATION_NOISE` because every
+    population's σ clears the floor with its anchor taken out.
+    """
     reasons: dict[str, int] = {}
     for refusal in live_result.refusals:
         reasons[refusal.reason] = reasons.get(refusal.reason, 0) + 1
@@ -956,11 +1240,55 @@ def test_live_the_only_refusal_reasons_are_the_formula_window_and_the_population
 
 
 @pytest.mark.neo4j
+def test_live_no_population_rests_on_its_own_anchors_excursion(live_result):  # type: ignore[no-untyped-def]
+    """R4b's second variance arm, measured against every candidate the run produces.
+
+    A σ the anchor created by itself is not a history, and the floor is applied to the
+    population without the anchor for that reason. On this corpus it refuses nothing, and the
+    margin is recorded as a ratio rather than as a pass so a pair that ever came close shows up
+    as a number. **The narrowest is 3.3×** — the seven `adjusted_gross_margin ↔
+    contribution_margin` candidates, whose 25-quarter gap history keeps σ ≈ 0.65 pp with any one
+    of them removed, against the 0.2 pp floor a percentage pair carries. F3's own pair sits at
+    12.5× and `homes_purchased ↔ homes_sold` at 759×.
+    """
+    margins = {
+        (candidate.metric_ids, candidate.anchor_period_keys[0]): round(
+            float(candidate.signals["gap_pstdev_excluding_anchor"])
+            / float(candidate.signals["variance_floor"]), 1)
+        for candidate in live_result.candidates
+    }
+
+    assert len(margins) == 15
+    assert min(margins.values()) == 3.3
+    assert margins[(("adjusted_gross_margin", "gaap_gross_margin"), "2022Q3")] == 12.5
+    assert margins[(("homes_purchased", "homes_sold"), "2023Q1")] == 759.2
+
+
+@pytest.mark.neo4j
+def test_live_every_candidate_states_both_polarities_and_a_direction(live_result):  # type: ignore[no-untyped-def]
+    """§6.6 D1's map on the live D4 census. All ten metrics are `POSITIVE`, so every pair has a
+    shared convention, every candidate states a `gap_direction`, and none carries the unverified
+    warning — which is what makes the sign guard a no-op on this run and not a silent filter."""
+    for candidate in live_result.candidates:
+        assert candidate.signals["sign_convention"] == ValueSign.POSITIVE.value
+        assert candidate.signals["gap_direction"] in (DIRECTION_INCREASE, DIRECTION_DECREASE)
+        assert candidate.signals["left_polarity"] in {p.value for p in MetricPolarity}
+        assert candidate.signals["right_polarity"] in {p.value for p in MetricPolarity}
+        assert SIGN_CONVENTION_UNVERIFIED not in candidate.warnings
+        assert candidate.signals["periods_unresolved"] == 0
+
+
+@pytest.mark.neo4j
 def test_live_no_candidate_carries_a_string_that_is_not_from_the_graph_or_the_ontology(
     live_result, live_series,  # type: ignore[no-untyped-def]
 ):
     """Every string signal on every live candidate is a metric id, a shape, a unit, a relation
-    name, a formula id, or a formula expression the ontology states."""
+    name, a formula id, a formula expression the ontology states, or a word from one of
+    `detector_config`'s closed enums.
+
+    The last of those is R4b's addition and it is enumerated from the enums rather than typed
+    out, so a detector that invented a fifth polarity or a third direction would fail here.
+    """
     from ontology import load_ontology
 
     definitions = load_ontology().definitions
@@ -974,8 +1302,11 @@ def test_live_no_candidate_carries_a_string_that_is_not_from_the_graph_or_the_on
         | {group.group_id for group in definitions.constraints.mutually_distinct_groups}
         | {shape.value for shape in PeriodShape}
         | {kind.value for kind in RelationKind}
+        | {polarity.value for polarity in MetricPolarity}
+        | {sign.value for sign in ValueSign}
+        | {DIRECTION_INCREASE, DIRECTION_DECREASE, DIRECTION_UNCHANGED}
         | {"percent", "USD", "homes"}
-        | {"R6/FORMULA_VERSION_MISMATCH"}
+        | {"R6/FORMULA_VERSION_MISMATCH", UNRESOLVED_PERIOD_RULE}
     )
 
     # The two period-key signals are the exception: a period key is the graph's own, not the
