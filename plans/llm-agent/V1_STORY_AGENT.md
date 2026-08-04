@@ -514,11 +514,20 @@ canonical series (§6.1)
 
 ### 6.1 The canonical-value policy — `canon-policy:1.0.0`
 
-Observations are grouped into fact-slots keyed `(metric_id, period_key)` where `period_key` is
-`instant_date` or `f"{period_start}_{period_end}"`. **537 slots exist over 2,704 observations;
+Observations are grouped into fact-slots keyed `(metric_id, period_key)`, where `period_key` is
+**the graph's own `PeriodRef.key`** — `2022Q2`, `FY2021`, `2023-12-31`, or `{start}_{end}` only
+where none of those apply. *(Correction 2026-08-04, S2: this said the key is `instant_date` or
+`f"{start}_{end}"`. It is bijective with the real key over this corpus — 74 distinct values
+either way, so no census moves — but the strings differ and so does every id built from them.
+`story/core/periods.py` imports `PeriodRef` rather than restating the rule, the call
+`graph/core/derivation.py:67-79` makes for the reason it gives.)* **537 slots exist over 2,704 observations;
 36 hold more than one distinct value** *(verified 2026-08-03)*.
 
-1. **Quarantine flattened-table narrative reads.** A `lane == "narrative"` observation whose
+1. **Quarantine flattened-table narrative reads.** A `source_lane == "normalized_narrative"`
+   observation whose *(corrected 2026-08-04, S2: this said `lane == "narrative"`; the stored
+   value is `SourceLane.NORMALIZED_NARRATIVE`, on 14 of 2,704 rows. A guard written to the
+   plan's spelling would read as a rule that simply never fires — which is exactly how the
+   §7 contents check stayed invisible)*
    evidence `quoted_text`, after masking `Month DD, YYYY` literals, contains ≥3 consecutive
    numeric tokens separated only by non-alphabetic characters is quarantined: kept in the
    graph, excluded from the series, and emitted as a `lane_defect` warning on any candidate
@@ -818,8 +827,19 @@ R3 SHAPE     shape(A) == shape(B), derived structurally, not parsed:
              2022-10-01..2023-06-30; 6 rows) are excluded from every comparison.
 R4 UNIT      A.unit == B.unit. SCALE IS NOT CHECKED — value is already scale-applied.
 R5 CURRENCY  A.currency == B.currency (both null is agreement).
-R6 FORMULA   resolve_version(metric, period_end) must agree. Resolution is BY OBSERVATION
-             DATE. A duration straddling a boundary → Refuse(FORMULA_VERSION_STRADDLES).
+R6 FORMULA   PER METRIC, resolve_version(metric, date) must agree across BOTH dates.
+             Resolution is BY OBSERVATION DATE. A duration straddling a boundary ->
+             Refuse(FORMULA_VERSION_STRADDLES). An instant resolves on its own
+             instant_date and cannot straddle.
+             A period in NO declared window -> Refuse(FORMULA_VERSION_UNDECLARED).
+             ** "per metric" is a correction, 2026-08-04 (S2, measured). ** Written as
+             "resolve_version(metric, period_end) for each side must agree", R6 compares
+             two different metrics' version ids on a cross-metric pair -- and
+             adjusted_gross_margin_v1 can never equal gaap_gross_margin_v1. Literally
+             applied it refuses EVERY cross-metric comparison, including this plan's own
+             recommended spike F3 and the shipping CP<->AGP divergence pair. Evaluated
+             per metric across both dates it is identical on every same-metric pair, so
+             nothing else moves.
 R7 CANONICAL both sides in {ok, resolved_by_majority}. A conflict slot has no value.
 R8 TOLERANCE for a MOVEMENT claim, |A − B| must exceed max(tol(A), tol(B)), else
              Refuse(WITHIN_PRESENTATION_TOLERANCE) — the two filings just rounded differently.
@@ -849,10 +869,22 @@ Three latent gaps in R3 and R6, recorded so they are not rediscovered:
   this a warning rather than a refusal — a defensible choice, stated here as one.
 
 **R6 quantified.** `adjusted_gross_profit` is the only metric with two formula versions: v1
-`2020-01-01..2021-12-31` (17 slots, 47 observations), v2 `2022-01-01→` (29 slots, 125). Of 383
-same-shape pairs, **185 (48.3%) are forbidden**. In practice that is **1 adjacent-quarter
-comparison (2021Q4→2022Q1) and 4 year-over-year comparisons** — and those five span exactly
-the boundary the 2022 crisis story wants to cross. The detector refuses them and the writer is
+`2020-01-01..2021-12-31`, v2 `2022-01-01→`. 46 slots, 172 observations, **383 same-shape pairs
+— reproduced exactly at S2**.
+
+**Correction, 2026-08-04 (S2, measured).** This paragraph said "v1 (17 slots, 47 observations)
+… 185 (48.3%) forbidden". That census is **internally inconsistent**: three slots — `FY2018`,
+`FY2019`, `2019Q4`, 5 observations — end *before* v1's `valid_from` of `2020-01-01` and
+therefore lie in **no declared window** *(verified: the ontology declares only
+`adjusted_gross_profit_v1` 2020-01-01..2021-12-31 and `_v2` 2022-01-01→)*. Counting them as v1
+reproduces 185/48.3%/17/47 and the "1 adjacent-quarter + 4 year-over-year" figure exactly — but
+only by asserting that v1's restructuring adjustment applied in 2018, which nothing declares.
+
+**The measured answer is 198 forbidden (51.7%)**: 160 `FORMULA_VERSION_MISMATCH` + 38
+`FORMULA_VERSION_UNDECLARED`. The mismatches are still precisely **1 adjacent-quarter
+(2021Q4→2022Q1) and 4 year-over-year** — the five that span the boundary the 2022 crisis story
+wants to cross. The 38 undeclared all touch the three pre-2020 slots, and are refused rather
+than clamped because C4 forbids a silent fallback. The detector refuses them and the writer is
 told why, quoting `formulas.yaml`'s note about the restructuring adjustment.
 
 ### 6.10 Ranking and deduplication — deterministic, no model

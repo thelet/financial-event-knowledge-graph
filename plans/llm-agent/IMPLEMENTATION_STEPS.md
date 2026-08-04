@@ -202,7 +202,12 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Parallel** | no |
 | **Tests** | 537 slots / 36 multi-valued / 0 conflict against the current run; quarantine rule; R1–R10 each with a positive and negative case; adjacency rule; formula-straddle refusal |
 | **Acceptance** | series matches the plan's §6.2 table recomputed from live data, not copied; typed refusals; no model involvement |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED** 2026-08-04 |
+| **Commit hash** | `b8bbe93` |
+| **Delivered** | 3,321 lines, 6 files, 105 tests (84 offline + 21 `neo4j`) |
+| **Orchestrator validation** | scope: 6 files, all its own · story `1019 passed` · neo4j `58 passed` (37 + its 21, no sibling test disturbed) · offline `3682 passed` · **verified both structural findings myself against the ontology and the live graph** |
+| **Census** | `slots=537 multi_valued=36 multi_cluster=0 ok=537 resolved_by_majority=0 conflict=0 quarantined=0` — **matches the expected figures exactly** |
+| **§6.2 drift** | **zero.** Every cell of all four series reproduces, asserted against a transcription of the plan rather than against itself |
 
 ### S3 — Deterministic detectors
 
@@ -599,6 +604,42 @@ the plan's way regardless.
 **A discipline point against myself:** my §13.1 correction first claimed "1,046 of 2,704
 observations are negative". Measured, it is **825**. Corrected before commit — an unverified
 number in a correction is the same defect the correction exists to fix.
+
+### S2 accepted (`b8bbe93`) — and it found a rule that refuses the plan's own spike
+
+**It did not tune to match my numbers.** Told the expected R6 figures were ground truth, it
+reproduced `383` exactly, measured `198` where the plan says `185`, **explained the difference
+precisely, verified that the plan's reading reproduces 185/48.3%/17/47 exactly**, and then chose
+the other option on principle. That is the behaviour the packet asked for and the opposite of
+fitting the policy to the data.
+
+| # | Finding | Verified by me | Corrected in |
+| --- | --- | --- | --- |
+| **P5** | **R6 as written refuses every cross-metric pair — including F3, this plan's own recommended spike.** *"resolve_version(metric, period_end) for each side must agree"* compares two different metrics' version ids | **Confirmed against the ontology**: at 2022Q3, `adjusted_gross_margin → adjusted_gross_margin_v1` and `gaap_gross_margin → gaap_gross_margin_v1`; equality is structurally impossible. It would also kill the shipping CP↔AGP divergence pair | plan §6.9 — R6 evaluated **per metric across both dates**; identical on every same-metric pair, so no census moves |
+| **P6** | **§6.9's v1 census is internally inconsistent.** "v1 `2020-01-01..2021-12-31` (17 slots, 47 observations)" — a slot ending in 2019 cannot lie in a window starting 2020 | **Confirmed**: `FY2018`, `FY2019`, `2019Q4` (5 observations) end before `valid_from`. The ontology declares only two windows, so they lie in **none**. Counting them as v1 reproduces my numbers exactly — by asserting v1's restructuring adjustment applied in 2018 | plan §6.9 — **198 forbidden (51.7%)**: 160 mismatch + 38 `FORMULA_VERSION_UNDECLARED`, refused rather than clamped per C4. The "1 adjacent-quarter + 4 YoY" figure survives unchanged |
+| **P7** | §6.1's slot key is not the graph's — the graph stores `PeriodRef.key` (`2022Q2`, `FY2021`), not `{start}_{end}` | Bijective over this corpus (74 either way, census unaffected), but every id built from it differs | plan §6.1 |
+| **P8** | **§6.1's quarantine lane name matches nothing.** Plan says `lane == "narrative"`; the stored value is `normalized_narrative` | A guard written to the plan's spelling **would read as a rule that never fires** — the same shape of invisibility as AR1's fixture that could not express its own failure | plan §6.1 |
+
+**Operational finding, not in the plan: `get_metric_history` is bounded at 200 and five metrics
+exceed it** — `adjusted_ebitda`, `adjusted_ebitda_margin`, `contribution_margin`,
+`contribution_profit`, `gaap_gross_margin`. A single call returns 2,238 observations with
+`truncated=True` and no other signal. S2 keyset-pages on the tool's own `$since` window and
+**refuses if one anchor date ever fills a page** rather than returning short. Largest anchor
+date today is 20 rows.
+
+**Design judgments worth keeping.** R9 derives its cohort set from the ontology
+(`adjustment_components` whose `note` contains `cohort`) rather than hard-coding two names —
+yielding exactly `{contribution_profit, contribution_profit_after_interest}`, with a third
+arriving without a code change; it **warns, never refuses**. R10 needs *two* conditions:
+"nothing between them in the series" alone is satisfied by `pct_>120d` `2021-12-31 →
+2022-12-31`, since those are neighbouring **rows** — the +47 pp jump is caught only by the
+calendar-step check. And `SERIES_UNAVAILABLE` **refuses** rather than skips: a rule droppable by
+omitting an argument is not a rule.
+
+**For S3:** `get_metric_history` returns no `quoted_text` and no `filing_date` (C3 puts them on
+the edge and the document), so §6.1 steps 1 and 5 need `get_fact_evidence` per observation —
+2,704 calls, 2.7 s live, on by default. With `with_evidence=False` the points carry
+`quarantine_not_evaluated` and `filing_date_unknown` rather than pretending the tests ran.
 
 ## 8. Founder gates
 
