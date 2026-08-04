@@ -420,6 +420,26 @@ def test_a_movement_smaller_than_the_printed_unit_is_rounding_and_not_news(autho
     assert (result.rule, result.reason) == ("R8", "WITHIN_PRESENTATION_TOLERANCE")
 
 
+def test_the_tolerance_refusal_prints_the_rounded_difference_it_actually_decided_on(authority):
+    """The sentence has to explain the verdict, not contradict it.
+
+    `7.4 − 7.3` is `0.10000000000000053`, and the refusal read *"a difference of
+    0.10000000000000053 against a presentation tolerance of 0.1"* — a difference the reader can
+    see is larger than the bar, attached to a refusal for being smaller. `within_tolerance`
+    rounds before it compares; the detail now quotes the same number.
+    """
+    earlier = make_point(period=story_period("2022-04-01", "2022-06-30"), value=7.3,
+                         unit="percent", scale="units", currency=None)
+    later = make_point(value=7.4, unit="percent", scale="units", currency=None)
+
+    result = comparable(later, earlier, claim=ClaimKind.MOVEMENT, authority=authority,
+                        series=series_of(earlier, later))
+
+    assert (result.rule, result.reason) == ("R8", "WITHIN_PRESENTATION_TOLERANCE")
+    assert later.value - earlier.value == 0.10000000000000053
+    assert "a difference of 0.1 against a presentation tolerance of 0.1" in result.detail
+
+
 def test_a_movement_larger_than_the_printed_unit_clears_the_tolerance_rule(authority):
     earlier = make_point(period=story_period("2022-04-01", "2022-06-30"), value=218_000_000.0)
     later = make_point(value=-211_000_000.0)

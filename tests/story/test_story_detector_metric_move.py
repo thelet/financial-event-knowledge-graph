@@ -49,6 +49,7 @@ from story.stages.detection.metric_move import (
     ARM_PERCENTAGE_POINTS,
     ARM_RELATIVE_PERCENT,
     DETECTOR_ID,
+    RELATIVE_CHANGE_ACROSS_ZERO,
     SERIES_INCOMPLETE,
     detect_metric_moves,
     detect_metric_moves_from_load,
@@ -225,9 +226,12 @@ def test_a_candidate_for_a_metric_of_unverified_sign_carries_the_warning_instead
 def test_a_percentage_point_move_fires_on_the_percentage_point_arm_and_not_the_relative_one():
     """The correction this module records: for a percent metric the column is `pp_min`.
 
-    `gaap_gross_margin 2022Q2 → 2022Q3` is `−24.2 pp` and `−208.6%` relative. It must fire, and
-    it must fire on `pp` — a candidate recording `pct` would mean the 3.0 in the table had been
-    read as a relative bar, which at a base of 11.6 is a bar of 0.35 pp.
+    `gaap_gross_margin 2022Q2 → 2022Q3` is `−24.2 pp` and would be `−208.6%` relative. It must
+    fire, and it must fire on `pp` — a candidate recording `pct` would mean the 3.0 in the table
+    had been read as a relative bar, which at a base of 11.6 is a bar of 0.35 pp.
+
+    The `−208.6%` is not reported at all: the metric is denominated in percent *and* the step
+    runs through zero, so both suppressions apply and only `delta_pp` names the move.
     """
     earlier = make_point(metric_id="gaap_gross_margin", period=quarter(2), value=11.6,
                          unit="percent", scale="units", currency=None)
@@ -238,12 +242,13 @@ def test_a_percentage_point_move_fires_on_the_percentage_point_arm_and_not_the_r
 
     assert measurement.fired_on == (ARM_PERCENTAGE_POINTS,)
     assert round(measurement.delta_pp, 9) == -24.2
-    assert round(measurement.delta_pct, 3) == -208.621
+    assert measurement.delta_pct is None
 
 
 def test_a_percentage_metric_below_its_percentage_point_bar_does_not_fire_however_large_the_relative_move():
     """A margin of `0.4` moving to `1.2` is `+200%` relative and `+0.8 pp`. §6.6's measured p75
-    is 3.0 **pp**, so this is noise and the relative arm must not rescue it."""
+    is 3.0 **pp**, so this is noise and the relative arm must not rescue it — nor may the `+200%`
+    be reported, which is the second half of the same rule."""
     earlier = make_point(metric_id="gaap_gross_margin", period=quarter(2), value=0.4,
                          unit="percent", scale="units", currency=None)
     later = make_point(metric_id="gaap_gross_margin", period=quarter(3), value=1.2,
@@ -251,7 +256,8 @@ def test_a_percentage_metric_below_its_percentage_point_bar_does_not_fire_howeve
 
     measurement = measure_move(earlier, later, thresholds=MARGIN, floor=0.1)
 
-    assert measurement.delta_pct == 200.0
+    assert measurement.delta_pct is None
+    assert measurement.delta_pp == 0.8
     assert measurement.fired_on == ()
     assert measurement.fires is False
 
@@ -286,6 +292,82 @@ def test_a_percentage_change_is_suppressed_when_the_base_is_below_the_metric_flo
     # It is still a real $175.6M move, so the absolute arm still fires — the floor suppresses a
     # ratio, it does not suppress a candidate.
     assert floored.fired_on == (ARM_ABSOLUTE,)
+
+
+def test_a_relative_change_taken_across_zero_is_refused_and_the_candidate_says_so():
+    """§13.3's third gate, at the detector rather than at the verifier.
+
+    `adjusted_ebitda 2022Q2 → 2022Q3` is `+$218M → −$211M`; `(−211 − 218)/218 = −197%` is defined
+    and unreadable, and `story.core.numerals.delta_relative` raises on exactly this pair. The
+    number must not be published — but the step is still a $429M move that fires, so the arms are
+    untouched and the absence is stated as a warning rather than left to look like the floor's.
+    """
+    earlier, later = quarterly("adjusted_ebitda", {2: 218_000_000.0, 3: -211_000_000.0})
+
+    measurement = measure_move(earlier, later, thresholds=USD, floor=5_797_350.0)
+    (candidate,) = detect_metric_moves((earlier, later), graph_run_id=GRAPH_RUN_ID).candidates
+
+    assert measurement.relative_change_refused is True
+    assert measurement.delta_pct is None
+    assert measurement.delta == -429_000_000.0
+    assert measurement.fired_on == (ARM_RELATIVE_PERCENT, ARM_ABSOLUTE)
+    assert "delta_pct" not in candidate.signals
+    assert candidate.signals["crosses_zero"] is True
+    assert RELATIVE_CHANGE_ACROSS_ZERO in candidate.warnings
+
+
+def test_a_base_of_exactly_zero_refuses_the_relative_change_although_nothing_crossed():
+    """The one case `crosses_zero` does not cover, which is why the predicate is `numerals`'.
+
+    `0 → 60,000,000` is not a sign flip — `crosses_zero` is correctly `False` — and `Δ/|v0|` is
+    not meaningless but undefined. Both end in no `delta_pct`, and the candidate says why. Only
+    the absolute arm can fire from a base of zero, which is the $50M bar and not the 65% one.
+    """
+    earlier, later = quarterly("adjusted_ebitda", {2: 0.0, 3: 60_000_000.0})
+
+    measurement = measure_move(earlier, later, thresholds=USD, floor=5_797_350.0)
+    (candidate,) = detect_metric_moves((earlier, later), graph_run_id=GRAPH_RUN_ID).candidates
+
+    assert measurement.crosses_zero is False
+    assert measurement.relative_change_refused is True
+    assert measurement.delta_pct is None
+    assert measurement.fired_on == (ARM_ABSOLUTE,)
+    assert RELATIVE_CHANGE_ACROSS_ZERO in candidate.warnings
+
+
+def test_a_step_that_lands_on_zero_still_reports_its_relative_change():
+    """The boundary the gate must not over-reach. `v1 == 0` divides by a real base: `$40M → $0`
+    is `−100%`, a number a reader can act on, and it stays."""
+    earlier, later = quarterly("adjusted_ebitda", {2: 40_000_000.0, 3: 0.0})
+
+    measurement = measure_move(earlier, later, thresholds=USD, floor=5_797_350.0)
+    (candidate,) = detect_metric_moves((earlier, later), graph_run_id=GRAPH_RUN_ID).candidates
+
+    assert measurement.relative_change_refused is False
+    assert measurement.delta_pct == -100.0
+    assert RELATIVE_CHANGE_ACROSS_ZERO not in candidate.warnings
+
+
+def test_a_percent_metric_never_reports_a_relative_change_even_where_the_sign_never_flips():
+    """The percent-of-a-percent suppression, on the case the cross-zero gate does **not** catch.
+
+    `contribution_margin 2022Q3 → 2022Q4` is `−0.7% → −7.2%`: both negative, so nothing crossed,
+    and the relative change is `−928.57%` — a second percentage contradicting the `−6.5 pp` the
+    same candidate carries. §6.6 D1's floor is no guard: `0.10 × median(|v|)` is 0.455 **pp** on
+    this metric's history, so a 0.7 pp base clears it easily. `delta_pp` already says what moved.
+    """
+    earlier = make_point(metric_id="contribution_margin", period=quarter(3), value=-0.7,
+                         unit="percent", scale="units", currency=None)
+    later = make_point(metric_id="contribution_margin", period=quarter(4), value=-7.2,
+                       unit="percent", scale="units", currency=None)
+
+    measurement = measure_move(earlier, later, thresholds=MARGIN, floor=0.455)
+
+    assert measurement.relative_change_refused is False
+    assert round(-6.5 / 0.7 * 100, 2) == -928.57  # what would have been published
+    assert measurement.delta_pct is None
+    assert measurement.delta_pp == -6.5
+    assert measurement.fired_on == (ARM_PERCENTAGE_POINTS,)
 
 
 def test_the_floor_is_a_tenth_of_the_median_absolute_value_over_the_metrics_whole_history():
@@ -492,7 +574,9 @@ def test_a_point_warning_from_canonicalisation_is_carried_onto_the_candidate():
     (candidate,) = detect_metric_moves((earlier, flagged),
                                        graph_run_id=GRAPH_RUN_ID).candidates
 
-    assert candidate.warnings == (MINORITY_READING_PRESENT,)
+    # `+$218M → −$211M` also runs through zero, so the step's own refusal rides alongside the
+    # point's warning; the assertion is on the whole tuple so a lost propagation still fails.
+    assert candidate.warnings == (MINORITY_READING_PRESENT, RELATIVE_CHANGE_ACROSS_ZERO)
     # The minority reading backs a number this run did not use, so it is disclosed and is not
     # an anchor.
     assert "obs:minority" not in candidate.anchor_observation_ids
@@ -579,6 +663,9 @@ def test_live_the_adjusted_ebitda_sign_reversal_is_a_candidate_with_the_numbers_
 
     assert candidate.signals["delta"] == -429_000_000.0
     assert candidate.signals["crosses_zero"] is True
+    # The step it crossed on is the step whose relative change §13.3 refuses.
+    assert "delta_pct" not in candidate.signals
+    assert RELATIVE_CHANGE_ACROSS_ZERO in candidate.warnings
     assert candidate.signals["direction"] == "decrease"
     assert candidate.signals["polarity"] == MetricPolarity.REVENUE.value
     assert candidate.signals["fired_on"] == f"{ARM_RELATIVE_PERCENT},{ARM_ABSOLUTE}"
@@ -663,6 +750,82 @@ def test_live_no_candidate_carries_a_percentage_computed_over_a_base_below_its_f
     ]
     assert "delta_pct" not in small_base.signals
     assert small_base.signals["fired_on"] == ARM_ABSOLUTE
+
+
+@pytest.mark.neo4j
+def test_live_no_candidate_publishes_a_relative_change_taken_across_zero(live_moves):  # type: ignore[no-untyped-def]
+    """The whole run, against §13.3's third gate.
+
+    Before the gate reached this layer, **45 of 227** candidates carried one — including the
+    plan's own worked example, `adjusted_ebitda_margin 2022Q2 → 2022Q3`, which shipped
+    `delta_pct = −221.153846154` next to the `−11.5 pp` that is the number to read. The verifier
+    only ever sees a draft; §6.10, §10 and §11 all read `signals`, so the assertion is on every
+    candidate rather than on the one the plan names.
+    """
+    published = [c for c in live_moves.candidates if "delta_pct" in c.signals]
+    across = [c for c in published if c.signals.get("crosses_zero") is True]
+
+    assert across == []
+    # Not vacuous: relative change is still the common reporting case.
+    assert len(published) == 129
+
+    (textbook,) = [
+        c for c in live_moves.candidates
+        if c.metric_ids == ("adjusted_ebitda_margin",)
+        and c.anchor_period_keys == ("2022Q2", "2022Q3")
+    ]
+    assert "delta_pct" not in textbook.signals
+    assert textbook.signals["delta_pp"] == -11.5
+    assert RELATIVE_CHANGE_ACROSS_ZERO in textbook.warnings
+
+
+@pytest.mark.neo4j
+def test_live_no_percent_metric_publishes_a_percentage_of_a_percentage(live_moves, live_points):  # type: ignore[no-untyped-def]
+    """§13.3's *"single most likely factual error"*, on the whole run.
+
+    **70 of 227** candidates carried a `delta_pct` on a metric already denominated in percent, and
+    36 of the 262 in the S3 census read past `|200%|` because `0.10 × median(|v|)` is a USD-shaped
+    floor doing nothing on a percentage. `contribution_margin 2022Q3 → 2022Q4` never crossed zero,
+    so only the unit check catches it.
+    """
+    series = build_series(canonicalize(live_points.records))
+    unit_of = {
+        metric_id: next((p.unit for p in s.valued_points()), "")
+        for metric_id, s in series.items()
+    }
+
+    offenders = [
+        c for c in live_moves.candidates
+        if "delta_pct" in c.signals and unit_of[c.metric_ids[0]] == "percent"
+    ]
+    assert offenders == []
+
+    (margin,) = [
+        c for c in live_moves.candidates
+        if c.metric_ids == ("contribution_margin",)
+        and c.anchor_period_keys == ("2022Q3", "2022Q4")
+    ]
+    assert margin.signals["delta_pp"] == -6.5
+    assert margin.signals["crosses_zero"] is False
+    assert "delta_pct" not in margin.signals
+
+
+@pytest.mark.neo4j
+def test_live_one_candidate_exists_only_because_the_delta_was_rounded_before_the_bar(live_moves):  # type: ignore[no-untyped-def]
+    """`round_delta`'s own blast radius, which is *not* the one `within_tolerance` records.
+
+    `core/series.py`'s `within_tolerance` measured exactly one R8 case. Separately, 8 steps in
+    this run land exactly on their arm's bar after rounding, and one of them clears only because
+    of it: `adjusted_gross_margin 2024Q2 → 2024Q3` is `10.2% → 7.2%`, which subtracts to
+    `−2.999999999999999` against a 3.0 pp bar. All 8 resolve in favour of firing, because every
+    arm tests `>=`.
+    """
+    ids = {c.candidate_id for c in live_moves.candidates}
+
+    assert 7.2 - 10.2 == -2.999999999999999  # the residue itself, not a transcription of it
+    assert (
+        "cand:metric-move:adjusted-gross-margin:opendoor:2024Q2_2024Q3:52a448345320" in ids
+    )
 
 
 @pytest.mark.neo4j

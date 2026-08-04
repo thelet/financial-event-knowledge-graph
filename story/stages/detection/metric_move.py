@@ -44,6 +44,29 @@ twelve-month step judged against them clears the bar 74% of the time. Narrowing 
 quarters and instants was rejected — §6.2 lists instant series as first-class and nothing in §6.6
 restricts the rule to one shape — but the shape is on every candidate as a signal, and §6.10's
 ranking is where an annual restatement of a quarterly move should lose.
+
+**Two states in which this module publishes no `delta_pct` at all, beyond §6.6 D1's floor.**
+Both are about the number a reader would be handed, and neither changes which steps fire.
+
+*Across zero, because §13.3's third gate says the quotient is not a claim.*
+`adjusted_ebitda_margin 2022Q2 → 2022Q3` is `5.2% → −6.3%`; the relative change is `−221%`, which
+is arithmetically defined and rhetorically meaningless, and it shipped as a signal on a real
+candidate — §13.3 uses this very pair as its worked example of the number nobody may write. The
+predicate is `story.core.numerals.relative_change_across_zero` — the same one `delta_relative`
+raises on — rather than a second copy here: one arithmetic, one owner. The candidate carries
+`RELATIVE_CHANGE_ACROSS_ZERO` so the absent number is a stated refusal rather than a gap that
+reads like the floor's. **45 of 227 candidates** carried such a `delta_pct` before this
+*(measured live 2026-08-04)*.
+
+*On a percent metric, because a percentage of a percentage is the error §13.3 calls the most
+likely one in the pipeline.* `contribution_margin 2022Q3 → 2022Q4` is `−0.7% → −7.2%` and made
+`delta_pct = −928.57` next to a `delta_pp` of `−6.5`, two contradictory percentages under
+differently-spelled keys — and it never crossed zero, so the gate above would not have caught it.
+The floor is no guard here either: `0.10 × median(|v|)` is a USD-shaped rule and lands at 0.36 pp
+for `adjusted_ebitda_margin` and 0.455 pp for `contribution_margin`, so it admits almost every
+margin base a story would be about. `delta_pp` already says what moved, the pct arm never fires
+for a percent metric anyway (below), and the suppression is therefore free of any firing effect.
+**70 of 227** carried one.
 """
 
 from __future__ import annotations
@@ -53,6 +76,7 @@ from typing import Iterable, Sequence
 
 from story.core.keys import candidate_id
 from story.core.models import EvidenceRequest, StoryCandidate
+from story.core.numerals import relative_change_across_zero
 from story.core.periods import PeriodShape
 from story.core.series import (
     CanonicalPoint,
@@ -89,6 +113,11 @@ ARM_PERCENTAGE_POINTS = "pp"
 ARM_RELATIVE_PERCENT = "pct"
 ARM_ABSOLUTE = "abs"
 
+#: The step ran through zero, so §13.3's third gate refused its relative change. On the candidate
+#: rather than in a log because the absent `delta_pct` would otherwise be indistinguishable from
+#: the floor's absence, and the two are refusals for different reasons.
+RELATIVE_CHANGE_ACROSS_ZERO = "relative_change_across_zero"
+
 #: A series whose completeness the loader could not prove. Not a `Refuse` from `core/series.py`:
 #: that type answers *"may these two points be compared"*, and this answers *"may this metric be
 #: read at all"*.
@@ -103,10 +132,12 @@ class MoveMeasurement:
     gate — §6.6 D2's magnitude condition is *"`|d[i]| ≥ max(D1 threshold, σ(d))`"* — and two
     detectors sharing a rule must share the code that implements it, not a description of it.
 
-    `delta_pct` is `None` when the base is below the metric's floor, which is the state §6.6 D1
-    names: *"only if `|v0| ≥ floor(metric)`, else null"*. It is `None` rather than a large number
-    because `adjusted_ebitda 2021Q4 → 2022Q1` really is `+43,900%` and that number is arithmetic
-    about a rounding, not a measurement of a business.
+    `delta_pct` is `None` in three states and only one of them is §6.6 D1's own: the base below
+    the metric's floor (*"only if `|v0| ≥ floor(metric)`, else null"*), the step across zero
+    (§13.3's third gate), and a metric already denominated in percent. It is `None` rather than a
+    large number because `adjusted_ebitda 2021Q4 → 2022Q1` really is `+43,900%` and that number is
+    arithmetic about a rounding, not a measurement of a business — and the same is true of the
+    `−221%` a sign flip yields.
     """
 
     metric_id: str
@@ -116,7 +147,8 @@ class MoveMeasurement:
     earlier_value: float
     later_value: float
     delta: float
-    #: `Δ / |v0| × 100`, or `None` below the floor. Never a firing arm for a percent metric.
+    #: `Δ / |v0| × 100` when that is a number a reader may be handed, else `None`. Never a firing
+    #: arm for a percent metric, and on one now never reported either.
     delta_pct: float | None
     #: `Δ` itself, and only for a metric denominated in percent. `None` says the question does
     #: not apply, which is not the same as a move of zero percentage points.
@@ -141,6 +173,18 @@ class MoveMeasurement:
         return (self.earlier_value > 0 > self.later_value) or (
             self.earlier_value < 0 < self.later_value
         )
+
+    @property
+    def relative_change_refused(self) -> bool:
+        """§13.3's third gate over this step: is `Δ/|v0|` a quotient nobody may read?
+
+        Wider than `crosses_zero` by exactly one case — `v0 == 0`, where the quotient is not
+        meaningless but undefined — and that is why this delegates to
+        `story.core.numerals.relative_change_across_zero` instead of reusing the flag above.
+        The two questions are *"did §6.3's F1 happen"* and *"may a percentage be printed"*, and
+        a single predicate answering both would eventually be corrected for one of them.
+        """
+        return relative_change_across_zero(self.earlier_value, self.later_value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,9 +222,29 @@ def measure_move(
     `adjusted_gross_margin 2022Q2 → 2022Q3` is `13.2 − 3.3 = −9.899999999999999` in IEEE 754 and
     a bar tested on the raw subtraction decides on residues at the seventeenth digit.
 
+    **That rounding is load-bearing at a bar, not only cosmetic, and the run contains the case.**
+    `core/series.py`'s `within_tolerance` records a blast radius of one for R8; this is the
+    separate one for the thresholds. Measured over every comparable step in
+    `graph-v1-0483dc6b4b10` *(verified 2026-08-04)*: **8 steps land exactly on their arm's bar
+    after rounding**, and of those exactly one is a tie the raw subtraction would have lost —
+    `adjusted_gross_margin 2024Q2 → 2024Q3` (`10.2% → 7.2%`), whose raw delta is
+    `−2.999999999999999` against a 3.0 pp bar. Its candidate — id ending `:52a448345320` — exists
+    only because the comparison happens after `round_delta`. All 8 ties resolve in favour of
+    firing, because every arm below tests `>=`; that is deliberate — a step that moved exactly the
+    measured p75 met the bar — and it is recorded here rather than left for someone to rediscover
+    from a census diff.
+
     The caller has already run `comparable`; this function does not, and could not — R10 needs
     the series and this takes two points. Keeping the arithmetic separable is what lets a test
     drive the threshold table without building a series around it.
+
+    **`delta_pct` is what may be *published*; the pct arm still decides on the raw quotient.** A
+    step across zero always exceeds 100% relative by construction, so suppressing the arm as well
+    would be a change to §6.6 D1's firing rule and not to its reporting — out of scope for a
+    repair, and it would not have moved today's census in any case (all 18 candidates firing on
+    `pct` alone have `crosses_zero=False`, so nothing exists solely on a refused quotient). The
+    candidate records the split honestly: `fired_on` says the magnitude cleared the relative bar,
+    and `RELATIVE_CHANGE_ACROSS_ZERO` says the quotient is not one a draft may quote.
     """
     if earlier.value is None or later.value is None:
         raise ValueError(
@@ -190,9 +254,15 @@ def measure_move(
     delta = round_delta(later.value - earlier.value)
     is_percent = earlier.unit == PERCENT_UNIT
     base = abs(earlier.value)
-    delta_pct = (
+    # §6.6 D1's own gate, and the only one the firing arm sees.
+    relative = (
         round_delta(delta / base * 100.0)
         if base > 0 and floor is not None and base >= floor
+        else None
+    )
+    readable = (
+        relative
+        if not is_percent and not relative_change_across_zero(earlier.value, later.value)
         else None
     )
 
@@ -200,7 +270,7 @@ def measure_move(
     if is_percent:
         if abs(delta) >= thresholds.pct_min:
             arms.append(ARM_PERCENTAGE_POINTS)
-    elif delta_pct is not None and abs(delta_pct) >= thresholds.pct_min:
+    elif relative is not None and abs(relative) >= thresholds.pct_min:
         arms.append(ARM_RELATIVE_PERCENT)
     if thresholds.abs_min is not None and abs(delta) >= thresholds.abs_min:
         arms.append(ARM_ABSOLUTE)
@@ -213,7 +283,7 @@ def measure_move(
         earlier_value=earlier.value,
         later_value=later.value,
         delta=delta,
-        delta_pct=delta_pct,
+        delta_pct=readable,
         delta_pp=delta if is_percent else None,
         floor=floor,
         thresholds=thresholds,
@@ -393,6 +463,10 @@ def candidate_from_move(
     warnings = {warning for point in window for warning in point.warnings}
     warnings.update(comparability_warnings)
     warnings.update(extra_warnings)
+    if measurement.relative_change_refused:
+        # Said on the candidate and not only by the missing key, because §6.10, §10 and §11 all
+        # read `signals` and only this layer still knows both numbers (§13.3's third gate).
+        warnings.add(RELATIVE_CHANGE_ACROSS_ZERO)
     if direction is None:
         # The move is real and citable; only the sentence describing it is unavailable, so the
         # candidate is emitted carrying the gap rather than dropped (`detector_config`).
@@ -439,6 +513,7 @@ __all__ = [
     "DETECTOR_ID",
     "DETECTOR_VERSION",
     "PERCENT_UNIT",
+    "RELATIVE_CHANGE_ACROSS_ZERO",
     "SERIES_INCOMPLETE",
     "STORY_TYPE",
     "MetricMoveRefusal",

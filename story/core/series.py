@@ -751,7 +751,13 @@ def _r8_tolerance(
     _authority: ComparabilityAuthority,
     _series: CanonicalSeries | None,
 ) -> Refuse | None:
-    """A movement smaller than the coarser side's printed unit is rounding, not news."""
+    """A movement smaller than the coarser side's printed unit is rounding, not news.
+
+    The difference printed in the refusal is the **rounded** one `within_tolerance` decided on.
+    On the raw subtraction the sentence contradicted the verdict it was explaining:
+    `gaap_gross_margin 2020Q1 → 2020Q2` refused with *"a difference of 0.10000000000000053
+    against a presentation tolerance of 0.1"*, which reads as a movement that cleared the bar.
+    """
     if claim not in (ClaimKind.MOVEMENT, ClaimKind.ACCELERATION):
         return None
     if left.value is None or right.value is None:
@@ -759,11 +765,12 @@ def _r8_tolerance(
     tolerance = max(left.tolerance, right.tolerance)
     if not within_tolerance(left.value, right.value, tolerance):
         return None
+    difference = round(abs(left.value - right.value), DELTA_PRECISION)
     return Refuse(
         "R8",
         "WITHIN_PRESENTATION_TOLERANCE",
         f"{left.metric_id} moved from {right.value} ({right.period.key}) to {left.value} "
-        f"({left.period.key}), a difference of {abs(left.value - right.value)} against a "
+        f"({left.period.key}), a difference of {difference} against a "
         f"presentation tolerance of {tolerance}; the two filings rounded differently",
     )
 
