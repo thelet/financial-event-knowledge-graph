@@ -680,9 +680,18 @@ as an explicit `metric_id → revenue|cost|ratio|count` map with a test assertin
 **D2 `trend_reversal`.** Fire at `i` when `min_run` prior deltas all oppose `sign(d[i])` and
 `|d[i]| ≥ max(D1 threshold, 1.0 × σ(d))`. At `min_run = 2` with no magnitude gate the corpus
 yields **84 reversals across 13 metrics** — only 13 metrics have ≥3 consecutive deltas at all —
-because a noisy series alternates. The σ gate reduces it to the ones worth writing. Exclude any
-metric whose `σ(d)` is under one presentation unit; `market_count` alternates ±0 and produces
-pure noise. **Zero-delta handling must be specified, not left to the implementation**: a delta
+because a noisy series alternates. **That figure does not reproduce** *(2026-08-04)* under any
+zero-handling or shape grouping tried — closest measured is 76/12 over adjacent quarterly rows
+ignoring comparability, and 71/11 honouring R1–R10. Recorded rather than fitted to; the live
+census under the shipped rule is **11 candidates across 9 metrics**.
+
+The σ gate reduces it to the ones worth writing. Exclude any metric whose `σ(d)` is under one
+presentation unit — *(corrected 2026-08-04: this rule **excludes nothing**, and its stated
+reason is wrong about the data. `market_count` does not "alternate ±0"; it steps up through
+2021–22 and then goes flat, σ = 3.26 raw and 4.53 after R1–R10 against a one-market tolerance,
+and no metric at any shape has σ below its presentation unit. Implemented as written and fires
+on nothing; what actually removes `market_count` is R8 plus R10 plus the 8-delta population
+floor.)* **Zero-delta handling must be specified, not left to the implementation**: a delta
 of exactly 0 has no sign and breaks a run rather than continuing or reversing it.
 
 **D3 `acceleration`.** Three consecutive same-sign deltas with monotone **increasing** `|d|` and
