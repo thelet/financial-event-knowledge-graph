@@ -816,6 +816,43 @@ whichever stage wires the run up cannot forget it.
 
 ---
 
+### Process incident — `git commit --amend` in a shared worktree *(2026-08-04)*
+
+S5 found a `len(kept)`-vs-cap bug after committing, which silently reported a truncated primary
+section as untruncated and moved the spike token estimates. It ran `git commit --amend` to
+correct its own commit message — **but HEAD had moved to a sibling's commit in the meantime, so
+the amend rewrote D5's commit instead.**
+
+It detected this, restored `05e191d` byte-for-byte by checking the tree back out and re-amending
+with the original committer date, and **reported it unprompted**. **Orchestrator-verified:**
+`05e191d` exists, holds D5's full work (10 files, 4,734 insertions), the chain is linear, and
+the only `git fsck` output is unreferenced dangling objects — the discarded amend artifacts.
+Nothing was lost.
+
+**Rule for every remaining agent: `--amend` is unsafe in a shared worktree. Plain `git commit`
+only.** Now stated in every packet. The deeper point is that "amend my last commit" silently
+means "amend whatever HEAD points at", which is a different thing the moment two agents share a
+branch — and the failure is invisible unless someone checks.
+
+### Decision — the token budget measures what reaches a model *(taken by the orchestrator, escalated by S5)*
+
+S5 measured that **§10.2's 5,000-token total cannot hold §10.2.1's own passage arithmetic.**
+§10.2.1 sizes "3 primaries + ±1 context ≈ 4,800" over *passages alone*, while
+`budget.token_estimate` covers the whole package's canonical JSON — of which `retrieval_trace`
+alone is **1,617 tokens** on the F1 spike. All three spike packages consequently shipped **two
+primaries and zero context**, with `facts` at 2–4 against §10.2's stated 5–12 default. The
+evidence was being starved by its own provenance record.
+
+**Decision: two numbers.** `artifact_token_estimate` (the whole package, informational, what is
+written to disk) and `prompt_token_estimate` (**everything except `retrieval_trace` and the
+budget block** — the slice that can reach a model). **§10.2's bound applies to the prompt
+estimate**, and it is what the trim targets. No section ceiling is raised: the point is that the
+existing ceilings become reachable, not that they grow.
+
+This is not a relaxation. §10.2.1 point 3 already says the planner and writer *"see different
+slices of one package"*; the trace is provenance for a human reviewer and §14's manifest, and no
+model slice contains it. Counting it against the evidence budget protected the wrong thing.
+
 ## 8b. Founder-approved shortcut — demo path *(2026-08-04)*
 
 The goal changed from "complete V1" to **"fastest credible end-to-end demo"**. Adopted, with
