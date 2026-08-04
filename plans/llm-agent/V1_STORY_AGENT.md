@@ -1371,8 +1371,19 @@ allowlist (ordinals, the metric's own `threshold_value` such as "120 days"). Rec
 them* and `e = floor(log10|V_fact|)`:
 
 ```
-accept iff |V_draft − V_fact| ≤ 0.5 × 10^(e − d + 1)
+accept iff  ||V_draft| − |V_fact||  ≤  0.5 × 10^(e − d + 1)
+            and the sign agrees, checked separately
 ```
+
+**Correction, 2026-08-04 (S9a, measured).** This formula was written `|V_draft − V_fact|` and
+**contradicted its own worked case**. A published numeral is usually *unsigned* — `"$27.1
+million loss"` carries the sign in the word *loss*, which is prose the tokeniser does not
+parse. Parsed as `+27,100,000` against a fact of `−27,075,000`, the signed form gives
+**54,175,000** and blows the ±50,000 window; only the magnitude comparison gives the **25,000**
+the worked case below asserts. So magnitudes are compared, and **sign agreement is a separate
+check** applied when the numeral itself carries a sign (a parenthesis or a minus). Left as
+written it would have failed every negative-valued fact in the corpus — **825** of 2,704
+observations are negative.
 
 i.e. the fact rounds to the draft's own numeral at the draft's own precision. `"$27.1 million"`
 against `−27,075,000` gives `d = 3`, window ±50,000, |Δ| = 25,000 → PASS. `"$27 million"` gives
@@ -1406,7 +1417,12 @@ delta_relative (v2 − v1)/|v1| × 100       rendered must carry "%" AND a relat
 numeral sits in the same clause as a change verb unless the rendering carries an explicit
 `percentage point|pp|bps|basis point` token or an explicit relative marker with
 `operation == delta_relative`. *"Margin fell 3%"* is not ambiguous-but-probably-fine; it is
-unresolvable, and in this corpus the two readings differ by a factor of nineteen.
+unresolvable. **The gap between the two readings is `100/|v1|` and is base-dependent**
+*(clarified 2026-08-04 — this section said "a factor of nineteen", which is `100/5.2`, true of
+the falling case it describes and not a constant)*: on `adjusted_ebitda_margin` `5.2 → 2.2` the
+readings differ by **19.2×**, and on the same pair read forward, `2.2 → 5.2`, by **45.5×**. The
+smaller the earlier value, the wider the gap — which is exactly when a margin sentence is most
+tempting to write.
 
 **Second gate:** a change of a percent metric may never be a `reported` sentence. No
 observation in the package is a change — the extraction refused every one it saw
@@ -1616,10 +1632,14 @@ calculated sentence is an ontology violation, not a house rule.** The premise "n
 comparison exists in the graph" remains true of the current run — no lane emits one — but it is
 no longer a property of the schema, and nothing in this plan may rest on it.
 
-Recompute with exact arithmetic, compare after rounding to the draft's precision
-(`5.2 − 2.2 = 3.0000000000000004`; compare at `d = 2`, never by equality), require ≥2 resolving
-inputs sharing metric and unit and passing §13.4, and require a `formula_version_id` that
-`check_formula_for_date` accepts **for the period computed over, not the filing date**.
+Recompute with exact arithmetic and **compare after rounding to the draft's precision, never by
+equality**. *(Correction 2026-08-04: this section used `5.2 − 2.2` as the float-residue example
+and that subtraction is **exactly 3.0** in IEEE-754. The hazard is real and the instance was
+not. Real residues from this corpus: `adjusted_gross_margin` `9.9 − 7.3 = 2.6000000000000005`,
+`13.2 − 9.9 = 3.299999999999999`, and — a spike value — `3.3 − 13.2 = −9.899999999999999`.)*
+Require ≥2 resolving inputs sharing metric and unit and passing §13.4, and require a
+`formula_version_id` that `check_formula_for_date` accepts **for the period computed over, not
+the filing date**.
 
 **Five assertion types now, not four.** `AssertionType` gained `GUIDED` at F0
 (`REPORTED, CALCULATED, CLASSIFIED, INFERRED, GUIDED`). A `guided` observation is not a

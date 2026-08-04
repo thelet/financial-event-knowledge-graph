@@ -574,6 +574,32 @@ layer; the plan puts those in packaging.
 passages to a package — it must raise a package warning instead. Retrieval discloses; packaging
 decides. Recorded here so S5 cannot inherit it as an unstated assumption.
 
+### S9a accepted (`7c8a13b`) — the numerals library, and four plan defects it exposed
+
+`story/core/numerals.py`, 697 lines, stdlib only. First execution of §13.1 and §13.3 against
+real data.
+
+**Orchestrator validation:** scope clean (2 files) · **I re-ran the reconstruction myself:
+2,690/2,690 table quotes reconstruct exactly** off the `EVIDENCED_BY` edge (C3), with absent
+`scale` read as `units` (C2 — 84 `market_count` rows carry no `scale` property) · 79 tests
+(77 offline + 2 `neo4j`) · story `914 passed`, offline `3596 passed`.
+
+| # | Plan defect | Verified by me | Corrected in |
+| --- | --- | --- | --- |
+| **P1** | **§13.1's tolerance formula contradicts its own worked case.** Prose says `\|V_draft − V_fact\|`; the case computes magnitudes | **Confirmed and serious.** `"$27.1 million loss"` is an *unsigned* numeral — *loss* carries the sign in prose the tokeniser never sees. Signed: `54,175,000`, blowing the ±50,000 window. Magnitudes: `25,000`, which is what the case asserts. **Left as written it fails every one of the 825 negative-valued observations** | plan §13.1 — magnitudes compared, sign agreement a separate check |
+| **P2** | Over-precision has no single "fact's printed form" | Confirmed: no `:Observation` carries `printed_form`, and `adjusted_ebitda` 2020Q4 is quoted **both** `(27,075)` (thousands) and `(27)` (millions) | the printed form is an argument; the library never picks a printing |
+| **P3** | §13.3's "factor of nineteen" presented as general | **Partly.** It is `100/\|v1\|` and base-dependent: `5.2→2.2` gives **19.2×**, `2.2→5.2` gives **45.5×**. The plan's number was right for the falling case it described and wrong as a constant | plan §13.3 — stated as `100/\|v1\|` with both measured |
+| **P4** | §13.9's float-residue example does not float | Confirmed: `5.2 − 2.2` is **exactly 3.0**. Real residues do exist — `9.9 − 7.3 = 2.6000000000000005`, and the spike value `3.3 − 13.2 = −9.899999999999999` | plan §13.9 — real residues substituted |
+
+Two smaller ones recorded in the module: §13.2 lists five unit surfaces where the corpus has
+four (`contracts` is not a unit — both contract metrics are `homes`), and §13.7.1's percent
+exception is unexercised because all 1,163 percent table rows carry `scale: units`. Implemented
+the plan's way regardless.
+
+**A discipline point against myself:** my §13.1 correction first claimed "1,046 of 2,704
+observations are negative". Measured, it is **825**. Corrected before commit — an unverified
+number in a correction is the same defect the correction exists to fix.
+
 ## 8. Founder gates
 
 | # | Question | Status |
