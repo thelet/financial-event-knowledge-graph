@@ -1,7 +1,7 @@
-"""What the planner is told, how the package is rendered to it, and what its answer must be.
+"""What the two personas are told, how the package is rendered, and what an answer must be.
 
-Responsibility: three pure functions over a `StoryEvidencePackage` — a persona, a prompt, and
-a schema — and the versions that identify them. Nothing here calls a model, opens a file, asks
+Responsibility: pure functions over a `StoryEvidencePackage` — two personas, two prompts and
+two schemas — and the versions that identify them. Nothing here calls a model, opens a file, asks
 the clock or iterates an unordered collection: the prompt is half of the request identity the
 replay store keys on (§14, `story/providers/generation_store.py`), so a rendering that varied
 with set order would make every stored generation unreachable on the next run.
@@ -31,16 +31,56 @@ evidence sources, formula windows and the retrieval trace are not rendered — t
 neither orders nor cites them, and the token budget is 8,192 for the whole request. The
 writer's passage set is derived from fact bindings by code and never from this plan's
 `required_citation_passage_ids`, so nothing here can filter what the writer later sees.
+
+**The writer is shown a different slice, and it is the one `writer.writer_passages` computed**
+— the *whole* text of every passage a packaged fact was read from, plus the accepted plan and
+the surfaces each fact may be named by. `writer_prompt` takes those passages as an argument
+rather than deriving them, because §10.2.1 point 3 is a rule about evidence and this module is
+about rendering; the rule lives beside the stage that must not be able to break it.
+
+**Three things the writer is told that it would otherwise have to guess, and code computes all
+three** (§2's line: the model chooses words, code chooses facts).
+
+* `metric_surfaces_for` — which surfaces name this metric and *only* this metric inside this
+  package. §13.5 refuses `"gross margin"` because `gaap_gross_margin`'s own label is
+  `"Gross Margin"` and `"gross margin" ⊂ "adjusted gross margin"`; a writer left to pick a
+  surface picks that one. The filter here is a **conservative local approximation** of §13.5's
+  alias index — it drops any surface that is a sub-phrase of another package metric's surface —
+  and the verifier remains the authority. It cannot *add* a surface the index would refuse for a
+  reason the package does not carry, which is why the approximation is safe in the direction
+  that matters.
+* `period_surface_for` — one surface per fact, in §13.4's closed grammar, derived from the
+  fact's own endpoints. The grammar is the verifier's; this is the writing direction of it, and
+  `tests/story/test_story_writer.py` round-trips every surface it emits back through
+  `period_grammar.resolve` rather than trusting the pair to agree.
+* `WARNING_QUALIFIER_PHRASES` — the phrases that count as having stated a required warning.
+  Restated from §13's table rather than imported: `story.stages.verification` is not a surface
+  this stage may import (`test_no_stage_imports_another_stage`), and a writer not shown the
+  phrases would be refused for silence it was never told how to break. A test asserts the two
+  copies are identical, so the duplication is checked rather than hoped over.
+
+**`WRITER_OPERATIONS` is deliberately narrower than the verifier's `OPERATION_INPUTS`.**
+§13.14's machinery operations — `extremum`, `compare_levels`, `compare_deltas`, `absence`,
+`temporal_order` — are absent from the grammar, so the writer *cannot* declare the machinery a
+superlative, a comparative or an absence claim would need, and every such construction it writes
+is refused at §13.14 instead of being half-supported. They need a full comparison set, and
+§10.2's twelve-fact cap cannot guarantee one. `delta_relative` is absent for §13.3's third gate:
+the demo's own inputs straddle zero, where a relative change is arithmetically defined and
+rhetorically meaningless.
 """
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from dataclasses import dataclass
+from datetime import date
+from typing import Any, Mapping, Sequence
 
 from story.core.models import (
     CausalLanguage,
+    EditorialPlan,
     PackagedFact,
     PackagedPassage,
+    SentenceKind,
     StatementClass,
     StoryEvidencePackage,
     UnusableReason,
@@ -355,4 +395,532 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
         lines.append("      " + excerpt.replace("\n", "\n      "))
     # Empty means empty: the "(none)" line belongs to the *section*, and returning it here
     # would print it once per absent passage kind.
+    return lines
+
+
+# ---------------------------------------------------------------------------------------
+# §12 — the writer
+# ---------------------------------------------------------------------------------------
+
+#: Bumped whenever the wording or the rendering below changes, for the reason
+#: `PLANNER_PROMPT_VERSION` is: it is a digest input to every stored generation.
+WRITER_PROMPT_VERSION = "1.0.0"
+
+#: Reaches the wire and the store, and is not the planner's name — two personas against one
+#: package must be distinguishable in a capture.
+WRITER_SCHEMA_NAME = "story_post_draft"
+
+#: What a call site passes as `max_tokens`. 2048, the planner's figure, and the reason it is not
+#: larger is measured rather than assumed: the writer's prompt carries the *whole* text of every
+#: bound passage, the median backing passage is 2,144.5 characters (§10.2.1), and the server is
+#: `-c 8192`. A five-sentence draft with its bindings and citations serialises to well under
+#: 2,048 completion tokens; what is observed live is recorded in `tests/story/test_story_writer.py`
+#: rather than predicted here.
+WRITER_MAX_TOKENS = 2048
+
+#: How many sentences a call site asks for unless it says otherwise. §12 takes a *length target*
+#: as an input, so it is an argument to `writer_prompt` and this is only the demo's value.
+DEFAULT_LENGTH_TARGET = 5
+
+#: The `Calculation.operation`s the grammar admits. Narrower than the verifier's table, and the
+#: narrowing is the point — see this module's docstring.
+WRITER_OPERATIONS: tuple[str, ...] = ("delta_pp", "delta_bps", "difference", "ratio", "sum")
+
+#: What counts as having stated a required warning (§13's *"required qualifiers present"*).
+#: **Restated from `story/stages/verification/deterministic.py`'s
+#: `REQUIRED_WARNING_QUALIFIERS`, and `test_the_writer_is_shown_the_same_warning_phrases_the_verifier_requires`
+#: asserts the two are identical.** A stage may not import another stage, and the alternative to
+#: a checked copy is a writer refused for silence nobody told it how to break.
+WARNING_QUALIFIER_PHRASES: Mapping[str, tuple[str, ...]] = {
+    "filing_date_unknown": ("filing date", "date it was filed", "as-filed date",
+                            "when it was filed"),
+    "counter_evidence_same_document": ("same filing", "elsewhere in the filing",
+                                       "another table in the same"),
+    "conflicting_values": ("conflict", "two values", "two readings", "also reported"),
+    "warned_observation": ("flagged", "carries a warning", "data-quality"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class StyleProfile:
+    """§12's *"style is separate from facts"*, as a value the request carries separately.
+
+    Rendered into the **system** message and never into the prompt, which is what makes the
+    §12 test meaningful: two drafts of one package under two profiles must have identical
+    binding fact ids, and that can only be shown if the evidence rendering provably never sees
+    the profile. `writer_prompt` does not take one, so it cannot.
+
+    Not a `StoryModel`: nothing persists a style profile at this step — S11 owns
+    `config/story.yaml` — and a pydantic model in `story/core/models.py` would be a contract
+    change made from inside a stage that does not own that file.
+    """
+
+    profile_id: str
+    voice: str
+    sentence_length: str
+    house_conventions: tuple[str, ...] = ()
+
+
+#: The demo's profile. Plain, short, and it says nothing about numbers — a house convention that
+#: could change a rendering is a style rule that can change a fact.
+PLAIN_INVESTOR_STYLE = StyleProfile(
+    profile_id="investor-plain:1",
+    voice="plain, factual, no adjectives that are not in the filing",
+    sentence_length="one claim per sentence, at most 25 words",
+    house_conventions=(
+        "write figures as the filing prints them",
+        "name the period in every sentence that states a figure",
+    ),
+)
+
+#: **The rules a draft must satisfy, stated once, in the order the verifier applies them.** Every
+#: line here corresponds to a §13 refusal code, and the wording names the failure rather than the
+#: virtue — a 9B model given *"be careful with percentages"* writes `15.9%`, and a 9B model given
+#: *"a difference between two percentages is measured in percentage points, never in percent"*
+#: has been told what the check is.
+#:
+#: Rules 3 and 8 are what make the draft checkable at all, and both are stated as *substring*
+#: rules rather than as offsets. §12 specifies `char_start`/`char_end` on every binding and
+#: citation; asking a 9B model to count characters would fail on every call, so the model
+#: declares the exact substring and `writer.draft_from` locates it — deterministically, refusing
+#: a substring that occurs twice rather than choosing between the occurrences. The declaration is
+#: still the model's and the verifier still never guesses one, which is what §12 is protecting.
+#:
+#: **Rules 5, 6, 7 and 9 were added after a live run, and each closes a defect that run made
+#: rather than one this text predicted** *(measured 2026-08-04, Qwen3.5-9B-Q4_K_M, this package,
+#: three identical attempts: 1,698 prompt tokens, 937 completion tokens, `finish_reason: stop`,
+#: ~12.8 s, byte-identical answers)*. The first wording produced a §12-clean draft that §13
+#: refused five times over:
+#:
+#: * `calculation_does_not_recompute`, expected `-15.9`. The model listed
+#:   `(adjusted, gaap)` and `_recompute` is `values[1] - values[0]`, so the sign inverted. **Input
+#:   order was never stated** — rule 6 now states it, and this is the defect most likely to have
+#:   reached a published post, because the numeral it produces is right and its sign is not.
+#: * `formula_version_not_valid_for_period`. The model filled the field with the package id.
+#:   §15.3 has no null, so an unused string field is a box a model fills; rule 7 and the FORMULA
+#:   WINDOWS section give it the answer *"empty"* and something to check it against.
+#: * `unbound_numeral` on `"2022"` in the calculated sentence. **This is a §12 finding, not a
+#:   model error**: a `calculated` sentence carries no `fact_binding`, a period surface is only
+#:   declarable *on* a binding, and §13.1 covers a numeral by binding span, calculation result,
+#:   period surface or allowlist. So a calculated sentence naming its own period is unverifiable
+#:   by construction, and rule 5 tells the writer not to. `Calculation` would need its own
+#:   `period_surface` for the alternative, which is a contract change and not this step's.
+#: * `citation_reused_for_unrelated_claim`, twice. The model re-cited both table spans in an
+#:   explanatory sentence that bound nothing. Rule 9 states §13.7's predicate — reuse *and*
+#:   non-support — rather than banning reuse, which a two-column table legitimately needs.
+WRITER_SYSTEM = """\
+You are the writer for an investor post about one company's reported figures.
+
+You are given an evidence slice, an accepted editorial plan and a style profile. You have no \
+tools, no search and no access to any database: what you are shown is your entire universe. \
+Follow the plan; you did not choose it.
+
+Write the post as a list of sentences, each one carrying the evidence for what it says.
+
+Rules:
+1. Introduce no number, no date, no period and no company that is not in the FACTS or PASSAGES \
+sections. Do not restate a figure in different units.
+2. `kind` is `reported` for a figure quoted from a filing, `calculated` for a figure you derive \
+from two of them, `explanatory` for a claim resting on a passage rather than a number, and \
+`connective` for a sentence that carries no claim at all - no figure, no comparison, no \
+characterisation.
+3. Every numeral in a sentence must be declared. A `reported` sentence lists one \
+`fact_bindings` entry per figure: `fact_id` exactly as FACTS spells it, `rendered` the exact \
+run of characters in your own `text` that holds the figure, and `metric_surface` and \
+`period_surface` copied from the surfaces that fact offers. `rendered` must appear in `text` \
+exactly once, character for character. An undeclared numeral is refused.
+4. Use a metric surface exactly as it is offered. A shorter one names two metrics and is \
+refused - write "GAAP gross margin" or "adjusted gross margin", never "gross margin".
+5. A `calculated` sentence carries exactly one `calculation` and **no citation**: it states \
+something you computed, not something the filing said. It carries no fact binding either, so \
+nothing in it can declare a metric or a period - write no figure in it other than the \
+calculation's own result, and do not name the period in it.
+6. In `input_observation_ids` the **base comes first and the subject second**, and every \
+operation is computed as second minus first (or second divided by first). To say that the \
+second figure stands 15.9 points above the first, list the lower one first.
+7. `formula_version_id` is "" unless the FORMULA WINDOWS section names a window for this \
+metric. An arithmetic difference between two figures has no formula version, and inventing one \
+is refused.
+8. A `reported` or `explanatory` sentence carries no calculation and at least one citation. A \
+citation names a passage id from PASSAGES and a `quote` that occurs in that passage exactly \
+once, character for character. Quote the table row the figure was read from.
+9. Cite a span only in a sentence that binds a figure read from it. Do not carry a citation \
+another sentence already used into a sentence that binds nothing - a citation repeated to \
+decorate a second claim is provenance the passage does not supply.
+10. A difference between two percentages is measured in **percentage points**, never in \
+percent: write "15.9 percentage points", never "15.9%". A `%` figure beside a word like rose, \
+fell, up or down is refused as unresolvable.
+11. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
+worst, best, largest, smallest, record), a comparison between two figures (higher, lower, \
+better, worse, more, less, held up, outpaced), an absence claim (has not, did not, no longer), \
+or an ordering of two items (before, after, until, since). Nothing you have been shown can \
+support one.
+12. Never write about the future: no expectation, guidance, outlook, forecast, target or plan.
+13. Write about the subject and no one else. No competitor, no index, no "the market", no "the \
+industry", no "peers".
+14. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists.
+15. Write every counterpoint the plan lists, resting on the same ids the plan names.
+16. The title states no claim of its own: no figure, no superlative, no comparison, no cause.
+
+Answer with the JSON object the schema describes and nothing else.\
+"""
+
+
+def writer_system(style: StyleProfile) -> str:
+    """The persona and the style profile, as two labelled sections of one system message.
+
+    §12: *"It is passed as a distinct system-prompt section and is never mixed with the
+    evidence. A style change must not be able to change a number."* Concatenating here rather
+    than interpolating into `WRITER_SYSTEM` keeps the rules one immutable string that a style
+    profile has no way to edit.
+    """
+    lines = [
+        WRITER_SYSTEM,
+        "",
+        "STYLE PROFILE " + style.profile_id,
+        "  voice: " + style.voice,
+        "  sentences: " + style.sentence_length,
+    ]
+    lines.extend("  " + convention for convention in style.house_conventions)
+    lines.append("")
+    lines.append("Style governs wording only. It may never change a figure, a period, a metric "
+                 "or a citation.")
+    return "\n".join(lines)
+
+
+def writer_schema() -> dict[str, Any]:
+    """§12's draft shape, inside §15.3's portable subset.
+
+    **`calculation` is an array of zero or one, and that is a workaround stated rather than
+    hidden.** §15.3 permits no `null` type and no `anyOf`, and requires every property, so
+    *"a calculation or nothing"* cannot be expressed as a nullable object. An empty array is the
+    only portable spelling of absence, and `writer.draft_from` refuses a second element rather
+    than picking one. `formula_version_id` is a string for the same reason and `""` means null —
+    an arithmetic derivation the ontology declares no formula for.
+
+    Character offsets are absent by design: the model declares `rendered` and `quote`, and code
+    locates them (see `WRITER_SYSTEM`, rules 3 and 6).
+    """
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["title", "sentences"],
+        "properties": {
+            "title": {"type": "string"},
+            "sentences": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["text", "kind", "fact_bindings", "calculation", "citations"],
+                    "properties": {
+                        "text": {"type": "string"},
+                        "kind": {
+                            "type": "string",
+                            "enum": [member.value for member in SentenceKind],
+                        },
+                        "fact_bindings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["fact_id", "rendered", "metric_surface",
+                                             "period_surface"],
+                                "properties": {
+                                    "fact_id": {"type": "string"},
+                                    "rendered": {"type": "string"},
+                                    "metric_surface": {"type": "string"},
+                                    "period_surface": {"type": "string"},
+                                },
+                            },
+                        },
+                        "calculation": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["operation", "input_observation_ids", "expression",
+                                             "result_rendered", "formula_version_id"],
+                                "properties": {
+                                    "operation": {
+                                        "type": "string",
+                                        "enum": list(WRITER_OPERATIONS),
+                                    },
+                                    "input_observation_ids": {
+                                        "type": "array", "items": {"type": "string"}},
+                                    "expression": {"type": "string"},
+                                    "result_rendered": {"type": "string"},
+                                    "formula_version_id": {"type": "string"},
+                                },
+                            },
+                        },
+                        "citations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["passage_id", "quote"],
+                                "properties": {
+                                    "passage_id": {"type": "string"},
+                                    "quote": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
+def metric_surfaces_for(package: StoryEvidencePackage, metric_id: str) -> tuple[str, ...]:
+    """Surfaces that name this metric and no other metric in this package (§13.5).
+
+    A surface is dropped when it is a sub-phrase of some *other* package metric's surface —
+    `"gross margin"` inside `"adjusted gross margin"` — because §13.5 resolves by longest match
+    and the shorter one is exactly the ambiguity the section is about. Order is the metric's own
+    (`label`, then `aliases`), deduplicated on the normalised form, so a rendering is stable
+    across two builds of one package.
+
+    An empty result is a real answer: the writer is then told not to name that metric, which is
+    the honest outcome for a package whose two metrics share every surface.
+    """
+    own = next((metric for metric in package.metrics if metric.metric_id == metric_id), None)
+    if own is None:
+        return ()
+    others = {
+        _normalised_phrase(surface)
+        for metric in package.metrics if metric.metric_id != metric_id
+        for surface in (metric.metric_id, metric.label, *metric.aliases)
+    }
+    kept: list[str] = []
+    seen: set[str] = set()
+    for surface in (own.label, *own.aliases):
+        phrase = _normalised_phrase(surface)
+        if not phrase or phrase in seen:
+            continue
+        if any(f" {phrase} " in f" {other} " for other in others if other != phrase):
+            continue
+        seen.add(phrase)
+        kept.append(surface)
+    return tuple(kept)
+
+
+def _normalised_phrase(surface: str) -> str:
+    return " ".join(surface.replace("_", " ").lower().split())
+
+
+#: The ordinal a quarter is written with, and the day its last month ends on. A table and not
+#: arithmetic over month numbers, for `period_grammar`'s own reason: the failure mode of an index
+#: is silent, and the first draft of this table had September ending on the 31st.
+_QUARTERS: Mapping[int, tuple[str, int, int]] = {
+    1: ("first", 3, 31), 4: ("second", 6, 30), 7: ("third", 9, 30), 10: ("fourth", 12, 31)}
+
+_MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August",
+                "September", "October", "November", "December")
+
+
+def period_surface_for(fact: PackagedFact) -> str | None:
+    """The one surface §13.4's grammar accepts for this fact's own endpoints, or `None`.
+
+    Derived from `period_start`/`period_end`/`instant_date` and never from `period_key`: the key
+    is a label and the grammar resolves to endpoints, so a surface built from the key would be
+    an assertion that the two agree. `None` for a window the closed grammar has no form for —
+    the writer is then told that fact may not be named, which is §13.4's refusal reached before
+    the sentence is written rather than after.
+    """
+    if fact.instant_date:
+        moment = _as_date(fact.instant_date)
+        if moment is None:
+            return None
+        return f"{_MONTH_NAMES[moment.month - 1]} {moment.day}, {moment.year}"
+    start, end = _as_date(fact.period_start), _as_date(fact.period_end)
+    if start is None or end is None or start.year != end.year:
+        return None
+    if start.day == 1 and start.month in _QUARTERS:
+        ordinal, last_month, last_day = _QUARTERS[start.month]
+        if (end.month, end.day) == (last_month, last_day):
+            return f"the {ordinal} quarter of {start.year}"
+    if (start.month, start.day) == (1, 1):
+        if (end.month, end.day) == (12, 31):
+            return f"fiscal {start.year}"
+        if (end.month, end.day) == (9, 30):
+            return f"the nine months ended September 30, {start.year}"
+        if (end.month, end.day) == (6, 30):
+            return f"the first half of {start.year}"
+    return None
+
+
+def _as_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def writer_prompt(
+    package: StoryEvidencePackage,
+    plan: EditorialPlan,
+    passages: Sequence[PackagedPassage],
+    *,
+    length_target: int = DEFAULT_LENGTH_TARGET,
+) -> str:
+    """The plan, the facts and the writer's own passage slice, rendered deterministically.
+
+    `passages` is an argument because §10.2.1 point 3 makes the slice a rule rather than a
+    rendering choice — `writer.writer_passages` owns it, and a prompt that derived its own would
+    be a second answer to *"what may this model cite?"*.
+
+    The style profile is **not** a parameter. §12 requires it to be a separate system-prompt
+    section, and a signature with nowhere to put it is what makes that structural.
+    """
+    lines: list[str] = [
+        "CANDIDATE  " + package.candidate_id,
+        "PACKAGE    " + package.package_id,
+        "SUBJECT    " + _subject(package),
+        "",
+        "PLAN",
+    ]
+    lines.extend(_plan_lines(plan))
+    lines += ["", "REQUIRED WARNINGS"]
+    lines.extend(_required_warning_lines(plan, package))
+    lines += ["", "FACTS"]
+    lines.extend(_writer_fact_lines(package))
+    lines += ["", "FORMULA WINDOWS (the only version ids a calculation may name)"]
+    lines.extend(_formula_window_lines(package))
+    count = len(passages)
+    lines += ["", f"PASSAGES ({count} whole passage{'' if count == 1 else 's'}; every one is a "
+                  "passage a fact above was read from, and a citation may name no other)"]
+    lines.extend(_writer_passage_lines(passages))
+    lines += ["", f"LENGTH  about {length_target} sentences."]
+    return "\n".join(lines)
+
+
+def _plan_lines(plan: EditorialPlan) -> list[str]:
+    lines = [
+        "  thesis        " + plan.thesis,
+        "  why it matters " + plan.why_it_matters,
+    ]
+    if plan.uncertainty:
+        lines.append("  uncertainty   " + plan.uncertainty)
+    for position, section in enumerate(plan.structure, start=1):
+        lines.append(f"  structure {position}. {section}")
+    # Stated as an instruction rather than as a field value: `forbidden` is the answer to a
+    # question the writer would otherwise answer by inference, and §13.10 A bans
+    # LLM-originated causation unconditionally.
+    if plan.causal_language is CausalLanguage.FORBIDDEN:
+        lines.append("  causation     FORBIDDEN - never state or imply why anything happened, "
+                     "in any sentence")
+    else:
+        lines.append("  causation     REPORTED ONLY - you may state a cause only in an "
+                     "explanatory sentence that names the filing as the source and cites the "
+                     "span that says it")
+    for point in plan.key_points:
+        lines.append(f"  key point [{point.statement_class.value}] {point.claim}")
+        lines.extend(_id_lines(point.required_fact_ids, point.required_citation_passage_ids))
+    for counterpoint in plan.counterpoints:
+        lines.append("  counterpoint (must appear in the post) " + counterpoint.claim)
+        lines.extend(_id_lines(counterpoint.required_fact_ids,
+                               counterpoint.required_citation_passage_ids))
+    for claim in plan.prohibited_claims:
+        lines.append("  never claim   " + claim)
+    return lines
+
+
+def _id_lines(fact_ids: Sequence[str], passage_ids: Sequence[str]) -> list[str]:
+    lines: list[str] = []
+    if fact_ids:
+        lines.append("      facts     " + ", ".join(fact_ids))
+    if passage_ids:
+        lines.append("      passages  " + ", ".join(passage_ids))
+    return lines
+
+
+def _required_warning_lines(
+    plan: EditorialPlan, package: StoryEvidencePackage
+) -> list[str]:
+    if not plan.required_warnings:
+        return ["  (none)"]
+    detail = {warning.code: warning.detail for warning in package.warnings}
+    lines: list[str] = []
+    for code in plan.required_warnings:
+        lines.append(f"  {code}  {detail.get(code, '')}".rstrip())
+        phrases = WARNING_QUALIFIER_PHRASES.get(code)
+        # A code with no declared phrase is a refusal at §13 whatever the post says, and telling
+        # the writer so is better than letting it invent a paraphrase that cannot satisfy one.
+        if phrases:
+            lines.append("      say it with one of: " + " | ".join(phrases))
+        else:
+            lines.append("      this code declares no accepted phrase and cannot be satisfied")
+    return lines
+
+
+def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
+    if not package.facts:
+        return ["  (none)"]
+    lines: list[str] = []
+    for fact in package.facts:
+        lines.append(f"  [{fact.observation_id}]")
+        printed = f'  printed "{fact.printed_form}"' if fact.printed_form else ""
+        lines.append(f"      {fact.metric_id}  {fact.value} {fact.unit}{printed}")
+        surfaces = metric_surfaces_for(package, fact.metric_id)
+        if surfaces:
+            lines.append("      metric surface: write one of "
+                         + ", ".join(f'"{surface}"' for surface in surfaces))
+        else:
+            lines.append("      metric surface: no surface names this metric uniquely in this "
+                         "package - do not write about this fact")
+        period = period_surface_for(fact)
+        if period:
+            lines.append(f'      period surface: write exactly "{period}"')
+        else:
+            lines.append("      period surface: this period has no permitted surface - do not "
+                         "write about this fact")
+        if fact.passage_id:
+            quoted = f' quoting "{fact.quoted_text}"' if fact.quoted_text else ""
+            row = f' from row "{fact.row_label}"' if fact.row_label else ""
+            lines.append(f"      read from passage {fact.passage_id}{row}{quoted}")
+        elif fact.evidence_source_id:
+            lines.append(f"      evidenced by {fact.evidence_source_id} (no filed passage; "
+                         "this fact cannot be cited and must not be written)")
+        if fact.warning_codes:
+            lines.append("      warnings " + ", ".join(fact.warning_codes))
+    return lines
+
+
+def _formula_window_lines(package: StoryEvidencePackage) -> list[str]:
+    """§10's `formula_windows[]`, and *"(none)"* is the load-bearing case.
+
+    §13.9 checks `formula_version_id` against this section and refuses a version it does not
+    hold; the demo package holds none, because a cross-metric gap is arithmetic rather than an
+    ontology identity. Rendering the empty section is what makes rule 7's *"write ''"*
+    checkable by the model rather than a rule about a section it cannot see.
+    """
+    if not package.formula_windows:
+        return ["  (none - every calculation here is arithmetic, so write \"\")"]
+    return [
+        f"  {window.version_id}  for {window.metric_id}  "
+        f"valid {window.valid_from or 'always'}..{window.valid_to or 'now'}"
+        for window in package.formula_windows
+    ]
+
+
+def _writer_passage_lines(passages: Sequence[PackagedPassage]) -> list[str]:
+    if not passages:
+        return ["  (none)"]
+    lines: list[str] = []
+    for passage in passages:
+        head = f"  [{passage.passage_id}]  document {passage.document_id}"
+        if passage.passage_kind:
+            head += f"  kind {passage.passage_kind}"
+        lines.append(head)
+        if passage.heading_path:
+            lines.append("      section: " + " > ".join(passage.heading_path))
+        # Whole, not excerpted: §10.2.1 point 2 excerpts explanatory and counter-evidence
+        # passages and never a passage a fact is bound to, because §13.7's Rule A needs the
+        # entire table to reconstruct a cell.
+        lines.append(f"      whole passage, {passage.char_count} characters")
+        lines.append("      " + passage.text.replace("\n", "\n      "))
     return lines
