@@ -142,6 +142,24 @@ REQUIRED_WARNING_QUALIFIERS: Mapping[str, tuple[str, ...]] = {
 _CHANGE_VERB = re.compile(
     r"\b(?:" + "|".join(sorted(CHANGE_VERBS, key=len, reverse=True)) + r")\b", re.IGNORECASE)
 
+#: The sentence kinds whose **prose** is read against their `fact_bindings` (§13.4 and §13.5).
+#:
+#: `reported` and `explanatory` are the two kinds that carry bindings and state a fact in words:
+#: §13.7's `uncited_factual_sentence` already names exactly this pair as *"a reported sentence
+#: states what a filing said, and an explanatory one paraphrases it"*. R8 grounded `reported`
+#: alone and recorded the omission; a paraphrase is if anything the easier place to move the
+#: metric or the period without touching a declaration, so the pair is grounded together.
+#:
+#: The other two are exempt for reasons, not for symmetry. A `connective` sentence carrying any
+#: binding is already `connective_sentence_carries_a_claim` — a REFUSE — so a grounding rule
+#: there could only ever add a second code to a draft already refused. §13.9 gives a
+#: `calculated` sentence no bindings and its period is grounded through
+#: `Calculation.period_surface` instead; that **nothing refuses a binding on a calculated
+#: sentence** is a separate hole, recorded rather than closed here, because closing it is a
+#: §13.9 rule and not a grounding rule.
+GROUNDED_SENTENCE_KINDS: frozenset[SentenceKind] = frozenset(
+    {SentenceKind.REPORTED, SentenceKind.EXPLANATORY})
+
 
 @dataclass
 class _Ledgers:
@@ -735,6 +753,11 @@ class DeterministicVerifier:
                 if fact is None:
                     continue
                 examined += 1
+                if sentence.kind in GROUNDED_SENTENCE_KINDS:
+                    found.extend(self._period_grounding_findings(
+                        sentence, (fact,), binding.period_surface,
+                        char_start=binding.char_start, char_end=binding.char_end,
+                        suggested=self._suggestions(index, fact)))
                 resolved = period_grammar.resolve(binding.period_surface)
                 if not resolved.resolved:
                     found.append(finding(
@@ -803,9 +826,11 @@ class DeterministicVerifier:
                  if fact is not None]
         if not facts:
             return [], 0  # already refused as calculation_inputs_unresolved
+        grounding = self._period_grounding_findings(
+            sentence, facts, calculation.period_surface, suggested=())
         resolved = period_grammar.resolve(calculation.period_surface)
         if not resolved.resolved:
-            return [finding(
+            return grounding + [finding(
                 "period_unresolvable",
                 sentence_index=sentence.index,
                 fact_ids=tuple(fact.observation_id for fact in facts),
@@ -818,9 +843,9 @@ class DeterministicVerifier:
             )], 1
         disagreeing = [fact for fact in facts if not _endpoints_agree(resolved, fact)]
         if not disagreeing:
-            return [], 1
+            return grounding, 1
         conflated = all(_same_anchor(resolved, fact) for fact in disagreeing)
-        return [finding(
+        return grounding + [finding(
             "period_shape_conflated" if conflated else "period_mismatch",
             sentence_index=sentence.index,
             fact_ids=tuple(fact.observation_id for fact in disagreeing),
@@ -834,6 +859,101 @@ class DeterministicVerifier:
                 "+$183M for the nine-month YTD and −$211M for the quarter, so a surface that "
                 "matched the anchor alone would name a different number."),
         )], 1
+
+    def _period_grounding_findings(
+        self,
+        sentence: DraftSentence,
+        facts: Sequence[PackagedFact],
+        declared_surface: str,
+        *,
+        char_start: int | None = None,
+        char_end: int | None = None,
+        suggested: Sequence[str] = (),
+    ) -> list[VerificationFinding]:
+        """§13.4 applied to the sentence's **prose**, not only to what it declared.
+
+        **R8 was told the period surface was already protected. It is not, and R9 measured
+        it.** The argument was that a period phrase contains a numeral, so §13.1's coverage rule
+        forces the declared surface into the text — and that holds only for phrases that carry a
+        numeral. Every counter-example the claim was tested against happened to include a year,
+        which is why it survived. Measured against `863edf6` on the demo's own accepted draft,
+        binding still declaring the true `"the third quarter of 2022"` and the `rendered` span
+        honestly re-anchored:
+
+        | prose | verdict |
+        | --- | --- |
+        | *"…for **the fourth quarter**."* | passed, zero findings |
+        | *"…for **the full year**."* | passed |
+        | *"…for **the most recent quarter**."* | passed |
+        | *"…**last quarter**."* | refused, but only as `unsupported_superlative` on `last` |
+        | *"…for **the fourth quarter of 2022**."* | refused `unbound_numeral` — on the year |
+
+        So the protection was an accident of numeral coverage. This is R8's metric grounding,
+        applied to the other surface, and it reads the sentence the same way: through §13.4's
+        own grammar, never by substring, so `"Q3 2022"` grounds a binding that declared
+        `"the third quarter of 2022"` and a legitimate re-phrasing is not a refusal.
+
+        **A sentence naming no period at all is left exactly as it was**, and that is a
+        deliberate asymmetry with the metric rule rather than an oversight. A metric name is
+        what a factual sentence is *about*, so its absence is a sentence about nothing; a period
+        is routinely carried by the paragraph — the demo's own calculated sentence declares
+        `"the third quarter of 2022"` and its prose names no period at all, and it is true.
+        `scan` returning nothing means the sentence asserts no period, and an assertion nobody
+        made cannot be false. The declared surface is still checked against the fact by the
+        rules above; what is new is that a period the sentence *does* name must be that period.
+
+        **No denominator of its own**, unlike `_metric_grounding_findings`. `examined` counts
+        the things §13.4 looked at — a binding's period, a derivation's period — and this asks a
+        second question about each of *those same things* rather than about a new one. Counting
+        it twice would make `periods: PASS` mean a different quantity on drafts that name their
+        periods than on drafts that do not, and the denominator's job is to separate *never ran*
+        from *ran clean*, which is unaffected either way.
+        """
+        named = period_grammar.scan(sentence.text)
+        if not named:
+            return []
+        keys = ", ".join(sorted({fact.period_key for fact in facts}))
+        common = dict(
+            sentence_index=sentence.index,
+            char_start=char_start, char_end=char_end,
+            fact_ids=tuple(fact.observation_id for fact in facts),
+            suggested_fact_ids=tuple(suggested),
+        )
+        resolvable = [phrase for phrase in named if phrase.resolved]
+        # Agreement with **every** fact, which for a binding is its one fact and for a
+        # calculation is all of its inputs — the same bar `_calculation_period_findings` sets
+        # for the declared surface, because a derivation that names one of its two windows is
+        # presenting a Q2→Q3 delta as a quarter.
+        if any(all(_endpoints_agree(phrase.period, fact) for fact in facts)
+               for phrase in resolvable):
+            return []
+        if resolvable:
+            return [finding(
+                "period_named_in_text_contradicts_binding", **common,
+                expected=f"the sentence to name {keys}",
+                observed=("the sentence names "
+                          + ", ".join(f"{phrase.text!r} ({phrase.period.key})"
+                                      for phrase in resolvable)
+                          + f"; the declaration says {declared_surface!r}"),
+                explanation=(
+                    "§13.4: exact equality on both endpoints and on kind, applied to the period "
+                    "the sentence names rather than only to the one it declares. The two are "
+                    "different strings and only the declaration was ever read."),
+            )]
+        return [finding(
+            "period_surface_absent_from_text", **common,
+            expected=f"the sentence to name {keys} ({declared_surface!r})",
+            observed=("the sentence names "
+                      + ", ".join(repr(phrase.text) for phrase in named)
+                      + ", which §13.4's closed grammar does not resolve"),
+            explanation=(
+                "§13.4: a period phrase carrying no numeral is invisible to §13.1's coverage "
+                "rule, so nothing forced the declared surface into the text. Measured: the "
+                "demo's own accepted draft passed with its prose moved to \"the fourth "
+                "quarter\", \"the full year\" and \"the most recent quarter\" while the binding "
+                "kept declaring the true Q3. \"The quarter\" is UNRESOLVABLE in §13.4's own "
+                "words, and it is no more resolvable for being written in prose."),
+        )]
 
     # -- §13.5 metric identity -----------------------------------------------------------
 
@@ -894,7 +1014,7 @@ class DeterministicVerifier:
                             "number, which is §17's attack 1. Both margins read 15.4 at 2020Q4."),
                         suggested_fact_ids=self._suggestions(index, fact),
                     ))
-                if sentence.kind is SentenceKind.REPORTED:
+                if sentence.kind in GROUNDED_SENTENCE_KINDS:
                     grounding, grounding_examined = self._metric_grounding_findings(
                         sentence, binding, fact, index, aliases)
                     examined += grounding_examined
@@ -930,9 +1050,10 @@ class DeterministicVerifier:
         writer for *declaring* it and this check's job to notice that the sentence talks about
         something else entirely.
 
-        `reported` only. §13.9 gives a `calculated` sentence no bindings, and §13.14's
-        comparison check already reads a comparative's two sides out of the prose through this
-        same index.
+        `reported` **and `explanatory`** — R8 shipped `reported` only and named the gap as its
+        own left-undone item; R9 closed it. `GROUNDED_SENTENCE_KINDS` carries the reasoning and
+        the two exemptions. §13.14's comparison check already reads a comparative's two sides
+        out of the prose through this same index.
         """
         named = aliases.scan(sentence.text)
         if any(occurrence.licenses(fact.metric_id) for occurrence in named):
@@ -1583,6 +1704,7 @@ def _unresolved_participants(index: PackageIndex) -> tuple[tuple[str, str, str],
 
 __all__ = [
     "CHANGE_SURFACES",
+    "GROUNDED_SENTENCE_KINDS",
     "OPERATION_INPUTS",
     "REQUIRED_WARNING_QUALIFIERS",
     "SURFACE_UNITS",

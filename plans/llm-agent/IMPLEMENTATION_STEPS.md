@@ -1004,6 +1004,18 @@ gives `period_mismatch`; *"fiscal 2022"* gives `period_mismatch`. **A metric nam
 numeral, so nothing forced it to occur at all** — and rewriting *"GAAP Gross Margin"* to
 *"Adjusted Gross Margin"*, or to *"net income"*, passed with zero findings.
 
+> **Correction, R9 (2026-08-04, measured).** The paragraph above is **wrong about the period**,
+> and the sentence *"the period was already protected"* is the reason the defect survived R8.
+> The protection holds only when the period phrase **carries a numeral**, and all three
+> counter-examples quoted here — *"fourth quarter"* with the declaration moved, *"fiscal 2022"*
+> — happen to include a year, which is what let the false conclusion stand. Re-measured against
+> `863edf6` with the binding still declaring the true `"the third quarter of 2022"` and the
+> `rendered` span honestly re-anchored: *"…for **the fourth quarter**."*, *"…for **the full
+> year**."* and *"…for **the most recent quarter**."* each **passed with zero findings**, and
+> *"…**last quarter**."* was refused only as `unsupported_superlative` on the word `last`. The
+> period surface was protected **by accident**, exactly as far as a numeral reached. R9 closes
+> it; see the R9 section below. The claim about the *metric* side is unaffected and stands.
+
 Eleven attacks, each mutating the demo's **accepted** draft and re-verified, each **measured
 passing before** and refused after *(2026-08-04)*:
 
@@ -1066,6 +1078,77 @@ accepts into one that does not. **Recommendation for the next step: disclose bot
 explicitly and re-record, once the live inversion is addressed** — the two changes want to land
 together, not one at a time.
 
+### R9 accepted — the period surface was protected only by accident, and only by a numeral
+
+**The defect is R8's, and its cause is a mis-test in R8's own brief.** R8 was told the period
+surface was already protected and not to touch it, on the argument recorded above: a period
+contains numerals, so §13.1's coverage rule forces the declared surface into the text. **The
+argument is false.** It holds only for a period phrase that *carries* a numeral, and every
+counter-example it was checked against happened to include a year. Measured against `863edf6`,
+mutating the demo's own accepted draft with the `rendered` span honestly re-anchored and
+`period_surface` still declaring the true Q3:
+
+| Prose (binding declares `"the third quarter of 2022"`, fact is 2022Q3) | Before | Now refused by |
+| --- | --- | --- |
+| *"…for **the fourth quarter**."* | **passed, zero findings** | `period_surface_absent_from_text` |
+| *"…for **the full year**."* | **passed** | `period_surface_absent_from_text` |
+| *"…for **the most recent quarter**."* | **passed** | `period_surface_absent_from_text` |
+| *"…**last quarter**."* | refused only as `unsupported_superlative` on `last` | `period_surface_absent_from_text` (+ the superlative) |
+| *"…for **the fourth quarter of 2022**."* | refused `unbound_numeral` — on the year | `period_named_in_text_contradicts_binding` (+ `unbound_numeral`) |
+| *(control)* *"…for **the third quarter of 2022**."* | passes | still passes, zero findings |
+
+The repair is R8's metric grounding applied to the other surface, through §13.4's own closed
+grammar rather than by substring: `period_grammar.scan` reads a sentence in two tiers — the
+grammar's rules applied unanchored, then `_DEICTIC_PERIOD`, the closed family §13.4's own
+*"the quarter"* belongs to — and a binding is grounded when some phrase the sentence names
+resolves to the period its fact holds. Also applied to `Calculation.period_surface` (R7's
+field, identical exposure) and **extended, with the metric rule, to `explanatory` sentences**,
+which was R8's own left-undone item.
+
+**One deliberate asymmetry with the metric rule, stated rather than discovered later.** A
+sentence that names **no** period at all is left exactly as it was. A metric name is what a
+factual sentence is about, so `metric_surface_absent_from_text` refusing a sentence that names
+none is right; a period is routinely carried by the paragraph, and the demo's **own** calculated
+sentence — *"The GAAP Gross Margin was 15.9 percentage points lower than the Adjusted Gross
+Margin."* — declares `"the third quarter of 2022"` and states no period in words. A sentence
+that asserts no period cannot assert a false one, and its declared surface is still checked
+against every fact by §13.4's existing rules.
+
+**Two exemptions with reasons, not symmetry.** A `connective` sentence carrying any binding is
+already `connective_sentence_carries_a_claim`, a REFUSE, so grounding there could only add a
+second code to a refused draft. A `calculated` sentence has no bindings under §13.9 and its
+period is grounded through `Calculation.period_surface`.
+
+**One ordering bug found while building the scanner, and kept as a test.** `"fiscal 2022"` is a
+grammar phrase sitting *inside* another grammar phrase, and the fiscal-year rule comes first in
+`_RULE_SOURCES`. A scan that respected rule order read the true sentence *"…in the third quarter
+of fiscal 2022"* as naming FY2022 and contradicted its own binding. Longest match wins — §13.5's
+rule for the alias index, and this scan's too.
+
+**`resolve()` is unchanged, and that was checked rather than assumed.** The rule bodies moved
+from `^…$` literals to anchor-free sources compiled two ways; `resolve` was diffed against
+`863edf6`'s over 39 surfaces including `"February 30, 2022"`, `"the quarter ended September 30,
+2022"` and every coded form — **0 differences**. Nothing here removes a refusal.
+
+**No `examined` denominator of its own**, unlike R8's metric grounding. `examined` counts the
+things §13.4 looked at — a binding's period, a derivation's period — and R9 asks a second
+question about each of *those same things*, not about a new one. The consequence is worth
+stating because it is the check on the whole change: **every existing test passes with the
+assertion it already had**, including `test_story_demo.py`'s `periods.examined == 3`, and the
+replay demo's seven artifacts are **byte-identical to the pre-change run** — same
+`verification_report.json` digest `6e419933f2776286`. A repair that adds refusals and changes
+nothing about a true draft looks exactly like this.
+
+**Demo disposition, both paths, reported as measured (2026-08-04).** Replay: **`accepted`**,
+exit 0 — its two reported sentences each name *"the third quarter of 2022"* and ground cleanly,
+and its derivation names no period, so the carve-out above is what keeps it accepted rather than
+any relaxation. `--live`: **`accepted`**, exit 0, **four consecutive runs**. That is *not* the
+disposition R8 recorded, and the difference is the model and not a check: all four live drafts
+wrote *"The GAAP Gross Margin was 15.9 percentage points **lower** than the Adjusted Gross
+Margin"* against `input_observation_ids` listing GAAP first, which is true and recomputes. R8's
+`comparative_not_supported_by_text` is intact — the `higher` wording it caught was re-run by
+hand against this build and is still refused. No prompt was iterated and no check was weakened.
+
 ## 9. Deferred / not implemented
 
 Everything in §1 "Out". Recorded here so it is not rediscovered as an omission.
@@ -1074,3 +1157,18 @@ Added at R7 and **closed at R8 by refusal rather than by recomputation**: `extre
 `absence` / `temporal_order` rendered results. Still deferred: **`compare_deltas` in the
 writer's grammar** (a side needs four bound observations across two periods; every fact in the
 demo package is 2022Q3), and the `WRITER_PROMPT_VERSION` disclosure recorded under R8 above.
+
+Recorded at R9 and **not** closed, because each is a different rule from a grounding rule:
+
+* **Nothing refuses a `fact_binding` on a `calculated` sentence.** §13.9 says a calculated
+  sentence carries none, and `_check_reported_vs_calculated` checks the reverse direction only.
+  A binding there is unreached by both grounding rules by design; the fix is a §13.9 refusal.
+* **§13.4's grammar does not accept `"the quarter ended September 30, 2022"`.** That surface is
+  `period_unresolvable` today and was before R9. Adding it to the grammar would *remove* an
+  existing refusal, so it is left alone; it is a §13.4 vocabulary decision, taken deliberately
+  or not at all.
+* **`WRITER_PROMPT_VERSION` still not bumped.** R9 adds two obligations to the writer — a
+  bound sentence must not name a period other than its own, and a derivation's declared period
+  must not contradict the one its sentence states. Neither was violated by anything measured,
+  and the argument against bumping is R8's unchanged: it invalidates the committed generation
+  store. The recommendation to disclose and re-record in one change still stands.

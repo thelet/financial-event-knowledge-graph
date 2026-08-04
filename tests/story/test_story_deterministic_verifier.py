@@ -62,6 +62,7 @@ from story.stages.verification import (
 from story.stages.verification.codes import UndeclaredCode, finding
 from story.stages.verification.metric_surfaces import MetricAliasIndex
 from story.stages.verification.period_grammar import resolve as resolve_period
+from story.stages.verification.period_grammar import scan as scan_periods
 
 # ---------------------------------------------------------------------------------------
 # The run this implementation is built on (IMPLEMENTATION_STEPS §0, verified 2026-08-03)
@@ -1708,3 +1709,246 @@ def test_an_operation_nothing_recomputes_may_not_cover_its_own_numeral(verifier,
     failure = [f for f in verified.all_findings if f.code == "operation_not_recomputable"]
     assert failure and failure[0].observed == operation
     assert verified.passed is False
+
+
+# ---------------------------------------------------------------------------------------
+# R9 — the same defect class, on the surface R8 was told not to touch
+#
+# R8 was told the **period** surface was already protected, on the argument that a period
+# contains numerals and §13.1's coverage rule therefore forces the declared surface into the
+# text. **That argument is false and R9 measured it false.** It holds only when the period
+# phrase carries a numeral, and every counter-example it was tested against happened to include
+# a year. Measured against `863edf6` — the demo's own accepted draft, `rendered` span honestly
+# re-anchored, `period_surface` still declaring the true `"the third quarter of 2022"`:
+#
+#   "…for the fourth quarter."          passed, zero findings
+#   "…for the full year."               passed
+#   "…for the most recent quarter."     passed
+#   "…last quarter."                    refused only as `unsupported_superlative` on "last"
+#   "…for the fourth quarter of 2022."  refused `unbound_numeral` — on the year, not the period
+#
+# So the period surface was protected by accident, and only as far as a numeral reached.
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("phrase", [
+    "for the fourth quarter",
+    "for the full year",
+    "for the most recent quarter",
+    "last quarter",
+])
+def test_a_period_the_grammar_cannot_read_no_longer_grounds_a_true_declaration(verifier, phrase):
+    """The four measured rows. Every declared field is correct; only the prose moved.
+
+    `"last quarter"` was refused before this repair — but on `unsupported_superlative`, over the
+    word `last`, which is §13.14 catching a superlative and not §13.4 catching a period. Rename
+    it `"the prior quarter"` and the old verifier had nothing at all. All four are now refused
+    by the rule that is actually about the period.
+    """
+    text = f"Opendoor reported a GAAP Gross Margin of -12.6 percent {phrase}."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6 percent"),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings if f.code == "period_surface_absent_from_text"]
+    assert failure and failure[0].expected.startswith("the sentence to name 2022Q3")
+    assert phrase.split("for ")[-1] in failure[0].observed
+    assert verified.passed is False
+
+
+def test_a_period_the_grammar_can_read_and_disagrees_with_is_refused_on_its_meaning(verifier):
+    """The other half: prose that pins a period, and pins the wrong one.
+
+    `unbound_numeral` already refuses this one — on the `2022`, which is an accident of the
+    phrase carrying a year rather than a judgment about the period. The finding that reads the
+    sentence names the period it resolved and the period the binding holds.
+    """
+    text = "Opendoor reported a GAAP Gross Margin of -12.6 percent for the fourth quarter of 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6 percent"),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "period_named_in_text_contradicts_binding"]
+    assert failure and "'the fourth quarter of 2022' (2022Q4)" in failure[0].observed
+    assert "the third quarter of 2022" in failure[0].observed
+    assert verified.passed is False
+
+
+@pytest.mark.parametrize("phrase,surface", [
+    ("in the third quarter of 2022", "the third quarter of 2022"),
+    ("in Q3 2022", "Q3 2022"),
+    ("in 3Q22", "3Q22"),
+    ("in the third quarter of fiscal 2022", "the third quarter of fiscal 2022"),
+    ("for the third quarter ended 2022", "the third quarter ended 2022"),
+])
+def test_a_legitimate_period_phrasing_still_grounds_a_true_sentence(verifier, phrase, surface):
+    """The over-reach guard: whatever §13.4's grammar accepts must still pass.
+
+    `"the third quarter of fiscal 2022"` is the case that caught a real bug in the scanner and
+    is kept for it. `"fiscal 2022"` is a phrase *inside* it and the fiscal-year rule comes first
+    in the grammar's own rule order, so a scan that respected rule order read this true sentence
+    as naming FY2022 and contradicted its own binding. Longest match wins — §13.5's rule for the
+    alias index, and this one's too.
+
+    Not in this list, because §13.4's grammar does not carry it: *"the quarter ended September
+    30, 2022"*. It is refused, and it was refused before R9 too — the declared surface resolves
+    to nothing, which is `period_unresolvable`. Widening the grammar to admit it would remove an
+    existing refusal, so it is left alone and recorded.
+    """
+    text = f"GAAP gross margin was -12.6% {phrase}."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6%", period_surface=surface),)),
+        make_package(), make_plan(required_warnings=()))
+    assert "period_surface_absent_from_text" not in codes_of(verified)
+    assert "period_named_in_text_contradicts_binding" not in codes_of(verified)
+    assert verified.passed is True
+
+
+def test_a_sentence_that_names_no_period_at_all_behaves_exactly_as_it_did(verifier):
+    """The deliberate asymmetry with R8's metric rule, and the reason for it.
+
+    A metric name is what a factual sentence is *about*, so `metric_surface_absent_from_text`
+    refuses a sentence that names none. A period is routinely carried by the paragraph — the
+    demo's own calculated sentence declares `"the third quarter of 2022"` and states no period
+    in words — so requiring every sentence to name one would refuse true prose to catch nothing:
+    a sentence that asserts no period cannot assert a false one, and the declared surface is
+    still checked against the fact by §13.4's existing rules.
+    """
+    text = "GAAP gross margin was -12.6% on the company's own reporting."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6%"),)), make_package(),
+        make_plan(required_warnings=()))
+    assert verified.all_findings == ()
+    assert verified.passed is True
+
+
+@pytest.mark.parametrize("phrase,code", [
+    ("in the fourth quarter", "period_surface_absent_from_text"),
+    ("for the full year", "period_surface_absent_from_text"),
+    ("in the fourth quarter of 2022", "period_named_in_text_contradicts_binding"),
+])
+def test_a_calculations_period_surface_is_grounded_in_its_own_sentence(verifier, phrase, code):
+    """R7 added `Calculation.period_surface` and it carries the identical exposure.
+
+    §13.9 gives a calculated sentence no bindings, so this field is the *only* way a derivation
+    can name the period it computed over — and it was checked against the inputs and never
+    against the words beside it.
+    """
+    text = f"The gap between the two measures was 15.9 percentage points {phrase}."
+    sentence = DraftSentence(
+        index=0, text=text, kind=SentenceKind.CALCULATED,
+        calculation=Calculation(
+            operation="delta_pp", input_observation_ids=(GGM_ID, AGM_ID),
+            expression="adjusted_gross_margin - gaap_gross_margin",
+            result_rendered="15.9 percentage points",
+            period_surface="the third quarter of 2022"),
+    )
+    verified = verifier.verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings if f.code == code]
+    assert failure and failure[0].fact_ids == (GGM_ID, AGM_ID)
+    assert verified.passed is False
+
+
+def test_a_derivation_whose_sentence_names_no_period_keeps_its_declared_surface(verifier):
+    """The demo's own third sentence, and the reason the no-period carve-out is not a hole.
+
+    *"The gap between the two measures was 15.9 percentage points."* declares
+    `period_surface: "the third quarter of 2022"` and names no period in words. It is true, and
+    the declared surface is still required to agree with **every** input by §13.4.
+    """
+    sentence = gap_sentence(
+        index=0,
+        calculation=Calculation(
+            operation="delta_pp", input_observation_ids=(GGM_ID, AGM_ID),
+            expression="adjusted_gross_margin - gaap_gross_margin",
+            result_rendered="15.9 percentage points",
+            period_surface="the third quarter of 2022"))
+    verified = verifier.verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
+    assert verified.all_findings == ()
+    assert verified.passed is True
+
+
+def _explanatory_attack(text: str, rendered: str, **binding_overrides: object) -> DraftSentence:
+    """`_reported_attack`'s sentence, declared `explanatory` instead.
+
+    §13.7 names the two kinds together — *"a reported sentence states what a filing said, and an
+    explanatory one paraphrases it"* — and R8 grounded only the first.
+    """
+    fields: dict[str, object] = dict(
+        fact_id=GGM_ID, rendered=rendered,
+        char_start=text.index(rendered), char_end=text.index(rendered) + len(rendered),
+        metric_surface="GAAP gross margin", period_surface="the third quarter of 2022",
+    )
+    fields.update(binding_overrides)
+    return DraftSentence(
+        index=0, text=text, kind=SentenceKind.EXPLANATORY,
+        fact_bindings=(FactBinding(**fields),),  # type: ignore[arg-type]
+        citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+                                   char_start=_span("Gross Margin (12.6)")[0],
+                                   char_end=_span("Gross Margin (12.6)")[1]),),
+    )
+
+
+@pytest.mark.parametrize("text,code", [
+    ("The filing puts adjusted gross margin at -12.6% in the third quarter of 2022.",
+     "metric_named_in_text_contradicts_binding"),
+    ("The filing puts net income at -12.6% in the third quarter of 2022.",
+     "metric_surface_absent_from_text"),
+    ("The filing puts GAAP gross margin at -12.6% for the fourth quarter.",
+     "period_surface_absent_from_text"),
+    ("The filing puts GAAP gross margin at -12.6% for the fourth quarter of 2022.",
+     "period_named_in_text_contradicts_binding"),
+])
+def test_an_explanatory_sentence_is_grounded_against_its_prose_too(verifier, text, code):
+    """R8's own left-undone #4. An `explanatory` sentence carries `fact_bindings` and was not
+    read against its prose at all — which is if anything the easier place to move a metric or a
+    period, because a paraphrase is licensed to reword the filing."""
+    verified = verifier.verify(
+        make_draft(sentences=(_explanatory_attack(text, "-12.6%"),)), make_package(),
+        make_plan(required_warnings=()))
+    assert code in codes_of(verified)
+    assert verified.passed is False
+
+
+def test_a_true_explanatory_paraphrase_is_not_refused_by_either_grounding_rule(verifier):
+    """The over-reach guard on the kind R9 added, so the rule is a check and not a ban."""
+    text = "The filing puts GAAP gross margin at -12.6% in the third quarter of 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(_explanatory_attack(text, "-12.6%"),)), make_package(),
+        make_plan(required_warnings=()))
+    assert codes_of(verified) <= {"paraphrase_distance"}  # WARN, §13.7, not blocking
+    assert verified.passed is True
+
+
+def test_the_period_scan_reports_both_tiers_and_never_a_phrase_inside_a_phrase():
+    """`scan`'s two tiers, and the longest-match rule that keeps them from overlapping.
+
+    Tier one is §13.4's grammar applied unanchored; tier two is the deictic family §13.4 refuses
+    — `"the quarter"` is its own worked example. The last case is the ordering bug: `"fiscal
+    2022"` is a grammar phrase sitting inside another grammar phrase, and the fiscal-year rule
+    comes first in the grammar's own rule order.
+    """
+    def read(text: str) -> list[tuple[str, str]]:
+        return [(phrase.text, phrase.period.key if phrase.resolved else "UNRESOLVED")
+                for phrase in scan_periods(text)]
+
+    assert read("was -12.6% in the third quarter of 2022.") == [
+        ("the third quarter of 2022", "2022Q3")]
+    assert read("was -12.6% for the fourth quarter.") == [("the fourth quarter", "UNRESOLVED")]
+    assert read("was -12.6% in Q3.") == [("q3", "UNRESOLVED")]
+    assert read("was 3,394 in the nine months ended September 30, 2022.") == [
+        ("the nine months ended september 30, 2022", "2022-01-01_2022-09-30")]
+    assert read("was -12.6% in the third quarter of fiscal 2022.") == [
+        ("the third quarter of fiscal 2022", "2022Q3")]
+    assert read("The gap was 15.9 percentage points.") == []
+
+
+def test_the_two_new_period_codes_are_refusals_under_section_13_4():
+    """§13.17's gate is the one place a severity is chosen, and R9 adds to it rather than around
+    it."""
+    for code in ("period_surface_absent_from_text", "period_named_in_text_contradicts_binding"):
+        assert GATE[code].severity is Severity.REFUSE
+        assert GATE[code].blocking is True
+        assert GATE[code].section == "13.4"
+        assert GATE[code].remedy is Remedy.ADD_PERIOD_QUALIFIER

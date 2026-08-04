@@ -55,6 +55,21 @@ Margin"* — or to *"net income"* — passed with zero findings while the bindin
    authoritative independently of the writer, so the honest answer is a refusal and not a
    recomputation nobody wrote.
 
+**R9's two, and the correction that produced them.** R8's note above says a `period_surface` is
+protected *"because a period contains numerals"*. **That is false, and it was false when it was
+written** — it holds only when the period phrase carries a numeral, and every counter-example it
+was tested against happened to include a year. Measured against R8's own commit on the demo's
+accepted draft, with the binding still declaring the true `"the third quarter of 2022"`:
+*"…for the fourth quarter."*, *"…for the full year."* and *"…for the most recent quarter."* each
+**passed with zero findings**. The period surface was protected only by accident, and only as
+far as a numeral reached.
+
+8. `period_surface_absent_from_text` and `period_named_in_text_contradicts_binding` (REFUSE,
+   §13.4). A period the sentence *names* must be the period its declaration binds, resolved
+   through §13.4's own closed grammar. A sentence naming no period at all is unchanged — see
+   `DeterministicVerifier._period_grounding_findings` for why that asymmetry with the metric
+   rule is deliberate.
+
 **Two remedies §13.17's enum cannot express**, recorded because the enum lives in
 `story/core/models.py`, which this step does not own: a dropped `required_warning` and an
 absent counterpoint both want *"put the disclosure back"*, and the nearest member is
@@ -140,6 +155,8 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("period_mismatch", Remedy.ADD_PERIOD_QUALIFIER, "13.4"),
     _refuse("period_shape_conflated", Remedy.ADD_PERIOD_QUALIFIER, "13.4"),
     _refuse("incomparable_periods", Remedy.ADD_PERIOD_QUALIFIER, "13.4"),
+    _refuse("period_surface_absent_from_text", Remedy.ADD_PERIOD_QUALIFIER, "13.4"),
+    _refuse("period_named_in_text_contradicts_binding", Remedy.ADD_PERIOD_QUALIFIER, "13.4"),
 
     # -- §13.5 metric identity -------------------------------------------------------------
     _refuse("metric_surface_unresolved", Remedy.NARROW_METRIC_SURFACE, "13.5"),

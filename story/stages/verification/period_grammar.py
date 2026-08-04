@@ -1,9 +1,10 @@
 """§13.4's closed grammar: the period surfaces a draft may write, and nothing else.
 
 Responsibility: `"the third quarter of 2022"` → `(duration, 2022-07-01, 2022-09-30)`, and
-`"the quarter"` → unresolvable. Pure functions of one string; the endpoints are then handed to
-`story.core.periods`, which owns the key and the shape, so this module never mints a period
-key itself.
+`"the quarter"` → unresolvable; plus `scan`, which answers the same question about a whole
+sentence rather than about one declared surface. Pure functions of one string; the endpoints
+are then handed to `story.core.periods`, which owns the key and the shape, so this module never
+mints a period key itself.
 
 **Why a grammar and not a date parser.** §13.4: *"Resolve `period_surface` through a closed
 grammar, never a free date parser."* A general parser answers every string, including the ones
@@ -24,6 +25,26 @@ level.
 Two-digit years (`2Q22`, `1H23`, `9M23`) are read as 20xx. Every document in the corpus is a
 2019–2025 filing *(the run's 185 documents; verified via the graph manifest)*, and a
 century-window rule that could not be exercised would be a guess wearing a comment.
+
+**R9 added `scan`, and the reason is a defect this module's own strength concealed.** The
+grammar was only ever asked about the string a *binding declared*; nobody asked it what the
+*sentence* said. R8 recorded — and R9 measured false — the claim that a period surface was
+already protected because it contains numerals and §13.1's coverage rule forces it into the
+text. That holds only when the period phrase carries a numeral. Measured against `863edf6` on
+the demo's own accepted draft, with the binding still declaring the true `"the third quarter of
+2022"` and the `rendered` span honestly re-anchored, *"…for **the fourth quarter**."*, *"…for
+**the full year**."* and *"…for **the most recent quarter**."* all **passed with zero
+findings**. `"the fourth quarter of 2022"` was refused, but only as `unbound_numeral` on the
+year. So the protection was an accident of numeral coverage, and it stopped exactly where the
+numeral did.
+
+`scan` therefore reads a sentence two ways. **Tier one** is this grammar itself, applied
+unanchored: the phrases §13.4 can resolve. **Tier two** is `_DEICTIC_PERIOD`, the closed list
+of period-shaped phrases the grammar deliberately refuses — §13.4's own `"the quarter"`, and
+the family it belongs to. A phrase in tier two is not resolved and never given a period; it is
+reported so a caller can tell *"this sentence pins no period"* from *"this sentence pins a
+period the grammar cannot read"*, which are different remedies. A sentence carrying neither is
+a sentence making no period claim, and `scan` returns nothing for it.
 """
 
 from __future__ import annotations
@@ -122,48 +143,82 @@ def _quarter(surface: str, quarter: int, year: int) -> PeriodSurface:
     return _duration(surface, date(year, start_month, 1), _month_end(year, start_month + 2))
 
 
-# Each rule is `(pattern, builder)`. Ordered longest-and-most-specific first for the same
-# reason §13.5's alias index is: `"fiscal 2022"` contains `"2022"`, and `"nine months ended
-# September 30, 2022"` contains `"September 30, 2022"`, so a scanner that tried the short form
-# first would resolve a nine-month window to an instant.
-_RULES: tuple[tuple[re.Pattern[str], Callable[[str, re.Match[str]], PeriodSurface]], ...] = (
+# Each rule is `(source, builder)`, and the source carries **no anchors**: `resolve` compiles it
+# anchored and `scan` compiles it bounded, so the two readings of one vocabulary cannot drift
+# apart. Ordered longest-and-most-specific first for the same reason §13.5's alias index is:
+# `"fiscal 2022"` contains `"2022"`, and `"nine months ended September 30, 2022"` contains
+# `"September 30, 2022"`, so a scanner that tried the short form first would resolve a
+# nine-month window to an instant.
+_MONTH_NAMES = ("january|february|march|april|may|june|july|august"
+                "|september|october|november|december")
+
+_RULE_SOURCES: tuple[tuple[str, Callable[[str, re.Match[str]], PeriodSurface]], ...] = (
     # -- year-to-date, worded and coded -----------------------------------------------------
-    (re.compile(r"^(?:the\s+)?nine\s+months\s+ended\s+september\s+30,?\s+(\d{4})$"),
+    (r"(?:the\s+)?nine\s+months\s+ended\s+september\s+30,?\s+(\d{4})",
      lambda s, m: _duration(s, date(_year(m.group(1)), 1, 1), date(_year(m.group(1)), 9, 30))),
-    (re.compile(r"^9m\s*(\d{2}|\d{4})$"),
+    (r"9m\s*(\d{2}|\d{4})",
      lambda s, m: _duration(s, date(_year(m.group(1)), 1, 1), date(_year(m.group(1)), 9, 30))),
-    (re.compile(r"^(?:the\s+)?six\s+months\s+ended\s+june\s+30,?\s+(\d{4})$"),
+    (r"(?:the\s+)?six\s+months\s+ended\s+june\s+30,?\s+(\d{4})",
      lambda s, m: _duration(s, date(_year(m.group(1)), 1, 1), date(_year(m.group(1)), 6, 30))),
-    (re.compile(r"^(?:1h|6m)\s*(\d{2}|\d{4})$"),
+    (r"(?:1h|6m)\s*(\d{2}|\d{4})",
      lambda s, m: _duration(s, date(_year(m.group(1)), 1, 1), date(_year(m.group(1)), 6, 30))),
-    (re.compile(r"^(?:the\s+)?first\s+half\s+of\s+(\d{4})$"),
+    (r"(?:the\s+)?first\s+half\s+of\s+(\d{4})",
      lambda s, m: _duration(s, date(_year(m.group(1)), 1, 1), date(_year(m.group(1)), 6, 30))),
 
     # -- fiscal years -----------------------------------------------------------------------
-    (re.compile(r"^(?:fiscal(?:\s+year)?|full\s+year|fy)\s*(\d{4})$"),
+    (r"(?:fiscal(?:\s+year)?|full\s+year|fy)\s*(\d{4})",
      lambda s, m: _duration(s, date(_year(m.group(1)), 1, 1), date(_year(m.group(1)), 12, 31))),
 
     # -- quarters ---------------------------------------------------------------------------
-    (re.compile(r"^(?:the\s+)?(first|second|third|fourth)\s+quarter\s+(?:of\s+|ended\s+)?"
-                r"(?:fiscal\s+)?(\d{4})$"),
+    (r"(?:the\s+)?(first|second|third|fourth)\s+quarter\s+(?:of\s+|ended\s+)?"
+     r"(?:fiscal\s+)?(\d{4})",
      lambda s, m: _quarter(s, _ORDINAL_QUARTER[m.group(1)], _year(m.group(2)))),
-    (re.compile(r"^q\s*([1-4])\s*(?:fy)?\s*(\d{2}|\d{4})$"),
+    (r"q\s*([1-4])\s*(?:fy)?\s*(\d{2}|\d{4})",
      lambda s, m: _quarter(s, int(m.group(1)), _year(m.group(2)))),
-    (re.compile(r"^([1-4])q\s*(?:fy)?\s*(\d{2}|\d{4})$"),
+    (r"([1-4])q\s*(?:fy)?\s*(\d{2}|\d{4})",
      lambda s, m: _quarter(s, int(m.group(1)), _year(m.group(2)))),
 
     # -- instants ---------------------------------------------------------------------------
-    (re.compile(r"^(?:as\s+of\s+|at\s+)?year[-\s]end\s+(\d{4})$"),
+    (r"(?:as\s+of\s+|at\s+)?year[-\s]end\s+(\d{4})",
      lambda s, m: _instant(s, date(_year(m.group(1)), 12, 31))),
-    (re.compile(r"^(?:as\s+of\s+|at\s+)?(january|february|march|april|may|june|july|august"
-                r"|september|october|november|december)\s+(\d{1,2}),?\s+(\d{4})$"),
+    (rf"(?:as\s+of\s+|at\s+)?({_MONTH_NAMES})\s+(\d{{1,2}}),?\s+(\d{{4}})",
      lambda s, m: _instant(s, date(_year(m.group(3)), _MONTHS[m.group(1)], int(m.group(2))))),
-    (re.compile(r"^(?:as\s+of\s+|at\s+)?(?:the\s+)?end\s+of\s+(january|february|march|april"
-                r"|may|june|july|august|september|october|november|december)\s+(\d{4})$"),
+    (rf"(?:as\s+of\s+|at\s+)?(?:the\s+)?end\s+of\s+({_MONTH_NAMES})\s+(\d{{4}})",
      lambda s, m: _instant(s, _month_end(_year(m.group(2)), _MONTHS[m.group(1)]))),
-    (re.compile(r"^(?:as\s+of\s+)?(\d{4})-(\d{2})-(\d{2})$"),
+    (r"(?:as\s+of\s+)?(\d{4})-(\d{2})-(\d{2})",
      lambda s, m: _instant(s, date(int(m.group(1)), int(m.group(2)), int(m.group(3))))),
 )
+
+_RULES: tuple[tuple[re.Pattern[str], Callable[[str, re.Match[str]], PeriodSurface]], ...] = tuple(
+    (re.compile(rf"\A(?:{source})\Z"), build) for source, build in _RULE_SOURCES)
+
+# Bounded rather than `\b`-delimited: several sources begin with an optional `(?:the\s+)?`, and
+# a `\b` in front of an optional group asserts about whichever alternative the engine tried
+# first. A lookaround for "no word character and no hyphen either side" says the thing meant —
+# `"3q22"` inside `"13q225"` is not a quarter, and `"2022"` inside `"2022-09-30"` is not a year.
+_SCAN_RULES: tuple[tuple[re.Pattern[str], Callable[[str, re.Match[str]], PeriodSurface]], ...] = (
+    tuple((re.compile(rf"(?<![\w-])(?:{source})(?![\w-])"), build)
+          for source, build in _RULE_SOURCES))
+
+#: §13.4 names `"the quarter"` UNRESOLVABLE. This is that phrase's **family**: a period noun the
+#: grammar knows, under a qualifier that points at a period without pinning one. It is a closed
+#: list and deliberately not a parser — nothing here ever produces a date, and its only job is
+#: to let a caller distinguish *"the sentence pins no period"* from *"the sentence pins one the
+#: grammar refuses"*. The three measured attacks — `"the fourth quarter"`, `"the full year"`,
+#: `"the most recent quarter"` — are each one qualifier plus one noun, and so is every deictic
+#: form a writer reaches for when the period is meant to be inferred from context.
+_QUALIFIER = (r"the|this|that|its|our|a|an|last|latest|next|prior|previous|current"
+              r"|most\s+recent|recent|earlier|later|same|full|fiscal|opening|closing"
+              r"|first|second|third|fourth|final|nine|six|three|twelve")
+_PERIOD_NOUN = r"quarters?|halves|half|years?|periods?|months?"
+_DEICTIC_PERIOD = re.compile(
+    rf"(?<![\w-])(?:(?:{_QUALIFIER})\s+)+(?:{_PERIOD_NOUN})(?![\w-])"
+    # The coded forms stripped of the year the grammar requires. `"in Q3"` names a quarter and
+    # names no year, so it is period-shaped and unresolvable exactly as `"the quarter"` is.
+    rf"|(?<![\w-])(?:q[1-4]|[1-4]q|1h|2h|9m|6m)(?![\w-])"
+    rf"|(?<![\w-])year[-\s]?(?:to[-\s]?date|end)(?![\w-])")
+
+_WHITESPACE = re.compile(r"\s+")
 
 
 def normalise(surface: str) -> str:
@@ -196,8 +251,78 @@ def resolve(surface: str) -> PeriodSurface:
     return _unresolvable(surface)
 
 
+@dataclass(frozen=True, slots=True)
+class PeriodPhrase:
+    """One period-naming phrase found *in prose*, and what §13.4's grammar makes of it.
+
+    Distinct from `PeriodSurface` because the question is different: a surface answers *"what
+    does this declared string mean"*, and a phrase answers *"which periods does this sentence
+    name"* — of which there may be several, and some of which the grammar refuses.
+
+    **No character span**, on the same reasoning `MetricSurfaceOccurrence` gives: the scan runs
+    over a lowercased, whitespace-collapsed copy, so an offset into it does not point at the
+    sentence the reader sees, and a span that lies about where it points is worse than none.
+    `text` is the matched phrase, which is what a finding should quote.
+    """
+
+    text: str
+    period: PeriodSurface
+
+    @property
+    def resolved(self) -> bool:
+        return self.period.resolved
+
+
+def scan(text: str) -> tuple[PeriodPhrase, ...]:
+    """Every period phrase `text` names, left to right, longest and most specific winning.
+
+    Two tiers, in this order and never the other: the grammar's own rules first, and
+    `_DEICTIC_PERIOD` only over what they left, so `"the third quarter of 2022"` is never also
+    reported as the bare `"the third quarter"`. Overlap is what consumes, not equality — the
+    short match inside a long one starts at a different offset.
+
+    **Within tier one the longest match wins, and `_RULE_SOURCES`' own order does not.** That
+    order is `resolve`'s, where the only ambiguity is over a whole string; scanning has a second
+    kind, because a rule's phrase can sit *inside* another rule's. `"fiscal 2022"` is inside
+    `"the third quarter of fiscal 2022"`, and rule order puts the fiscal-year rule first — so
+    scanning in rule order read a true Q3 sentence as naming FY2022 and contradicted its own
+    binding. Longest-match-wins is §13.5's rule for the alias index and it is this one's too.
+    """
+    lowered = _WHITESPACE.sub(" ", text.lower())
+    candidates: list[tuple[int, int, int, PeriodSurface]] = []
+    for order, (pattern, _build) in enumerate(_SCAN_RULES):
+        for match in pattern.finditer(lowered):
+            period = resolve(match.group(0))
+            # `resolve` is the single authority, so a phrase the scan shapes but the grammar
+            # rejects — `"February 30, 2022"` — is not silently promoted to tier two either.
+            if period.resolved:
+                candidates.append((match.start(), match.end(), order, period))
+
+    taken: list[tuple[int, int]] = []
+    found: list[tuple[int, PeriodPhrase]] = []
+
+    def claim(start: int, end: int) -> bool:
+        if any(taken_start < end and start < taken_end for taken_start, taken_end in taken):
+            return False
+        taken.append((start, end))
+        return True
+
+    for start, end, _order, period in sorted(
+            candidates, key=lambda item: (item[0] - item[1], item[0], item[2])):
+        if claim(start, end):
+            found.append((start, PeriodPhrase(text=lowered[start:end], period=period)))
+    for match in _DEICTIC_PERIOD.finditer(lowered):
+        if claim(*match.span()):
+            found.append((match.start(),
+                          PeriodPhrase(text=match.group(0),
+                                       period=_unresolvable(match.group(0)))))
+    return tuple(phrase for _start, phrase in sorted(found, key=lambda pair: pair[0]))
+
+
 __all__ = [
+    "PeriodPhrase",
     "PeriodSurface",
     "normalise",
     "resolve",
+    "scan",
 ]

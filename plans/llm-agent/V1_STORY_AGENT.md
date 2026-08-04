@@ -1609,6 +1609,25 @@ Quarter-vs-YTD conflation is refused with its own code `period_shape_conflated`,
 is the finding a writer can act on. A calculation whose inputs have different shapes is
 `incomparable_periods`.
 
+**The declared surface is not the only period a sentence names, added R9 (2026-08-04,
+measured).** Every rule above reads `period_surface` — the string the *binding* declares — and
+nothing read the sentence's own words. That was believed safe because a period phrase contains
+numerals and §13.1's coverage rule therefore forces the declared surface into the text; **the
+belief is false**, and it holds only for a phrase that carries a numeral. Measured on the demo's
+accepted draft with the binding still declaring the true `"the third quarter of 2022"`,
+*"…for the fourth quarter."*, *"…for the full year."* and *"…for the most recent quarter."* each
+passed with **zero findings**, and *"…for the fourth quarter of 2022."* was refused only as
+`unbound_numeral` — on the year.
+
+So a period the sentence *names* must be the period its declaration binds, resolved through this
+same closed grammar and never by substring: `period_surface_absent_from_text` when the sentence
+pins a period the grammar cannot read (`"the quarter"` and its family), and
+`period_named_in_text_contradicts_binding` when it pins one the grammar reads and disagrees
+with. The rule applies to `fact_bindings` on `reported` and `explanatory` sentences and to
+`Calculation.period_surface`. **A sentence naming no period at all is unaffected** — deliberate,
+because a period is routinely carried by the paragraph and a sentence that asserts no period
+cannot assert a false one. This is §13.5's metric grounding applied to the other surface.
+
 ### 13.5 Metric identity — REFUSE
 
 Normalise the metric surface, resolve through the ontology alias index with **longest match
