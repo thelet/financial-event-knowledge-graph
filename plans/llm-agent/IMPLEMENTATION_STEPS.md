@@ -237,7 +237,10 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Depends on** | S3 |
 | **Owns** | `story/stages/ranking/` `tests/story/test_story_ranking.py` |
 | **Acceptance** | every component inspectable; `CandidateScore` separate from the candidate; stable tie-break; internal candidates never outrank external for post generation; reproducible |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED, with one founder gate open** 2026-08-04 |
+| **Commit hash** | `b057860` |
+| **Delivered** | 2,686 lines, 5 modules, 50 tests. 112 clusters, 43 collapsing >1. The 2022Q3 cluster is **13 candidates over 7 correlated metrics**, rank 1 |
+| **Gate** | **G2 — §6.10's `Δpct/p90` units term was replaced with `\|Δ\|/p90(\|Δ\|)`.** See §8 |
 
 ### S5 — Bounded evidence-package builder
 
@@ -759,11 +762,30 @@ ids, **every signal value**, and candidate order byte-identical; **no threshold 
 (loosening `USD_MEASURE` moved the census 227→305 and *every original id survived unchanged*);
 **no prose in any of the 19 string signal keys**.
 
+### AR2 repairs accepted — R4a `2937b58`, R4b `4519ac6`
+
+| Defect | Fix | Orchestrator verification |
+| --- | --- | --- |
+| **a1** cross-zero `delta_pct` | reuses `numerals.relative_change_across_zero`; suppressed + warned | **verified live: 45 → 0**, census unchanged at 227, `candidate_id` unchanged. Textbook case now `delta_pct=None, delta_pp=-11.5, warnings=(…'relative_change_across_zero')` |
+| **a2** percent-of-a-percent | suppressed for `unit == percent` | **70 → 0**; `\|delta_pct\|>200` 36 → 17 (residual are real USD/count moves) |
+| **a3** sign-convention pair | `D4/SIGN_CONVENTION_MISMATCH` before any gap | **re-ran the reproduction myself: 3 candidates → 0, 1 refusal** |
+| **a4** variance floor | floor applied a second time to the population **with the anchor removed** | constructed case 1 → 0. Live all 15 clear it, narrowest margin 3.3× |
+| **a5** silent `CONFLICT` narrowing | `_gap_series` hands every shared period to `comparable`; R7 refuses by name and discloses | `periods_unresolved=2`, `population_excluded_by='R7/NOT_CANONICAL'`, warning attached |
+| **c3** D3/D4 polarity | both import the sign tables; `delta_sign` stays arithmetic, the **word** never derived from it | `direct_selling_costs` → `direction=increase, polarity=cost` |
+| **c6** R8 message | prints the rounded difference | asserted |
+
+**Censuses unchanged throughout**: `metric_move` 227 · `acceleration` 9/7 · `cross_metric_divergence` 15 · F3 `z=3.9454, n=25`, id unchanged.
+
+**R4b rejected the reviewer's preferred option and said why** — excluding the anchor from its own population moves the live census 15 → 16 and F3's z from 3.9454 to 6.793. It chose the change that fixes the defect and moves no published number, and recorded the measurement for the one it declined.
+
+**A fixture correction worth keeping:** three offline divergence fixtures were **built on the defect** — each constructed a perfectly flat gap and pushed one quarter out of it, the exact single-point excursion the floor now refuses. They exercised R6 and R9 through a population the detector should never have scored. Same shape as AR1's fixture that could not express its own failure; third occurrence this session.
+
 ## 8. Founder gates
 
 | # | Question | Status |
 | --- | --- | --- |
 | D1 | Neo4j connection boundary | **RESOLVED** — see §7 |
+| **G2** | **§6.10's ranking units term is not implementable as written.** See below | **OPEN** |
 | G1 | The local llama.cpp server was not running | **CLOSED 2026-08-03.** Founder started it. `:8080` returns `{"status":"ok"}` serving `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf` — verified by the orchestrator. `:8081` (embeddings) remains down and is **irrelevant**: embeddings are deferred from V1. S6's two live tests can now run instead of skipping, and S12 can report a real local-Qwen run alongside the recorded one |
 
 ---
