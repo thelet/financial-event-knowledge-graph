@@ -9,6 +9,11 @@ step. Authoritative plan: [V1_STORY_AGENT.md](V1_STORY_AGENT.md). Boundary:
 
 **Nothing is pushed. Nothing is merged. No upstream file is edited.**
 
+**Status 2026-08-04 — the demo runs end to end and its post is `accepted`.** HEAD `05d1c87`.
+Story suite `1811 passed, 1 skipped`; neo4j-marked `124 passed`; offline
+`-m "not live and not neo4j"` **`4406 passed, 0 failed`**. Two full demo runs are byte-identical
+across all seven artifacts. The one skip is `live`-marked and self-describing.
+
 ---
 
 ## 0. State this implementation is built on *(verified 2026-08-03, before any code)*
@@ -919,6 +924,75 @@ resumability · S13 research mode · autonomous candidate selection in the demo 
 orchestration · additional detectors (D5–D8, D10–D17) · embeddings · LightRAG · generated Cypher ·
 publishing integration.
 
+### D6 accepted (`bbb2551`) — the demo ran, and the verifier refused the post it produced
+
+The first end-to-end run returned **`rejected`, 9 blocking findings** — and the prose was
+**correct**: right numbers, right period, metrics not swapped, *percentage points* not *percent*.
+All nine refused a **true** sentence for a structural reason. This is the value of an end-to-end
+run: four contract seams that only surface when the halves finally meet.
+
+| Seam | Findings | Why it was structural, not a falsehood caught |
+| --- | --- | --- |
+| A calculated sentence cannot declare its period | `unbound_numeral` ×1 | §13.1 licenses a period surface; the surface lived only on `FactBinding`, and §13.9 forbids a calculated sentence carrying bindings |
+| A comparative can never be supported | `unsupported_comparative` ×1 | §13.14 demands `compare_levels`/`compare_deltas`; the writer's schema enum contained neither |
+| A title cannot carry a period | `unbound_numeral` ×2 | D5 correctly closed the title hole, but `2022Q3` is a period, not a claim |
+| Build provenance demanded as prose | `required_warning_has_no_declared_qualifier` ×5 | §10.1 conflated two audiences; an accepted post would have had to say *"this package's token budget was trimmed"* |
+
+### R7 accepted (`05d1c87`) — four seams closed, and the inversions closed with them
+
+**Governing constraint given to the repair: a fix is legitimate only if it cannot let a false
+statement through.** The 60 existing verifier tests, including all 10 malicious drafts, were the
+guard. Demo disposition after: **`accepted`, zero findings, 12 checks, every denominator
+non-zero.** The prose is unchanged in substance from the sentence that was refused.
+
+**The hole the obvious fix would have opened.** Recomputing a comparative's *declaration* proves
+nothing about its *sentence*: `left < right` over `(gaap, adjusted)` recomputes perfectly
+(−12.6 < 3.3) while the text says *"the Adjusted Gross Margin was 15.9 percentage points lower
+than the GAAP Gross Margin"* — same inputs, same number, **false by 15.9 points**. Closed by
+`comparative_not_supported_by_text`, which reads polarity and both sides back from the text
+through closed sources. Likewise the period surface is **checked, not trusted**: it must agree
+on both endpoints *and* kind with **every** input, because agreement with one would let a Q2→Q3
+delta call itself "the third quarter".
+
+**Orchestrator validation (2026-08-04), independent of the repair's own tests:**
+
+| Check | Result |
+| --- | --- |
+| `git diff bbb2551..HEAD` on the verifier test file | **254 insertions, 0 deletions** — the 60 originals byte-untouched |
+| 10 malicious fixtures | 10 passed, verbatim |
+| Whole verifier file | 74 passed |
+| Demo re-run by the orchestrator | `accepted`, exit 0 |
+| **Four hand-built inversions of the accepted draft** | all refused — see below |
+| Determinism, two full runs | 7/7 artifacts **byte-identical**; manifest identical modulo `created_at` |
+
+The four attacks I built myself, mutating the *accepted* draft (not the repair's fixtures):
+
+| Attack | Statement | Verdict |
+| --- | --- | --- |
+| Swap the two metric names, leave declaration intact | false by 15.9pp | `comparative_not_supported_by_text` |
+| Flip *lower* → *higher* | false | `comparative_not_supported_by_text` |
+| Change 15.9 → 12.4 in text and `result_rendered` | false | `calculation_does_not_recompute` |
+| Declare `period_surface` as Q2 | false | `period_mismatch` |
+| *(control)* unmodified draft | true | **passes** |
+
+**One latent hole recorded, not closed.** `_covering_spans` licenses `Calculation.result_rendered`
+for `extremum`, `absence` and `temporal_order`, which `_recompute_findings` never recomputes — a
+numeral in one of those renderings is covered by nothing. *(Verified 2026-08-04:
+`WRITER_OPERATIONS = ('delta_pp', 'delta_bps', 'difference', 'ratio', 'sum', 'compare_levels')`,
+so all three are **unreachable from the writer's grammar** and exposure is limited to a
+hand-authored draft; §13.14's superlative and absence bans would independently refuse the text.)*
+Closing it needs a recomputation rule per operation, which is not one of these four defects.
+
+**`WRITER_PROMPT_VERSION` → `1.1.0`** and the writer's generation was re-recorded against live
+Qwen, because the draft schema is an input to `request_identity`. The planner's row **replayed
+byte-for-byte** (same digest, same 1,887 characters) since its prompt did not change. The model,
+given `compare_levels`, used it correctly on the first attempt — no prompt iteration.
+
 ## 9. Deferred / not implemented
 
 Everything in §1 "Out". Recorded here so it is not rediscovered as an omission.
+
+Added at R7: **recomputation for `extremum` / `absence` / `temporal_order` rendered results**
+(unreachable from the writer today, but the verifier is meant to be authoritative independently
+of it) and **`compare_deltas` in the writer's grammar** (a side needs four bound observations
+across two periods; every fact in the demo package is 2022Q3).

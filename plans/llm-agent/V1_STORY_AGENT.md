@@ -1379,13 +1379,26 @@ why_it_matters              string
 key_points[]                {claim, required_fact_ids[], required_citation_passage_ids[],
                              statement_class: reported|calculated|explanatory}
 counterpoints[]             {claim, required_fact_ids[], required_citation_passage_ids[]}
-required_warnings[]         warning codes from the package that MUST appear in the post
+required_warnings[]         claim-qualifying warning codes that MUST appear in the post
 causal_language             enum: forbidden | reported_only
 uncertainty                 string
 structure[]                 section headings in order
 prohibited_claims[]         string
 unusable_evidence[]         {id, reason}   — package items the plan deliberately did not use
 ```
+
+**Corrected at R7 (2026-08-04): a package's warnings serve two audiences, and this line
+originally conflated them.** Some are *claim qualifiers* that must appear in prose
+(`cohort_vs_period_basis`, `pct_120_days_denominator` — a reader who misses them misreads the
+number). Others are *build provenance* for the evidence panel and the manifest
+(`token_budget_trimmed`, `section_truncated`, `evidence_sources_absent_in_v1`). The planner
+copied all of them into `required_warnings` and the verifier then demanded a sentence for each,
+so an accepted post would have had to tell an investor *"this package's token budget was
+trimmed."* `WarningKind` (`CLAIM_QUALIFYING` | `BUILD_PROVENANCE`) is now declared once in
+`warning_codes.KIND_OF`, total over `SEVERITY_OF`, and rides on `PackagedWarning.kind` because
+a stage may not import another stage. **The disclosure check itself is byte-for-byte
+unchanged**, and the model default is `CLAIM_QUALIFYING` — a warning built without stating a
+kind demands disclosure rather than escaping it.
 
 **`required_fact_ids` and `required_citation_passage_ids` must all resolve in the package**;
 a plan naming anything else is rejected before the writer ever runs. `causal_language` is
@@ -1457,9 +1470,18 @@ DraftSentence:
   index, text, kind: reported|calculated|explanatory|connective
   fact_bindings[]:  {fact_id, rendered, char_start, char_end, metric_surface, period_surface}
   calculation:      {operation, input_observation_ids[], expression, result_rendered,
-                     formula_version_id} | null
+                     formula_version_id, period_surface} | null
   citations[]:      {passage_id, document_id, char_start, char_end}
 ```
+
+**`calculation.period_surface` was added at R7 (2026-08-04), and the reason is worth recording:
+without it a calculated sentence could not name its own period.** §13.1 licenses a period
+surface, but the surface was declared only on `fact_bindings` — and §13.9 forbids a calculated
+sentence carrying bindings, so *"…for the third quarter of 2022"* on a derivation was
+structurally undeclarable and refused as `unbound_numeral`. The demo's own true sentence failed
+on this. The field is **checked, not trusted**: it resolves through §13.4's closed grammar, and
+it must agree on both endpoints *and* period kind with **every** input observation — agreement
+with one input would let a Q2→Q3 delta present itself as "the third quarter".
 
 **Why the draft is structured and not prose.** Matching a bare numeral back to a fact is
 hopeless. Measured **over the whole corpus** — the only population that exists, since §10's
@@ -1952,11 +1974,30 @@ Each is permitted only as an **explicit claim with machinery behind it**:
   means 26 input ids, and the adjusted-gross-margin attack dies on recomputation.
 - a **comparative** requires `operation: compare_deltas` (or `compare_levels`) with both sides'
   input ids, and the verifier recomputes both and checks the direction. The $2M case fails.
+  **Corrected at R7 (2026-08-04): neither operation was in `WRITER_OPERATIONS`, so this bullet
+  described machinery the writer could not reach** — every comparative was refused as
+  `unsupported_comparative`, including the demo's own true one. `compare_levels` is now in the
+  writer's grammar and is recomputed as `|v1 − v0|` at printed precision. `compare_deltas`
+  stays out (a side of it needs four bound observations across two periods) but the verifier
+  recomputes it if a hand-authored draft declares one.
 - an **absence claim** requires `operation: absence` naming the metric and window; the verifier
   confirms the package's own coverage, and an unpopulated metric returns `unpopulated_metric`
   with the refusal reason from `issues.jsonl` rather than licensing the sentence.
 - a **temporal ordering** requires both dates to be non-null in the package. The three
   `executive_change` events cannot satisfy it, which is the correct outcome.
+
+**Recomputing a comparative's declaration is not sufficient, and R7 found the hole by opening
+it.** `left < right` over `(gaap, adjusted)` recomputes perfectly — −12.6 < 3.3 — while the
+sentence says *"the Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross
+Margin."* Same inputs, same number, opposite claim, **false by 15.9 points**. So the text is
+read back through three closed sources: the comparative's polarity from this section's eleven
+terms, the two sides from §13.5's alias index over the text either side of the comparing word,
+and a cap of one comparative per calculation. A comparison whose two sides resolve to one
+metric is refused outright rather than half-checked — nothing then distinguishes the sides.
+Code: `comparative_not_supported_by_text` *(verified 2026-08-04: four hand-built inversions of
+the demo's accepted draft — swapped subjects, flipped direction word, wrong magnitude, lying
+period surface — are refused with `comparative_not_supported_by_text` ×2,
+`calculation_does_not_recompute`, `period_mismatch`; the unmodified sentence passes)*.
 
 This is the largest single addition the adversarial review forced, and it is where V1 is most
 likely to be over-strict rather than under-strict: some legitimate connective prose will be
