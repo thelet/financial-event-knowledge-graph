@@ -25,10 +25,14 @@ from story.core.periods import (
     story_period,
 )
 from story.core.series import (
+    DELTA_PRECISION,
+    PERCENT_TOLERANCE,
+    SCALE_TOLERANCE,
     CanonicalStatus,
     ObservationRecord,
     build_series,
     presentation_tolerance,
+    within_tolerance,
 )
 from story.stages.detection.canonicalization import (
     FILING_DATE_UNKNOWN,
@@ -177,6 +181,26 @@ def test_every_comparable_shape_declares_a_step_and_other_deliberately_does_not(
 )
 def test_presentation_tolerance_follows_the_unit_and_the_printed_scale(unit, scale, expected):
     assert presentation_tolerance(unit, scale) == expected
+
+
+def test_a_difference_of_exactly_one_printed_unit_is_inside_the_tolerance_after_rounding():
+    """D9. `within_tolerance` did not honour its own docstring until the difference was rounded.
+
+    `7.4 − 7.3` is `0.10000000000000053` in IEEE 754 and `gaap_gross_margin` holds exactly those
+    two values in adjacent quarters, so R8 let one printed unit through as a movement — the whole
+    blast radius, measured across every canonical series in the run, being that one step. The
+    tolerances are unchanged and `<=` is unchanged; only the residue is gone.
+    """
+    assert (7.4 - 7.3) > PERCENT_TOLERANCE
+    assert round(7.4 - 7.3, DELTA_PRECISION) == PERCENT_TOLERANCE
+    assert within_tolerance(7.4, 7.3, PERCENT_TOLERANCE)
+    assert within_tolerance(7.3, 7.4, PERCENT_TOLERANCE)
+
+    # Two printed units is still a movement: rounding to nine places cannot reach a tenth.
+    assert not within_tolerance(7.5, 7.3, PERCENT_TOLERANCE)
+    # And the same rule one scale up, where the residue does not arise at all.
+    assert within_tolerance(25_000_000.0, 24_999_000.0, SCALE_TOLERANCE["millions"])
+    assert not within_tolerance(27_000_000.0, 25_000_000.0, SCALE_TOLERANCE["millions"])
 
 
 # ---------------------------------------------------------------------------------------

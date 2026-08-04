@@ -61,15 +61,16 @@ from typing import Mapping, Sequence
 
 from story.core.periods import PeriodShape
 
-#: Decimal places every delta is rounded to before it is compared with a threshold, a sign or
-#: another delta. `13.2 − 3.3` is `9.899999999999999` in IEEE 754 and `adjusted_gross_margin`
-#: holds exactly those two values in adjacent quarters, so a rule that tested `|d| >= 3.0` or
-#: `sign(d)` on raw subtraction would decide on residues at the seventeenth digit. Nine places
-#: is far below every presentation tolerance in the corpus (0.1 for a percentage, $1 for a
-#: count) and far above the residue, so rounding here cannot change a decision the data
-#: supports. *(Shared with `acceleration.py`, which declares the same constant; to be collapsed
-#: to this one at integration.)*
-DELTA_PRECISION = 9
+# `DELTA_PRECISION` — the decimal places every delta is rounded to before it is compared with a
+# threshold, a sign or another delta — is **bound from `story/core/series.py`, not restated
+# here**. `13.2 − 3.3` is `9.899999999999999` in IEEE 754 and `adjusted_gross_margin` holds
+# exactly those two values in adjacent quarters, so a rule testing `|d| >= 3.0` or `sign(d)` on
+# raw subtraction would decide on residues at the seventeenth digit. Since D9 it is also what R8
+# rounds to, and R8 lives in `core/`, which may not import a stage — so `core/` owns the literal
+# and this module is where the detectors read it. Two copies of a rounding precision, one inside
+# the comparability rule and one inside the detectors, is exactly the pair that can drift into
+# disagreeing about what counts as a movement.
+from story.core.series import DELTA_PRECISION
 
 #: The five shapes R3 admits, in the order a scan visits them. `PeriodShape.OTHER` is absent
 #: because R3 refuses it outright — the three cross-year windows in this run are comparable with
@@ -89,8 +90,11 @@ COMPARABLE_SHAPES: tuple[PeriodShape, ...] = (
 FLOOR_FRACTION = 0.10
 
 #: The smallest delta population a σ is computed over, matching §6.10's *"`magnitude_z` is
-#: suppressed to `null`, not computed, when a metric has fewer than ~8 points"* and S3-C's
-#: `MIN_POPULATION`. A σ over three deltas is a number, not a dispersion.
+#: suppressed to `null`, not computed, when a metric has fewer than ~8 points"*. A σ over three
+#: deltas is a number, not a dispersion. `cross_metric_divergence.MIN_POPULATION` is this name
+#: bound under the vocabulary of a gap distribution, not a second literal: the two detectors
+#: are applying one §6.10 rule to two distributions, and a run where they disagreed about the
+#: floor would suppress a z-score in one detector and compute it in the other.
 MIN_DELTA_POPULATION = 8
 
 

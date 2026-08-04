@@ -70,12 +70,17 @@ revenue denominator is `component_metrics: [adjusted_gross_profit, revenue]` aga
 `[gaap_gross_profit, revenue]`, read through the registry — never from a `:Metric` node, which
 carries no such property (C4). **The candidate carries no thesis and no score** (§6.4).
 
-**Constants are this module's own.** `story/stages/detection/detector_config.py` belongs to the
-`metric_move`/`trend_reversal` step and did not exist when this was written, so `Z_MIN`,
-`MIN_POPULATION`, `VARIANCE_FLOOR_MULTIPLE` and `DIVERGENCE_PAIRS` are declared here.
-`MIN_POPULATION` is not invented: §6.10 suppresses `magnitude_z` to null below "~8 points",
-and the same floor applied to a gap distribution is what keeps the six-point fiscal-year and
-year-to-date populations from minting candidates nobody could defend.
+**Which constants are this module's own, and which are not.** `Z_MIN`,
+`VARIANCE_FLOOR_MULTIPLE`, `DIVERGENCE_SHAPES` and `DIVERGENCE_PAIRS` stay here: a list of
+metric pairs and a floor stated as a multiple of a *pair's* tolerance are things only a
+cross-metric detector can use, and moving them into `detector_config.py` would put D4's rule
+in a module the other three detectors also read. `MIN_POPULATION` is **bound from
+`detector_config.MIN_DELTA_POPULATION`** and is not a second literal: §6.10 suppresses
+`magnitude_z` to null below "~8 points", `trend_reversal` applies that floor to a delta
+distribution and this module applies it to a gap distribution, and a run in which the two
+disagreed about the floor would suppress a z-score in one detector and compute it in the other.
+It is what keeps the six-point fiscal-year and year-to-date populations from minting candidates
+nobody could defend.
 """
 
 from __future__ import annotations
@@ -97,6 +102,7 @@ from story.core.series import (
     default_authority,
 )
 from story.stages.detection.canonicalization import POLICY_VERSION
+from story.stages.detection.detector_config import MIN_DELTA_POPULATION
 
 #: §6.4's closed enum member and §6.11's detector slug source.
 DETECTOR_ID = "detector:cross_metric_divergence"
@@ -116,7 +122,11 @@ VARIANCE_FLOOR_MULTIPLE = 2.0
 #: ~8 points."* A mean and a population standard deviation over six numbers describe the six
 #: numbers, not a history, and every fiscal-year and year-to-date population in this run has
 #: exactly six or fewer members.
-MIN_POPULATION = 8
+#:
+#: Bound from `detector_config.MIN_DELTA_POPULATION` rather than restated, and kept under this
+#: name because the thing counted here is a *gap* population, not a delta population — the same
+#: §6.10 floor, applied to a different distribution. See the module docstring.
+MIN_POPULATION = MIN_DELTA_POPULATION
 
 #: The shapes a gap history may be built within, most populated first. `PeriodShape.OTHER` is
 #: absent because R3 refuses it outright, and `INSTANT` is present because a future instant

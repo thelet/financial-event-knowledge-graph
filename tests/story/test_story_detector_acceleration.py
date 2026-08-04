@@ -1,8 +1,10 @@
 """S3 — §6.6 D3's `acceleration`, the runs it must refuse, and its census on the live run.
 
 Offline by default. The `neo4j`-marked tests at the bottom scan the whole canonical layer and
-pin the census the plan states — 8 firings across 6 metrics over quarters — together with the
-two instant firings the plan's figure does not count.
+pin the census — 7 firings across 5 metrics over quarters, where §6.6 D3 states 8 across 6 —
+together with the two instant firings the plan's figure does not count. The plan's eighth was
+`gaap_gross_margin 2020Q1 → 2020Q4`, and it is gone because D9 made R8 round a difference before
+testing it against a tolerance, not because anything here was retuned.
 
 Every synthetic series here is built from `ObservationRecord`s and put through the real
 `canonicalize`, not from hand-made `CanonicalPoint`s. A detector that was only ever driven over
@@ -27,6 +29,7 @@ from story.core.models import (
 )
 from story.core.periods import PeriodShape, story_period
 from story.core.series import (
+    DELTA_PRECISION,
     PERCENT_TOLERANCE,
     CanonicalStatus,
     ClaimKind,
@@ -34,6 +37,7 @@ from story.core.series import (
     Refuse,
     build_series,
     comparable,
+    within_tolerance,
 )
 from story.stages.detection.acceleration import (
     COMPARABLE_SHAPES,
@@ -297,21 +301,30 @@ def test_a_step_inside_presentation_tolerance_breaks_the_run():
     assert detect(quarterly([1.0, 1.05, 5.0, 11.0])).candidates == ()
 
 
-def test_a_one_unit_step_survives_r8_on_a_float_residue_and_a_live_firing_rests_on_it():
-    """A finding, recorded rather than worked around, because it decides a census number.
+def test_a_one_unit_step_is_refused_by_r8_after_rounding_and_the_census_lost_that_firing():
+    """D9, from this detector's side, on the values that made it visible.
 
-    These are `gaap_gross_margin`'s real 2020 values, and their window is one of the eight
-    quarterly firings §6.6 D3 counts. Its first step is `7.3 → 7.4` — exactly one printed unit,
-    which R8's `|A − B| <= tol` is written to refuse. It does not refuse it: IEEE 754 makes the
-    subtraction `0.10000000000000053`, a hair above `PERCENT_TOLERANCE`. Had S2 rounded before
-    comparing, this window would refuse and the live quarterly census would be **seven**
-    firings, not eight. S2's rule is not this module's to change; the dependency is asserted
-    here so nobody has to rediscover it from a census that moved by one.
+    These are `gaap_gross_margin`'s real 2020 values, and their window **was** the eighth of the
+    eight quarterly firings §6.6 D3 counts. Its first step is `7.3 → 7.4` — exactly one printed
+    unit, which R8's `|A − B| <= tol` is written to refuse. Until D9 it did not refuse it: IEEE
+    754 makes the subtraction `0.10000000000000053`, a hair above `PERCENT_TOLERANCE`, so R8 read
+    a rounding as a movement. R8 now rounds the difference to `DELTA_PRECISION` before comparing,
+    the step is refused, and the window is gone.
+
+    This module's rule is unchanged and nothing here was retuned: **the plan's 8 rested on a
+    float residue and the live quarterly census is 7.** The dependency is asserted here, and
+    still named for what it proves, so nobody has to rediscover it from a census that moved by
+    one.
     """
     assert (7.4 - 7.3) > PERCENT_TOLERANCE
-    assert round(7.4 - 7.3, 9) == PERCENT_TOLERANCE
+    assert round(7.4 - 7.3, DELTA_PRECISION) == PERCENT_TOLERANCE
+    assert within_tolerance(7.4, 7.3, PERCENT_TOLERANCE)
 
-    result = detect(quarterly([7.3, 7.4, 10.6, 15.4]))
+    assert detect(quarterly([7.3, 7.4, 10.6, 15.4])).candidates == ()
+
+    # The same window with a two-unit first step still fires, so what the line above proves is
+    # R8's refusal of one printed unit and not that this window was never a candidate shape.
+    result = detect(quarterly([7.3, 7.5, 10.7, 15.5]))
 
     assert [c.anchor_period_keys for c in result.candidates] == [
         ("2020Q1", "2020Q2", "2020Q3", "2020Q4")]
@@ -576,9 +589,15 @@ def live_scan():  # type: ignore[no-untyped-def]
     yield load, canonicalize(load.records)
 
 
-#: §6.6 D3's *"8 firings across 6 metrics"*, named. Transcribed as the windows they fire on so
-#: the live test compares against a statement rather than against its own output.
-PLAN_QUARTERLY_FIRINGS = (
+#: **7 firings across 5 metrics**, named. Transcribed as the windows they fire on so the live
+#: test compares against a statement rather than against its own output.
+#:
+#: §6.6 D3 states 8, and the eighth was `("gaap_gross_margin", ("2020Q1", …, "2020Q4"))`. It is
+#: absent because D9 was fixed, not because a threshold moved: its first step is `7.3 → 7.4`, one
+#: printed unit, which R8 refused to refuse only because raw subtraction makes it
+#: `0.10000000000000053`. `test_a_one_unit_step_is_refused_by_r8_after_rounding_and_the_census_
+#: lost_that_firing` holds that step directly.
+QUARTERLY_FIRINGS = (
     ("adjusted_ebitda_margin", ("2020Q1", "2020Q2", "2020Q3", "2020Q4")),
     ("adjusted_ebitda_margin", ("2022Q4", "2023Q1", "2023Q2", "2023Q3")),
     ("adjusted_gross_profit", ("2020Q3", "2020Q4", "2021Q1", "2021Q2")),
@@ -586,12 +605,11 @@ PLAN_QUARTERLY_FIRINGS = (
     ("contribution_profit_after_interest", ("2020Q2", "2020Q3", "2020Q4", "2021Q1")),
     ("contribution_profit_after_interest", ("2020Q3", "2020Q4", "2021Q1", "2021Q2")),
     ("direct_selling_costs", ("2021Q1", "2021Q2", "2021Q3", "2021Q4")),
-    ("gaap_gross_margin", ("2020Q1", "2020Q2", "2020Q3", "2020Q4")),
 )
 
-#: The two firings the plan's figure does not count, because §6.6 D3 was measured over quarterly
-#: deltas (§6.10's population is *"298 consecutive-quarter deltas"*). They are the same rule over
-#: an instant series, and `housing_inventory_homes` is one of the three §6.2 lists.
+#: The two firings the plan's own figure does not count, because §6.6 D3 was measured over
+#: quarterly deltas (§6.10's population is *"298 consecutive-quarter deltas"*). They are the same
+#: rule over an instant series, and `housing_inventory_homes` is one of the three §6.2 lists.
 INSTANT_FIRINGS = (
     (INVENTORY, ("2020-12-31", "2021-03-31", "2021-06-30", "2021-09-30")),
     (INVENTORY, ("2022-06-30", "2022-09-30", "2022-12-31", "2023-03-31")),
@@ -599,10 +617,16 @@ INSTANT_FIRINGS = (
 
 
 @pytest.mark.neo4j
-def test_live_the_quarterly_census_is_the_eight_firings_across_six_metrics_the_plan_states(
+def test_live_the_quarterly_census_is_seven_firings_across_five_metrics_and_not_the_plans_eight(
     live_scan,  # type: ignore[no-untyped-def]
 ):
-    """§6.6 D3's own number, recomputed. Not copied: the windows are compared one by one."""
+    """§6.6 D3's number, recomputed and **corrected**. Not copied: the windows are compared one
+    by one.
+
+    The plan says 8 across 6. It is 7 across 5, and the difference is D9 rather than any rule in
+    this module: `gaap_gross_margin 2020Q1 → 2020Q2` is a one-printed-unit step that R8 now
+    refuses. No `gaap_gross_margin` window is left, which is why the metric count falls too.
+    """
     _load, points = live_scan
     result = detect_acceleration(
         points, graph_run_id=GRAPH_RUN_ID, shapes=(PeriodShape.QUARTER,))
@@ -611,16 +635,17 @@ def test_live_the_quarterly_census_is_the_eight_firings_across_six_metrics_the_p
         (candidate.metric_ids[0], candidate.anchor_period_keys)
         for candidate in result.candidates
     )
-    assert fired == PLAN_QUARTERLY_FIRINGS
-    assert len(fired) == 8
-    assert len({metric_id for metric_id, _ in fired}) == 6
+    assert fired == QUARTERLY_FIRINGS
+    assert len(fired) == 7
+    assert len({metric_id for metric_id, _ in fired}) == 5
+    assert "gaap_gross_margin" not in {metric_id for metric_id, _ in fired}
 
 
 @pytest.mark.neo4j
 def test_live_scanning_every_comparable_shape_adds_the_two_instant_firings(live_scan):  # type: ignore[no-untyped-def]
-    """The census this module ships with: 10 firings across 7 metrics.
+    """The census this module ships with: 9 firings across 6 metrics.
 
-    The difference from the plan's 8 is entirely `housing_inventory_homes`, whose points are
+    The difference from the quarterly 7 is entirely `housing_inventory_homes`, whose points are
     instants; the fiscal-year and year-to-date series fire on nothing. Recorded rather than
     tuned away — the rule is unchanged and the population is wider than the plan's sentence.
     """
@@ -631,9 +656,9 @@ def test_live_scanning_every_comparable_shape_adds_the_two_instant_firings(live_
         (candidate.metric_ids[0], candidate.anchor_period_keys)
         for candidate in result.candidates
     )
-    assert len(fired) == 10
-    assert len({metric_id for metric_id, _ in fired}) == 7
-    assert sorted(fired) == sorted(PLAN_QUARTERLY_FIRINGS + INSTANT_FIRINGS)
+    assert len(fired) == 9
+    assert len({metric_id for metric_id, _ in fired}) == 6
+    assert sorted(fired) == sorted(QUARTERLY_FIRINGS + INSTANT_FIRINGS)
     for shape in (PeriodShape.FISCAL_YEAR, PeriodShape.YTD_6M, PeriodShape.YTD_9M):
         assert detect_acceleration(
             points, graph_run_id=GRAPH_RUN_ID, shapes=(shape,)).candidates == ()

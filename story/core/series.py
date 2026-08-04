@@ -58,6 +58,21 @@ PERCENT_TOLERANCE = 0.1
 COUNT_TOLERANCE = 1.0
 SCALE_TOLERANCE: Mapping[str, float] = {"millions": 1e6, "thousands": 1e3}
 
+#: Decimal places a difference is rounded to before it is compared with a tolerance, a threshold
+#: or another difference. `7.4 − 7.3` is `0.10000000000000053` in IEEE 754 and `gaap_gross_margin`
+#: holds exactly those two values in adjacent quarters, so R8's `|A − B| <= tol` was deciding one
+#: printed unit on a residue at the seventeenth digit — D9, and the one case in this corpus where
+#: this module's code and its own docstring disagreed. Nine places is far below every tolerance in
+#: the table above (0.1 for a percentage, $1 for a count) and far above the residue, so rounding
+#: here cannot change a decision the data supports.
+#:
+#: **It lives in `core/` and not in `story/stages/detection/detector_config.py`**, which is where
+#: every detector reads it from, because `core/` may not import a stage
+#: (`test_story_package_structure.py::test_core_never_imports_a_stage_a_provider_or_the_cli`) and
+#: because R8 and the detectors must round to the same number of places or they can disagree
+#: about what a movement is. `detector_config` binds this name rather than restating the literal.
+DELTA_PRECISION = 9
+
 #: Least precise last. §6.1 step 5 orders the representative by `(scale_precision, filing_date,
 #: observation_id)` with *"`thousands|units < millions < None`"*: a figure filed in a thousands
 #: table states more digits than the same figure filed in a millions table, and a figure with no
@@ -377,8 +392,17 @@ def presentation_tolerance(unit: str | None, scale: str | None) -> float:
 
 def within_tolerance(left: float, right: float, tolerance: float) -> bool:
     """One reading, or two. `<=` and not `<`: a difference of exactly one printed unit is the
-    rounding, not a movement."""
-    return abs(left - right) <= tolerance
+    rounding, not a movement.
+
+    **The difference is rounded to `DELTA_PRECISION` before the comparison, and that is D9's
+    whole fix.** On raw subtraction the function did not honour the sentence above: `7.4 − 7.3`
+    is `0.10000000000000053`, a hair over `PERCENT_TOLERANCE`, so a one-printed-unit step read as
+    a movement. Blast radius measured across every canonical series in the run: **exactly one
+    case**, `gaap_gross_margin 2020Q1 → 2020Q2`, whose survival was the eighth of §6.6 D3's eight
+    quarterly accelerations. The tolerances themselves are unchanged and `<=` is unchanged; the
+    residue is the only thing removed.
+    """
+    return round(abs(left - right), DELTA_PRECISION) <= tolerance
 
 
 @lru_cache(maxsize=1)
@@ -875,6 +899,7 @@ def build_series(points: Sequence[CanonicalPoint]) -> dict[str, CanonicalSeries]
 __all__ = [
     "COHORT_VS_PERIOD_BASIS",
     "COUNT_TOLERANCE",
+    "DELTA_PRECISION",
     "NARRATIVE_LANES",
     "PERCENT_TOLERANCE",
     "SCALE_PRECISION",

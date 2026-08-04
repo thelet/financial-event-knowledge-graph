@@ -14,18 +14,27 @@ its own rule (monotone decreasing `|d|`) and its own threshold, and it is out of
 test asserts that a decelerating series emits nothing here.
 
 **Census, measured live against `graph-v1-0483dc6b4b10` on 2026-08-04.** Over quarterly points
-the literal rule fires **8 times across 6 metrics**, reproducing §6.6 D3's figure exactly. Over
-*every* comparable shape it fires **10 times across 7 metrics**: the two extra are
-`housing_inventory_homes` instants (`2020-12-31 → 2021-09-30` building, `2022-06-30 →
-2023-03-31` drawing down). The plan's 8 counts quarters only — §6.10's population is *"298
-consecutive-quarter deltas"* — and this module scans every shape R3 admits, because an instant
-series is a first-class canonical series (§6.2 lists three of them) and dropping it would be a
-narrowing of the rule that nothing states. Both numbers are pinned by live tests.
+the literal rule fires **7 times across 5 metrics**. Over *every* comparable shape it fires
+**9 times across 6 metrics**: the two extra are `housing_inventory_homes` instants (`2020-12-31
+→ 2021-09-30` building, `2022-06-30 → 2023-03-31` drawing down). The plan's figure counts
+quarters only — §6.10's population is *"298 consecutive-quarter deltas"* — and this module scans
+every shape R3 admits, because an instant series is a first-class canonical series (§6.2 lists
+three of them) and dropping it would be a narrowing of the rule that nothing states. Both
+numbers are pinned by live tests.
 
-**Thresholds are this module's own constants.** `detector_config.py` did not exist when this was
-written (S3-A owns it); `MAGNITUDE_RATIO` and `RUN_LENGTH` are declared here and are to be
-reconciled at integration. They are inside no digest — `candidate_id` covers `DETECTOR_VERSION`
-instead (§6.11), so changing a threshold requires bumping the version to mint new candidates.
+**The quarterly census was 8 until D9 was fixed, and §6.6 D3 states 8.** The eighth was
+`gaap_gross_margin 2020Q1 → 2020Q4`, whose first step is `7.3 → 7.4` — one printed unit, which
+R8 is written to refuse and did not, because `7.4 − 7.3` is `0.10000000000000053` on raw
+subtraction. R8 now rounds before comparing, the step is refused, and the window is gone. This
+detector's rule is unchanged: **the plan's 8 rested on a float residue and the true figure is
+7.** Recorded rather than restored.
+
+**Thresholds are this module's own constants; the shared ones are not.** `MAGNITUDE_RATIO` and
+`RUN_LENGTH` are §6.6 D3's own rule and are declared here, because no other detector can
+meaningfully use them. `DELTA_PRECISION` and `COMPARABLE_SHAPES` are imported from
+`detector_config.py` — they must agree across detectors, and a second copy could silently
+disagree. None of them is inside a digest: `candidate_id` covers `DETECTOR_VERSION` instead
+(§6.11), so changing a threshold requires bumping the version to mint new candidates.
 """
 
 from __future__ import annotations
@@ -46,6 +55,7 @@ from story.core.series import (
     comparable,
 )
 from story.stages.detection.canonicalization import POLICY_VERSION, ObservationLoad, canonicalize
+from story.stages.detection.detector_config import COMPARABLE_SHAPES, DELTA_PRECISION
 
 DETECTOR_ID = "detector:acceleration"
 DETECTOR_VERSION = "1.0.0"
@@ -60,24 +70,12 @@ WINDOW_POINTS = RUN_LENGTH + 1
 #: this rule asks *"is the third step half again the first"*, which is scale-free.
 MAGNITUDE_RATIO = 1.5
 
-#: Decimal places every delta is rounded to before it is compared with anything.
-#: `13.2 − 3.3` is `9.899999999999999` in IEEE 754 and `adjusted_gross_margin` really does hold
-#: those two values in adjacent quarters, so a rule that tested `|d1| < |d2|` or `sign(d)` on raw
-#: subtraction would decide on residues at the seventeenth digit. Nine places is far below every
-#: presentation tolerance in the corpus (0.1 for a percentage, $1 for a count) and far above the
-#: residue, so rounding here cannot change a decision the data supports.
-DELTA_PRECISION = 9
-
-#: The five shapes R3 admits. `PeriodShape.OTHER` is excluded because R3 refuses it — the three
-#: cross-year windows in this run are not comparable with anything — and it is excluded *here*
-#: as well so a window is never built out of points `comparable` would only refuse one by one.
-COMPARABLE_SHAPES: tuple[PeriodShape, ...] = (
-    PeriodShape.QUARTER,
-    PeriodShape.INSTANT,
-    PeriodShape.FISCAL_YEAR,
-    PeriodShape.YTD_6M,
-    PeriodShape.YTD_9M,
-)
+#: `DELTA_PRECISION` and `COMPARABLE_SHAPES` are imported above and re-exported here rather than
+#: declared: both must agree across the four detectors, and `DELTA_PRECISION` must also agree with
+#: R8 in `story/core/series.py`, which since D9 rounds a difference to it before testing a
+#: tolerance. A window built out of one module's shape tuple and judged by another's rounding is
+#: the divergence this binding removes. `RUN_LENGTH` and `MAGNITUDE_RATIO` stay here: they are
+#: §6.6 D3's own rule and no other detector can use them.
 
 #: The refusal this detector can raise on its own account: a series whose completeness the
 #: loader could not prove. Not a `Refuse` from `core/series.py` — that type answers "may these
