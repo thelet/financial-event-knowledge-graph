@@ -59,14 +59,33 @@ three** (§2's line: the model chooses words, code chooses facts).
   phrases would be refused for silence it was never told how to break. A test asserts the two
   copies are identical, so the duplication is checked rather than hoped over.
 
-**`WRITER_OPERATIONS` is deliberately narrower than the verifier's `OPERATION_INPUTS`.**
-§13.14's machinery operations — `extremum`, `compare_levels`, `compare_deltas`, `absence`,
-`temporal_order` — are absent from the grammar, so the writer *cannot* declare the machinery a
-superlative, a comparative or an absence claim would need, and every such construction it writes
-is refused at §13.14 instead of being half-supported. They need a full comparison set, and
-§10.2's twelve-fact cap cannot guarantee one. `delta_relative` is absent for §13.3's third gate:
-the demo's own inputs straddle zero, where a relative change is arithmetically defined and
-rhetorically meaningless.
+**`WRITER_OPERATIONS` is narrower than the verifier's `OPERATION_INPUTS`, and it is narrower by
+four rather than by five.** `extremum` and `absence` need a full comparison set that §10.2's
+twelve-fact cap cannot guarantee, and `temporal_order` needs two dated items where all three
+`executive_change` events carry `occurred_on: null`; a writer able to declare them would be
+half-supporting a claim §13.14 then refuses anyway. **`compare_levels` is here, and its absence
+was a defect.** §13.14 requires a comparative to be expressed as `compare_levels` or
+`compare_deltas`, and with neither in the grammar the construction could not be declared at all
+— so *"the GAAP gross margin was 15.9 percentage points lower than the adjusted gross margin"*,
+which is true, correctly bound and the whole content of the demo candidate, was refused with
+`unsupported_comparative` for a reason no rewrite could fix *(measured 2026-08-04, the recorded
+Qwen run)*. It is recomputed three ways — the direction against the values, the size against the
+gap, and the metric named on each side of the comparing word against the input it was declared
+as — so a comparison the sentence does not support refuses rather than passing.
+
+**What `compare_levels` still cannot say, and the prompt does not promise it can**: one metric
+against itself in two periods. §13.14 reads the two sides out of the sentence through §13.5's
+alias index, so two sides carrying one metric are two sides nothing can tell apart, and the
+verifier refuses them rather than checking half of the claim. Rule 12's *"name each figure's
+metric on its own side"* is that requirement stated the writing way; the demo candidate is
+cross-metric and never meets the case.
+
+`compare_deltas` stays out and the writer is not taught it: a side of it is a *change of one
+metric*, so it needs four bound observations forming two same-metric deltas over the same pair
+of periods, and every fact in the demo package is 2022Q3. The verifier recomputes it if a
+hand-written draft declares one; the grammar does not offer a branch the prompt cannot teach.
+`delta_relative` stays out for §13.3's third gate: the demo's own inputs straddle zero, where a
+relative change is arithmetically defined and rhetorically meaningless.
 """
 
 from __future__ import annotations
@@ -404,7 +423,12 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 
 #: Bumped whenever the wording or the rendering below changes, for the reason
 #: `PLANNER_PROMPT_VERSION` is: it is a digest input to every stored generation.
-WRITER_PROMPT_VERSION = "1.0.0"
+#:
+#: **1.1.0**: the draft schema gained `calculation.period_surface` and `compare_levels`, and
+#: rules 5, 11, 12 and 17 changed with them. Every generation recorded under 1.0.0 answers a
+#: different question and is unreachable by construction — the schema is in `request_identity`
+#: — and the bump is what makes that visible in the row rather than only in the digest.
+WRITER_PROMPT_VERSION = "1.1.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -424,7 +448,8 @@ DEFAULT_LENGTH_TARGET = 5
 
 #: The `Calculation.operation`s the grammar admits. Narrower than the verifier's table, and the
 #: narrowing is the point — see this module's docstring.
-WRITER_OPERATIONS: tuple[str, ...] = ("delta_pp", "delta_bps", "difference", "ratio", "sum")
+WRITER_OPERATIONS: tuple[str, ...] = (
+    "delta_pp", "delta_bps", "difference", "ratio", "sum", "compare_levels")
 
 #: What counts as having stated a required warning (§13's *"required qualifiers present"*).
 #: **Restated from `story/stages/verification/deterministic.py`'s
@@ -500,11 +525,13 @@ PLAIN_INVESTOR_STYLE = StyleProfile(
 #:   §15.3 has no null, so an unused string field is a box a model fills; rule 7 and the FORMULA
 #:   WINDOWS section give it the answer *"empty"* and something to check it against.
 #: * `unbound_numeral` on `"2022"` in the calculated sentence. **This is a §12 finding, not a
-#:   model error**: a `calculated` sentence carries no `fact_binding`, a period surface is only
+#:   model error**: a `calculated` sentence carries no `fact_binding`, a period surface was only
 #:   declarable *on* a binding, and §13.1 covers a numeral by binding span, calculation result,
-#:   period surface or allowlist. So a calculated sentence naming its own period is unverifiable
-#:   by construction, and rule 5 tells the writer not to. `Calculation` would need its own
-#:   `period_surface` for the alternative, which is a contract change and not this step's.
+#:   period surface or allowlist. So a calculated sentence naming its own period was
+#:   unverifiable by construction. The first wording told the writer not to name the period;
+#:   **that was the wrong end to fix it from**, and `Calculation.period_surface` is the right
+#:   one — rule 5 now asks for the period rather than forbidding it, and §13.4 resolves the
+#:   declared surface and requires it to agree with every input observation.
 #: * `citation_reused_for_unrelated_claim`, twice. The model re-cited both table spans in an
 #:   explanatory sentence that bound nothing. Rule 9 states §13.7's predicate — reuse *and*
 #:   non-support — rather than banning reuse, which a two-column table legitimately needs.
@@ -532,9 +559,10 @@ exactly once, character for character. An undeclared numeral is refused.
 4. Use a metric surface exactly as it is offered. A shorter one names two metrics and is \
 refused - write "GAAP gross margin" or "adjusted gross margin", never "gross margin".
 5. A `calculated` sentence carries exactly one `calculation` and **no citation**: it states \
-something you computed, not something the filing said. It carries no fact binding either, so \
-nothing in it can declare a metric or a period - write no figure in it other than the \
-calculation's own result, and do not name the period in it.
+something you computed, not something the filing said. It carries no fact binding, so write no \
+figure in it other than the calculation's own result. Name the period in it and put those exact \
+words in the calculation's `period_surface` - every input must be from that one period, and a \
+calculation over two different periods must name neither.
 6. In `input_observation_ids` the **base comes first and the subject second**, and every \
 operation is computed as second minus first (or second divided by first). To say that the \
 second figure stands 15.9 points above the first, list the lower one first.
@@ -551,16 +579,26 @@ decorate a second claim is provenance the passage does not supply.
 percent: write "15.9 percentage points", never "15.9%". A `%` figure beside a word like rose, \
 fell, up or down is refused as unresolvable.
 11. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
-worst, best, largest, smallest, record), a comparison between two figures (higher, lower, \
-better, worse, more, less, held up, outpaced), an absence claim (has not, did not, no longer), \
-or an ordering of two items (before, after, until, since). Nothing you have been shown can \
-support one.
-12. Never write about the future: no expectation, guidance, outlook, forecast, target or plan.
-13. Write about the subject and no one else. No competitor, no index, no "the market", no "the \
+worst, best, largest, smallest, record), an absence claim (has not, did not, no longer), or an \
+ordering of two items (before, after, until, since). Nothing you have been shown can support \
+one.
+12. One comparison between two figures (higher, lower, better, worse, more, less) is allowed, \
+in a `calculated` sentence and nowhere else. Set `operation` to `compare_levels`, list the two \
+`input_observation_ids` **in the order the sentence names them**, and set `expression` to \
+`left < right` when the sentence says the first is lower and `left > right` when it says the \
+first is higher. Name each figure's metric on its own side of the comparing word, use one \
+comparing word in the sentence, and make `result_rendered` the size of the gap. \
+"GAAP gross margin was 15.9 percentage points lower than adjusted gross margin" lists GAAP \
+first, then adjusted, with `left < right`.
+13. Never write about the future: no expectation, guidance, outlook, forecast, target or plan.
+14. Write about the subject and no one else. No competitor, no index, no "the market", no "the \
 industry", no "peers".
-14. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists.
-15. Write every counterpoint the plan lists, resting on the same ids the plan names.
-16. The title states no claim of its own: no figure, no superlative, no comparison, no cause.
+15. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists.
+16. Write every counterpoint the plan lists, resting on the same ids the plan names.
+17. The title states no claim of its own: no figure, no superlative, no comparison, no cause. \
+It may name the period the post is about, written in the compact form the candidate id uses \
+(2022Q3). That compact form belongs in the title only - inside a sentence, a period is written \
+with the period surface the FACTS section gives you.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
@@ -596,7 +634,9 @@ def writer_schema() -> dict[str, Any]:
     *"a calculation or nothing"* cannot be expressed as a nullable object. An empty array is the
     only portable spelling of absence, and `writer.draft_from` refuses a second element rather
     than picking one. `formula_version_id` is a string for the same reason and `""` means null —
-    an arithmetic derivation the ontology declares no formula for.
+    an arithmetic derivation the ontology declares no formula for. `period_surface` is required
+    and may be `""`: §15.3 requires every property, and a derivation whose sentence names no
+    period declares none, which §13.1 then refuses if a period word is in the text after all.
 
     Character offsets are absent by design: the model declares `rendered` and `quote`, and code
     locates them (see `WRITER_SYSTEM`, rules 3 and 6).
@@ -640,7 +680,8 @@ def writer_schema() -> dict[str, Any]:
                                 "type": "object",
                                 "additionalProperties": False,
                                 "required": ["operation", "input_observation_ids", "expression",
-                                             "result_rendered", "formula_version_id"],
+                                             "result_rendered", "formula_version_id",
+                                             "period_surface"],
                                 "properties": {
                                     "operation": {
                                         "type": "string",
@@ -651,6 +692,7 @@ def writer_schema() -> dict[str, Any]:
                                     "expression": {"type": "string"},
                                     "result_rendered": {"type": "string"},
                                     "formula_version_id": {"type": "string"},
+                                    "period_surface": {"type": "string"},
                                 },
                             },
                         },

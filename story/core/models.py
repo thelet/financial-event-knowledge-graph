@@ -131,6 +131,31 @@ class Severity(str, Enum):
     ADVISORY = "ADVISORY"
 
 
+class WarningKind(str, Enum):
+    """Which audience a package warning is for (§10.1), and therefore what may demand it.
+
+    §10.1's `warnings[]` serves two audiences, and the two were conflated until the demo ran.
+
+    * `CLAIM_QUALIFYING` — a property of the *evidence* that changes what a sentence resting on
+      it means: a minority reading, a population wording, a declared metric ambiguity, a single
+      corroborating document. A post that states the claim and drops the qualifier has said
+      something the evidence does not support, so §13's disclosure check refuses it.
+    * `BUILD_PROVENANCE` — a property of *how the package was assembled*: a section the token
+      budget trimmed, an `:EvidenceSource` lane that does not exist yet. It qualifies no claim,
+      and an investor post that said *"this package's token budget was trimmed"* would be
+      reporting on its own plumbing. It travels on the package to the evidence panel and the
+      manifest, and it may not become a `required_warning`.
+
+    The default is `CLAIM_QUALIFYING` wherever this is not stated, and the direction is
+    deliberate: provenance misfiled as a qualifier refuses loudly, while a qualifier misfiled as
+    provenance would go unsaid in silence. The codes' own kinds are declared beside their
+    severities in `story/stages/packaging/warning_codes.py`.
+    """
+
+    CLAIM_QUALIFYING = "claim_qualifying"
+    BUILD_PROVENANCE = "build_provenance"
+
+
 class Remedy(str, Enum):
     """What would fix a finding (§13.17), so a rejection is dispatchable rather than a search.
 
@@ -538,6 +563,10 @@ class PackagedWarning(StoryModel):
 
     code: str
     severity: Severity
+    #: Whether this warning qualifies a claim or records how the package was built. Defaulted
+    #: to `CLAIM_QUALIFYING` so a warning constructed without stating a kind demands disclosure
+    #: rather than escaping it — see `WarningKind` for why the default points that way.
+    kind: WarningKind = WarningKind.CLAIM_QUALIFYING
     subject_ids: tuple[str, ...] = ()
     detail: str = ""
 
@@ -845,6 +874,16 @@ class Calculation(StoryModel):
     `formula_version_id` is null for an arithmetic derivation the ontology declares no formula
     for — a quarter-over-quarter delta — and set when the expression is the ontology's own, so
     §13.9 can recompute against the declared window rather than against the draft's arithmetic.
+
+    **`period_surface` is here because §13.9 and §13.1 could not both be satisfied without it.**
+    §13.9 gives a `calculated` sentence no `fact_bindings` — it cites nothing and carries this
+    instead — and `FactBinding.period_surface` was the only place a draft could declare which
+    words of its own text name a period. So *"the third quarter of 2022"* in a derived sentence
+    was an `unbound_numeral` by construction, and §13.1's own text says a period surface is not
+    a fact. Declared by the writer rather than inferred by the verifier from the inputs, for
+    §12's reason: the verifier checks the declaration it was handed and never guesses one. It is
+    checked exactly as a binding's is — resolved through §13.4's closed grammar and required to
+    agree with **every** input observation's window — so a wrong period refuses.
     """
 
     operation: str
@@ -852,6 +891,7 @@ class Calculation(StoryModel):
     expression: str
     result_rendered: str
     formula_version_id: str | None = None
+    period_surface: str = ""
 
 
 class PassageCitation(StoryModel):
@@ -1279,5 +1319,6 @@ __all__ = [
     "UnusableReason",
     "VerificationFinding",
     "VerifiedDraft",
+    "WarningKind",
     "canonical_json",
 ]

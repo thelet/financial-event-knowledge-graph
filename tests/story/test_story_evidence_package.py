@@ -35,6 +35,7 @@ from story.core.models import (
     RetrievalTraceEntry,
     Severity,
     StoryCandidate,
+    WarningKind,
 )
 from story.core.periods import story_period
 from story.core.series import ObservationRecord
@@ -349,6 +350,47 @@ def test_every_declared_warning_code_carries_a_severity_the_gate_can_act_on():
     assert codes.SEVERITY_OF[codes.OBSERVATION_LOAD_INCOMPLETE] is Severity.REFUSE
     assert codes.SEVERITY_OF[codes.EVIDENCE_CHAIN_INCOMPLETE] is Severity.REFUSE
     assert codes.SEVERITY_OF[codes.PACKAGE_EXCEEDS_TOKEN_CEILING] is Severity.REFUSE
+
+
+def test_every_declared_warning_code_also_declares_which_audience_it_is_for():
+    """§10.1's `warnings[]` serves a reader and a build engineer, and never said which is which.
+
+    A code with a severity and no kind is a code whose disclosure behaviour would be decided by
+    a default, so `warning_codes` refuses to import unless the two tables cover the same set.
+    """
+    assert set(codes.KIND_OF) == set(codes.SEVERITY_OF)
+    assert codes.KIND_OF[codes.SINGLE_SOURCE] is WarningKind.CLAIM_QUALIFYING
+    assert codes.KIND_OF[codes.METRIC_AMBIGUITY_DECLARED] is WarningKind.CLAIM_QUALIFYING
+    assert codes.KIND_OF[codes.TOKEN_BUDGET_TRIMMED] is WarningKind.BUILD_PROVENANCE
+    assert codes.KIND_OF[codes.SECTION_TRUNCATED] is WarningKind.BUILD_PROVENANCE
+    assert codes.KIND_OF[codes.EVIDENCE_SOURCES_ABSENT_IN_V1] is WarningKind.BUILD_PROVENANCE
+
+
+def test_a_constructed_warning_carries_its_kind_so_a_later_stage_need_not_look_it_up():
+    """A stage may not import another stage, so the kind travels on the row or not at all."""
+    trimmed = codes.packaged_warning(codes.TOKEN_BUDGET_TRIMMED)
+    single = codes.packaged_warning(codes.SINGLE_SOURCE, subject_ids=("a",))
+
+    assert trimmed.kind is WarningKind.BUILD_PROVENANCE
+    assert single.kind is WarningKind.CLAIM_QUALIFYING
+    assert codes.claim_qualifying((trimmed, single)) == (single,)
+
+
+def test_build_provenance_is_still_carried_and_still_ordered_by_severity():
+    """It stops demanding a sentence; it does not stop being disclosed.
+
+    `token_budget_trimmed` is a WARN and outranks an ANNOTATE claim qualifier in the drop
+    order, so a package that trimmed still says so to the panel and the manifest.
+    """
+    warnings = [
+        codes.packaged_warning(codes.SINGLE_SOURCE, subject_ids=("a",)),
+        codes.packaged_warning(codes.TOKEN_BUDGET_TRIMMED),
+    ]
+    kept, dropped = section_bounds.truncate(warnings, 1, key=codes.warning_sort_key)
+
+    assert [w.code for w in kept] == [codes.TOKEN_BUDGET_TRIMMED]
+    assert kept[0].kind is WarningKind.BUILD_PROVENANCE
+    assert dropped == 1
 
 
 def test_the_warning_cap_drops_the_least_severe_row_so_a_refusal_can_never_be_capped_away():

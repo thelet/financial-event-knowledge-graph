@@ -33,6 +33,14 @@ D5's verifier can run against a hand-written plan:
    accounted for in `unusable_evidence`;
 3. `causal_language` is the value **code** computed from the package.
 
+**A fourth thing happens after the call and is a narrowing rather than a rule**:
+`claim_qualifying_warnings` drops the package's build-provenance codes from the model's
+`required_warnings`. §10.1 publishes one `warnings[]` list serving two audiences, so the model
+is answering the question it was asked when it names `token_budget_trimmed`; what it cannot do
+is turn a fact about the packaging into a sentence the post must carry. The plan is not
+rejected for it — only codes this package itself declares as provenance are dropped, and a code
+the package does not carry at all still reaches `unknown_warning_code` below.
+
 **One coherence hole is left open deliberately, and it was observed live.** Nothing here
 refuses a plan that both *uses* a counter-evidence item and lists it in `unusable_evidence` —
 which is what Qwen3.5-9B did on 2026-08-04, citing `…#p11` in its counterpoint and
@@ -70,6 +78,7 @@ from story.core.models import (
     KeyPoint,
     StoryEvidencePackage,
     UnusableEvidence,
+    WarningKind,
 )
 from story.providers.portable_schema import schema_violations, validate_portable_schema
 from story.providers.public import PINNED_TEMPERATURE, StoryProviderSchemaError
@@ -341,6 +350,34 @@ def plan_violations(
     return tuple(found)
 
 
+def claim_qualifying_warnings(
+    codes: Sequence[str], package: StoryEvidencePackage
+) -> tuple[str, ...]:
+    """The codes that may become `required_warnings`: everything but this package's provenance.
+
+    §10.1's `warnings[]` mixes two families and the plan's `required_warnings` is a demand for
+    *prose* — §13 refuses a draft that does not say each one. Build provenance is not a claim
+    qualifier: an investor post that stated *"this package's token budget was trimmed"* would be
+    reporting on its own plumbing, and the first end-to-end run failed exactly that way, with
+    five of nine blocking findings demanding a sentence for `token_budget_trimmed`,
+    `section_truncated`, `subject_identity_not_read_from_graph`, `evidence_sources_absent_in_v1`
+    and `relationships_unavailable_in_v1` *(measured 2026-08-04)*.
+
+    **Filtered rather than refused, and only for codes this package actually declares as
+    provenance.** A code the package does not carry at all falls straight through to
+    `plan_violations`' `unknown_warning_code` refusal, which is the check that stops a plan from
+    inventing a caveat; dropping unknown codes here would swallow it. The model is not at fault
+    for naming a code §10.1 published without a kind, so the plan is not rejected for it.
+
+    Reads `PackagedWarning.kind` off the package rather than a table of codes: the kinds are
+    declared in `story/stages/packaging/warning_codes.py` and a stage may not import another
+    stage, so the package is how the decision travels here (`test_no_stage_imports_another_stage`).
+    """
+    provenance = {warning.code for warning in package.warnings
+                  if warning.kind is WarningKind.BUILD_PROVENANCE}
+    return tuple(code for code in codes if code not in provenance)
+
+
 def _passage_ids(package: StoryEvidencePackage) -> set[str]:
     return {passage.passage_id
             for section in (package.primary_passages, package.context_passages,
@@ -399,6 +436,10 @@ def editorial_plan_from(
     `causal_language` is computed here from the package. The model's own `causal_language` is
     **not read at all** — the schema pins it to one value, and reading it back would make the
     field the model's on the day the grammar is wrong.
+
+    `required_warnings` is the model's, narrowed by `claim_qualifying_warnings`: the model may
+    choose which caveats the post must state, and may not put the package's build provenance
+    among them.
     """
     computed = causal_language_for(package)
     try:
@@ -422,7 +463,8 @@ def editorial_plan_from(
                     required_citation_passage_ids=tuple(
                         row.get("required_citation_passage_ids") or ()),
                 ) for row in content.get("counterpoints") or ()),
-            required_warnings=tuple(content.get("required_warnings") or ()),
+            required_warnings=claim_qualifying_warnings(
+                tuple(content.get("required_warnings") or ()), package),
             causal_language=computed,
             uncertainty=content.get("uncertainty") or "",
             structure=tuple(content.get("structure") or ()),

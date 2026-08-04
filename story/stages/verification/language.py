@@ -76,6 +76,21 @@ COMPARATIVE_TERMS: tuple[str, ...] = (
     "held up", "lagged",
 )
 
+#: Which way each comparative points: `True` when *"A <term> than B"* asserts A above B.
+#:
+#: **Total over `COMPARATIVE_TERMS`, and it is what makes a declared comparison checkable
+#: against its own sentence.** A `Calculation` names its two sides positionally and the prose
+#: names them in words; without this map the verifier would recompute `left < right` over a
+#: declaration and never ask whether the sentence said `lower` or `higher` — which is the word
+#: a reader actually reads, and the one an input list swapped by accident would contradict.
+#: `"held up"` points up: §13.14's own attack sentence is *"contribution profit held up better
+#: than adjusted gross profit"*, where both of its comparatives point the same way.
+COMPARATIVE_DIRECTION: Mapping[str, bool] = {
+    "more": True, "less": False, "better": True, "worse": False, "faster": True,
+    "slower": False, "higher": True, "lower": False, "outpaced": True, "held up": True,
+    "lagged": False,
+}
+
 #: §13.14's third class, verbatim.
 ABSENCE_TERMS: tuple[str, ...] = (
     "has not", "have not", "did not", "no longer", "has yet to", "remains the only",
@@ -212,6 +227,15 @@ def comparatives(text: str) -> tuple[LexicalMatch, ...]:
     return _scan(_COMPARATIVE, text)
 
 
+def comparative_direction(term: str) -> bool | None:
+    """`True` for a term that puts its subject above its object, `False` below, `None` unknown.
+
+    `None` is a real answer and a caller must refuse on it rather than assume a direction: a
+    comparative whose polarity the lexicon does not state is a comparison nothing can check.
+    """
+    return COMPARATIVE_DIRECTION.get(re.sub(r"\s+", " ", term.strip().lower()))
+
+
 def absence_claims(text: str) -> tuple[LexicalMatch, ...]:
     return _scan(_ABSENCE, text)
 
@@ -287,6 +311,7 @@ __all__ = [
     "ABSENCE_TERMS",
     "ATTRIBUTION_FRAMES",
     "CAUSAL_MARKERS",
+    "COMPARATIVE_DIRECTION",
     "COMPARATIVE_TERMS",
     "CONNECTIVE_LEXICON",
     "FOREIGN_SUBJECTS",
@@ -299,6 +324,7 @@ __all__ = [
     "absence_claims",
     "attribution_frames",
     "causal_markers",
+    "comparative_direction",
     "comparatives",
     "foreign_subjects",
     "forward_looking",

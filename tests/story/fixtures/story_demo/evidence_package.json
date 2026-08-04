@@ -1,6 +1,6 @@
 {
   "budget": {
-    "artifact_token_estimate": 5511,
+    "artifact_token_estimate": 5543,
     "caps_hit": [
       "context_passages",
       "primary_passages",
@@ -25,7 +25,7 @@
       "max_total_tokens": 5000,
       "max_warnings": 20
     },
-    "prompt_token_estimate": 4265,
+    "prompt_token_estimate": 4297,
     "section_counts": {
       "compatibility": 1,
       "conflicts": 0,
@@ -302,7 +302,7 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "6304146903684c3c0ba87e425b68b1ad0d10308b1cbc6a5cd62791f85acc0ba3",
+  "package_content_digest": "b01a8d573f0807926623fd42e2a350c65539ee8f60cb8a161ed108902ee0f257",
   "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:a12e47402914",
   "package_version": "1.0.0",
   "policy_version": "canon-policy:1.0.0",
@@ -607,6 +607,7 @@
     {
       "code": "token_budget_trimmed",
       "detail": "§10.2's 5000-token budget bound the model-visible slice; rows were dropped in the order explanatory_passages, context_passages, primary_passages, counter_evidence, each section to its floor before the next was touched, and no drop may strand a slot the candidate anchored on",
+      "kind": "build_provenance",
       "severity": "WARN",
       "subject_ids": [
         "token_budget"
@@ -615,6 +616,7 @@
     {
       "code": "section_truncated",
       "detail": "primary_passages: 7 cited, 4 carried; the passage cited by the highest-ranked surviving fact stays and the tail goes, and the facts bound to a dropped passage go with it (§13.7 Rule A)",
+      "kind": "build_provenance",
       "severity": "ANNOTATE",
       "subject_ids": [
         "primary_passages"
@@ -623,6 +625,7 @@
     {
       "code": "subject_identity_not_read_from_graph",
       "detail": "no §9 tool reads `:Entity` — `opendoor` carries 2,704 `OBSERVATION_OF_SUBJECT` edges and one hop outward is the whole graph — so `entity_text` and `labels` are the caller's and `resolved` is inferred from the observations' own `subject_entity_id`",
+      "kind": "build_provenance",
       "severity": "ANNOTATE",
       "subject_ids": [
         "opendoor"
@@ -631,12 +634,14 @@
     {
       "code": "evidence_sources_absent_in_v1",
       "detail": "`evidence_sources[]` is empty because zero `:EvidenceSource` nodes exist — all evidence edges land on a `:Passage` (§13.7.2). Rule C is Unavailable, not silently satisfied",
+      "kind": "build_provenance",
       "severity": "ADVISORY",
       "subject_ids": []
     },
     {
       "code": "relationships_unavailable_in_v1",
       "detail": "`relationships[]` is empty because no §9 tool implemented at S1 returns a relationship; `find_related_entities` is in §9's table and is not one of the nine. An empty section here is a gap in the retrieval layer",
+      "kind": "build_provenance",
       "severity": "ADVISORY",
       "subject_ids": []
     }

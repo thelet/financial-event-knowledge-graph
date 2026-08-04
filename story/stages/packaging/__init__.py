@@ -79,9 +79,11 @@ from story.stages.packaging.section_bounds import (
     prompt_slice,
 )
 from story.stages.packaging.warning_codes import (
+    KIND_OF,
     SEVERITY_OF,
     UnknownWarningCode,
     blocking,
+    claim_qualifying,
     packaged_warning,
 )
 
@@ -89,6 +91,7 @@ __all__ = [
     "CEILINGS",
     "CHARS_PER_TOKEN",
     "EXCERPT_RADIUS_CHARS",
+    "KIND_OF",
     "MATCH_BASIS_SAME_DOCUMENT",
     "MATCH_BASIS_SAME_PASSAGE",
     "MAX_TERMS",
@@ -113,6 +116,7 @@ __all__ = [
     "UnknownWarningCode",
     "blocking",
     "check_budget",
+    "claim_qualifying",
     "derive_terms",
     "estimate_tokens",
     "match_basis",

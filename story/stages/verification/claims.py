@@ -45,6 +45,7 @@ from story.core.models import (
     CheckResult,
     Draft,
     DraftSentence,
+    PackagedFact,
     PassageCitation,
     SentenceKind,
     VerificationFinding,
@@ -55,6 +56,7 @@ from story.core.numerals import tokenize_numerals
 import story.stages.verification.citations as citation_rules
 import story.stages.verification.language as language
 from story.stages.verification.codes import finding
+from story.stages.verification.metric_surfaces import MetricAliasIndex
 from story.stages.verification.package_index import PackageIndex
 
 #: §13.14's superlative machinery. `Calculation.expression` is a free string, so the forms the
@@ -70,7 +72,10 @@ COMPARISON_EXPRESSIONS: frozenset[str] = frozenset({"left > right", "left < righ
 
 
 def check_language(
-    draft: Draft, index: PackageIndex, period_surfaces: Sequence[str]
+    draft: Draft,
+    index: PackageIndex,
+    aliases: MetricAliasIndex,
+    period_surfaces: Sequence[str],
 ) -> CheckResult:
     found: list[VerificationFinding] = []
     examined = 0
@@ -82,7 +87,7 @@ def check_language(
         found.extend(_forward_looking_findings(sentence))
         found.extend(_causal_findings(sentence, index))
         found.extend(_connective_findings(sentence))
-        found.extend(_claim_findings(sentence, index, exempt))
+        found.extend(_claim_findings(sentence, index, aliases, exempt))
     return CheckResult(name="language_safety", examined=examined, findings=tuple(found))
 
 def _forward_looking_findings(
@@ -245,6 +250,7 @@ def _connective_findings(sentence: DraftSentence) -> list[VerificationFinding]:
 def _claim_findings(
     sentence: DraftSentence,
     index: PackageIndex,
+    aliases: MetricAliasIndex,
     exempt: Sequence[language.LexicalMatch],
 ) -> list[VerificationFinding]:
     """§13.14's four constructions, each permitted only with its machinery behind it."""
@@ -271,21 +277,20 @@ def _claim_findings(
             ))
         break
 
-    for match in filter(outside, language.comparatives(sentence.text)):
-        if operation not in {"compare_levels", "compare_deltas"}:
-            found.append(finding(
-                "unsupported_comparative",
-                sentence_index=sentence.index,
-                char_start=match.start, char_end=match.end,
-                expected="operation=compare_levels or compare_deltas with both sides' inputs",
-                observed=match.term,
-                explanation=(
-                    "§13.14: the comparison is over deltas, which nothing else evaluates. "
-                    "\"Contribution profit held up better than adjusted gross profit\" is "
-                    "decided by $2M — CP falls $444M and AGP $446M over 2022Q2→Q3 — and no "
-                    "check outside a recomputation looks at either number."),
-            ))
-        break
+    comparatives = tuple(filter(outside, language.comparatives(sentence.text)))
+    if comparatives and operation not in {"compare_levels", "compare_deltas"}:
+        found.append(finding(
+            "unsupported_comparative",
+            sentence_index=sentence.index,
+            char_start=comparatives[0].start, char_end=comparatives[0].end,
+            expected="operation=compare_levels or compare_deltas with both sides' inputs",
+            observed=comparatives[0].term,
+            explanation=(
+                "§13.14: the comparison is over deltas, which nothing else evaluates. "
+                "\"Contribution profit held up better than adjusted gross profit\" is "
+                "decided by $2M — CP falls $444M and AGP $446M over 2022Q2→Q3 — and no "
+                "check outside a recomputation looks at either number."),
+        ))
 
     for match in language.absence_claims(sentence.text):
         found.append(_absence_finding(sentence, match, index, operation))
@@ -311,7 +316,7 @@ def _claim_findings(
     if operation == "extremum" and calculation is not None:
         found.extend(_extremum_findings(sentence, calculation, index))
     if operation in {"compare_levels", "compare_deltas"} and calculation is not None:
-        found.extend(_comparison_findings(sentence, calculation, index))
+        found.extend(_comparison_findings(sentence, calculation, index, aliases, comparatives))
     if operation == "temporal_order" and calculation is not None:
         found.extend(_temporal_findings(sentence, calculation, index))
     return found
@@ -408,8 +413,27 @@ def _extremum_findings(
     )]
 
 def _comparison_findings(
-    sentence: DraftSentence, calculation: Calculation, index: PackageIndex
+    sentence: DraftSentence,
+    calculation: Calculation,
+    index: PackageIndex,
+    aliases: MetricAliasIndex,
+    comparatives: Sequence[language.LexicalMatch],
 ) -> list[VerificationFinding]:
+    """§13.14's comparative, recomputed **and** matched against the words that state it.
+
+    Two questions, and V1's first draft asked only the first. *Do the values compare the way the
+    calculation says?* is `comparative_recomputation_failed`. *Do the sentence's own words say
+    the same thing?* is `comparative_not_supported_by_text`, and without it the declaration is
+    checked against itself: `input_observation_ids` names the two sides positionally, so a
+    sentence reading *"adjusted gross margin was 15.9 points lower than GAAP gross margin"* —
+    false, and the exact inversion of the demo candidate — passes a recomputation of
+    `left < right` over `(gaap, adjusted)` while asserting the opposite of it.
+
+    The words are read three ways, all of them closed: the comparative's polarity comes from
+    `language.COMPARATIVE_DIRECTION`, the two sides come from §13.5's alias index over the text
+    on either side of the comparative, and the sentence may carry exactly one comparative,
+    because a second one is a second comparison and the calculation declares one.
+    """
     expression = calculation.expression.strip().lower()
     if expression not in COMPARISON_EXPRESSIONS:
         return [finding(
@@ -420,24 +444,102 @@ def _comparison_findings(
             explanation="§13.14: the comparative's direction must be recomputable.",
         )]
     facts = [index.fact(fact_id) for fact_id in calculation.input_observation_ids]
-    if any(fact is None for fact in facts):
-        return []
+    wanted = 2 if calculation.operation == "compare_levels" else 4
+    if len(facts) != wanted or any(fact is None for fact in facts):
+        return []  # already refused as calculation_inputs_unresolved (§13.9)
     values = [fact.value for fact in facts if fact is not None]
     if calculation.operation == "compare_levels":
         left, right = values[0], values[1]
     else:
         left, right = values[1] - values[0], values[3] - values[2]
-    holds = left > right if expression == "left > right" else left < right
-    if holds:
+    left_above = expression == "left > right"
+    holds = left > right if left_above else left < right
+    if not holds:
+        return [finding(
+            "comparative_recomputation_failed",
+            sentence_index=sentence.index,
+            fact_ids=tuple(calculation.input_observation_ids),
+            expected=expression,
+            observed=f"left={left!r}, right={right!r}",
+            explanation="§13.14: the verifier recomputes both sides and checks the direction.",
+        )]
+    resolved = [fact for fact in facts if fact is not None]
+    return _comparison_text_findings(
+        sentence, calculation, aliases, resolved, left_above, comparatives)
+
+
+def _comparison_text_findings(
+    sentence: DraftSentence,
+    calculation: Calculation,
+    aliases: MetricAliasIndex,
+    facts: Sequence[PackagedFact],
+    left_above: bool,
+    comparatives: Sequence[language.LexicalMatch],
+) -> list[VerificationFinding]:
+    """The sentence's own words against the sides the calculation declared.
+
+    No comparative in the text is not a failure: *"the gap between the two measures was 15.9
+    percentage points"* states a size and no direction, and there is nothing to disagree with.
+    Every other shape has to line up — one comparative, a polarity the lexicon knows, and the
+    two metrics named in the declared order on either side of it.
+    """
+    def refusal(expected: str, observed: str) -> list[VerificationFinding]:
+        return [finding(
+            "comparative_not_supported_by_text",
+            sentence_index=sentence.index,
+            fact_ids=tuple(calculation.input_observation_ids),
+            expected=expected, observed=observed,
+            explanation=(
+                "§13.14: a calculation names its two sides by position and the sentence names "
+                "them in words. Recomputing the declaration alone would accept the sentence "
+                "that reverses it, which is the same number and the opposite claim."),
+        )]
+
+    if not comparatives:
         return []
-    return [finding(
-        "comparative_recomputation_failed",
-        sentence_index=sentence.index,
-        fact_ids=tuple(calculation.input_observation_ids),
-        expected=expression,
-        observed=f"left={left!r}, right={right!r}",
-        explanation="§13.14: the verifier recomputes both sides and checks the direction.",
-    )]
+    if len(comparatives) > 1:
+        return refusal(
+            "one comparative, which is what one calculation can support",
+            ", ".join(match.term for match in comparatives))
+    match = comparatives[0]
+    direction = language.comparative_direction(match.term)
+    if direction is None:
+        return refusal("a comparative whose polarity the §13.14 lexicon states", match.term)
+    if direction is not left_above:
+        return refusal(
+            f"{calculation.expression.strip().lower()} written as "
+            + ("a term putting the first side above the second"
+               if left_above else "a term putting the first side below the second"),
+            match.term)
+    if calculation.operation == "compare_deltas":
+        # A side of a delta comparison is a change *of one metric*. Two metrics on one side is
+        # not a delta, and neither the recomputation nor a reader could say which one moved.
+        left_metrics = {facts[0].metric_id, facts[1].metric_id}
+        right_metrics = {facts[2].metric_id, facts[3].metric_id}
+        if len(left_metrics) != 1 or len(right_metrics) != 1:
+            return refusal(
+                "each side of a delta comparison over one metric",
+                f"{sorted(left_metrics)} versus {sorted(right_metrics)}")
+        expected_left, expected_right = left_metrics.pop(), right_metrics.pop()
+    else:
+        expected_left, expected_right = facts[0].metric_id, facts[1].metric_id
+    if expected_left == expected_right:
+        # Two sides of one metric — the same metric in two periods. The sides are then
+        # indistinguishable to the only reader this check has, so the sentence could be
+        # reversed and still line up. Refused rather than half-checked: it was refused
+        # outright before `compare_levels` was declarable, and a period surface cannot
+        # separate the sides either, because §13.4 makes a derivation declare one period and
+        # requires every input to have been read over it.
+        return refusal(
+            "two sides the sentence names apart",
+            f"both sides are {expected_left}, which no reading of the sentence can order")
+    named_left = aliases.resolve(sentence.text[:match.start]).unique_metric_id
+    named_right = aliases.resolve(sentence.text[match.end:]).unique_metric_id
+    if (named_left, named_right) != (expected_left, expected_right):
+        return refusal(
+            f"{expected_left} before {match.term!r} and {expected_right} after it",
+            f"{named_left or 'no metric'} before and {named_right or 'no metric'} after")
+    return []
 
 def _temporal_findings(
     sentence: DraftSentence, calculation: Calculation, index: PackageIndex
@@ -464,7 +566,20 @@ def _temporal_findings(
             "which is the correct outcome."),
     )]
 
-def check_title(draft: Draft) -> CheckResult:
+def _title_period_spans(title: str, index: PackageIndex) -> tuple[language.LexicalMatch, ...]:
+    """Occurrences in the title of a `period_key` this package's own facts carry.
+
+    §10.3's keys are `2022Q3`, `FY2022`, `2022-09-30` or `{start}_{end}` — every one of them
+    carries a letter or a hyphen, so the guard below can never license a bare year or a bare
+    numeral, which §13.4 refuses everywhere else for the reason §13.7.1 measured: a year-only
+    surface is ambiguous on 61.3% of table observations.
+    """
+    keys = {fact.period_key for fact in index.package.facts
+            if fact.period_key and not fact.period_key.isdigit()}
+    return tuple(span for key in sorted(keys) for span in language.occurrences(title, key))
+
+
+def check_title(draft: Draft, index: PackageIndex) -> CheckResult:
     """`Draft.title` is model-written prose that **no binding covers**.
 
     §12 specifies `fact_bindings`, a `calculation` and `citations` per *sentence*; the
@@ -472,17 +587,29 @@ def check_title(draft: Draft) -> CheckResult:
     entirely. That is a hole a generator can walk through — *"Opendoor's worst quarter
     ever"* carries no numeral, no binding and no citation and would otherwise reach a
     published post unexamined. Since nothing can back a title claim, every construction
-    §13.14 and §13.15 name is refused there unconditionally, and **any numeral in a title
-    is unbound by construction**.
+    §13.14 and §13.15 name is refused there unconditionally.
+
+    **One numeral is admissible, and it is not a claim: the period the post is about.** A title
+    reading *"…for 2022Q3"* was refused twice over — on `2022` and on `3` — while the package's
+    own facts all carry `period_key: 2022Q3`, and §13.1's own text says a period surface is not
+    a fact. So a numeral inside an occurrence of a period key **this package carries** is
+    covered, and every other numeral is still `unbound_numeral`. The span is an exact
+    occurrence of a string the package itself minted, so no value, no metric and no comparison
+    can hide in it: *"Opendoor's worst quarter ever, in 2 charts"* still fails on both the
+    superlative and the `2`.
     """
     if not draft.title:
         return CheckResult(name="title", examined=0)
     found: list[VerificationFinding] = []
+    periods = _title_period_spans(draft.title, index)
     for token in tokenize_numerals(draft.title):
+        if any(span.contains(token.start, token.end) for span in periods):
+            continue
         found.append(finding(
             "unbound_numeral",
             char_start=token.start, char_end=token.end,
-            expected="no numeral in the title, which carries no fact_binding",
+            expected=("no numeral in the title, which carries no fact_binding — except inside "
+                      "a period key the package's own facts carry"),
             observed=token.text,
             explanation=(
                 "§12 gives bindings, calculations and citations to sentences, not to the "

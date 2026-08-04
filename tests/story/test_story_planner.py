@@ -50,6 +50,7 @@ from story.core.models import (
     StoryEvidencePackage,
     UnusableEvidence,
     UnusableReason,
+    WarningKind,
 )
 from story.contracts import StoryGenerationProvider
 from story.providers.generation_store import GenerationStore, ReplayingStoryGenerationProvider
@@ -516,6 +517,73 @@ def test_a_plan_requiring_a_warning_the_package_does_not_carry_is_rejected():
     with pytest.raises(EditorialPlanRejected) as raised:
         plan_with(FakePlanProvider(answer), divergence_package())
     assert raised.value.codes == (UNKNOWN_WARNING_CODE,)
+
+
+# -- rule: a warning that qualifies no claim may not demand a sentence -------------------------
+
+
+def _package_with_provenance() -> StoryEvidencePackage:
+    """The demo package plus the two build-provenance warnings its real build raises."""
+    return divergence_package(warnings=(
+        PackagedWarning(code="filing_date_unknown", severity=Severity.ANNOTATE,
+                        subject_ids=(CANDIDATE_ID,),
+                        detail="the candidate's own filing date is not knowable"),
+        PackagedWarning(code="token_budget_trimmed", severity=Severity.WARN,
+                        kind=WarningKind.BUILD_PROVENANCE,
+                        detail="§10.2's 5,000-token estimate was exceeded and rows were cut"),
+        PackagedWarning(code="evidence_sources_absent_in_v1", severity=Severity.ADVISORY,
+                        kind=WarningKind.BUILD_PROVENANCE,
+                        detail="zero :EvidenceSource nodes exist"),
+    ))
+
+
+def test_build_provenance_never_becomes_a_warning_the_post_has_to_state():
+    """§10.1's warnings serve two audiences and only one of them is the reader.
+
+    The recorded Qwen run named all five of the package's build-provenance codes in
+    `required_warnings`, and §13 then demanded five sentences of plumbing from an investor
+    post — five of the nine blocking findings *(measured 2026-08-04)*. Dropped here rather than
+    rejected: the model was answering the question §10.1 asked it, and the kinds are the
+    package's to declare.
+    """
+    package = _package_with_provenance()
+    answer = valid_answer(required_warnings=[
+        "token_budget_trimmed", "filing_date_unknown", "evidence_sources_absent_in_v1"])
+    planned = plan_with(FakePlanProvider(answer), package)
+
+    assert planned.plan.required_warnings == ("filing_date_unknown",)
+    # The provenance did not disappear — it is still on the package, for the evidence panel and
+    # the manifest. It simply no longer demands prose.
+    assert {warning.code for warning in package.warnings} == {
+        "filing_date_unknown", "token_budget_trimmed", "evidence_sources_absent_in_v1"}
+
+
+def test_a_claim_qualifying_warning_is_still_the_writers_to_state():
+    """The disclosure rule is untouched: the filter drops provenance and nothing else."""
+    package = _package_with_provenance()
+    answer = valid_answer(required_warnings=["filing_date_unknown"])
+    assert plan_with(FakePlanProvider(answer), package).plan.required_warnings == (
+        "filing_date_unknown",)
+
+
+def test_a_warning_the_package_does_not_carry_is_still_rejected_and_not_quietly_dropped():
+    """The filter must not swallow `unknown_warning_code`, which is the check that stops a plan
+    inventing a caveat. Only codes the package itself declares as provenance are dropped."""
+    answer = valid_answer(required_warnings=["token_budget_trimmed", "invented_code"])
+    with pytest.raises(EditorialPlanRejected) as raised:
+        plan_with(FakePlanProvider(answer), _package_with_provenance())
+    assert raised.value.codes == (UNKNOWN_WARNING_CODE,)
+
+
+def test_a_warning_that_states_no_kind_is_treated_as_one_the_post_must_state():
+    """The default points at disclosure: provenance misfiled refuses loudly, and a qualifier
+    misfiled would go unsaid in silence."""
+    package = divergence_package(warnings=(
+        PackagedWarning(code="filing_date_unknown", severity=Severity.ANNOTATE),))
+    assert package.warnings[0].kind is WarningKind.CLAIM_QUALIFYING
+    answer = valid_answer(required_warnings=["filing_date_unknown"])
+    assert plan_with(FakePlanProvider(answer), package).plan.required_warnings == (
+        "filing_date_unknown",)
 
 
 def test_a_plan_with_no_key_point_is_rejected():

@@ -29,6 +29,11 @@ beside it.
    the extremum over that exact set"* and never says in what language the claim is written.
    `Calculation.expression` is a free string, so the recomputable forms are a closed set here
    and anything else is refused rather than assumed satisfied.
+4. `comparative_not_supported_by_text` (REFUSE). §13.14 gives a comparative an `operation` and
+   two sides and stops there; the sides are positional and the sentence names them in words, so
+   recomputing the declaration alone accepts the sentence that reverses it — the same number
+   and the opposite claim. This is the code for *"the calculation and the prose disagree"*, and
+   it exists because the operations it guards became writable in the same change.
 
 **Two remedies §13.17's enum cannot express**, recorded because the enum lives in
 `story/core/models.py`, which this step does not own: a dropped `required_warning` and an
@@ -178,6 +183,7 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("extremum_recomputation_failed", Remedy.DROP_SENTENCE, "13.14"),
     _refuse("extremum_expression_not_supported", Remedy.DROP_SENTENCE, "13.14"),
     _refuse("comparative_recomputation_failed", Remedy.DROP_SENTENCE, "13.14"),
+    _refuse("comparative_not_supported_by_text", Remedy.DROP_SENTENCE, "13.14"),
     _refuse("unpopulated_metric", Remedy.DROP_SENTENCE, "13.14"),
     _refuse("absence_not_provable_from_bounded_package", Remedy.DROP_SENTENCE, "13.14"),
 

@@ -303,7 +303,8 @@ def valid_answer(**overrides: Any) -> dict[str, Any]:
                 "input_observation_ids": [GGM_ID, AGM_ID],
                 "expression": "adjusted_gross_margin - gaap_gross_margin",
                 "result_rendered": "15.9 percentage points",
-                "formula_version_id": ""}]),
+                "formula_version_id": "",
+                "period_surface": ""}]),
             sentence(WARNING_TEXT, "connective"),
         ],
     }
@@ -517,13 +518,24 @@ def test_a_calculation_is_an_array_because_the_portable_subset_has_no_nullable_o
     assert calculation["items"]["type"] == "object"
 
 
-def test_the_writers_operations_exclude_every_machinery_operation_13_14_would_need():
-    """§13.14: a superlative needs `extremum`, a comparative `compare_levels`/`compare_deltas`,
-    an absence claim `absence`, an ordering `temporal_order`. None is in the grammar, so the
-    writer cannot half-support one — every such construction it writes is refused outright."""
-    for operation in ("extremum", "compare_levels", "compare_deltas", "absence",
-                      "temporal_order", "delta_relative"):
+def test_the_writers_operations_exclude_the_machinery_it_could_never_satisfy():
+    """§13.14's machinery, minus the one form this package can actually support.
+
+    A superlative needs `extremum` over a full comparison set and §10.2 caps `facts[]` at
+    twelve; an absence claim needs `absence`, which a bounded package can never establish; an
+    ordering needs `temporal_order` and all three `executive_change` events carry
+    `occurred_on: null`. None is in the grammar, so the writer cannot half-support one.
+
+    **`compare_levels` is in the grammar, and it has to be.** §13.14 requires a comparative to
+    be expressed as `compare_levels` or `compare_deltas`, and with neither in the enum the
+    construction was undeclarable — which refused the demo's own true, correctly bound sentence
+    for a reason no rewrite could reach. `compare_deltas` stays out because a side of it is a
+    change of one metric across two periods, and every fact in this package is 2022Q3.
+    """
+    for operation in ("extremum", "compare_deltas", "absence", "temporal_order",
+                      "delta_relative"):
         assert operation not in WRITER_OPERATIONS
+    assert "compare_levels" in WRITER_OPERATIONS
     schema = writer_schema()["properties"]["sentences"]["items"]["properties"]["calculation"]
     assert schema["items"]["properties"]["operation"]["enum"] == list(WRITER_OPERATIONS)
 
@@ -707,7 +719,8 @@ def test_two_calculations_on_one_sentence_are_refused_rather_than_one_being_pick
     answer["sentences"][2]["calculation"] = [
         answer["sentences"][2]["calculation"][0],
         {"operation": "difference", "input_observation_ids": [AGM_ID, GGM_ID],
-         "expression": "a - b", "result_rendered": "15.9", "formula_version_id": ""}]
+         "expression": "a - b", "result_rendered": "15.9", "formula_version_id": "",
+         "period_surface": ""}]
     with pytest.raises(DraftRejected) as raised:
         write_with(FakeWriteProvider(answer))
     assert raised.value.codes == (MORE_THAN_ONE_CALCULATION,)
@@ -1012,6 +1025,7 @@ def test_a_percentage_where_percentage_points_are_meant_is_refused(verifier):
     rows = valid_answer()["sentences"]
     answer = valid_answer(sentences=[rows[0], rows[1], sentence(text, "calculated", calculation=[{
         "operation": "delta_pp", "input_observation_ids": [GGM_ID, AGM_ID],
+        "period_surface": "",
         "expression": "adjusted_gross_margin - gaap_gross_margin",
         "result_rendered": "15.9%", "formula_version_id": ""}]), rows[3]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())

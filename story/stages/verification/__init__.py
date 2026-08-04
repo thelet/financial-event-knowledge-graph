@@ -19,14 +19,14 @@ something in them blocks, so an acceptance cannot be filed as a rejection or the
 Eight modules, split where a concern is genuinely separate rather than to make the directory
 look uniform:
 
-    codes.py           §13.17's gate — severity and remedy per code, in one table      258
+    codes.py           §13.17's gate — severity and remedy per code, in one table      264
     period_grammar.py  §13.4's closed grammar for a period surface                     203
     metric_surfaces.py §13.5's alias index, longest match wins                         204
-    language.py        the closed lexicons §13.6, §13.10, §13.14, §13.15 refuse on     311
+    language.py        the closed lexicons §13.6, §13.10, §13.14, §13.15 refuse on     337
     package_index.py   the lookups over one package, incl. §13.7.1's column census     183
     citations.py       §13.7's three rules — reconstruction, containment, Rule C       490
-    claims.py          §13.10, §13.14, §13.15 — what a sentence may assert             519
-    deterministic.py   ten of the twelve checks, and the assembly                    1,318
+    claims.py          §13.10, §13.14, §13.15 — what a sentence may assert             636
+    deterministic.py   ten of the twelve checks, and the assembly                    1,417
 
 `deterministic.py` reached 1,804 lines before `claims.py` was split out of it, and the split is
 a boundary rather than a size target: *"does this number match this fact"* and *"may this

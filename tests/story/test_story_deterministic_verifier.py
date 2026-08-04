@@ -841,6 +841,229 @@ def test_a_calculation_over_inputs_of_different_shapes_is_incomparable(verifier)
 
 
 # ---------------------------------------------------------------------------------------
+# §13.4 + §13.9 — the period a derivation computes over
+# ---------------------------------------------------------------------------------------
+
+#: The sentence the demo's own writer produced, which was undeclarable before
+#: `Calculation.period_surface` existed: a `calculated` sentence carries no binding, so the
+#: words *"the third quarter of 2022"* were an `unbound_numeral` on `2022` by construction.
+DATED_GAP_TEXT = ("The GAAP gross margin was 15.9 percentage points lower than the adjusted "
+                  "gross margin in the third quarter of 2022.")
+
+
+def dated_gap_sentence(**overrides: object) -> DraftSentence:
+    fields: dict[str, object] = dict(
+        index=0, text=DATED_GAP_TEXT, kind=SentenceKind.CALCULATED,
+        calculation=Calculation(
+            operation="compare_levels",
+            input_observation_ids=(GGM_ID, AGM_ID),
+            expression="left < right",
+            result_rendered="15.9 percentage points",
+            period_surface="the third quarter of 2022"),
+    )
+    fields.update(overrides)
+    return DraftSentence(**fields)  # type: ignore[arg-type]
+
+
+def test_a_calculated_sentence_may_declare_the_period_it_computed_over(verifier):
+    """§13.1 says a period surface is not a fact, and §13.9 gives the sentence no binding.
+
+    Before `Calculation.period_surface` the two rules could not both be satisfied: a derivation
+    naming its own quarter was refused on the year inside the period words. Here the same
+    sentence is accepted, and nothing else about it changed.
+    """
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(),)), make_package(),
+        make_plan(required_warnings=()))
+    assert verified.all_findings == ()
+    assert verified.check("periods").examined == 1
+
+
+def test_a_derivation_that_names_a_period_its_inputs_were_not_read_over_is_refused(verifier):
+    """The declaration is checked, not trusted — the whole reason it is the writer's to make.
+
+    Both inputs are 2022Q3 and the sentence says the fourth quarter. §13.4 compares both
+    endpoints, so this is `period_mismatch` and the draft is refused.
+    """
+    text = DATED_GAP_TEXT.replace("third quarter", "fourth quarter")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="compare_levels", input_observation_ids=(GGM_ID, AGM_ID),
+                expression="left < right", result_rendered="15.9 percentage points",
+                period_surface="the fourth quarter of 2022")),)),
+        make_package(), make_plan(required_warnings=()))
+    mismatch = [f for f in verified.all_findings if f.code == "period_mismatch"]
+    assert mismatch and mismatch[0].observed.startswith("'the fourth quarter of 2022'")
+    assert verified.passed is False
+
+
+def test_a_derivation_whose_period_surface_is_outside_the_grammar_is_refused(verifier):
+    """A bare year is not in §13.4's grammar wherever it is declared, binding or calculation."""
+    text = "The GAAP gross margin was 15.9 percentage points below the adjusted one in 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="difference", input_observation_ids=(GGM_ID, AGM_ID),
+                expression="adjusted_gross_margin - gaap_gross_margin",
+                result_rendered="15.9 percentage points", period_surface="2022")),)),
+        make_package(), make_plan(required_warnings=()))
+    assert "period_unresolvable" in codes_of(verified)
+    assert verified.passed is False
+
+
+# ---------------------------------------------------------------------------------------
+# §13.14 — a comparative, which V1 could declare in no way at all
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_comparative_backed_by_compare_levels_is_accepted(verifier):
+    """§13.14 requires `compare_levels` or `compare_deltas`; the writer's enum held neither.
+
+    −12.6 is 15.9 points below 3.3, the sentence says so, and the calculation declares the two
+    sides in the order the sentence names them.
+    """
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(),)), make_package(),
+        make_plan(required_warnings=()))
+    assert "unsupported_comparative" not in codes_of(verified)
+    assert verified.passed is True
+
+
+def test_a_comparative_whose_gap_does_not_recompute_is_refused(verifier):
+    """The size is §13.9's, and a comparison that renders one is recomputed like any other."""
+    text = DATED_GAP_TEXT.replace("15.9", "12.9")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="compare_levels", input_observation_ids=(GGM_ID, AGM_ID),
+                expression="left < right", result_rendered="12.9 percentage points",
+                period_surface="the third quarter of 2022")),)),
+        make_package(), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings if f.code == "calculation_does_not_recompute"]
+    assert failure and failure[0].expected == "15.9"
+    assert verified.passed is False
+
+
+def test_a_comparative_the_values_contradict_is_refused(verifier):
+    """The direction is §13.14's: −12.6 is not above 3.3, whatever the expression declares."""
+    text = DATED_GAP_TEXT.replace("lower", "higher")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="compare_levels", input_observation_ids=(GGM_ID, AGM_ID),
+                expression="left > right", result_rendered="15.9 percentage points",
+                period_surface="the third quarter of 2022")),)),
+        make_package(), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_recomputation_failed"]
+    assert failure and failure[0].observed == "left=-12.6, right=3.3"
+    assert verified.passed is False
+
+
+def test_a_comparative_whose_sentence_reverses_its_own_calculation_is_refused(verifier):
+    """**The attack the recomputation alone would have accepted.**
+
+    The declaration is `left < right` over `(gaap, adjusted)` and recomputes: −12.6 < 3.3. The
+    sentence says the *adjusted* margin was the lower one, which is false by 15.9 points. Only
+    a check that reads the sentence's own words against the declared sides catches it, which is
+    what `comparative_not_supported_by_text` is.
+    """
+    text = ("The adjusted gross margin was 15.9 percentage points lower than the GAAP gross "
+            "margin in the third quarter of 2022.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(text=text),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure
+    assert failure[0].expected.startswith("gaap_gross_margin before 'lower'")
+    assert verified.passed is False
+
+
+def test_a_comparative_whose_word_points_the_other_way_is_refused(verifier):
+    """`left < right` recomputes and the sentence says `higher`; the words decide."""
+    text = DATED_GAP_TEXT.replace("lower", "higher")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(text=text),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure and failure[0].observed == "higher"
+    assert verified.passed is False
+
+
+def test_a_second_comparative_in_a_licensed_sentence_is_refused(verifier):
+    """One calculation supports one comparison; the second is a claim nothing declared."""
+    text = ("The GAAP gross margin was 15.9 percentage points lower than the adjusted gross "
+            "margin, and worse in the third quarter of 2022.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(text=text),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure and failure[0].observed == "lower, worse"
+    assert verified.passed is False
+
+
+def test_a_comparison_of_one_metric_against_itself_is_refused_as_unorderable(verifier):
+    """Two sides of one metric are two periods, and nothing here can tell them apart.
+
+    The metric names are the only reading of the sentence this check has, so a same-metric
+    comparison could be reversed word for word and still line up with its declaration. Refused
+    rather than half-checked — it was refused outright before `compare_levels` was declarable,
+    so no true sentence loses ground.
+    """
+    q4 = make_fact(observation_id=AGM_Q4_ID, period_key="2022Q4", period_start="2022-10-01",
+                   period_end="2022-12-31", value=-3.2, quoted_text="(3.2)")
+    text = ("The adjusted gross margin was 6.5 percentage points lower than the adjusted gross "
+            "margin.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="compare_levels",
+                input_observation_ids=(q4.observation_id, AGM_ID),
+                expression="left < right", result_rendered="6.5 percentage points")),)),
+        make_package(facts=(make_fact(), q4)), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure and failure[0].observed.startswith("both sides are adjusted_gross_margin")
+    assert verified.passed is False
+
+
+def test_a_comparison_of_two_units_is_refused_before_its_direction_is_considered(verifier):
+    """§13.9's comparability applies to a comparison too: a gap needs one unit.
+
+    `compare_levels` was exempt from the unit check while it was undeclarable. It is not now —
+    the gap it renders is a number in some unit, and a percent-against-dollars gap is in none.
+    """
+    homes = make_fact(observation_id="obs:homes-sold:opendoor:2022Q3:normalized-table:aa11bb22",
+                      metric_id="homes_sold", metric_label="Homes Sold", value=8520,
+                      unit="homes", row_label="Homes Sold", quoted_text="8,520")
+    metrics = (*METRICS, PackagedMetric(metric_id="homes_sold", label="Homes Sold",
+                                        unit="homes", allowed_units=("homes",)))
+    package = make_package(facts=(make_fact(), homes), metrics=metrics)
+    text = ("Homes sold was 8,516.7 percentage points higher than the adjusted gross margin in "
+            "the third quarter of 2022.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="compare_levels",
+                input_observation_ids=(AGM_ID, homes.observation_id),
+                expression="left < right", result_rendered="8,516.7 percentage points",
+                period_surface="the third quarter of 2022")),)),
+        package, make_plan(required_warnings=()))
+    assert "calculation_inputs_incomparable" in codes_of(verified)
+    assert verified.passed is False
+
+
+# ---------------------------------------------------------------------------------------
 # §13.10 — causation
 # ---------------------------------------------------------------------------------------
 
@@ -1148,6 +1371,37 @@ def test_a_superlative_smuggled_into_the_title_is_refused_because_nothing_can_bi
     title = verified.check("title")
     assert title.examined == 1
     assert {f.code for f in title.findings} == {"unsupported_superlative", "unbound_numeral"}
+    assert verified.passed is False
+
+
+def test_a_title_may_name_the_period_the_package_is_about(verifier):
+    """A period key is not a claim, and it was the only thing D5's title rule refused wrongly.
+
+    Every fact in this package carries `period_key: 2022Q3`, and the title naming it was refused
+    twice over — once on `2022` and once on `3`. The span admitted is an exact occurrence of a
+    string the package itself minted, so no value, metric or comparison can hide inside it.
+    """
+    verified = verifier.verify(
+        make_draft(title="Two gross margins in 2022Q3"), make_package(), make_plan())
+    assert verified.check("title").findings == ()
+    assert verified.passed is True
+
+
+def test_a_title_naming_a_period_the_package_does_not_hold_is_still_unbound(verifier):
+    """*"This package's own periods"* is the whole licence: 2021Q4 is not one of them."""
+    verified = verifier.verify(
+        make_draft(title="Two gross margins in 2021Q4"), make_package(), make_plan())
+    unbound = [f for f in verified.check("title").findings if f.code == "unbound_numeral"]
+    assert [f.observed for f in unbound] == ["2021", "4"]
+    assert verified.passed is False
+
+
+def test_a_numeral_beside_a_licensed_period_key_in_a_title_is_still_refused(verifier):
+    """The exemption is the key's own characters and not the title it sits in."""
+    verified = verifier.verify(
+        make_draft(title="2022Q3 in 2 charts"), make_package(), make_plan())
+    unbound = [f for f in verified.check("title").findings if f.code == "unbound_numeral"]
+    assert [f.observed for f in unbound] == ["2"]
     assert verified.passed is False
 
 

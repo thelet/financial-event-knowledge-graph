@@ -5,22 +5,33 @@ re-derive the candidate and the package from the live graph; the `live`-marked o
 model server.
 
 **The recorded responses in `fixtures/story_demo/generations.jsonl` are genuine Qwen output.**
-Captured 2026-08-04 from `http://127.0.0.1:8080` serving
+Re-captured 2026-08-04 from `http://127.0.0.1:8080` serving
 `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf`, against the package
 `fixtures/story_demo/evidence_package.json` in the same directory — the planner's answer at
 `PLANNER_MAX_TOKENS` and the writer's at `length_target: 4`. Two rows, nothing hand-edited.
 The demo therefore replays something the model actually produced, and the manifest names the
 model it came from.
 
-**`fixtures/story_demo/generations_accepted_synthetic.jsonl` is not.** It is the two rows above
-with three edits — the plan's five `required_warnings` removed, the title's numerals removed,
-and the comparative "was 15.9 percentage points lower than" rewritten as "was 15.9 percentage
-points" — made so the *accepted* branch has something to exercise. It is named `synthetic`
-because it is one, and no test presents it as a recording.
+**The planner's row is byte-identical to the one recorded before the seam repair** — same
+request digest `5dc07fa8bf0f…`, same 1,887 characters of answer — because the planner's prompt
+and schema did not change. Only the writer's row is new, and it had to be: the draft schema
+gained `calculation.period_surface` and `compare_levels`, which re-keys the writer's request by
+construction.
 
-**The disposition of the genuine pair is `rejected`, and that is the demo's real result.** §13
-returns nine blocking findings across four checks; a rejected draft with a correct structured
-explanation is a valid demo outcome (§8b), and the verifier is not loosened to change it.
+**The disposition of the genuine pair is now `accepted`, and it changed because four seams were
+repaired rather than because any check was loosened.** The earlier recording was refused nine
+times over, and every one of the nine was a refusal of a *true, correctly bound* sentence for a
+structural reason: a `calculated` sentence could not declare its period, a comparative could not
+be declared at all, a title could not carry a period key, and five build-provenance warnings
+demanded prose an investor post must not carry. The 60+ verifier tests and the ten malicious
+drafts in `test_story_deterministic_verifier.py` are unchanged and still pass.
+
+**`fixtures/story_demo/generations_rejected_synthetic.jsonl` is not a recording.** It is the two
+rows above with one edit — sentence 2's prose reversed to *"The Adjusted Gross Margin was 15.9
+percentage points lower than the GAAP Gross Margin"*, which is false by 15.9 points while its
+declared calculation still recomputes — made so the *rejected* branch has something to exercise,
+and chosen because it is the attack a recomputation on its own would have accepted. It is named
+`synthetic` because it is one, and no test presents it as a recording.
 """
 
 from __future__ import annotations
@@ -223,40 +234,42 @@ def test_verification_actually_executes_rather_than_being_recorded_as_having_run
 def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_blocking_finding(
     tmp_path, config
 ):
-    """The demo's actual disposition, and the reason the verifier is not loosened to change it.
+    """The demo's actual disposition, and what every check had to look at to reach it.
 
-    Nine blocking findings across four checks — three `unbound_numeral` (one in a sentence, two
-    in the title), one `unsupported_comparative`, and five
-    `required_warning_has_no_declared_qualifier` for the five package warnings the model copied
-    into `required_warnings`, none of which §13.17's table declares a qualifier phrase for.
+    Asserting `accepted` alone would pass against a verifier that looked at nothing, so the
+    denominators are asserted with it: the numbers check counted every numeral in the draft, the
+    periods check resolved a surface for both bindings *and* for the derivation, and the
+    calculation ledger holds the recomputed gap. The nine findings the previous recording drew
+    are gone because four seams were repaired — the derivation can now declare the period it
+    computed over, the comparative can be declared as `compare_levels` and recomputed, the title
+    may carry the package's own period key, and build-provenance warnings no longer demand
+    prose. No check was weakened; `test_story_deterministic_verifier.py` is the guard on that.
     """
     outcome = run_demo(demo_inputs(), provider=replaying(), config=config,
                        out_dir=tmp_path / "run")
     assert outcome.verified is not None
-    blocking = [f for f in outcome.verified.all_findings if f.blocking]
-    codes: dict[str, int] = {}
-    for finding in blocking:
-        codes[finding.code] = codes.get(finding.code, 0) + 1
 
-    assert outcome.disposition == REJECTED
-    assert outcome.ok is False
-    assert codes == {
-        "unbound_numeral": 3,
-        "unsupported_comparative": 1,
-        "required_warning_has_no_declared_qualifier": 5,
-    }
-    assert {check.name for check in outcome.verified.checks if check.findings} == {
-        "numbers", "language_safety", "title", "disclosures"}
+    assert outcome.disposition == ACCEPTED
+    assert outcome.ok is True
+    assert [f.code for f in outcome.verified.all_findings] == []
+    assert outcome.verified.check("numbers").examined == 5
+    assert outcome.verified.check("periods").examined == 3
+    assert outcome.verified.check("title").examined == 1
+    assert [entry.rendered for entry in outcome.verified.calculation_ledger] == [
+        "15.9 percentage points"]
+    assert outcome.verified.calculation_ledger[0].recomputed_value == 15.899999999999999
 
 
 def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config):
     """A rejection is a completed run, not a failure to run (§8b, §14).
 
-    `rejected.json` carries the §13.17 `RejectedDraft` whole — checks included, not only the
-    blocking findings — because the `examined` denominators are what say which checks ran.
+    Driven by the **synthetic** store — see this module's docstring. `rejected.json` carries the
+    §13.17 `RejectedDraft` whole, checks included and not only the blocking findings, because
+    the `examined` denominators are what say which checks ran.
     """
-    outcome = run_demo(demo_inputs(), provider=replaying(), config=config,
-                       out_dir=tmp_path / "run")
+    outcome = run_demo(demo_inputs(),
+                       provider=replaying("generations_rejected_synthetic.jsonl"),
+                       config=config, out_dir=tmp_path / "run")
     written = {path.name for path in (tmp_path / "run").iterdir()}
     rejected = json.loads((tmp_path / "run" / "rejected.json").read_text(encoding="utf-8"))
 
@@ -266,18 +279,20 @@ def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config
     assert rejected["disposition"] == REJECTED
     assert len(rejected["rejection"]["checks"]) == 12
     assert outcome.artifacts["rejected.json"]
+    # The one edit, caught by the one check that reads the sentence against its calculation.
+    assert [f["code"]
+            for check in rejected["rejection"]["checks"] for f in check["findings"]
+            if f["blocking"]] == ["comparative_not_supported_by_text"]
 
 
 def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
-    """The other branch, driven by the **synthetic** store — see this module's docstring.
+    """The genuine recording's branch: the two files are mutually exclusive.
 
-    Included because a demo that only ever rejects has never shown that `post.md` is written
-    at all, and the two files must be mutually exclusive. The prose is rendered from the
-    structured draft and never from the model's own text (§12).
+    The prose is rendered from the structured draft and never from the model's own text (§12),
+    which is why the post can be asserted to hold a figure the verifier bound.
     """
-    outcome = run_demo(demo_inputs(),
-                       provider=replaying("generations_accepted_synthetic.jsonl"),
-                       config=config, out_dir=tmp_path / "run")
+    outcome = run_demo(demo_inputs(), provider=replaying(), config=config,
+                       out_dir=tmp_path / "run")
     written = {path.name for path in (tmp_path / "run").iterdir()}
 
     assert outcome.disposition == ACCEPTED
@@ -477,14 +492,16 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     assert manifest["demo"]["package_id"] == inputs.package.package_id
     assert manifest["demo"]["package_content_digest"] == inputs.package.package_content_digest
     assert manifest["demo"]["graph_input_content_digest"] == inputs.identity.input_content_digest
-    assert manifest["demo"]["disposition"] == REJECTED
+    assert manifest["demo"]["disposition"] == ACCEPTED
     assert manifest["demo"]["generation_mode"] == "replay"
     assert manifest["graph_run_id"] == GRAPH_RUN_ID
     assert manifest["model_id"] == MODEL_ID
     assert manifest["provider_model_id"].endswith(".gguf")
     assert manifest["temperature"] == 0.0
+    # The writer's wording and schema changed with the seam repair and its version says so;
+    # the planner's did not, and its recorded row replays byte-for-byte because of it.
     assert manifest["prompt_versions"] == {"story_editorial_plan": "1.0.0",
-                                           "story_post_draft": "1.0.0"}
+                                           "story_post_draft": "1.1.0"}
     assert sorted(manifest["schema_digests"]) == ["story_editorial_plan", "story_post_draft"]
     assert manifest["ranking_policy_version"] == "1.1.0"
     assert manifest["policy_version"] == POLICY_VERSION
@@ -575,15 +592,19 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
     """The whole verb, with the graph half stubbed at the seam `resolve_demo_inputs` provides.
 
     Nothing else is replaced: the real `cmd_demo` builds the real replaying provider over the
-    real committed store, runs the real generation and verification stages, and renders the
-    real refusal. What is stubbed is a database this test is not marked for.
+    **synthetic** store, runs the real generation and verification stages, and renders the real
+    refusal. What is stubbed is a database this test is not marked for.
     """
     class Closable:
         def close(self) -> None:
             self.closed = True
 
+    synthetic = DemoConfig(**{
+        **vars(DemoConfig.load(REPO_ROOT)),
+        "generation_store": str(FIXTURES / "generations_rejected_synthetic.jsonl")})
     monkeypatch.setattr(cli, "build_story_context", lambda *a, **k: Closable())
     monkeypatch.setattr(cli, "resolve_demo_inputs", lambda *a, **k: demo_inputs())
+    monkeypatch.setattr(cli.DemoConfig, "load", classmethod(lambda cls, root: synthetic))
 
     code = cli.main(["--root", str(REPO_ROOT), "demo", "--candidate-id", CANDIDATE_ID,
                      "--out", str(tmp_path / "run")])
@@ -591,9 +612,9 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
 
     assert code == cli.EXIT_FAILED
     assert "disposition    rejected" in out
-    assert "REJECTED by the deterministic verifier — 9 blocking finding(s)" in out
+    assert "REJECTED by the deterministic verifier — 1 blocking finding(s)" in out
     # Every failure, not the first (§20).
-    assert out.count("remedy ") == 9
+    assert out.count("remedy ") == 1
     assert SELECTION_MODE in out
     assert (tmp_path / "run" / "rejected.json").is_file()
     assert not (tmp_path / "run" / "post.md").exists()
@@ -602,20 +623,13 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
 def test_the_command_exits_zero_and_names_the_post_when_the_draft_is_accepted(
     tmp_path, monkeypatch, capsys
 ):
-    """The accepted branch of the same verb, over the **synthetic** store."""
+    """The accepted branch of the same verb, over the shipped store and the shipped config."""
     class Closable:
         def close(self) -> None:
             self.closed = True
 
-    # The shipped configuration with one field moved, resolved before the loader is replaced.
-    # In use that field lives in `config/story.yaml` and therefore inside `config_hash`; here
-    # it is moved on the object so the test needs no second tracked configuration file.
-    synthetic = DemoConfig(**{
-        **vars(DemoConfig.load(REPO_ROOT)),
-        "generation_store": str(FIXTURES / "generations_accepted_synthetic.jsonl")})
     monkeypatch.setattr(cli, "build_story_context", lambda *a, **k: Closable())
     monkeypatch.setattr(cli, "resolve_demo_inputs", lambda *a, **k: demo_inputs())
-    monkeypatch.setattr(cli.DemoConfig, "load", classmethod(lambda cls, root: synthetic))
 
     code = cli.main(["--root", str(REPO_ROOT), "demo", "--candidate-id", CANDIDATE_ID,
                      "--out", str(tmp_path / "run")])
@@ -702,12 +716,17 @@ def test_live_a_candidate_id_that_the_graph_does_not_produce_refuses(live_inputs
 def test_live_the_demo_runs_end_to_end_from_the_graph_and_the_recorded_store(
     live_inputs, tmp_path, config,  # type: ignore[no-untyped-def]
 ):
-    """Graph half live, model half replayed — the command's own path, with no server needed."""
+    """Graph half live, model half replayed — the command's own path, with no server needed.
+
+    The package is built from the graph rather than read from the fixture, so this is also what
+    says the committed `evidence_package.json` and the store were recorded against each other:
+    a package whose digest or warning kinds had drifted would refuse at §13.13 here.
+    """
     outcome = run_demo(live_inputs, provider=replaying(), config=config,
                        out_dir=tmp_path / "run")
 
-    assert outcome.disposition == REJECTED
-    assert outcome.verified is not None and outcome.verified.passed is False
+    assert outcome.disposition == ACCEPTED
+    assert outcome.verified is not None and outcome.verified.passed is True
     assert (tmp_path / "run" / "demo_manifest.json").is_file()
 
 

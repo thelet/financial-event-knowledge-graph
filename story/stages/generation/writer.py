@@ -452,6 +452,11 @@ def _calculation_from(declared: Mapping[str, Any]) -> Calculation:
     §15.3 has no null, so the schema's `formula_version_id` is a string; an empty one is an
     arithmetic derivation the ontology declares no formula for — a cross-metric gap — and §13.9's
     window check abstains on it rather than failing to find a version nobody claimed.
+
+    `period_surface` is carried through exactly as the model wrote it and is **not** normalised
+    here. §13.4 resolves it through the closed grammar and §13.1 locates it in the sentence's
+    own characters; a surface tidied on the way past would be checked against words the draft
+    does not contain.
     """
     return Calculation(
         operation=str(declared.get("operation") or ""),
@@ -459,6 +464,7 @@ def _calculation_from(declared: Mapping[str, Any]) -> Calculation:
         expression=str(declared.get("expression") or ""),
         result_rendered=str(declared.get("result_rendered") or ""),
         formula_version_id=str(declared.get("formula_version_id") or "") or None,
+        period_surface=str(declared.get("period_surface") or ""),
     )
 
 

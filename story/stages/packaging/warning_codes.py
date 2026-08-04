@@ -22,13 +22,31 @@ is that an incomplete read is never silence.
 `ANNOTATE` means it must be rendered beside the claim. Two call sites raising one code at two
 severities would make the gate depend on which one ran, so the mapping lives here and
 `packaged_warning` is the only constructor.
+
+**Kind is a property of the code too, and the two families above are exactly the split.** A
+warning either qualifies a claim — an unpreferred lane, a declared ambiguity, a population
+wording, a single source — or it records how this package was built. §10.1 never drew the line,
+and the first end-to-end demo run showed what that costs: the plan copied `token_budget_trimmed`,
+`section_truncated`, `subject_identity_not_read_from_graph`, `evidence_sources_absent_in_v1` and
+`relationships_unavailable_in_v1` into `required_warnings`, and §13 then demanded five sentences
+of build provenance from an investor post *(measured 2026-08-04 on the recorded Qwen run: five
+of the nine blocking findings)*. `KIND_OF` is that line, drawn once, here. Build provenance still
+travels on the package, still reaches the evidence panel and the manifest, and is still capped
+and ordered by severity — it simply demands no sentence. The disclosure rule itself is untouched:
+a `CLAIM_QUALIFYING` code the post leaves unsaid still refuses the draft.
+
+The test for which family a code belongs to is *"does a reader need it to read the sentence
+correctly?"*, not *"is it important?"*. `retrieval_truncated` and `search_pool_capped` are
+important and are provenance: they say the read was partial, which is a fact about the package
+rather than about Opendoor, and §13.14 already refuses outright the claims — absence, uniqueness
+— that a partial read is what would make false.
 """
 
 from __future__ import annotations
 
 from typing import Mapping, Sequence
 
-from story.core.models import PackagedWarning, Severity
+from story.core.models import PackagedWarning, Severity, WarningKind
 
 # -- §10.1's own list ---------------------------------------------------------------------
 
@@ -188,6 +206,52 @@ SEVERITY_OF: Mapping[str, Severity] = {
     CANDIDATE_WARNING: Severity.WARN,
 }
 
+#: Which audience each code is for. **Total over `SEVERITY_OF` and checked below**, so a code
+#: added without a decision is a construction error rather than a silent default — the default
+#: on `PackagedWarning` protects a hand-built warning, not this table.
+#:
+#: The provenance side is short and every member names a property of the *build*: an incomplete
+#: or capped read, a section or a budget that trimmed, a lane that emits nothing in V1, an
+#: identity the §9 tools do not read. Everything else qualifies a claim, including the four
+#: `counter_evidence_*` codes — where a contradicting row sits relative to the cited cell is
+#: something a reader needs in order to read the sentence — and `candidate_warning`, which
+#: carries the detector's own caveats about the comparison the post is built on.
+KIND_OF: Mapping[str, WarningKind] = {
+    UNPREFERRED_SOURCE_LANE: WarningKind.CLAIM_QUALIFYING,
+    METRIC_AMBIGUITY_DECLARED: WarningKind.CLAIM_QUALIFYING,
+    ENTITY_UNRESOLVED: WarningKind.CLAIM_QUALIFYING,
+    EVENT_DATE_ABSENT: WarningKind.CLAIM_QUALIFYING,
+    EVENT_REVIEW_FLAG: WarningKind.CLAIM_QUALIFYING,
+    POPULATION_DEFINITION_DIFFERS: WarningKind.CLAIM_QUALIFYING,
+    FORMULA_WINDOW_BOUNDARY_CROSSED: WarningKind.CLAIM_QUALIFYING,
+    SINGLE_SOURCE: WarningKind.CLAIM_QUALIFYING,
+    FACT_CONFLICT_DISCLOSED: WarningKind.CLAIM_QUALIFYING,
+    SLOT_UNRESOLVED: WarningKind.CLAIM_QUALIFYING,
+    CANONICAL_POINT_WARNING: WarningKind.CLAIM_QUALIFYING,
+    COUNTER_EVIDENCE_SAME_DOCUMENT: WarningKind.CLAIM_QUALIFYING,
+    COUNTER_EVIDENCE_SAME_PASSAGE: WarningKind.CLAIM_QUALIFYING,
+    COMPARISON_REFUSED: WarningKind.CLAIM_QUALIFYING,
+    COMPARISON_WARNED: WarningKind.CLAIM_QUALIFYING,
+    CANDIDATE_WARNING: WarningKind.CLAIM_QUALIFYING,
+    OBSERVATION_LOAD_INCOMPLETE: WarningKind.BUILD_PROVENANCE,
+    RETRIEVAL_TRUNCATED: WarningKind.BUILD_PROVENANCE,
+    SEARCH_POOL_CAPPED: WarningKind.BUILD_PROVENANCE,
+    SEARCH_POOL_STARVED: WarningKind.BUILD_PROVENANCE,
+    COUNTER_EVIDENCE_UNAVAILABLE: WarningKind.BUILD_PROVENANCE,
+    SECTION_TRUNCATED: WarningKind.BUILD_PROVENANCE,
+    TOKEN_BUDGET_TRIMMED: WarningKind.BUILD_PROVENANCE,
+    PACKAGE_EXCEEDS_TOKEN_CEILING: WarningKind.BUILD_PROVENANCE,
+    SUBJECT_IDENTITY_NOT_READ_FROM_GRAPH: WarningKind.BUILD_PROVENANCE,
+    EVIDENCE_CHAIN_INCOMPLETE: WarningKind.BUILD_PROVENANCE,
+    RELATIONSHIPS_UNAVAILABLE_IN_V1: WarningKind.BUILD_PROVENANCE,
+    EVIDENCE_SOURCES_ABSENT_IN_V1: WarningKind.BUILD_PROVENANCE,
+}
+
+if set(KIND_OF) != set(SEVERITY_OF):  # pragma: no cover - a source edit, not a state
+    raise ValueError(
+        "every declared warning code must declare a kind: "
+        f"{sorted(set(SEVERITY_OF) ^ set(KIND_OF))} differ between SEVERITY_OF and KIND_OF")
+
 #: Most severe first. `warnings[]` is capped at 20 (§10.2) and this is the order a drop obeys,
 #: so the rule D6 established for counter-evidence — *"nothing dropped can outrank anything
 #: returned"* — holds for warnings too. A cap that dropped a `REFUSE` while keeping an
@@ -223,9 +287,21 @@ def packaged_warning(
     return PackagedWarning(
         code=code,
         severity=severity,
+        kind=KIND_OF[code],
         subject_ids=tuple(sorted(set(subject_ids))),
         detail=detail,
     )
+
+
+def claim_qualifying(warnings: Sequence[PackagedWarning]) -> tuple[PackagedWarning, ...]:
+    """The warnings a post has to *say*, as opposed to the ones it has to carry.
+
+    A helper for the same reason `blocking` is one: *"which warnings demand a sentence"* is a
+    property of the vocabulary above and must move with it. The generation stage cannot call
+    this — a stage may not import another stage — and reads `PackagedWarning.kind` off the
+    package instead, which is why the kind is a field and not a lookup at the far end.
+    """
+    return tuple(w for w in warnings if w.kind is WarningKind.CLAIM_QUALIFYING)
 
 
 def warning_sort_key(warning: PackagedWarning) -> tuple[int, str, str]:
@@ -257,6 +333,7 @@ __all__ = [
     "EVIDENCE_SOURCES_ABSENT_IN_V1",
     "FACT_CONFLICT_DISCLOSED",
     "FORMULA_WINDOW_BOUNDARY_CROSSED",
+    "KIND_OF",
     "METRIC_AMBIGUITY_DECLARED",
     "OBSERVATION_LOAD_INCOMPLETE",
     "PACKAGE_EXCEEDS_TOKEN_CEILING",
@@ -275,6 +352,7 @@ __all__ = [
     "UNPREFERRED_SOURCE_LANE",
     "UnknownWarningCode",
     "blocking",
+    "claim_qualifying",
     "packaged_warning",
     "warning_sort_key",
 ]

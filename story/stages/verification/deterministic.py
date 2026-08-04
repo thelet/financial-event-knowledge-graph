@@ -189,11 +189,16 @@ class DeterministicVerifier:
         index = PackageIndex(package)
         aliases = MetricAliasIndex.from_package(package)
         ledgers = _Ledgers()
-        period_surfaces = tuple(sorted({
-            binding.period_surface
-            for sentence in draft.sentences for binding in sentence.fact_bindings
-            if binding.period_surface
-        }))
+        # Both places a draft may declare a period: on a binding, and on a calculation — the
+        # second because §13.9 gives a `calculated` sentence no bindings, so a derivation could
+        # not otherwise say which of its own words name the period it computed over.
+        period_surfaces = tuple(sorted(
+            {binding.period_surface
+             for sentence in draft.sentences for binding in sentence.fact_bindings
+             if binding.period_surface}
+            | {sentence.calculation.period_surface for sentence in draft.sentences
+               if sentence.calculation is not None and sentence.calculation.period_surface}
+        ))
 
         checks = (
             self._check_identity(draft, package, plan, index),
@@ -205,8 +210,8 @@ class DeterministicVerifier:
             self._check_subject_identity(draft, index),
             self._check_citations(draft, index, aliases),
             self._check_reported_vs_calculated(draft, index, ledgers),
-            claim_rules.check_language(draft, index, period_surfaces),
-            claim_rules.check_title(draft),
+            claim_rules.check_language(draft, index, aliases, period_surfaces),
+            claim_rules.check_title(draft, index),
             self._check_disclosures(draft, package, plan, index),
         )
         return VerifiedDraft(
@@ -457,14 +462,24 @@ class DeterministicVerifier:
     def _covering_spans(
         self, sentence: DraftSentence
     ) -> tuple[language.LexicalMatch, ...]:
-        """§13.1's four ways a numeral may be accounted for, as spans in this sentence."""
+        """§13.1's four ways a numeral may be accounted for, as spans in this sentence.
+
+        A calculation's `period_surface` covers the same way a binding's does, and for the same
+        §13.1 reason — *"a year in `in 2022` is not a fact"*. Covering it here is not trusting
+        it: `_check_periods` resolves the declared surface through §13.4's grammar and requires
+        it to agree with every input observation, so a derivation naming the wrong period is
+        refused by that check rather than admitted by this one.
+        """
         spans = [language.LexicalMatch(term=b.rendered, start=b.char_start,
                                        end=b.char_end)
                  for b in sentence.fact_bindings]
         needles = [b.period_surface for b in sentence.fact_bindings if b.period_surface]
         needles.extend(self._literal_ok)
-        if sentence.calculation is not None and sentence.calculation.result_rendered:
-            needles.append(sentence.calculation.result_rendered)
+        if sentence.calculation is not None:
+            if sentence.calculation.result_rendered:
+                needles.append(sentence.calculation.result_rendered)
+            if sentence.calculation.period_surface:
+                needles.append(sentence.calculation.period_surface)
         for needle in needles:
             spans.extend(language.occurrences(sentence.text, needle))
         return tuple(spans)
@@ -719,7 +734,65 @@ class DeterministicVerifier:
                         "§13.4: exact equality on both endpoints and on kind."),
                     suggested_fact_ids=self._suggestions(index, fact),
                 ))
+            calculation_findings, calculation_examined = self._calculation_period_findings(
+                sentence, index)
+            examined += calculation_examined
+            found.extend(calculation_findings)
         return CheckResult(name="periods", examined=examined, findings=tuple(found))
+
+    def _calculation_period_findings(
+        self, sentence: DraftSentence, index: PackageIndex
+    ) -> tuple[list[VerificationFinding], int]:
+        """§13.4 applied to `Calculation.period_surface`, which §13.9 leaves a sentence's only
+        way to name the period it computed over.
+
+        **Agreement with *every* input, not with one of them.** A cross-metric gap computes over
+        one period and names it; a quarter-over-quarter delta computes over two and can name
+        neither with a single surface, so it is refused here rather than allowed to present one
+        of its two windows as the sentence's period. That refuses some true sentences and
+        admits no false one, which is the direction §13.14 says the failure should point — and
+        it is not a regression, because before this field existed such a sentence could not
+        name a period at all.
+        """
+        calculation = sentence.calculation
+        if calculation is None or not calculation.period_surface:
+            return [], 0
+        facts = [fact for fact in
+                 (index.fact(fact_id) for fact_id in calculation.input_observation_ids)
+                 if fact is not None]
+        if not facts:
+            return [], 0  # already refused as calculation_inputs_unresolved
+        resolved = period_grammar.resolve(calculation.period_surface)
+        if not resolved.resolved:
+            return [finding(
+                "period_unresolvable",
+                sentence_index=sentence.index,
+                fact_ids=tuple(fact.observation_id for fact in facts),
+                expected="a surface in §13.4's closed grammar",
+                observed=calculation.period_surface,
+                explanation=(
+                    "§13.4: a calculation's period surface is resolved through the same closed "
+                    "grammar a binding's is. A bare year is not in the grammar, and a surface "
+                    "the grammar cannot read is a period nothing checked."),
+            )], 1
+        disagreeing = [fact for fact in facts if not _endpoints_agree(resolved, fact)]
+        if not disagreeing:
+            return [], 1
+        conflated = all(_same_anchor(resolved, fact) for fact in disagreeing)
+        return [finding(
+            "period_shape_conflated" if conflated else "period_mismatch",
+            sentence_index=sentence.index,
+            fact_ids=tuple(fact.observation_id for fact in disagreeing),
+            expected=", ".join(sorted({fact.period_key for fact in facts})),
+            observed=(f"{calculation.period_surface!r} resolves to {resolved.key} "
+                      f"({resolved.period_start or resolved.instant_date}"
+                      f"..{resolved.period_end or resolved.instant_date})"),
+            explanation=(
+                "§13.4: the period a derivation declares must be the period its inputs were "
+                "read over, on both endpoints and on kind. adjusted_ebitda ending 2022-09-30 is "
+                "+$183M for the nine-month YTD and −$211M for the quarter, so a surface that "
+                "matched the anchor alone would name a different number."),
+        )], 1
 
     # -- §13.5 metric identity -----------------------------------------------------------
 
@@ -957,8 +1030,11 @@ class DeterministicVerifier:
         same-metric requirement would refuse the story the demo exists to tell. Unit and period
         shape are required, which is what the clause was protecting.
         """
-        if calculation.operation in {"extremum", "absence", "temporal_order", "compare_levels",
-                                     "compare_deltas"}:
+        # `extremum`, `absence` and `temporal_order` range over a set or over dates and have no
+        # two-sided comparability question. The two comparisons do: their result is a gap, and a
+        # gap between a percent and a dollar figure — or between a quarter and a year-to-date —
+        # is the incomparability §13.9 and §13.4 exist to refuse.
+        if calculation.operation in {"extremum", "absence", "temporal_order"}:
             return []
         units = {fact.unit for fact in inputs}
         if len(units) > 1:
@@ -1044,15 +1120,29 @@ class DeterministicVerifier:
         demonstrates nothing; the real residues from this corpus do — `9.9 − 7.3 =
         2.6000000000000005`, `13.2 − 9.9 = 3.299999999999999`, and the spike value
         `3.3 − 13.2 = −9.899999999999999`. `15.9` itself is stored as `15.899999999999999`.
+
+        **A comparison is recomputed here too, and it was not before.** §13.14 owns the
+        comparison's *direction* and this owns its *size*: `"15.9 percentage points lower than"`
+        renders a gap, the gap is a scalar over the same inputs, and a rendered numeral that
+        nothing recomputes is a number nothing checked — the very thing §13.1 exists to stop.
+        The size is the absolute gap because the sign of a comparison lives in its wording, not
+        in its numeral: *"15.9 points lower"* and *"15.9 points higher"* are the same magnitude
+        and different claims, and `claims.py` is what decides which of the two the sentence
+        made. `extremum`, `absence` and `temporal_order` still have no scalar result and are
+        still §13.14's alone.
         """
         operation = calculation.operation
-        if operation in {"extremum", "compare_levels", "compare_deltas", "absence",
-                         "temporal_order"}:
+        if operation in {"extremum", "absence", "temporal_order"}:
             return []  # §13.14 owns these; there is no scalar result to compare
         try:
             computed = _recompute(operation, [fact.value for fact in inputs])
         except RelativeChangeAcrossZero:
             return []  # already refused by §13.3's third gate
+        if operation in {"compare_levels", "compare_deltas"} and not calculation.result_rendered:
+            # A comparison may state its direction and no size — *"contribution profit held up
+            # better"*. Nothing is claimed numerically, so there is nothing to recompute and
+            # nothing for `_covering_spans` to have covered.
+            return []
         token = self._sole_numeral(calculation.result_rendered)
         if token is None:
             return [finding(
@@ -1266,6 +1356,11 @@ def _recompute(operation: str, values: Sequence[float]) -> float:
     Input order is `(base, subject)` for every two-input operation: `delta_pp(v0, v1)` is
     `v1 − v0`, which is `story.core.numerals`' own signature and the only ordering that makes
     a quarter-over-quarter delta and a cross-metric gap read the same way.
+
+    The two comparisons return the **absolute** gap, which is what a comparative sentence
+    renders: *"15.9 percentage points lower than"* states a size and puts its sign in the word
+    `lower`. `claims.py` checks that word against the same values, so the direction is not lost
+    by taking the magnitude here — it is checked by the rule that owns direction.
     """
     if operation in {"delta_pp", "delta_bps", "delta_relative"}:
         return percent_delta(PercentOperation(operation), values[0], values[1])
@@ -1273,6 +1368,10 @@ def _recompute(operation: str, values: Sequence[float]) -> float:
         return values[1] - values[0]
     if operation == "ratio":
         return values[1] / values[0]
+    if operation == "compare_levels":
+        return abs(values[1] - values[0])
+    if operation == "compare_deltas":
+        return abs((values[1] - values[0]) - (values[3] - values[2]))
     return float(sum(values))
 
 
