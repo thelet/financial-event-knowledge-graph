@@ -308,6 +308,8 @@ Filled in as steps complete.
 
 | Wave | Steps | Agents | Overlap check |
 | --- | --- | --- | --- |
+| **B** | **S2** canonical series ∥ **S9a** numerals | 2 concurrent | disjoint files; S9a is a pure library depending only on S0 contracts, so it is pulled forward off S9's critical path. Neither may edit `story/core/__init__.py` |
+| AR1 | adversarial review → **R2a** ∥ **R2b** | 1 reviewer, then 2 concurrent repairers | reviewer read-only; repairers split freshness+providers against retrieval, no shared file |
 | recon | upstream contract survey | 1, read-only | owns nothing |
 | — | **S0** contracts | 1 | sole writer; everything depends on it |
 | — | **S0c** neo4j adapter | 1 | sole writer; S0b and S1 both wait on it |
