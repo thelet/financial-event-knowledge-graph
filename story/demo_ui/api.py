@@ -770,7 +770,7 @@ def start_discovery(request: Request) -> JsonResponse:
         except discovery.StaleGraphRefused as exc:
             STATE.put_failure(run.run_id, {
                 "code": "stale_graph",
-                "freshness": exc.report.model_dump(mode="json"),
+                "freshness": _scrub_paths(exc.report.model_dump(mode="json")),
                 "refusal_codes": [check.code.value for check in exc.report.refusals],
             })
             raise ApiError("stale_graph") from None
@@ -868,6 +868,46 @@ def candidate_detail(request: Request) -> JsonResponse:
     })
 
 
+#: An absolute filesystem path, POSIX or Windows-drive, of at least two segments.
+_ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:)?(?:/[^\s/\"',;)]+){2,}")
+
+#: How many trailing segments of a scrubbed path survive. Two keeps the run directory and
+#: the file — `graph_runs/graph-v1-0483dc6b4b10` — which is what makes a freshness detail
+#: readable, while the operator's home directory is what makes it a leak.
+_PATH_TAIL_SEGMENTS = 2
+
+
+def _scrub_paths(value: Any) -> Any:
+    """Reduce every absolute path in a payload to its last two segments.
+
+    **Found by the frontend agent and confirmed against the running server (2026-08-05): four
+    of the fourteen freshness checks carried the operator's home directory** —
+    `read from /mnt/c/Users/thele/Projects/FKG-story-agent-impl/data/graph_runs/…` — into the
+    bodies of `POST /demo/evidence-package` and `GET /demo/story-suggestions/{run_id}`. That
+    contradicts this module's own rule that no response names a filesystem location, and it is
+    the same class of leak as `provider_model_id`, which was already reduced to a filename.
+
+    A `FreshnessCheck`'s `detail`/`expected`/`observed` are free-form prose composed by the
+    gate, so there is no field to omit and no structured place to intercept: the path is inside
+    a sentence. Scrubbing the rendered payload is therefore the whole fix rather than a
+    cosmetic one — and it takes no repository root, which matters because neither dump site has
+    one to hand and plumbing it through two call paths to reach a regex would be the worse
+    trade.
+
+    The run directory survives because it is identity a reader needs (`graph-v1-0483dc6b4b10`
+    is the snapshot the whole demo is pinned to); the machine it sits on does not.
+    """
+    if isinstance(value, str):
+        return _ABSOLUTE_PATH.sub(
+            lambda match: ".../" + "/".join(match.group(0).split("/")[-_PATH_TAIL_SEGMENTS:]),
+            value)
+    if isinstance(value, Mapping):
+        return {key: _scrub_paths(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_scrub_paths(item) for item in value]
+    return value
+
+
 # ---------------------------------------------------------------------------------------
 # Endpoint: the evidence package.
 # ---------------------------------------------------------------------------------------
@@ -929,7 +969,7 @@ def _package_payload(inputs: Any, previous: Mapping[str, Any] | None) -> dict[st
         "context_passages": [p.model_dump(mode="json") for p in package.context_passages],
         "counter_evidence": [p.model_dump(mode="json") for p in package.counter_evidence],
         "documents": [d.model_dump(mode="json") for d in package.documents],
-        "freshness": inputs.freshness.model_dump(mode="json"),
+        "freshness": _scrub_paths(inputs.freshness.model_dump(mode="json")),
         "honest_labels": list(HONEST_LABELS),
     }
 
