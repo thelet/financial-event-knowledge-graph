@@ -816,6 +816,72 @@ whichever stage wires the run up cannot forget it.
 
 ---
 
+## 8b. Founder-approved shortcut — demo path *(2026-08-04)*
+
+The goal changed from "complete V1" to **"fastest credible end-to-end demo"**. Adopted, with
+three corrections to the shortcut as proposed.
+
+### The demo claim, exactly
+
+> Given a **manually selected** deterministic graph-derived story candidate, the system builds a
+> bounded evidence package, uses an LLM to plan and draft an investor post, and
+> **deterministically verifies** its numbers, periods, identities and citations.
+
+**It does not claim:** autonomous selection of the best story · complete discovery across the
+corpus · production run lifecycle · interactive research mode · model-assisted factual authority ·
+embeddings or semantic search · automatic publishing.
+
+### Selected candidate — resolved from live artifacts, not a copied string
+
+```
+cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a
+  metrics  ('adjusted_gross_margin', 'gaap_gross_margin')
+  period   2022Q3        left 3.3   right -12.6   gap 15.899999999999999
+  z 3.945445060340583   population 25   anchors 11 observation ids
+  audience EXTERNAL      warnings ('filing_date_unknown',)
+```
+All four stated values reproduce. **`selection_mode: manual_demo_candidate`** — the demo does not
+route through ranking and must not claim ranking chose it.
+
+### Does it actually shorten the work? Yes — measured against what remained
+
+| | full V1 | shortcut |
+| --- | --- | --- |
+| stages remaining | S5, S7, S8, S9, S10, S11, S12, S13 | S5, S7, S8, S9-core, D6 runner, integration |
+| dropped entirely | — | **S10** advisory verifier · **S13** research mode · **~80% of S11** (CLI family, atomic run lifecycle, resumability) · multi-candidate orchestration |
+
+### Three corrections to the shortcut as proposed
+
+1. **D2 is a no-op — S6 already exists and is live-verified.** Accepted at `1a5d716`; the
+   orchestrator drove it against the running Qwen server (0.92 s, 132 tokens, schema honoured,
+   correct answer from real graph values). It already provides everything D2 lists: local Qwen,
+   configurable model id, **distinct system and user messages**, strict `json_schema`,
+   temperature, max tokens, timeout, typed failures, recorded-response replay. **One whole step
+   saved on top of the shortcut.**
+2. **S5 is already in flight against a spec that is a superset of D1.** D1's section list is
+   nearly identical to §10's; restarting to narrow it would cost more than letting it land.
+   Its bounds are *wider* than D1's "prefer approximately" figures (5–12 facts vs 2–6), which
+   does not weaken the demo — the guarantees are the same and every section is still bounded.
+3. **"Ranking must not be removed" is already satisfied.** S4 stays accepted and in the tree;
+   the demo simply does not route through it.
+
+### One judgment worth recording
+
+**Manual selection is the more honest framing, not a weaker one.** Ranking currently places this
+candidate **6th of 262**. Claiming "the system selected the best story" from that set would
+overclaim; `selection_mode: manual_demo_candidate` records what actually happened.
+
+And **dropping S10 costs the demo claim nothing**: S10 was always *advisory* and explicitly could
+never override a deterministic verdict (§13.16). The trustworthiness of the claim rests entirely
+on S9, which is being built.
+
+### Deferred by this decision — not implemented, not pretended
+
+S10 model-assisted advisory verifier · full S11 CLI family and production atomic run lifecycle ·
+resumability · S13 research mode · autonomous candidate selection in the demo · multi-candidate
+orchestration · additional detectors (D5–D8, D10–D17) · embeddings · LightRAG · generated Cypher ·
+publishing integration.
+
 ## 9. Deferred / not implemented
 
 Everything in §1 "Out". Recorded here so it is not rediscovered as an omission.
