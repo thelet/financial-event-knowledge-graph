@@ -1304,7 +1304,8 @@ are long. Corrected arithmetic:
 
 | configuration | ≈ tokens |
 | --- | --- |
-| 1 backing passage, median | 536 |
+| 1 backing passage, median *(assumed at planning)* | 536 |
+| **1 backing passage, measured in a real package** | **640–760** |
 | 1 backing passage + ±1 context | ~1,600 |
 | **8 primaries + ±1 context (the first draft's recommendation)** | **~12,900** |
 | 4 primaries + ±1 context | ~6,400 |
@@ -1323,6 +1324,15 @@ on primaries before neighbours by design.
 The local runtime is `-c 8192` with `max_output_tokens 1024` (`config/extraction.yaml`,
 verified 2026-08-01). So the first draft's package **exceeded its own budget at every
 percentile and exceeded the server's entire context at p90**, before the system prompt.
+
+**Correction, 2026-08-04 (S5/R6 — §10.2.1's first execution).** This arithmetic is over
+**passages alone with no other section**, and two things it assumed do not hold. A real backing
+passage measures **640–760 tokens, not 536**, and the model-visible non-passage sections cost
+**1,850–2,100** — so ~3,000 of the 5,000 remain for passages. **Context passages are zero on all
+three spikes**, and that is `TRIM_ORDER` working as designed (every context neighbour drops
+before one primary), not a budget failure. The stated "3 primaries + ±1 context" shape is
+reachable only at the assumed passage size. Measured after the budget was scoped to the prompt
+slice: F1 and F3 carry **3** primaries, F2 reaches the cap of **4**.
 
 **Three changes follow, and together they are the resolution of D3.**
 
