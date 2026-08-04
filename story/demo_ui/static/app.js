@@ -40,6 +40,26 @@
  *    §13 checked it, and only a raw float like `15.899999999999999` is shortened for display —
  *    with the exact value on the element's `title` so it stays inspectable.
  *
+ * ## Three more, added by the adversarial review on 2026-08-05
+ *
+ * 5. **A render is keyed on the run it came from.** `state.discoveryRunId` and
+ *    `state.generationRunId` are the keys; a result that arrives for a run that is no longer the
+ *    current one is discarded and said so, never painted over the run on screen. The review
+ *    measured the opposite: two clicks inside `finishGeneration`'s await window put run A's post
+ *    beside run B's trace.
+ * 6. **A step is shown once.** `Run.stream()` replays from sequence 0 on every subscribe and
+ *    ignores `Last-Event-ID` — deliberately, so a late subscriber sees the whole trace — and
+ *    `EventSource` reconnects by itself. The client is therefore the only place a reconnect can
+ *    be told from a new step: `state.traceSequences` is the ledger and the replayed steps are
+ *    counted and reported rather than appended twice.
+ * 7. **Two disagreeing signals are rendered as a disagreement.** `outcomeConsistency` reads
+ *    `accepted`, `rendered_as`, the presence of `post`/`rejection` and the verifier's own verdict
+ *    together; if they do not agree the panel says exactly that and prints all six, instead of
+ *    picking one and captioning an accepted draft "Refused".
+ * 8. **Silence is reported as silence.** A run that stops emitting is not a run that failed and
+ *    is not a run that finished. `QUIET_AFTER_MS` re-enables the interface and says the run has
+ *    gone quiet, with no claim about its outcome either way.
+ *
  * ## Two integration facts, measured against the running server on 2026-08-05
  *
  * * **Generation trace events carry no `graph_highlights`.** Measured over a real accepted run:
@@ -125,6 +145,7 @@ const dom = {
   headerCompany: document.getElementById('header-company'),
   countDrawnNodes: document.getElementById('count-drawn-nodes'),
   countDrawnEdges: document.getElementById('count-drawn-edges'),
+  countPainted: document.getElementById('count-painted'),
   countTotalNodes: document.getElementById('count-total-nodes'),
   countTotalEdges: document.getElementById('count-total-edges'),
   projectionDisclosure: document.getElementById('projection-disclosure'),
@@ -245,6 +266,23 @@ export const LABELS = Object.freeze({
   streamLost:
     'The event stream closed before the run reported a terminal state. The run’s own '
     + 'status was fetched instead of assuming it finished.',
+  supersededRun:
+    'A result arrived for a run that is no longer the one on screen, and was discarded rather '
+    + 'than painted over the current run.',
+  streamReplayed:
+    'The stream reconnected and the server replayed the trace from the first step, which is '
+    + 'what lets a late subscriber see the whole run. Steps already shown were not added again.',
+  planIsModelText:
+    'Model-authored, not verified. Every line of this plan is text the model returned inside a '
+    + 'schema. The deterministic checks run over the draft and the numbers in it, never over the '
+    + 'plan — so a causal phrase here has been examined by nothing.',
+  inconsistentOutcome:
+    'The payload’s own signals disagree about what this run was. The panel will not choose one '
+    + 'of them: every signal is printed below exactly as it arrived, and no verdict is shown.',
+  runQuiet:
+    'The run has sent no trace event for a while and has not reported a terminal state. It may '
+    + 'still be running on the server. This is not a claim that it completed, and not a claim '
+    + 'that it failed. The interface is enabled again.',
 });
 
 // ---------------------------------------------------------------------------------------
@@ -306,19 +344,86 @@ function details(host, summaryText, { open = false } = {}) {
 // Formatting. The one rule: strings are never touched.
 // ---------------------------------------------------------------------------------------
 
+/* BEGIN NUMBER FORMAT — `tests/story/test_demo_ui_number_format.py` extracts this block by these
+   two markers and runs it under `node` against Python's own `%.10g`. Keep it self-contained:
+   nothing between the markers may touch the DOM, the state or another function outside them. */
+
 /**
- * §7's float residue, and nothing else.
+ * §7's float residue, and nothing else — but formatted the way the *server* formats it.
  *
- * Ten significant figures, which is `api.py:_display_number`'s own `%.10g`, so a number this
- * file shortens and a number the server shortened read the same. A value that is already a
- * string — `rendered`, `recomputed_display`, `printed_form`, a unit — is returned as it arrived:
- * §13 checked the rendered string, and re-rounding it here would be this layer editing evidence.
+ * `api.py:_display_number` is `f"{value:.10g}"`. The previous version of this function was
+ * `Number.parseFloat(value.toPrecision(10))`, which agrees with it on the corpus and disagrees
+ * off it in two measurable ways the review found: `1234567890123` printed as `1234567890123`
+ * here and `1.23456789e+12` there, and `1234567890.5` printed as `1234567891` here and
+ * `1234567890` there, because C's `%g` rounds a tie to even and JavaScript's rounding of a tie
+ * goes away from zero. The corpus maximum is 6.79e8 so neither could lie today; two renderings
+ * of one fact value is still a divergence, and the fact panel and the sources panel are two
+ * panels that show the same fact.
+ *
+ * So this is `%.10g` itself: round half to even at ten significant digits, then C's own choice
+ * between fixed and exponential form, then C's stripping of trailing zeros.
+ *
+ * A value that is already a string — `value_display`, `rendered`, `recomputed_display`,
+ * `printed_form`, a unit — never reaches this function. §13 checked the rendered string, and
+ * re-rounding it here would be this layer editing evidence.
  */
 export function formatNumber(value) {
-  if (!Number.isFinite(value)) return String(value);
-  if (Number.isInteger(value) && Math.abs(value) < 1e15) return String(value);
-  return String(Number.parseFloat(value.toPrecision(10)));
+  return formatSignificant(value, 10);
 }
+
+function formatSignificant(value, precision) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
+  if (value === 0) return Object.is(value, -0) ? '-0' : '0';
+  // Twenty-one significant digits: four more than a double can distinguish, so the digits below
+  // the one we round at are the value's own and not an artefact of this conversion.
+  const [mantissa, exponentText] = Math.abs(value).toExponential(20).split('e');
+  const rounded = roundHalfEven(mantissa.replace('.', ''), Number(exponentText), precision);
+  // C's `%g`: exponential when the exponent is below -4 or at least the precision, fixed between.
+  const text = rounded.exponent < -4 || rounded.exponent >= precision
+    ? exponentialForm(rounded.digits, rounded.exponent)
+    : fixedForm(rounded.digits, rounded.exponent);
+  return value < 0 ? `-${text}` : text;
+}
+
+/** Round a digit string to `precision` significant digits, a tie going to the even digit. */
+function roundHalfEven(digits, exponent, precision) {
+  const kept = digits.slice(0, precision).padEnd(precision, '0');
+  const rest = digits.slice(precision);
+  const first = rest === '' ? 0 : rest.charCodeAt(0) - 48;
+  const tail = rest.slice(1).replace(/0+$/, '');
+  const odd = (kept.charCodeAt(precision - 1) - 48) % 2 === 1;
+  const up = first > 5 || (first === 5 && (tail !== '' || odd));
+  if (!up) return { digits: kept, exponent };
+  const bumped = String(Number(kept) + 1);
+  // `9999999999` + 1 is eleven digits: the carry moves the decimal point rather than widening it.
+  if (bumped.length > precision) {
+    return { digits: bumped.slice(0, precision), exponent: exponent + 1 };
+  }
+  return { digits: bumped.padStart(precision, '0'), exponent };
+}
+
+function stripTrailingZeros(fraction) {
+  return fraction.replace(/0+$/, '');
+}
+
+function fixedForm(digits, exponent) {
+  if (exponent >= 0) {
+    const whole = digits.slice(0, exponent + 1).padEnd(exponent + 1, '0');
+    const fraction = stripTrailingZeros(digits.slice(exponent + 1));
+    return fraction === '' ? whole : `${whole}.${fraction}`;
+  }
+  const fraction = stripTrailingZeros('0'.repeat(-exponent - 1) + digits);
+  return fraction === '' ? '0' : `0.${fraction}`;
+}
+
+function exponentialForm(digits, exponent) {
+  const fraction = stripTrailingZeros(digits.slice(1));
+  const magnitude = String(Math.abs(exponent)).padStart(2, '0');
+  const sign = exponent < 0 ? '-' : '+';
+  return `${digits.slice(0, 1)}${fraction === '' ? '' : `.${fraction}`}e${sign}${magnitude}`;
+}
+
+/* END NUMBER FORMAT */
 
 function formatValue(value) {
   if (typeof value === 'number') return formatNumber(value);
@@ -362,12 +467,35 @@ const state = {
   sources: null,
   stream: null,
   traceEvents: [],
+  // Rule 6: the sequence numbers already on screen, so a replayed frame is told from a new one.
+  traceSequences: new Set(),
+  replayedSteps: 0,
+  replayRow: null,
   streamLost: false,
+  // Rule 8: the watchdog handle, and whether it has already fired for the run in flight.
+  quietHandle: 0,
+  quiet: false,
+  paintedStatus: '',
   sentenceRows: new Map(),
   passageRows: new Map(),
   factRows: new Map(),
   busy: false,
 };
+
+/**
+ * How long a run may say nothing before the interface says so, and why it is this long.
+ *
+ * Measured on 2026-08-05: `docker stop fkg-neo4j` mid-discovery left the run `running` with one
+ * event for four minutes — the driver retries with backoff — and both buttons dead with no
+ * explanation. A live generation, on the other hand, legitimately goes quiet between `planning`
+ * and `drafting` while the model produces tokens, and the longest gap seen on a live Qwen run
+ * was tens of seconds. Ninety seconds is above the second and far below the first.
+ *
+ * What happens at the end of it is deliberately small: the interface says the run has gone
+ * quiet and re-enables itself. It does not close the stream, does not cancel the run, and does
+ * not claim an outcome — a run we have stopped hearing from is neither finished nor failed.
+ */
+const QUIET_AFTER_MS = 90000;
 
 function setPipelineState(value) {
   setText(dom.pipelineState, value);
@@ -429,6 +557,70 @@ function settleBanner() {
   dom.appError.hidden = false;
 }
 
+/** A notice that is not an error: it does not set the pipeline state to `error:`. */
+function showNotice(text) {
+  dom.appError.textContent = text;
+  dom.appError.hidden = false;
+}
+
+// ---------------------------------------------------------------------------------------
+// Run identity. Rule 5: every render is keyed on the run it came from.
+//
+// The two ids are the keys, and they are written the moment the server hands one back. A result
+// that resolves after a newer run has started belongs to a run nobody is looking at any more —
+// the review measured that exact sequence putting run A's post beside run B's trace — so it is
+// discarded and said so. This is deliberately not "disable the button for longer": the button is
+// re-enabled by the quiet watchdog below while a run may still be in flight, so a superseded
+// result can still arrive and must still be refused.
+// ---------------------------------------------------------------------------------------
+
+function currentRunId(phase) {
+  return phase === 'discovery' ? state.discoveryRunId : state.generationRunId;
+}
+
+function isCurrentRun(phase, runId) {
+  return runId !== null && runId !== undefined && currentRunId(phase) === runId;
+}
+
+/** Say that a late result was thrown away, without overwriting what the live run is saying. */
+function noteSuperseded(phase, runId) {
+  if (!dom.appError.hidden) return;
+  showNotice(`${LABELS.supersededRun} Discarded: the ${phase} result for ${runId}; `
+    + `the run on screen is ${currentRunId(phase) ?? 'none'}.`);
+}
+
+// ---------------------------------------------------------------------------------------
+// The quiet watchdog. Rule 8.
+// ---------------------------------------------------------------------------------------
+
+function clearQuietTimer() {
+  if (state.quietHandle !== 0) globalThis.clearTimeout(state.quietHandle);
+  state.quietHandle = 0;
+}
+
+function armQuietTimer(phase, runId) {
+  clearQuietTimer();
+  if (state.quiet) {
+    // A frame arrived after the run had gone quiet, so the notice is no longer true.
+    state.quiet = false;
+    clearError();
+  }
+  state.quietHandle = globalThis.setTimeout(() => reportQuiet(phase, runId), QUIET_AFTER_MS);
+}
+
+function reportQuiet(phase, runId) {
+  state.quietHandle = 0;
+  if (!isCurrentRun(phase, runId)) return;
+  state.quiet = true;
+  state.busy = false;
+  dom.runDiscovery.disabled = false;
+  dom.generatePost.disabled = false;
+  const seconds = Math.round(QUIET_AFTER_MS / 1000);
+  showNotice(`${LABELS.runQuiet} No event has arrived from ${runId} for ${seconds} s.`);
+  setPipelineState(`${phase} run ${runId} · quiet for ${seconds} s · no terminal state reported`);
+  if (phase === 'discovery') setText(dom.discoveryState, `${runId} · quiet, no terminal state`);
+}
+
 // ---------------------------------------------------------------------------------------
 // Fetching.
 // ---------------------------------------------------------------------------------------
@@ -487,6 +679,10 @@ function openStream(url, { onEvent, onEnd, onLost }) {
   let ended = false;
 
   stream.addEventListener('trace', (message) => {
+    // A stream this file has replaced is a stream whose frames belong to a run nobody is
+    // looking at. `close()` stops a real `EventSource`; the check is what makes that a property
+    // of this file rather than a property of the browser.
+    if (state.stream !== stream) return;
     let event = null;
     try {
       event = JSON.parse(message.data);
@@ -505,12 +701,15 @@ function openStream(url, { onEvent, onEnd, onLost }) {
       summary = null;
     }
     stream.close();
-    if (state.stream === stream) state.stream = null;
+    // A superseded stream is closed and then dropped: its run's outcome is not this panel's
+    // any more, and reading it would be the race rule 5 exists to stop.
+    if (state.stream !== stream) return;
+    state.stream = null;
     onEnd(summary);
   });
 
   stream.addEventListener('error', () => {
-    if (ended) return;
+    if (ended || state.stream !== stream) return;
     // `EventSource` retries by itself while the connection is merely interrupted; CLOSED is the
     // state in which it has given up, and only then is the trace genuinely lost.
     if (stream.readyState !== EventSource.CLOSED) return;
@@ -590,6 +789,7 @@ function buildGraph() {
       synthesised: dom.settingSynthesised,
     },
     onSelect: showNodeDetail,
+    onStats: writePaintedCount,
     onViewChange: (crumbs) => {
       const current = crumbs[crumbs.length - 1];
       if (current && current.index === 0) markViewMode('full');
@@ -618,6 +818,25 @@ function buildGraph() {
   dom.viewFull.addEventListener('click', () => showFullGraph());
   dom.viewStory.addEventListener('click', () => showSubgraph('story'));
   dom.viewEvidence.addEventListener('click', () => showSubgraph('evidence'));
+}
+
+/**
+ * What the last frame actually painted, in the header, beside what the payload holds.
+ *
+ * `onStats` is the renderer's own callback and fires on every frame it draws, so the value is
+ * the frame's and not an estimate. It is written through a cached string because a frame that
+ * painted the same thing as the last one should not touch the DOM sixty times a second — and
+ * `#graph-status` stays the renderer's element: this writes `#count-painted`, which is this
+ * file's.
+ */
+function writePaintedCount(report) {
+  const line = `${plural(report.drawnNodes, 'node')}`
+    + `${report.clusters ? ` + ${plural(report.clusters, 'cluster')}` : ''} · `
+    + `${plural(report.drawnEdges, 'edge')} at zoom ${formatSignificant(report.scale, 3)}`
+    + `${report.aggregating ? ' (dense regions aggregated)' : ''}`;
+  if (line === state.paintedStatus) return;
+  state.paintedStatus = line;
+  setText(dom.countPainted, line);
 }
 
 function markViewMode(mode) {
@@ -722,6 +941,9 @@ function renderIdentity(payload) {
   const company = (payload.nodes ?? []).find((node) => node.entity_id);
   setText(dom.headerCompany, company ? company.entity_id : null);
 
+  // These two are the size of the projection *payload*. What is painted is a different number —
+  // it changes with the zoom — and it is written from the renderer's own frame report into
+  // `#count-painted` by `writePaintedCount`.
   const counts = payload.counts ?? {};
   setText(dom.countDrawnNodes, formatCount(counts.nodes));
   setText(dom.countDrawnEdges, formatCount(counts.edges));
@@ -803,7 +1025,49 @@ async function showSubgraph(kind) {
 // Behaviour 2: discovery, on demand, with the trace streamed.
 // ---------------------------------------------------------------------------------------
 
+/**
+ * Start a run's trace over: no rows, no sequence ledger, no replay notice.
+ *
+ * Called from both run starters rather than from `clear(dom.traceEvents)` on its own, because a
+ * cleared list with a full ledger would silently swallow the next run's first steps.
+ */
+function resetTrace() {
+  clear(dom.traceEvents);
+  state.traceEvents = [];
+  state.traceSequences = new Set();
+  state.replayedSteps = 0;
+  state.replayRow = null;
+}
+
+/**
+ * Rule 6, said once and kept at the bottom of the list.
+ *
+ * `Run.stream()` replays from sequence 0 on every subscribe and ignores `Last-Event-ID`
+ * (confirmed live: `Last-Event-ID: 15` still answers `id: 0` first). That is the server's
+ * deliberate design — it is what lets a panel opened halfway through see the whole trace — so
+ * the reconnect is normal and only the *doubling* was the bug. A single row, updated in place
+ * and moved to the end, says it happened without pretending it did not.
+ */
+function noteReplayedStep() {
+  state.replayedSteps += 1;
+  if (state.replayRow === null) {
+    state.replayRow = make('li', 'note');
+    state.replayRow.dataset.replayed = 'true';
+  }
+  state.replayRow.textContent = `${plural(state.replayedSteps, 'replayed step')} already shown. `
+    + LABELS.streamReplayed;
+  dom.traceEvents.append(state.replayRow);
+}
+
 function renderTraceEvent(event) {
+  const sequence = Number(event.sequence);
+  if (Number.isInteger(sequence)) {
+    if (state.traceSequences.has(sequence)) {
+      noteReplayedStep();
+      return null;
+    }
+    state.traceSequences.add(sequence);
+  }
   const item = make('li');
   item.dataset.sequence = String(event.sequence);
   const head = make('div');
@@ -817,8 +1081,13 @@ function renderTraceEvent(event) {
   const edgeIds = event.graph_highlights ? event.graph_highlights.edge_ids ?? [] : [];
   const factIds = event.related_fact_ids ?? [];
   const sentenceIds = event.related_sentence_ids ?? [];
+  // `period_keys` is not a node id and is never sent to `view.highlight`: a period is a property
+  // of an observation, not a drawn node, and the projections carry no node for one. It is
+  // counted here because a step that named 24 periods did name something.
+  const periodKeys = event.graph_highlights ? event.graph_highlights.period_keys ?? [] : [];
   if (nodeIds.length) pointers.push(plural(nodeIds.length, 'graph node'));
   if (edgeIds.length) pointers.push(plural(edgeIds.length, 'graph edge'));
+  if (periodKeys.length) pointers.push(plural(periodKeys.length, 'period key'));
   if (factIds.length) pointers.push(plural(factIds.length, 'fact'));
   if (sentenceIds.length) pointers.push(plural(sentenceIds.length, 'sentence'));
   if (pointers.length) item.append(make('div', 'mono', pointers.join(' · ')));
@@ -836,7 +1105,9 @@ function renderTraceEvent(event) {
   });
 
   dom.traceEvents.append(item);
-  return item;
+  // The replay notice, if there is one, stays the last row.
+  if (state.replayRow !== null) dom.traceEvents.append(state.replayRow);
+  return { item, resolution };
 }
 
 /**
@@ -847,21 +1118,41 @@ function renderTraceEvent(event) {
  * candidate projections — verified against the live evidence subgraph. Both are resolved through
  * `view.node` before they are drawn, and what did not resolve is said out loud.
  */
-function applyEventHighlight(event, resolution) {
+function applyEventHighlight(event, resolution, { draw = true, focus = true } = {}) {
   const highlights = event.graph_highlights ?? {};
   const wanted = [...(highlights.node_ids ?? []), ...(event.related_fact_ids ?? [])];
-  const outcome = highlightIds(wanted, highlights.edge_ids ?? [],
-    { focus: wanted.length > 0 && wanted.length <= 40 });
+  const outcome = draw
+    ? highlightIds(wanted, highlights.edge_ids ?? [],
+      { focus: focus && wanted.length > 0 && wanted.length <= 40 })
+    : resolveNodeIds(wanted);
   if (resolution) {
     const total = wanted.length;
     resolution.textContent = total === 0
       ? 'This step named no graph id.'
       : `${outcome.resolved.length} of ${total} ids are in the drawn view`
         + `${outcome.missing.length ? `; ${outcome.missing.length} are not` : ''}. `
-        + LABELS.highlightResolution;
+        + LABELS.highlightResolution
+        + (draw ? '' : ' Click this step to light up the ones that are.');
   }
   const sentences = (event.related_sentence_ids ?? []).map(Number).filter(Number.isInteger);
-  if (sentences.length === 1) revealSentence(sentences[0], { navigate: false });
+  if (draw && sentences.length === 1) revealSentence(sentences[0], { navigate: false });
+  return outcome;
+}
+
+/**
+ * What the live stream does with a step, and why it is the same call the click makes.
+ *
+ * The review measured the gap: during the stream, `highlightIds` was called with no resolution
+ * element, and a stage whose 24 ids resolved to **0** drawn nodes cleared the highlight and said
+ * nothing — indistinguishable from a stage that highlighted nothing at all. Clicking the row
+ * already printed the honest correction, so the live pass now prints it too. What it still does
+ * not do is move the camera: a stream that re-framed the graph on every frame would be unusable,
+ * and a step whose ids the reader wants to see is one click away.
+ */
+function reportStreamedEvent(event, rendered) {
+  if (rendered === null) return;
+  const nodeIds = event.graph_highlights ? event.graph_highlights.node_ids ?? [] : [];
+  applyEventHighlight(event, rendered.resolution, { draw: nodeIds.length > 0, focus: false });
 }
 
 async function runDiscovery() {
@@ -870,10 +1161,11 @@ async function runDiscovery() {
   dom.runDiscovery.disabled = true;
   dom.discoveryExplainer.hidden = true;
   clear(dom.candidateList);
-  clear(dom.traceEvents);
   dom.candidateDetail.hidden = true;
-  state.traceEvents = [];
+  resetTrace();
   state.streamLost = false;
+  state.quiet = false;
+  state.discoveryRunId = null;
   setText(dom.discoveryState, 'starting');
   setPipelineState('finding story suggestions');
   selectTab(dom.tabTrace);
@@ -886,11 +1178,12 @@ async function runDiscovery() {
 
     openStream(serverPath(started.events_url, ENDPOINTS.discoveryEvents, params), {
       onEvent: (event) => {
+        armQuietTimer('discovery', started.run_id);
+        const rendered = renderTraceEvent(event);
+        if (rendered === null) return;
         state.traceEvents.push(event);
-        renderTraceEvent(event);
         setText(dom.discoveryState, `${started.run_id} · ${event.stage} · ${event.status}`);
-        const ids = event.graph_highlights ? event.graph_highlights.node_ids ?? [] : [];
-        if (ids.length) highlightIds(ids, event.graph_highlights.edge_ids ?? []);
+        reportStreamedEvent(event, rendered);
       },
       onEnd: () => finishDiscovery(params),
       onLost: () => {
@@ -899,6 +1192,7 @@ async function runDiscovery() {
         finishDiscovery(params);
       },
     });
+    armQuietTimer('discovery', started.run_id);
   } catch (failure) {
     state.busy = false;
     dom.runDiscovery.disabled = false;
@@ -907,8 +1201,20 @@ async function runDiscovery() {
 }
 
 async function finishDiscovery(params) {
+  const runId = params.run_id;
+  clearQuietTimer();
+  if (!isCurrentRun('discovery', runId)) {
+    noteSuperseded('discovery', runId);
+    return;
+  }
+  // The run reported a terminal state, so whatever it was quiet about is over.
+  state.quiet = false;
   try {
     const payload = await getJson(serverPath(null, ENDPOINTS.discoveryResult, params));
+    if (!isCurrentRun('discovery', runId)) {
+      noteSuperseded('discovery', runId);
+      return;
+    }
     state.busy = false;
     dom.runDiscovery.disabled = false;
     if (payload.error) {
@@ -1186,6 +1492,22 @@ function renderPackage(payload) {
   renderPackageBounds(payload);
 }
 
+/**
+ * One fact value, one string, whoever rendered it.
+ *
+ * The sources panel prints `value_display`, which the server produced with `%.10g`; this panel
+ * had no such field and formatted the raw float itself, so the same fact could in principle read
+ * two ways on one page. Rule 4 decides the order: a string the server sent is used as it
+ * arrived, and only when there is none does this file format the number — with `formatNumber`,
+ * which is now `%.10g` itself. The exact float goes on the element's `title` either way.
+ */
+function factValue(fact) {
+  for (const key of ['value_display', 'rendered']) {
+    if (typeof fact[key] === 'string' && fact[key] !== '') return fact[key];
+  }
+  return formatNumber(fact.value);
+}
+
 function renderFacts(facts) {
   const host = clear(dom.factsList);
   if (!facts.length) {
@@ -1197,8 +1519,10 @@ function renderFacts(facts) {
     item.dataset.factId = fact.observation_id;
     const head = make('div');
     head.append(make('strong', null, fact.metric_label ?? fact.metric_id));
-    head.append(make('span', 'mono',
-      `  ${formatNumber(fact.value)} ${fact.unit ?? ''} · ${fact.period_key}`));
+    const value = make('span', 'mono',
+      `  ${factValue(fact)} ${fact.unit ?? ''} · ${fact.period_key}`);
+    value.title = `exact value ${fact.value}`;
+    head.append(value);
     item.append(head);
     const line = make('div', 'mono', fact.observation_id);
     item.append(line);
@@ -1523,9 +1847,10 @@ async function generatePost() {
   if (state.busy) return;
   state.busy = true;
   dom.generatePost.disabled = true;
-  clear(dom.traceEvents);
-  state.traceEvents = [];
+  resetTrace();
   state.streamLost = false;
+  state.quiet = false;
+  state.generationRunId = null;
   resetOutput();
   setPipelineState('generating');
   selectTab(dom.tabTrace);
@@ -1549,9 +1874,12 @@ async function generatePost() {
     const params = { run_id: started.run_id };
     openStream(serverPath(started.events_url, ENDPOINTS.runEvents, params), {
       onEvent: (event) => {
+        armQuietTimer('generation', started.run_id);
+        const rendered = renderTraceEvent(event);
+        if (rendered === null) return;
         state.traceEvents.push(event);
-        renderTraceEvent(event);
         setPipelineState(`generating · ${event.stage} · ${event.status}`);
+        reportStreamedEvent(event, rendered);
       },
       onEnd: () => finishGeneration(params),
       onLost: () => {
@@ -1559,6 +1887,7 @@ async function generatePost() {
         finishGeneration(params);
       },
     });
+    armQuietTimer('generation', started.run_id);
   } catch (failure) {
     state.busy = false;
     dom.generatePost.disabled = false;
@@ -1608,11 +1937,28 @@ function renderStyleDelivery(delivery) {
     `Style delivered by ${delivery.mechanism}. ${delivery.note ?? ''}`));
 }
 
+/**
+ * Read the run's own answer and paint it — if it is still this panel's run.
+ *
+ * Rule 5 is enforced at every await boundary rather than once at the top, because there are two
+ * of them and a run can be superseded during either. The button and `state.busy` are released in
+ * the `finally`, and only for the current run: releasing them for a superseded one would
+ * re-enable the interface on behalf of a run nobody is watching.
+ */
 async function finishGeneration(params) {
-  state.busy = false;
-  dom.generatePost.disabled = false;
+  const runId = params.run_id;
+  clearQuietTimer();
+  if (!isCurrentRun('generation', runId)) {
+    noteSuperseded('generation', runId);
+    return;
+  }
+  state.quiet = false;
   try {
     const payload = await getJson(serverPath(null, ENDPOINTS.runResult, params));
+    if (!isCurrentRun('generation', runId)) {
+      noteSuperseded('generation', runId);
+      return;
+    }
     if (payload.error) {
       setPipelineState(`generation failed: ${payload.error.code}`);
       showError('the generation run', new ApiFailure(payload, payload.error.status ?? 500));
@@ -1626,15 +1972,26 @@ async function finishGeneration(params) {
       return;
     }
     state.outcome = payload.outcome;
-    renderOutcome(payload.outcome);
-    setPipelineState(`generation ${payload.outcome.disposition}`);
+    const shape = renderOutcome(payload.outcome);
+    setPipelineState(shape === 'inconsistent'
+      ? `generation outcome inconsistent · payload says ${payload.outcome.disposition}`
+      : `generation ${payload.outcome.disposition}`);
 
     const sources = await getJson(serverPath(null, ENDPOINTS.runSources, params));
+    if (!isCurrentRun('generation', runId)) {
+      noteSuperseded('generation', runId);
+      return;
+    }
     state.sources = sources.sources ?? null;
     renderSources(state.sources);
-    settleBanner();
+    if (shape !== 'inconsistent') settleBanner();
   } catch (failure) {
     showError('reading the generation outcome', failure);
+  } finally {
+    if (isCurrentRun('generation', runId)) {
+      state.busy = false;
+      dom.generatePost.disabled = false;
+    }
   }
 }
 
@@ -1732,13 +2089,91 @@ function renderInline(host, text) {
   if (last < text.length) host.append(document.createTextNode(text.slice(last)));
 }
 
+/**
+ * Which of the three shapes this payload is, and every signal that disagrees about it.
+ *
+ * The review produced a payload the endpoint can really emit — `accepted: true`,
+ * `rendered_as: "post"`, `post: null`, because `post.md` was unreadable — and the panel rendered
+ * "**Refused · accepted**", asserted "verifier ran: no" while `verification.passed` was `true`
+ * over twelve checks and no blocking finding, and captioned an accepted draft as the refused
+ * one. Three claims, all false, from one missing file.
+ *
+ * The rule this function exists for: **when the signals disagree, the disagreement is the
+ * finding**. Picking the branch that happens to have content is how a panel ends up asserting
+ * something the payload never said. So each signal is tested against each other one, and what
+ * comes back is either a coherent shape or a list of the contradictions, in the payload's own
+ * words, for the panel to print instead of a verdict.
+ */
+function outcomeConsistency(outcome) {
+  const verification = outcome.verification ?? null;
+  const blocking = verification ? (verification.blocking_findings ?? []).length : null;
+  const asPost = outcome.rendered_as === 'post';
+  const asRejection = outcome.rendered_as === 'rejection';
+  const signals = [
+    `accepted: ${formatValue(outcome.accepted)}`,
+    `disposition: ${outcome.disposition}`,
+    `rendered_as: ${outcome.rendered_as}`,
+    `post in the payload: ${outcome.post ? 'yes' : 'no'}`,
+    `rejection block in the payload: ${outcome.rejection ? 'yes' : 'no'}`,
+    verification === null
+      ? 'verification: absent'
+      : `verification: passed ${verification.passed ? 'yes' : 'no'}, `
+        + `${(verification.checks ?? []).length} checks, ${blocking} blocking findings`,
+  ];
+
+  const conflicts = [];
+  if (!asPost && !asRejection) {
+    conflicts.push(`rendered_as is “${outcome.rendered_as}”, which is neither a post nor a `
+      + 'rejection, so there is no shape to render.');
+  }
+  if (asPost && !outcome.post) {
+    conflicts.push('The run is rendered as a post but the payload carries no post.');
+  }
+  if (asRejection && !outcome.rejection) {
+    conflicts.push('The run is rendered as a rejection but the payload carries no rejection.');
+  }
+  if (asPost && outcome.accepted === false) {
+    conflicts.push('The run is rendered as a post while `accepted` is false.');
+  }
+  if (asRejection && outcome.accepted === true) {
+    conflicts.push('The run is rendered as a rejection while `accepted` is true.');
+  }
+  if (asPost && verification !== null && verification.passed === false) {
+    conflicts.push('The run is rendered as a post while the deterministic verifier refused the '
+      + 'draft. Verification is authoritative.');
+  }
+  if (asRejection && verification !== null && verification.passed === true && blocking === 0) {
+    conflicts.push('The run is rendered as a rejection while the deterministic verifier passed '
+      + 'the draft with no blocking finding.');
+  }
+  const shape = conflicts.length > 0 ? 'inconsistent' : (asPost ? 'post' : 'rejection');
+  return { shape, conflicts, signals };
+}
+
 function renderOutcome(outcome) {
   resetOutput();
-  const accepted = outcome.rendered_as === 'post';
+  const consistency = outcomeConsistency(outcome);
+  const accepted = consistency.shape === 'post';
+  const host = dom.postOutput;
+
+  if (consistency.shape === 'inconsistent') {
+    // No verdict class: `is-accepted` and `is-rejected` are both claims, and neither is safe.
+    dom.verdictBadge.textContent = `inconsistent · payload says ${outcome.disposition}`;
+    dom.verdictBadge.className = 'mono is-inconsistent';
+    showNotice('This run’s outcome is inconsistent and no verdict is shown. '
+      + LABELS.inconsistentOutcome);
+    renderInconsistentOutcome(host, outcome, consistency);
+    renderPlan(host, outcome.plan, outcome);
+    renderDraft(host, outcome);
+    renderPostMeta(outcome);
+    renderVerification(outcome.verification);
+    selectTab(dom.tabPost);
+    return consistency.shape;
+  }
+
   dom.verdictBadge.textContent = outcome.disposition;
   dom.verdictBadge.className = `mono ${accepted ? 'is-accepted' : 'is-rejected'}`;
 
-  const host = dom.postOutput;
   if (accepted && outcome.post) {
     renderMarkdown(host, outcome.post.markdown);
   } else {
@@ -1766,19 +2201,92 @@ function renderOutcome(outcome) {
     }
   }
 
-  renderPlan(host, outcome.plan);
+  renderPlan(host, outcome.plan, outcome);
   renderDraft(host, outcome);
   renderPostMeta(outcome);
   renderVerification(outcome.verification);
   selectTab(dom.tabPost);
+  return consistency.shape;
 }
 
-function renderPlan(host, plan) {
+/**
+ * The payload that cannot be rendered as either shape, rendered as exactly that.
+ *
+ * What is on screen is the six signals and the contradictions between them. Whatever content the
+ * payload does carry is shown underneath, captioned as what it is — a draft is "the draft", not
+ * "the refused draft" — because relabelling it is the mistake this branch exists to stop.
+ */
+function renderInconsistentOutcome(host, outcome, consistency) {
+  host.append(make('h3', null, 'This run’s outcome is inconsistent'));
+  host.append(make('p', null, LABELS.inconsistentOutcome));
+  for (const conflict of consistency.conflicts) {
+    host.append(make('div', 'is-blocking', conflict));
+  }
+  const box = details(host, 'Every signal, exactly as the payload sent it', { open: true });
+  for (const signal of consistency.signals) box.append(make('div', 'mono', signal));
+
+  if (outcome.post) {
+    const posted = details(host, 'The post the payload carries', { open: true });
+    renderMarkdown(posted, outcome.post.markdown);
+  }
+  const rejection = outcome.rejection;
+  if (rejection) {
+    const refusal = details(host, 'The rejection the payload carries', { open: true });
+    refusal.append(make('p', 'mono',
+      `refused at ${rejection.stage ?? ''} · artifact ${rejection.filename ?? ''} · `
+      + `verifier ran: ${rejection.verifier_ran ? 'yes' : 'no'}`));
+    for (const code of rejection.codes ?? []) {
+      const row = make('div', 'is-blocking');
+      row.append(make('strong', null, code.code));
+      row.append(make('div', null, code.description || 'no catalogue entry documents this code'));
+      refusal.append(row);
+    }
+  }
+  if (outcome.draft) {
+    const drafted = details(host, 'The draft, as written', { open: true });
+    for (const sentence of outcome.draft.sentences ?? []) {
+      drafted.append(make('p', null, sentence.text));
+    }
+  }
+}
+
+/**
+ * The plan, with the one caveat the review found missing.
+ *
+ * §3 clause 2 permits this panel: `thesis`, `why_it_matters` and each `claim` are fields the
+ * model returned under schema constraint, not free text it was asked to narrate. What was
+ * missing is that a reader cannot tell that from the page. On a live run the model wrote
+ * *"…driven by non-recurring costs excluded from the adjusted metric"* and *"The divergence is
+ * caused by…"* — causal wording, `statement_class: explanatory`, `required_fact_ids: []` — while
+ * the run's own trace reported `checking_causal_language · skipped` and the payload carried no
+ * verification at all. Not a rule violation; an honesty gap, and this is where it closes.
+ *
+ * The three things said here are all measured, never inferred: that the text is the model's,
+ * whether the verifier ran, and what this run's trace reported about the causal-language check.
+ * Nothing here scans the prose for causal words — that would be this file inventing a check and
+ * then reporting its result as if §13 had run one.
+ */
+function renderPlan(host, plan, outcome = {}) {
   const box = details(host, plan === null ? 'Editorial plan — none' : 'Editorial plan');
   if (plan === null || plan === undefined) {
     box.append(make('div', 'is-absent', 'The planner produced no plan.'));
     return;
   }
+  box.append(make('p', 'note', LABELS.planIsModelText));
+  const verification = outcome.verification ?? null;
+  if (verification === null) {
+    box.append(make('div', 'is-absent',
+      'The deterministic verifier did not run on this outcome, so nothing below — including any '
+      + 'causal wording — has been examined by any check.'));
+  }
+  const causal = state.traceEvents
+    .filter((event) => event.stage === 'checking_causal_language')
+    .slice(-1)[0];
+  if (causal && causal.status !== 'passed') {
+    box.append(make('div', 'is-warning',
+      `This run’s trace reports the causal-language check over the draft as “${causal.status}”.`));
+  }
+
   const list = document.createElement('dl');
   field(list, 'thesis', plan.thesis);
   field(list, 'why it matters', plan.why_it_matters);
@@ -1799,6 +2307,11 @@ function renderPlan(host, plan) {
       row.append(make('div', 'mono', `${point.statement_class} · `
         + `facts ${(point.required_fact_ids ?? []).length} · `
         + `passages ${(point.required_citation_passage_ids ?? []).length}`));
+      if ((point.required_fact_ids ?? []).length === 0) {
+        // A count of zero is already on the line above; saying it in words is what stops a
+        // reader taking an explanatory claim with no fact behind it for a supported one.
+        row.append(make('div', 'is-absent', 'The plan binds no fact id to this claim.'));
+      }
       const ids = [...(point.required_fact_ids ?? []),
         ...(point.required_citation_passage_ids ?? [])];
       row.addEventListener('click', () => highlightIds(ids, [], { focus: true }));

@@ -17,12 +17,23 @@ the element it was meant for. Every test in this file is one of exactly three ki
 3. **One end-to-end check that the server hands the file back** with the right content type.
 
 What is *not* proved here, said plainly rather than left to be discovered: that the Markdown
-renderer produces correct output; that `formatNumber` agrees with `api._display_number` on every
-input; that a rejected run actually renders as rejected; that the SSE client closes its stream;
-that clicking a trace step highlights anything. Those were exercised during implementation by
-driving this file inside a DOM against payloads captured from the running server, and the
-outcome of that run is recorded in the commit message — it is not reproducible from this suite,
-and this docstring is not going to imply that it is.
+renderer produces correct output; that a rejected run actually renders as rejected; that the SSE
+client closes its stream; that clicking a trace step highlights anything. Those were exercised
+during implementation by driving this file inside a DOM against payloads captured from the
+running server, and the outcome of that run is recorded in the commit message — it is not
+reproducible from this suite, and this docstring is not going to imply that it is.
+
+One exception, added 2026-08-05: `formatNumber`'s agreement with `api._display_number` **is**
+proved by execution, in `tests/story/test_demo_ui_number_format.py`, which lifts the formatter
+out of this file and runs it under `node` against Python's own `%.10g`. It is in its own module
+because it is the only test in this area that runs the code rather than reading it.
+
+The repairs the adversarial review of 2026-08-05 asked for are the last section below. Every one
+of them was *demonstrated* by driving the real `app.js` in jsdom against captured payloads — the
+run's output is in the commit message — and what is asserted here is the source-level property
+that the demonstrated behaviour rests on. A test that reads `finishGeneration` for a run-id guard
+does not prove that the guard fires; it proves that removing it is a failing test rather than a
+silent regression, which is the most this environment can do.
 
 `tests/story/test_demo_ui_static.py` already scans every asset in the tree, `app.js` included,
 for the markup sinks, the off-origin references and the random sources. Those scans are repeated
@@ -456,6 +467,195 @@ def test_the_module_parses_where_an_engine_is_available_to_say_so(asset: str) ->
     finished = subprocess.run(  # noqa: S603 - a fixed argv, no shell, a path from `which`
         [node, "--check", str(STATIC / asset)], capture_output=True, text=True, timeout=60)
     assert finished.returncode == 0, finished.stderr
+
+
+# ---------------------------------------------------------------------------------------
+# The eight repairs from the adversarial review of 2026-08-05.
+#
+# Each test names the finding, states what was measured, and asserts the source-level property
+# the repair is made of. The behavioural proof is the jsdom run in the commit message; this is
+# what stops the repair being undone by an edit nobody reviewed.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_generation_result_is_keyed_on_the_run_it_came_from() -> None:
+    """F5. Measured: two Generate clicks inside `finishGeneration`'s await window left run A's
+    post on screen beside run B's trace and `state.generationRunId` = B.
+
+    Two properties, and the second is the one that matters. `finishGeneration` may not release
+    the button before its awaits — that is what let the second click in — **and** every await
+    boundary re-checks the run id, because the quiet watchdog below deliberately re-enables the
+    interface while a run may still be in flight, so a superseded result can still arrive.
+    """
+    source = app_source()
+    for name in ("function isCurrentRun(", "function currentRunId(", "function noteSuperseded("):
+        assert name in source, f"app.js no longer declares {name}"
+    body = source[source.index("async function finishGeneration("):
+                  source.index("function renderRunFailure(")]
+    assert body.count("isCurrentRun('generation', runId)") >= 4, (
+        "finishGeneration does not re-check the run id at every await boundary")
+    assert "} finally {" in body, "finishGeneration releases the button outside a finally"
+    release = body.index("state.busy = false")
+    assert release > body.index("} finally {"), (
+        "finishGeneration clears state.busy before its awaits, which is the race itself")
+    discovery = source[source.index("async function finishDiscovery("):
+                       source.index("function renderDiscoveryFailure(")]
+    assert discovery.count("isCurrentRun('discovery', runId)") >= 2, (
+        "finishDiscovery paints whatever arrives, whichever run it came from")
+
+
+def test_a_replayed_trace_frame_is_counted_rather_than_appended_twice() -> None:
+    """F6. Measured: a transient stream error made 23 real events render as 46 rows.
+
+    `Run.stream()` replays from sequence 0 on every subscribe and ignores `Last-Event-ID`
+    (confirmed against the live server), and `EventSource` reconnects by itself, so the client is
+    the only place the difference can be seen. The `sequence` is already on every frame and
+    already written to `dataset.sequence`.
+    """
+    source = app_source()
+    assert "traceSequences" in source, "app.js keeps no ledger of the sequences it has shown"
+    assert "state.traceSequences.has(sequence)" in source
+    assert "state.traceSequences.add(sequence)" in source
+    assert "function noteReplayedStep(" in source, (
+        "a replayed frame is dropped silently; the reconnect is normal and should be said")
+    render = source[source.index("function renderTraceEvent("):
+                    source.index("function applyEventHighlight(")]
+    assert "return null;" in render, "renderTraceEvent has no path that refuses a duplicate"
+    # Both stream handlers must respect that refusal, or `state.traceEvents` doubles instead.
+    assert source.count("if (rendered === null) return;") >= 2
+
+
+def test_the_panel_renders_a_contradiction_as_a_contradiction() -> None:
+    """F7's client half. Measured on `accepted: true, rendered_as: "post", post: null` — which
+    the server can produce when `post.md` is unreadable — the panel said "Refused · accepted",
+    asserted "verifier ran: no" while `verification.passed` was true over twelve checks with no
+    blocking finding, and captioned an accepted draft as the refused one.
+
+    The repair is not a better guess. It is that the six signals are compared with each other and
+    a disagreement is rendered as one, with no verdict class on the badge.
+    """
+    source = app_source()
+    assert "function outcomeConsistency(" in source
+    assert "function renderInconsistentOutcome(" in source
+    consistency = source[source.index("function outcomeConsistency("):
+                         source.index("function renderOutcome(")]
+    for signal in ("outcome.accepted", "outcome.disposition", "outcome.rendered_as",
+                   "outcome.post", "outcome.rejection", "verification.passed"):
+        assert signal in consistency, f"the consistency check never reads {signal}"
+    assert "is-inconsistent" in source, "there is no third badge state"
+    branch = source[source.index("if (consistency.shape === 'inconsistent') {"):
+                    source.index("dom.verdictBadge.textContent = outcome.disposition;")]
+    # Comments stripped: the branch's own comment explains why neither verdict class is used
+    # there, and a test that could not tell a mention from a use would fail on the explanation.
+    code = "\n".join(line for line in branch.splitlines()
+                     if not line.strip().startswith(("//", "*", "/*")))
+    for claim in ("is-accepted", "is-rejected", "Refused ·"):
+        assert claim not in code, (
+            f"the inconsistent branch still asserts {claim!r}, which is a verdict")
+
+
+def test_the_plan_panel_says_the_plan_is_model_text_and_whether_anything_checked_it() -> None:
+    """F9. Measured on a live run: the panel rendered the model's own *"driven by non-recurring
+    costs…"* and *"The divergence is caused by…"* — `statement_class: explanatory`,
+    `required_fact_ids: []` — with no caveat, while the trace reported
+    `checking_causal_language · skipped` and the payload carried `verification: null`.
+
+    §3 clause 2 permits the panel; the gap was that a reader could not tell. What is asserted
+    here is that all three statements are *read* rather than composed: whose text it is, whether
+    the verifier ran, and what this run's own trace said about the causal-language check. There
+    is no phrase list anywhere near this code, because scanning the prose here and reporting the
+    result would be this file inventing a check §13 never ran.
+    """
+    source = app_source()
+    assert "planIsModelText" in source
+    plan = source[source.index("function renderPlan("):
+                  source.index("function renderDraft(")]
+    assert "LABELS.planIsModelText" in plan
+    assert "outcome.verification" in plan, "the plan panel never says whether the verifier ran"
+    assert "checking_causal_language" in plan, (
+        "the plan panel never reports what the run's own trace said about the causal check")
+    assert "required_fact_ids ?? []).length === 0" in plan, (
+        "a claim the plan binds no fact to is not marked as such")
+
+
+def test_the_header_separates_the_projection_the_frame_and_the_snapshot() -> None:
+    """F13. Measured at zoom 0.25: the canvas painted 116 nodes and 49 clusters while the header
+    read "Drawn: 403 nodes" — the payload's count — and `graph.js`'s own status line read
+    "drawn 116 + 49 clusters". Two numbers for one thing, on one screen.
+
+    `onStats` is the renderer's own per-frame callback, so the painted figure is the frame's and
+    not an estimate; `#graph-status` stays the renderer's element and `#count-painted` is this
+    file's, so there is still exactly one writer per element.
+    """
+    source = app_source()
+    assert "onStats: writePaintedCount" in source
+    assert "function writePaintedCount(" in source
+    assert "dom.countPainted" in source
+    markup = index_source()
+    assert 'id="count-painted"' in markup
+    assert "In this projection:" in markup, "the header still calls the payload count 'drawn'"
+    assert "On screen now:" in markup
+
+
+def test_a_quiet_run_is_reported_as_quiet_and_never_as_an_outcome() -> None:
+    """F15. Measured: `docker stop fkg-neo4j` mid-discovery left the run `running` with one event
+    for four minutes — the driver retries with backoff — SSE sent no further byte, and both
+    buttons stayed dead with no explanation. It never falsely claimed completion, which was
+    right, and it never said anything at all, which was not.
+
+    The watchdog may re-enable the interface and may say the run has gone quiet. It may not close
+    the stream, cancel the run, or write a disposition: a run we have stopped hearing from is
+    neither finished nor failed.
+    """
+    source = app_source()
+    assert "const QUIET_AFTER_MS" in source
+    quiet = source[source.index("function reportQuiet("):source.index("// ------", source.index(
+        "function reportQuiet("))]
+    assert "dom.runDiscovery.disabled = false" in quiet
+    assert "dom.generatePost.disabled = false" in quiet
+    assert "runQuiet" in quiet, "the watchdog re-enables the buttons without saying why"
+    for forbidden in ("stream.close(", "showError(", "renderOutcome(", "disposition"):
+        assert forbidden not in quiet, (
+            f"the quiet watchdog calls {forbidden!r}; it may not decide anything about the run")
+    assert "if (!isCurrentRun(phase, runId)) return;" in quiet, (
+        "the watchdog fires for a run that has already been replaced")
+
+
+def test_one_fact_value_is_one_string_and_the_servers_is_preferred() -> None:
+    """F14. Latent, and closed anyway: the facts panel formatted the raw float while the sources
+    panel printed the server's `value_display`, so one fact could read two ways on one page.
+
+    Rule 4 decides the order — a string the server sent is used as it arrived — and where there
+    is none, `formatNumber` is now `%.10g` itself (proved by execution in
+    `test_demo_ui_number_format.py`).
+    """
+    source = app_source()
+    assert "function factValue(" in source
+    chooser = source[source.index("function factValue("):source.index("function renderFacts(")]
+    assert "'value_display'" in chooser and "'rendered'" in chooser
+    assert chooser.index("value_display") < chooser.index("formatNumber"), (
+        "the client's own formatting is tried before the server's string")
+    assert "value.title = `exact value ${fact.value}`" in source, (
+        "the exact float is no longer reachable from the facts panel")
+    assert "fact.value_display" in source, "the sources panel no longer prints the server string"
+
+
+def test_the_live_stream_reports_a_highlight_resolution_the_way_a_click_does() -> None:
+    """F3's client half. Measured: during the stream, `highlightIds` was called with no
+    resolution element and a stage whose 24 ids resolved to **0** drawn nodes silently cleared
+    the highlight — indistinguishable from a stage that highlighted nothing. Clicking the row
+    already printed the honest correction; the live pass did not.
+    """
+    source = app_source()
+    assert "function reportStreamedEvent(" in source
+    assert source.count("reportStreamedEvent(event, rendered);") == 2, (
+        "the two streams do not both report what resolved")
+    report = source[source.index("function reportStreamedEvent("):
+                    source.index("async function runDiscovery(")]
+    assert "applyEventHighlight(" in report, (
+        "the live path resolves ids by some other route than the one the click uses")
+    assert "focus: false" in report, (
+        "the live path moves the camera; a stream that re-framed every frame is unusable")
 
 
 def test_this_file_is_honest_about_being_unable_to_run_the_code_it_tests() -> None:

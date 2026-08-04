@@ -455,6 +455,9 @@ legend { font-size: 12px; color: var(--ink-faint); padding: 0 0.3rem; }
 #verdict-badge { margin-left: auto; padding: 0.15rem 0.45rem; border-radius: var(--radius); }
 #verdict-badge.is-accepted { color: var(--good); background: #1b6b3a1a; }
 #verdict-badge.is-rejected { color: var(--bad); background: #a020201a; }
+/* The third state, added after the adversarial review: the payload's own signals disagree about
+   what the run was, so neither colour above is a claim this page is entitled to make. */
+#verdict-badge.is-inconsistent { color: var(--warn); background: #8a53001a; }
 
 #post-output {
   max-width: 68ch;

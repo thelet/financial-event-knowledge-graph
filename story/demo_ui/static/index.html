@@ -47,9 +47,19 @@
         tens of thousands of nodes today, and a figure written into the markup would keep saying
         so long after the next load.
       -->
+      <!--
+        Three different counts, and they were not three sentences until the adversarial review
+        measured the middle one missing: at zoom 0.25 the canvas painted 116 nodes and 49
+        clusters while this line still read "Drawn: 403", which is the size of the projection
+        payload and not the size of what is on the screen. The renderer's own status line was
+        saying "drawn 116 + 49 clusters" at the same moment, so the page carried two numbers for
+        one thing. `In this projection` is the payload, `On screen now` is what the last frame
+        actually painted, and `Whole graph` is the snapshot.
+      -->
       <p id="projection-scale">
-        Drawn: <output id="count-drawn-nodes">—</output> nodes ·
+        In this projection: <output id="count-drawn-nodes">—</output> nodes ·
         <output id="count-drawn-edges">—</output> edges.
+        On screen now: <output id="count-painted">—</output>.
         Whole graph: <output id="count-total-nodes">—</output> nodes ·
         <output id="count-total-edges">—</output> edges.
       </p>
