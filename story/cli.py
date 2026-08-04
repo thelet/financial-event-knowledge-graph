@@ -48,7 +48,7 @@ from pathlib import Path
 
 from .context import build_story_context
 from .core.graph_identity import GraphIdentityError
-from .demo_ui import DEFAULT_HOST, DEFAULT_PORT, serve
+from .demo_ui import DEFAULT_HOST, DEFAULT_PORT, api, serve
 from .pipeline import (
     ACCEPTED,
     MANIFEST_FILENAME,
@@ -191,9 +191,26 @@ def cmd_ui(args) -> int:
             built["config"] = DemoConfig.load(root if root is not None else Path.cwd())
         return built["config"]
 
+    def story_pipeline():
+        # Imported here and passed as a service rather than imported by `demo_ui`, because
+        # `story/pipeline.py` names `story.context` under TYPE_CHECKING and
+        # `test_no_driver_is_reachable_from_the_contract_the_core_or_any_stage` reads a guarded
+        # import exactly as a plain one. A module-level import in `api.py` would put `neo4j`
+        # in the interface's closure and fail that test — the composition root is the one
+        # place allowed to know.
+        from story import pipeline
+
+        return pipeline
+
+    # The endpoints register on demand and not at import time: the process-wide router is
+    # asserted to hold nothing under `/demo/` (pytest imports every test module before running
+    # one), so importing `api` may not have a side effect.
+    api.register_endpoints()
+
     try:
         serve(root=root if root is not None else Path.cwd(), host=args.host, port=args.port,
-              services={"story_context": story_context, "demo_config": demo_config})
+              services={"story_context": story_context, "demo_config": demo_config,
+                        "story_pipeline": story_pipeline})
     except ValueError as exc:
         # The one thing `serve` refuses outright is a non-loopback bind (§1, and the brief).
         print(f"{exc}", file=sys.stderr)
