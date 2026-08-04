@@ -592,6 +592,7 @@ def test_the_budget_block_records_which_caps_actually_bound():
     """§10.2. "the model did not see it" must be a statement in the artifact rather than an
     inference from two counts."""
     package = make_package()
-    assert package.budget.token_estimate == 536
+    assert package.budget.artifact_token_estimate == 536
+    assert package.budget.prompt_token_estimate == 402
     assert package.budget.caps_hit == ()
     assert package.budget.parameters.max_total_tokens == 5000

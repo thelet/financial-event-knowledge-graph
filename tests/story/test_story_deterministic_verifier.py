@@ -177,7 +177,8 @@ def make_package(**overrides: object) -> StoryEvidencePackage:
         ),
         documents=(PackagedDocument(document_id=DOCUMENT_ID, form="10-Q",
                                     document_type="10-Q", filing_date="2022-11-03"),),
-        budget=PackageBudget(token_estimate=1180, section_counts={"facts": 2, "metrics": 2},
+        budget=PackageBudget(artifact_token_estimate=1180, prompt_token_estimate=1046,
+                             section_counts={"facts": 2, "metrics": 2},
                              parameters=BudgetParameters()),
     )
     fields.update(overrides)

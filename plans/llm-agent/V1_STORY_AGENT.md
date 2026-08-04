@@ -1254,7 +1254,10 @@ documents[]     document_id, form, filing_date, report_date, accession, source_u
                 NOTE: built only from CITED PASSAGES. An :EvidenceSource carrying a
                 document_id does NOT imply that :Document node exists (§13.7.2)
 retrieval_trace[]  tool name, parameters, row count, truncated, elapsed_ms
-budget          token_estimate, per-section counts, and every cap that bound
+budget          artifact_token_estimate, prompt_token_estimate, per-section counts, and
+                every cap that bound. The prompt estimate excludes retrieval_trace and this
+                block -- the slice no model is ever shown -- and is the one §10.2 bounds
+                *(implemented 2026-08-04; measured F1 5,416 artifact / 4,126 prompt)*
 ```
 
 ### 10.1 Warnings the package must carry, and they are all computable today
@@ -1288,7 +1291,7 @@ how `compatibility[]` — specified as "every comparability decision made", O(n�
 | conflicts[] | — | 8 |
 | compatibility[] | **only decisions the candidate's own comparisons made** | 12 |
 | retrieval_trace[] | — | 40 |
-| **total token estimate** | **≤ 5,000** | **6,000** |
+| **prompt token estimate** (the package minus `retrieval_trace` and `budget`) | **≤ 5,000** | **6,000** |
 | graph hops from any seed | 2 | 2 |
 
 ### 10.2.1 The passage budget, measured properly
@@ -1306,6 +1309,16 @@ are long. Corrected arithmetic:
 | **8 primaries + ±1 context (the first draft's recommendation)** | **~12,900** |
 | 4 primaries + ±1 context | ~6,400 |
 | **3 primaries + ±1 context** | **~4,800** |
+
+**This table sizes passages alone, and that is why §10.2's total could not hold it** *(measured
+2026-08-04, S5)*. The estimate covered the whole artifact, of which `retrieval_trace` was
+1,042–1,084 tokens and `budget` 190, so all three spike packages shipped **two** primaries and
+2–4 facts. §10.2's bound now applies to `prompt_token_estimate` — the package minus the trace
+and the budget block — and the spikes carry **3, 4 and 3** primaries with 3, 4 and 5 facts. No
+ceiling was raised. Context is still **0** on all three: the sections a model *does* see beside
+the passages cost 1,850–2,100 tokens (facts 654–1,028, warnings 393–554, documents 173–272),
+leaving ~3,000 for real passages that measure 640–760 tokens each, and `TRIM_ORDER` spends that
+on primaries before neighbours by design.
 
 The local runtime is `-c 8192` with `max_output_tokens 1024` (`config/extraction.yaml`,
 verified 2026-08-01). So the first draft's package **exceeded its own budget at every

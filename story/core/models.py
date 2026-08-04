@@ -638,9 +638,20 @@ class PackageBudget(StoryModel):
     Distinct from `BudgetParameters`: that is the configuration, this is the measurement.
     `caps_hit` names the sections that were truncated, so "the model did not see it" is a
     statement in the artifact rather than an inference from two counts.
+
+    **Two estimates, because the artifact and the prompt are not the same document.**
+    `artifact_token_estimate` sizes the whole package as written to disk;
+    `prompt_token_estimate` sizes only the slice that can reach a model — everything except
+    `retrieval_trace` and this block. **§10.2's ≤5,000 total and its 6,000 ceiling bind the
+    prompt estimate**, and the trim targets it. Measured on the F1 spike before the split: the
+    trace cost 1,084 tokens and this block 190, so a fifth of §10.2's budget was spent on
+    provenance no model slice contains, and all three spikes shipped two primary passages and
+    zero context as a result. §10.2.1 point 3 already says *"the planner and the writer see
+    different slices of one package"*; the trace is in neither.
     """
 
-    token_estimate: int
+    artifact_token_estimate: int
+    prompt_token_estimate: int
     section_counts: Mapping[str, int] = {}
     parameters: BudgetParameters = BudgetParameters()
     caps_hit: tuple[str, ...] = ()

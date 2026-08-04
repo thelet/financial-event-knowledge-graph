@@ -138,8 +138,8 @@ def make_package(**overrides: Any) -> StoryEvidencePackage:
                             text="Adjusted EBITDA (211)", char_count=21),
         ),
         documents=(PackagedDocument(document_id="doc:1", form="10-Q"),),
-        budget=PackageBudget(token_estimate=536, section_counts={"facts": 1},
-                             parameters=BudgetParameters()),
+        budget=PackageBudget(artifact_token_estimate=536, prompt_token_estimate=402,
+                             section_counts={"facts": 1}, parameters=BudgetParameters()),
     )
     fields.update(overrides)
     return StoryEvidencePackage(**fields)

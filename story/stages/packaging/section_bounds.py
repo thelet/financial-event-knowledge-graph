@@ -20,11 +20,28 @@ It is an estimate and is named one: no tokeniser ships with this repository, `ti
 `test_story_package_structure.py`'s forbidden list, and the local runtime's tokeniser is a GGUF
 detail that would make the budget depend on which model file is loaded.
 
-**What the estimate is taken over.** The whole package's canonical JSON — the model's universe
-is the serialised package, not the passage text alone — with `budget.token_estimate` at `0` and
-`package_content_digest` at `""`. Both are stamped *after* the estimate is known, and an
-estimate that included them would have no fixed point, which is the same defect S0's F6 found
-in §10.3's digest and answered the same way.
+**Two estimates, and only one of them is a bound.** `artifact_token_estimate` is taken over the
+whole package's canonical JSON — it is what gets written to disk, and it is informational.
+`prompt_token_estimate` is taken over `prompt_slice()`: the same payload minus `retrieval_trace`
+and minus the `budget` block, which is **the largest slice any model can be shown**. §10.2's
+5,000-token total and `MAX_TOTAL_TOKENS_CEILING` bind that second number, and the trim loop
+targets it.
+
+The reason is a measurement, not a preference. §10.2.1 sizes *"3 primaries + ±1 context ≈ 4,800
+tokens"* over **passages alone**, while the estimate covered the whole artifact; on the F1 spike
+`retrieval_trace` cost 1,084 tokens and `budget` 190, so §10.2's total could not hold §10.2.1's
+own arithmetic and all three spike packages shipped two primaries, zero context and `facts`
+below §10.2's stated 5–12 default. The trace is provenance for a human reviewer and for §14's
+manifest; §10.2.1 point 3 says *"the planner and the writer see different slices of one
+package"*, and the trace is in no slice. Counting it against the evidence budget starved the
+thing the budget exists to protect. No ceiling was raised to fix this — the existing ones simply
+became reachable.
+
+**Fixed points.** The artifact estimate is taken with both budget estimates at `0` and
+`package_content_digest` at `""`, and all three are stamped *after* it is known — an estimate
+that included them would have no fixed point, the same defect S0's F6 found in §10.3's digest
+and answered the same way. The prompt estimate needs no such care and is exact: it excludes the
+block it is stored in.
 """
 
 from __future__ import annotations
@@ -80,10 +97,25 @@ CAP_FIELDS: Mapping[str, str] = {
     "retrieval_trace": "max_retrieval_trace",
 }
 
-#: §10.2's total, and the ceiling it may not pass. The ceiling is a refusal and not a clamp:
-#: §10.2.1 measured the local runtime at `-c 8192` with `max_output_tokens 1024`, so a package
-#: over 6,000 leaves under 1,200 tokens for the system prompt and the plan schema.
+#: §10.2's total, and the ceiling it may not pass. **Both bind `prompt_token_estimate`**, not the
+#: artifact: what leaves under 1,200 tokens for the system prompt and the plan schema is what is
+#: put in front of the model. The ceiling is a refusal and not a clamp: §10.2.1 measured the
+#: local runtime at `-c 8192` with `max_output_tokens 1024`.
 MAX_TOTAL_TOKENS_CEILING = 6000
+
+#: The two package sections `prompt_slice` removes, and why each is not evidence.
+#:
+#: * **`retrieval_trace`** is provenance. It records which tool ran with which parameters and how
+#:   many rows came back — a reviewer's audit trail and §14's manifest input. No planner or
+#:   writer slice contains it, and a model that read it would be reading about its own universe
+#:   rather than from it.
+#: * **`budget`** is the measurement block itself, so excluding it is also what makes
+#:   `prompt_token_estimate` exact rather than approximate.
+#:
+#: Deliberately not extended further. `warnings` (491–548 tokens on the spikes) and `documents`
+#: (173–185) are both read by §11 and §13, so trimming the estimate by dropping them would be
+#: the relaxation this split is not.
+PROMPT_EXCLUDED_SECTIONS: tuple[str, ...] = ("budget", "retrieval_trace")
 
 #: The order sections give ground in when the token estimate is over budget, and the floor each
 #: keeps. Read left to right: the cheapest evidence goes first and the most load-bearing last.
@@ -183,6 +215,18 @@ def estimate_tokens(payload: Any) -> int:
     return math.ceil(len(canonical_json(payload)) / CHARS_PER_TOKEN)
 
 
+def prompt_slice(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The package payload minus the sections no model slice contains (§10.2.1 point 3).
+
+    Takes the package's `digestible_payload()` and removes `PROMPT_EXCLUDED_SECTIONS`. A
+    subtraction rather than an allow-list on purpose: a section added to §10 later is evidence
+    until somebody argues otherwise, and an allow-list would silently exempt it from the budget
+    that is meant to bound what the model reads.
+    """
+    return {name: value for name, value in payload.items()
+            if name not in PROMPT_EXCLUDED_SECTIONS}
+
+
 def fact_sort_key(
     fact_id: str,
     *,
@@ -242,6 +286,7 @@ __all__ = [
     "CEILINGS",
     "CHARS_PER_TOKEN",
     "MAX_TOTAL_TOKENS_CEILING",
+    "PROMPT_EXCLUDED_SECTIONS",
     "TRIM_FLOOR",
     "TRIM_ORDER",
     "BudgetExceedsCeiling",
@@ -252,5 +297,6 @@ __all__ = [
     "explanatory_sort_key",
     "fact_sort_key",
     "passage_sort_key",
+    "prompt_slice",
     "truncate",
 ]

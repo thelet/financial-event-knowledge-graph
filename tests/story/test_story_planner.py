@@ -209,7 +209,7 @@ def divergence_package(**overrides: Any) -> StoryEvidencePackage:
         documents=(PackagedDocument(document_id=DOCUMENT_ID, form="8-K",
                                     filing_date="2022-11-03",
                                     document_type="earnings_release", title="EX-99.1"),),
-        budget=PackageBudget(token_estimate=1180,
+        budget=PackageBudget(artifact_token_estimate=1180, prompt_token_estimate=1046,
                              section_counts={"facts": 2, "primary_passages": 1,
                                              "counter_evidence": 1},
                              parameters=BudgetParameters()),

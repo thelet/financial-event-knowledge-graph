@@ -14,9 +14,13 @@ drive.
 **§10.3's ordering is forced and is the reason `finalize` is one function.** `package_id`
 digests the *sorted fact and passage ids*, so it cannot be minted before trimming;
 `package_content_digest` covers the whole package including that id, so it cannot be computed
-before the id exists; and the token estimate is a field of the thing it measures — S0's F6
-again, answered the same way, by measuring with `token_estimate` at `0` and the digest at `""`
-and stamping both afterwards.
+before the id exists; and the artifact token estimate is a field of the thing it measures —
+S0's F6 again, answered the same way, by measuring with both estimates at `0` and the digest at
+`""` and stamping all three afterwards.
+
+**The trim targets `prompt_token_estimate`, not the artifact.** §10.2's total bounds what
+reaches a model, and `retrieval_trace` reaches none — see `section_bounds.prompt_slice` for the
+measurement that forced the split. Both numbers are reported; only one is a bound.
 """
 
 from __future__ import annotations
@@ -64,6 +68,22 @@ from story.core.models import (
 #: takes more than zero: a reader who sees `0.0` on all forty rows can only conclude the package
 #: does not carry timings, which is exactly what is true.
 TRACE_ELAPSED_MS_NOT_CARRIED = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class TokenEstimates:
+    """The two numbers `PackageBudget` carries, measured together over one payload.
+
+    One type rather than two calls because both are functions of the same serialisation and
+    measuring them separately would serialise the package twice per trim iteration — the loop
+    already rebuilds it once per dropped row.
+    """
+
+    #: The whole package's canonical JSON. Informational: it is what is written to disk.
+    artifact: int
+    #: `section_bounds.prompt_slice` of it — the largest slice a model can be shown. **This is
+    #: the number §10.2's total and ceiling bind.**
+    prompt: int
 
 
 @dataclass
@@ -121,19 +141,20 @@ class PackageAssembler:
     def finalize(
         self, sections: PackageSections, candidate: StoryCandidate
     ) -> StoryEvidencePackage:
-        """Cap, trim to the token budget, then mint the id and the digest.
+        """Cap, trim the model-visible slice to the token budget, then mint the id and digest.
 
-        **The one place the estimate is knowingly approximate**, stated rather than hidden:
-        stamping the measured number into `budget.token_estimate` lengthens the JSON by the
-        digits of that number — four characters, one token — over what was measured. The
-        alternative is a value that has to contain its own length, which has no fixed point. The
-        two budget warnings are added *before* the final measurement rather than after, so a
-        trimmed package still reports the size it actually is.
+        **The one place an estimate is knowingly approximate**, stated rather than hidden:
+        stamping the measured numbers into the budget block lengthens the JSON by their digits —
+        eight characters, two tokens — over what `artifact` measured. The alternative is a value
+        that has to contain its own length, which has no fixed point. `prompt` is exact, because
+        the block it is stored in is not in the slice it measures. The two budget warnings are
+        added *before* the final measurement rather than after, so a trimmed package still
+        reports the size it actually is.
         """
         self.cap_derived_sections(sections)
-        estimate = self.estimate(sections, candidate)
+        estimates = self.estimate(sections, candidate)
         announced = False
-        while estimate > self.budget.max_total_tokens and self.trim_one(sections):
+        while estimates.prompt > self.budget.max_total_tokens and self.trim_one(sections):
             if not announced:
                 # Announced on the **first** drop, not after the last, so the warning's own
                 # ~60 tokens are inside every measurement that follows. Adding it afterwards was
@@ -143,33 +164,37 @@ class PackageAssembler:
                 sections.warnings.append(codes.packaged_warning(
                     codes.TOKEN_BUDGET_TRIMMED,
                     subject_ids=("token_budget",),
-                    detail=f"§10.2's {self.budget.max_total_tokens}-token budget bound; rows "
-                           f"were dropped in the order "
+                    detail=f"§10.2's {self.budget.max_total_tokens}-token budget bound the "
+                           f"model-visible slice; rows were dropped in the order "
                            f"{', '.join(section_bounds.TRIM_ORDER)}, each section to its floor "
                            "before the next was touched, and no drop may strand a slot the "
                            "candidate anchored on"))
             self.cap_derived_sections(sections)
-            estimate = self.estimate(sections, candidate)
+            estimates = self.estimate(sections, candidate)
 
-        if estimate > section_bounds.MAX_TOTAL_TOKENS_CEILING:
+        if estimates.prompt > section_bounds.MAX_TOTAL_TOKENS_CEILING:
             sections.warnings.append(codes.packaged_warning(
                 codes.PACKAGE_EXCEEDS_TOKEN_CEILING,
                 subject_ids=(candidate.candidate_id,),
-                detail="the package is over §10.2's ceiling of "
+                detail="the model-visible slice of the package is over §10.2's ceiling of "
                        f"{section_bounds.MAX_TOTAL_TOKENS_CEILING} tokens with every section at "
                        "its floor; the local runtime is `-c 8192` and this leaves no room for "
                        "the system prompt"))
             self.cap_derived_sections(sections)
-            estimate = self.estimate(sections, candidate)
+            estimates = self.estimate(sections, candidate)
 
-        package = self.assemble(sections, candidate, token_estimate=estimate)
+        package = self.assemble(sections, candidate, estimates=estimates)
         return package.with_content_digest(
             package_content_digest(package.digestible_payload()))
 
-    def estimate(self, sections: PackageSections, candidate: StoryCandidate) -> int:
-        """§10.2.1's estimate over the package as the sections currently stand."""
-        return section_bounds.estimate_tokens(
-            self.assemble(sections, candidate, token_estimate=0).digestible_payload())
+    def estimate(self, sections: PackageSections, candidate: StoryCandidate) -> TokenEstimates:
+        """§10.2.1's two estimates over the package as the sections currently stand."""
+        payload = self.assemble(
+            sections, candidate, estimates=TokenEstimates(artifact=0, prompt=0)
+        ).digestible_payload()
+        return TokenEstimates(
+            artifact=section_bounds.estimate_tokens(payload),
+            prompt=section_bounds.estimate_tokens(section_bounds.prompt_slice(payload)))
 
     # -- the trim ---------------------------------------------------------------------------
 
@@ -266,7 +291,7 @@ class PackageAssembler:
     # -- assembly ---------------------------------------------------------------------------
 
     def assemble(
-        self, sections: PackageSections, candidate: StoryCandidate, *, token_estimate: int
+        self, sections: PackageSections, candidate: StoryCandidate, *, estimates: TokenEstimates
     ) -> StoryEvidencePackage:
         facts = tuple(sections.facts)
         passages = tuple(sections.primary_passages)
@@ -315,7 +340,8 @@ class PackageAssembler:
                 entry.model_copy(update={"elapsed_ms": TRACE_ELAPSED_MS_NOT_CARRIED})
                 for entry in sections.retrieval_trace),
             budget=PackageBudget(
-                token_estimate=token_estimate,
+                artifact_token_estimate=estimates.artifact,
+                prompt_token_estimate=estimates.prompt,
                 section_counts=section_counts(sections),
                 parameters=self.budget,
                 caps_hit=tuple(sorted(sections.caps_hit)),
@@ -431,6 +457,7 @@ __all__ = [
     "TRACE_ELAPSED_MS_NOT_CARRIED",
     "PackageAssembler",
     "PackageSections",
+    "TokenEstimates",
     "dedupe",
     "drop_orphaned_facts",
     "may_drop_last_primary",

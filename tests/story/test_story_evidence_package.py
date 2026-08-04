@@ -430,6 +430,58 @@ def test_the_token_estimator_reproduces_the_plans_own_measured_passage_arithmeti
     assert estimate_tokens("x" * 2142) == 536
 
 
+def test_the_prompt_slice_is_the_package_minus_the_trace_and_the_budget_block(registry):
+    """§10.2's total bounds what reaches a model, and `retrieval_trace` reaches none of them.
+    §10.2.1 point 3: *"the planner and the writer see different slices of one package."*"""
+    package = build_package(registry)
+    payload = package.digestible_payload()
+
+    assert section_bounds.PROMPT_EXCLUDED_SECTIONS == ("budget", "retrieval_trace")
+    sliced = section_bounds.prompt_slice(payload)
+    assert set(payload) - set(sliced) == {"budget", "retrieval_trace"}
+    assert all(sliced[name] == payload[name] for name in sliced)
+    assert "facts" in sliced and "warnings" in sliced and "documents" in sliced
+
+
+def test_the_two_estimates_differ_by_the_provenance_the_model_is_never_shown(registry):
+    """The whole point of the split, as an arithmetic identity: the artifact estimate minus the
+    prompt estimate is `retrieval_trace` plus the `budget` block and nothing else.
+
+    A band and not an equality because the two sections cost their own JSON keys and separators
+    — 33 characters, about 9 tokens — and each estimate rounds up independently.
+    """
+    package = build_package(registry)
+    payload = package.digestible_payload()
+    provenance = (estimate_tokens(payload["retrieval_trace"]) + estimate_tokens(payload["budget"]))
+
+    difference = package.budget.artifact_token_estimate - package.budget.prompt_token_estimate
+    assert difference > 0
+    assert provenance - 2 <= difference <= provenance + 12, (difference, provenance)
+
+
+def test_a_package_whose_retrieval_trace_is_enormous_still_fits_the_prompt_budget():
+    """The regression the split exists to prevent, driven to the extreme: forty trace entries
+    carrying 800 characters of parameters each are 20,000 tokens of provenance. Before the split
+    that package would have been trimmed to its floor and still refused; now the trace is not
+    evidence, so the evidence survives and only the artifact is large."""
+    sections = hand_built_sections()
+    sections.retrieval_trace = [
+        RetrievalTraceEntry(tool="get_fact_evidence", parameters={"terms": "T" * 800},
+                            row_count=1, truncated=False, elapsed_ms=0.0)
+        for _ in range(40)]
+
+    package = assembly.PackageAssembler(
+        identity=IDENTITY, budget=BudgetParameters()).finalize(sections, make_candidate())
+
+    assert len(package.retrieval_trace) == 40
+    assert package.budget.artifact_token_estimate > MAX_TOTAL_TOKENS_CEILING
+    assert package.budget.prompt_token_estimate <= 5000
+    assert len(package.primary_passages) == 2
+    assert len(package.facts) == 2
+    assert "token_budget" not in package.budget.caps_hit
+    assert codes.PACKAGE_EXCEEDS_TOKEN_CEILING not in {w.code for w in package.warnings}
+
+
 def test_the_trim_order_touches_only_evidence_and_never_the_provenance_the_review_needs():
     """`retrieval_trace[]` and `warnings[]` are bounded by their own caps and are deliberately
     absent from the token trimmer: §11's third consequence requires the trace to record the
@@ -742,7 +794,7 @@ def test_every_section_of_a_built_package_is_inside_its_own_bound(registry):
     assert len(package.conflicts) <= budget.max_conflicts
     assert len(package.compatibility) <= budget.max_compatibility
     assert len(package.retrieval_trace) <= budget.max_retrieval_trace
-    assert package.budget.token_estimate <= MAX_TOTAL_TOKENS_CEILING
+    assert package.budget.prompt_token_estimate <= MAX_TOTAL_TOKENS_CEILING
 
 
 def test_the_fact_cap_deals_round_robin_so_a_busy_slot_cannot_starve_the_other_half_of_a_move(
@@ -790,7 +842,7 @@ def test_a_package_that_cannot_be_trimmed_under_the_ceiling_refuses_rather_than_
     })
     package = build_package(registry, retriever)
 
-    assert package.budget.token_estimate > MAX_TOTAL_TOKENS_CEILING
+    assert package.budget.prompt_token_estimate > MAX_TOTAL_TOKENS_CEILING
     assert codes.PACKAGE_EXCEEDS_TOKEN_CEILING in {w.code for w in codes.blocking(package.warnings)}
 
 
@@ -1311,7 +1363,8 @@ def test_the_assembler_refuses_to_assemble_a_package_with_no_subject():
 
     with pytest.raises(ValueError) as raised:
         assembly.PackageAssembler(identity=IDENTITY, budget=BudgetParameters()).assemble(
-            sections, make_candidate(), token_estimate=0)
+            sections, make_candidate(),
+            estimates=assembly.TokenEstimates(artifact=0, prompt=0))
 
     assert "13.11" in str(raised.value)
 
@@ -1445,26 +1498,46 @@ def test_live_every_section_of_every_spike_package_is_inside_its_bound(live_pack
 
 @pytest.mark.neo4j
 def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget(live_packages):  # type: ignore[no-untyped-def]
-    """Measured 2026-08-04 against `graph-v1-0483dc6b4b10`: F1 = 4,331, F2 = 4,206,
-    F3 = 4,544 tokens, all under §10.2's 5,000. Every one of the three is *trimmed* to get
-    there and every one reports `token_budget` in `caps_hit`, ending with **two** primary
-    passages and **zero** context — because the fifteen sections beside the passages cost about
-    1,700 tokens (`retrieval_trace` alone is 1,617 at 30 entries) and §10.2.1's arithmetic
-    counted none of them.
+    """**§10.2's 5,000 binds `prompt_token_estimate`, not the artifact.** Measured 2026-08-04
+    against `graph-v1-0483dc6b4b10`:
 
-    The band is asserted rather than the three numbers: a change that moves a package by sixty
+    | spike | prompt | artifact | primaries | context | facts |
+    |-------|-------:|---------:|----------:|--------:|------:|
+    | F1    |  4,126 |    5,416 |         3 |       0 |     3 |
+    | F2    |  4,873 |    6,159 |         4 |       0 |     4 |
+    | F3    |  4,265 |    5,511 |         3 |       0 |     5 |
+
+    Before the split all three shipped **two** primaries and 2–4 facts at 4,206–4,544 artifact
+    tokens, because `retrieval_trace` (1,042–1,084) and `budget` (190) were charged to a budget
+    no model spends them on. F2's artifact is now *over* the 6,000 ceiling and that is correct:
+    the ceiling is about the model's context window, and 1,286 of those tokens never enter it.
+
+    **Context is still zero, and that is the trim order working rather than the budget failing.**
+    The non-passage sections a model *does* see still cost 1,850–2,100 tokens (facts 654–1,028,
+    warnings 393–554, documents 173–272), so about 3,000 remain for passages that measure
+    640–760 tokens each — three or four of them. `TRIM_ORDER` spends that on primaries before
+    neighbours by design, so a neighbour survives only once every primary fits, and §10.2.1's
+    "3 primaries + ±1 context" was arithmetic over a 536-token median passage and no other
+    section at all.
+
+    The band is asserted rather than the six numbers: a change that moves a package by sixty
     tokens is not a regression and one that halves it is. `caps_hit` is what pins the finding —
     if a package ever stops needing the trim, §10.2's total and §10.2.1's table have been
     reconciled and this docstring is stale.
     """
     packages = live_packages["packages"]
-    measured = {name: packages[name].budget.token_estimate for name in SPIKE_IDS}
+    prompt = {name: packages[name].budget.prompt_token_estimate for name in SPIKE_IDS}
+    artifact = {name: packages[name].budget.artifact_token_estimate for name in SPIKE_IDS}
 
-    assert all(estimate <= 5000 for estimate in measured.values()), measured
-    assert all(estimate > 3000 for estimate in measured.values()), measured
+    assert all(estimate <= 5000 for estimate in prompt.values()), prompt
+    assert all(estimate > 3000 for estimate in prompt.values()), prompt
+    assert all(artifact[name] - prompt[name] > 1000 for name in SPIKE_IDS), (artifact, prompt)
     assert all("token_budget" in packages[name].budget.caps_hit for name in SPIKE_IDS)
-    assert all(len(packages[name].primary_passages) >= 2 for name in SPIKE_IDS)
-    assert packages["counter"].budget.token_estimate <= MAX_TOTAL_TOKENS_CEILING
+    assert all(len(packages[name].primary_passages) >= 3 for name in SPIKE_IDS), {
+        name: len(packages[name].primary_passages) for name in SPIKE_IDS}
+    assert all(len(packages[name].facts) >= 3 for name in SPIKE_IDS), {
+        name: len(packages[name].facts) for name in SPIKE_IDS}
+    assert packages["counter"].budget.prompt_token_estimate <= MAX_TOTAL_TOKENS_CEILING
 
 
 @pytest.mark.neo4j
