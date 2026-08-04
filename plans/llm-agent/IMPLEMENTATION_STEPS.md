@@ -642,6 +642,27 @@ the edge and the document), so §6.1 steps 1 and 5 need `get_fact_evidence` per 
 2,704 calls, 2.7 s live, on by default. With `with_evidence=False` the points carry
 `quarantine_not_evaluated` and `filing_date_unknown` rather than pretending the tests ran.
 
+### Open defect D9 — R8's tolerance compares raw float subtraction *(found by S3-B, verified by orchestrator)*
+
+`story/core/series.py:378` `within_tolerance` says, in its own docstring, *"`<=` and not `<`: a
+difference of exactly one printed unit is the rounding, not a movement."* It then compares raw
+IEEE-754 subtraction against the tolerance:
+
+```
+7.4 - 7.3        = 0.10000000000000053
+PERCENT_TOLERANCE = 0.1
+raw       <= tol -> False   <- R8 does NOT refuse a one-printed-unit step
+round(,9) <= tol -> True    <- the docstring's stated intent
+```
+
+**Blast radius measured across the whole corpus: exactly one case** —
+`gaap_gross_margin 2020Q1→2020Q2, 7.3 → 7.4`. It is load-bearing: S3-B's quarterly
+acceleration census is **8 only because this step survives R8**. Rounded, it is **7**.
+
+S3-B found it, refused to paper over it, and asserted the dependency in a named test rather than
+adjusting its own count. Repair deferred until S3-A and S3-C land so the fix and the three
+affected test files move once rather than three times.
+
 ## 8. Founder gates
 
 | # | Question | Status |
