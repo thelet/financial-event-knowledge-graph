@@ -9,10 +9,17 @@ step. Authoritative plan: [V1_STORY_AGENT.md](V1_STORY_AGENT.md). Boundary:
 
 **Nothing is pushed. Nothing is merged. No upstream file is edited.**
 
-**Status 2026-08-04 — the demo runs end to end and its post is `accepted`.** HEAD `05d1c87`.
-Story suite `1811 passed, 1 skipped`; neo4j-marked `124 passed`; offline
-`-m "not live and not neo4j"` **`4406 passed, 0 failed`**. Two full demo runs are byte-identical
-across all seven artifacts. The one skip is `live`-marked and self-describing.
+**Status 2026-08-04 — the demo runs end to end and its post is `accepted` on the replay path.**
+HEAD `eb4aba5`. Story suite `1854 passed, 2 skipped`; story `-m neo4j` `124 passed`; offline
+`-m "not live and not neo4j"` **`4450 passed, 0 failed`**. Two full replay runs are
+byte-identical across all seven artifacts; the skips are `live`-marked and self-describing.
+
+**The `--live` path is nondeterministic and does not always produce a post** — three
+orchestrator runs gave two `accepted` and one `draft_refused`. See the AR3 record in §7.
+
+**AR3 (2026-08-04) broke the verifier and R8/R9 repaired it.** Between them they added fifteen
+refusal codes for false *prose* carried by a true *declaration*. The demo's own post is
+**byte-identical before and after** — the repairs cost the true story nothing.
 
 ---
 
@@ -1148,6 +1155,71 @@ wrote *"The GAAP Gross Margin was 15.9 percentage points **lower** than the Adju
 Margin"* against `input_observation_ids` listing GAAP first, which is true and recomputes. R8's
 `comparative_not_supported_by_text` is intact — the `higher` wording it caught was re-run by
 hand against this build and is still refused. No prompt was iterated and no check was weakened.
+
+### Adversarial review AR3 — end-to-end pipeline *(independent reviewer, 2026-08-04)*
+
+Brief: *"find a way to make the story agent publish a false statement about Opendoor, and prove
+it with a run."* It did. Eight REAL findings, all reproduced by the orchestrator before any
+repair was commissioned, and repaired as R8 and R9.
+
+**The one-line diagnosis, which is the reviewer's and is correct:** *a closed lexicon used as a
+filter for claims rather than as a trigger for checks.* `if not comparatives: return []` encodes
+"no lexicon hit ⇒ no claim". The inverse — a hit requires machinery — was sound and is what R7
+strengthened. **The default direction is what leaked**, and six of the eight findings are that
+one bug.
+
+What the review **confirmed holds**, and is worth as much as what it broke: retrieval is
+read-only and parameterised, with eleven `ast.Constant` statements, no interpolation, and **no
+model output reaching retrieval at all** (packaging completes before the first model call); the
+package is genuinely bounded and its caps visibly bit; the candidate is re-derived from the
+detectors, not hard-coded; `KIND_OF` is total over `SEVERITY_OF` (28 = 28, symmetric difference
+empty); and twelve separate attacks were correctly refused.
+
+One finding it recorded as low severity and the orchestrator agrees is real but out of scope:
+**`package_content_digest` is accident-evident, not tamper-evident** — it is recomputed from the
+package and compared to the package's own field, with only `graph_run_id`,
+`run_complete_sha256` and `ontology_definition_hash` anchored externally. Outside the LLM threat
+model; stated rather than fixed.
+
+### Orchestrator error — a mis-test that cost a repair *(2026-08-04)*
+
+**The reviewer reported prose *periods* as unchecked. I told it that row was overstated, and
+told R8 not to touch the period surface. I was wrong, and R9 exists because of it.**
+
+My evidence was three mutations — `"the fourth quarter of 2022"`, `"fiscal 2022"`, and a surface
+left declaring Q3 — all refused. **Every string I chose contained a year.** The refusal came
+from §13.1's numeral coverage, not from any period check, so the test could not have
+distinguished the two hypotheses. The mechanism I described was right (a metric name carries no
+numeral, a period phrase usually does); the conclusion drawn from it was not.
+
+Recorded because the failure mode is general and worth naming: **a counter-example that passes
+for the wrong reason confirms nothing.** The correct test was the one R9 was briefed on — a
+period phrase carrying *no* numeral.
+
+### Orchestrator validation of R7 – R9 *(independent of the repairs' own tests)*
+
+Every repair was checked by re-running attacks built against the demo's **own accepted draft**,
+not against the fixtures the repair shipped.
+
+| Check | Result |
+| --- | --- |
+| `tests/story/test_story_deterministic_verifier.py`, `05d1c87..eb4aba5` | **543 insertions, 0 deletions** — 10 malicious fixtures byte-untouched, 118 tests pass |
+| 15 attack strings across comparatives, negation, metric prose, period prose, units, connectives, change verbs | **all refused**, each with the intended code |
+| Control — the unmodified true sentence | **still passes, zero findings** |
+| `post.md` before R8 vs after R9 | **byte-identical** — 15 new refusal codes, and the true post is untouched |
+| Replay demo ×2 | `accepted`; all 7 artifacts byte-identical |
+| Suites | story `1854 passed / 2 skipped` · story `-m neo4j` `124 passed` · offline `4450 passed` |
+| Neo4j after every run | 28,837 nodes / 35,600 edges / 2,704 observations — **identical to the S0 baseline** |
+| Process incident | R9 ran `git stash push --keep-index`/`pop`, which its brief forbade. Verified no damage: `git fsck` clean, working tree clean, and the other session's pre-existing `stash@{0}` ("stage-12 partial", on `main`) intact |
+
+**The live path is genuinely nondeterministic, and the record should say so plainly.** Three
+orchestrator runs of `--live`: **two accepted, one `draft_refused`** at the writer stage on
+`citation_quote_ambiguous_in_passage` (the model quoted `"Gross Margin"`, which occurs twice in
+passage `#p139`, and an ambiguous quote resolves to no span). R8 measured a rejection on
+`comparative_not_supported_by_text` and R9 measured four acceptances; **both were reporting
+honestly about different generations.** `temperature=0.0` does not make llama.cpp reproducible
+across processes. Replay determinism comes from the store, not from the model — a distinction
+the demo claim depends on and which is easy to blur.
 
 ## 9. Deferred / not implemented
 
