@@ -313,6 +313,7 @@ Filled in as steps complete.
 
 | Wave | Steps | Agents | Overlap check |
 | --- | --- | --- | --- |
+| **C** | **S3-A** move+reversal ∥ **S3-B** acceleration ∥ **S3-C** divergence | 3 concurrent | one detector module + one test file each, inside a shared package. **`story/stages/detection/__init__.py` is barred to all three** — the orchestrator wires re-exports at integration, because three agents editing one `__init__` is the classic concurrent-edit collision. `detector_config.py` is created by S3-A and read-only to the others |
 | **B** | **S2** canonical series ∥ **S9a** numerals | 2 concurrent | disjoint files; S9a is a pure library depending only on S0 contracts, so it is pulled forward off S9's critical path. Neither may edit `story/core/__init__.py` |
 | AR1 | adversarial review → **R2a** ∥ **R2b** | 1 reviewer, then 2 concurrent repairers | reviewer read-only; repairers split freshness+providers against retrieval, no shared file |
 | recon | upstream contract survey | 1, read-only | owns nothing |
