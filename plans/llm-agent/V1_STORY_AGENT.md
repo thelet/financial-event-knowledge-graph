@@ -574,7 +574,7 @@ contrib_m %   1.5  3.1  2.7  5.9 12.6 10.2 10.8  7.5  4.0  6.4 10.1 -0.7 -7.2 -7
 | --- | --- | --- |
 | **F1** | Adjusted EBITDA sign reversal | `2022Q2 = +$218M` → `2022Q3 = −$211M`; Δ = **−$429M**. The largest move that **crosses zero**; `adjusted_gross_profit` (−$446M) and `contribution_profit` (−$444M) are larger in absolute terms in the same quarter, and all three are one event |
 | **F2** | GAAP gross margin goes negative | `2022Q2 = 11.6%` → `2022Q3 = −12.6%`, **−24.2 pp**. The only negative GAAP gross margin in 26 quarters |
-| **F3** | Adjusted-vs-GAAP margin wedge | `2022Q3`: AGM `3.3%` vs GGM `−12.6%`, gap **+15.9 pp** against a 26-quarter mean of `−0.35` and σ `4.04` → **z = +4.02**. Next largest is `2023Q1` at z = −2.07 |
+| **F3** | Adjusted-vs-GAAP margin wedge | `2022Q3`: AGM `3.3%` vs GGM `−12.6%`, gap **+15.9 pp**. **z = +3.95 over a 25-quarter population** *(corrected 2026-08-04, S3-C)*. The raw 26-quarter figure is z = 4.02 and the pooled all-shapes figure is 4.38 — see §6.6 D4 for why 25 and why one shape |
 | **F4** | Inventory drawdown | `2022-09-30 = 16,873` homes → `2023-06-30 = 3,558`, **−78.9% in three quarters** |
 | **F5** | Aging inventory doubles | `pct_>120d`: `2024-09-30 = 23%` → `2024-12-31 = 46%`, **+23 pp**, then 27 → 36 → 51 through `2025-09-30` |
 | **F6** | Acquisition pullback | `homes_purchased`: `2025Q1 = 3,609` → `2025Q3 = 1,169`, **−67.6% in two quarters** |
@@ -697,12 +697,42 @@ correlated-lineage dedup would actually be needed — collapse on shared anchor 
 
 **D4 `cross_metric_divergence`.** `gap[t] = v_a[t] − v_b[t]`; `z[t] = (gap[t] − μ)/σ` over the
 pair's own history; fire at `|z| ≥ 1.5`. **Do not build the ordering form.**
-Pairs available, with their **verified overlapping-quarter counts**: AGM↔GGM 26, CM↔AGM 26,
-CP↔AGP 26, CPAI↔CP 11, `homes_purchased`↔`homes_sold` 15.
+
+**Two qualifications this section did not state, both measured at S3-C:**
+
+1. **The population must be one `PeriodShape`.** Pooled over all four shapes the AGM↔GGM pair
+   has 43 comparable periods and 2022Q3 scores **4.38** — a quarter's wedge measured against six
+   fiscal years and twelve YTD windows. Each shape is scored against its own population, with a
+   floor of 8 points (§6.10's "below ~8 points `magnitude_z` is not meaningful"). Live, only
+   `quarter` ever clears it.
+2. **A variance floor of `2 × tol`**, or a flat gap disturbed by one 0.1 pp rounding step scores
+   4.9. Refuses nothing live; driven synthetically both ways.
+
+Pairs, with **overlapping-quarter counts raw → after R1–R10**: AGM↔GGM **26 → 25**,
+CM↔AGM 26 → 25, CP↔AGP 26 → 25, CPAI↔CP 11 → 10, `homes_purchased`↔`homes_sold` 15 → 15.
+
+**Why 25 and not 26** *(corrected 2026-08-04)*: **all seven versioned metrics declare
+`valid_from: 2020-01-01`** *(verified — `adjusted_gross_margin` and `gaap_gross_margin` both
+resolve to `None` at `2019-12-31`)*, so `2019Q4` lies in no declared window for any of them and
+`comparable` refuses it as `FORMULA_VERSION_UNDECLARED`. §6.9's P6 correction named the three
+pre-2020 slots of `adjusted_gross_profit` alone; **the same boundary applies to all seven.**
+The plan's own arithmetic reproduces exactly over 26 points — the difference is the rule being
+honoured, not the sum.
+
+**R6 is a rule about two points; a z-score is a claim about a distribution.** Applied pointwise
+a cross-metric pair never trips R6 at all, since both sides sit on one date — yet a CP↔AGP mean
+spanning 2020Q1–2026Q1 averages **two definitions of its own denominator** across AGP's v1/v2
+boundary. So a period enters an anchor's population only when, for each metric, its point is
+`comparable` with that metric's point *at the anchor*. Live this splits CP↔AGP into a v1
+population of 8 and a v2 population of 17, each carrying
+`divergence_population_excludes_periods`. Refusing the whole pair was rejected: it deletes a
+shipping pair, and the set `comparable` licenses is already the right one.
 Require `σ(gap) ≥ 2 × tol`, or a 0.1 pp rounding difference produces an enormous z.
 The output must state the definitional relation, not just the numbers.
 
-**`housing_inventory_homes ↔ homes_sold` is removed from the pair list.**
+**`housing_inventory_homes ↔ homes_sold` is removed from the pair list** *(verified live at
+S3-C: the two share **not one period key**, so the pair yields neither a candidate nor even an
+R3 refusal)*.
 `housing_inventory_homes` is **126/126 `instant`**; `homes_sold` has **zero** instants. The
 overlap is zero and §6.9 R3 refuses every pair. The first draft's "(20)" was `homes_sold`'s own
 quarterly count, not the pair's overlap. An inventory-versus-sales relationship is real and
