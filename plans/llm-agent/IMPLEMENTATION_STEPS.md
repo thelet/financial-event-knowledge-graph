@@ -701,6 +701,64 @@ And 112 of `metric_move`'s 227 candidates are twelve-month steps judged against 
 percentiles; narrowing the scan was rejected (§6.2 makes instant series first-class), so
 `period_shape` is a signal and **§6.10 ranking is where an annual restatement should lose**.
 
+### Adversarial review AR2 — detectors *(independent reviewer, 2026-08-04)*
+
+19 lines of attack against the live graph. **The most dangerous finding is that two modules in
+this package compute the same arithmetic and reach opposite verdicts.**
+
+#### The one that matters
+
+**§6.6 D1's `delta_pct` and §13.3's `delta_relative` are the same calculation, and only one
+refuses the cross-zero case.** `story/core/numerals.py` raises `RelativeChangeAcrossZero` on
+`5.2 → -6.3`; `metric_move.py:193` computes it and puts it on the candidate. Reproduced by the
+orchestrator — **the plan's own textbook example is a shipping candidate**:
+
+```
+cand:metric-move:adjusted-ebitda-margin:opendoor:2022Q2_2022Q3:d0786f1786c5
+  delta_pct = -221.153846154   <- §13.3: "arithmetically defined and rhetorically meaningless"
+  delta_pp  = -11.5            <- the number that should be read
+  warnings  = (nothing about it)
+45 of 227 metric_move candidates carry a cross-zero delta_pct.
+```
+
+**Why it is dangerous even though no candidate fires because of it** — verified, all 18
+pct-only candidates have `crosses_zero=False`: the §13 verifier only ever sees a *draft*.
+Ranking, packaging and the planner all read `signals`. **The detector is the only layer that
+still knows both numbers.**
+
+#### Confirmed, in repair
+
+| # | Defect | Severity |
+| --- | --- | --- |
+| **a1** | `delta_pct` across a sign flip, 45/227, no warning — while `numerals` refuses the identical inputs | **(a) wrong number reaching a post** |
+| a2 | `delta_pct` is a percent-of-a-percent for margins; the `0.10 × median` floor is USD-shaped and meaningless there. 36/262 carry `|delta_pct| > 200` | (a) |
+| a3 | D4 has no sign-convention awareness. A hand-made `adjusted_gross_profit ↔ direct_selling_costs` pair emits `gap = 512M − (−136M) = +648M` — **the sum of a profit and a cost** — as a `co_component` divergence at z=2.57. One line in a tuple away | (a) |
+| a4 | The `2 × tol` variance floor defends against a 0.1 pp step and nothing larger. A single 1.05 pp excursion in a flat gap scores **z = 4.899, the maximum possible** | (a) |
+| a5 | A `CONFLICT` slot **silently** narrows a divergence population — 25 → 23 with `periods_excluded = 0` and no warning, while the module discloses the R6 case two lines below | (a) |
+| b1 | **No completeness marker between retriever and detector.** `unreadable` is a *defaulted* kwarg on three detectors and absent from D4. A single un-paged `get_metric_history` yields **93 candidates and zero refusals**, losing 20 real candidates and giving 3 slots a wrong `n_docs` — §6.10's corroboration input | **(b) incomplete read passing as complete** |
+| c1 | The fact-slot key omits `subject_entity_id`, and `records[0]` supplies period/subject/unit/currency **in input order** — so `canonicalize`'s "deterministic in the strong sense" docstring is false for four fields. Latent: one subject live | (c) |
+| c3 | D3 and D4 carry no polarity/direction; `acceleration`'s `delta_sign` is the raw arithmetic sign on a metric stored negative | (a) |
+| c6 | R8's refusal message prints the **unrounded** difference, explaining the opposite of the decision | (c) |
+
+Not defects, recorded: **c2** — D9's rounding also *creates* one firing (`adjusted_gross_margin
+2024Q2→Q3`, raw `−2.999999999999999` against a 3.0 bar); correct, undocumented. **c4** —
+D15/D16/D17 are unimplemented so `Audience.INTERNAL` is unreachable; nothing can leak, but §6.5
+lists all three as V1 and `SlotCensus` is already the input D16 needs. **b2** — the freshness
+gate is reachable only from tests; §7's "every command runs it first" awaits S11.
+
+#### Survived — 21 attacks, including every one that would have been most embarrassing
+
+Cypher-level injection; the `$0.4M` small-base case (floor 5.8M correctly suppresses it); the
+four-quarter `pct_>120d` hole (**all four detectors refuse**, `R10/SERIES_GAP`); zero deltas
+(cannot extend or reverse a run in any detector); `CONFLICT` as a hole in D1/D2/D3; formula
+versions (`2019Q4` refuses `FORMULA_VERSION_UNDECLARED` for **all seven** versioned metrics);
+unit/period incompatibility across six rule paths; genuinely unrelated pairs (`R2`); R9 present
+on CP↔AGP and correctly absent on CPAI↔CP; cost direction correct on all 15 live cost candidates
+in D1/D2; **262/262 distinct ids**; determinism under 6 point-shuffles and 3 record-shuffles —
+ids, **every signal value**, and candidate order byte-identical; **no threshold enters a digest**
+(loosening `USD_MEASURE` moved the census 227→305 and *every original id survived unchanged*);
+**no prose in any of the 19 string signal keys**.
+
 ## 8. Founder gates
 
 | # | Question | Status |
