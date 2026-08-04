@@ -70,10 +70,26 @@ SUPERLATIVE_TERMS: tuple[str, ...] = (
     "largest", "smallest", "record", "peak", "trough",
 )
 
-#: §13.14's second class, verbatim. Refused unless inside a `Calculation`.
+#: §13.14's second class. **The plan's eleven terms are the first eleven; the rest were
+#: measured onto the list by R8.** Mutating the demo's own accepted `compare_levels` sentence
+#: to *"The GAAP Gross Margin **exceeded** the Adjusted Gross Margin by 15.9 percentage
+#: points"* — leaving the declaration `left < right` untouched — passed with **zero findings**,
+#: and so did `surpassed`, `topped`, `beat` and `outperformed`. Every one of those sentences is
+#: false and inverted. Ordinary investor English walks around a closed word list, which is why
+#: R8 also stopped treating a lexicon hit as the *trigger* for the comparison check: a
+#: `compare_levels` sentence with no recognised comparative is now refused rather than passed
+#: (`claims._comparison_text_findings`). The widening is the smaller half of that fix.
 COMPARATIVE_TERMS: tuple[str, ...] = (
     "more", "less", "better", "worse", "faster", "slower", "higher", "lower", "outpaced",
     "held up", "lagged",
+    # R8, measured: each of these passed as an inverted comparison before it was listed.
+    "exceeded", "exceeds", "exceed", "surpassed", "surpasses", "surpass",
+    "topped", "tops", "beat", "beats", "outperformed", "outperforms", "outperform",
+    "outpaces", "outpace", "trailed", "trails", "trail", "lags", "lag",
+    "underperformed", "underperforms", "underperform", "lead", "leads", "led",
+    "above", "below", "sat above", "sat below", "sits above", "sits below",
+    "came in above", "came in below", "stronger than", "weaker than",
+    "ahead of", "behind", "greater than", "smaller than", "larger than",
 )
 
 #: Which way each comparative points: `True` when *"A <term> than B"* asserts A above B.
@@ -85,11 +101,58 @@ COMPARATIVE_TERMS: tuple[str, ...] = (
 #: a reader actually reads, and the one an input list swapped by accident would contradict.
 #: `"held up"` points up: §13.14's own attack sentence is *"contribution profit held up better
 #: than adjusted gross profit"*, where both of its comparatives point the same way.
+#:
+#: A term in `COMPARATIVE_TERMS` and absent here resolves to `None`, which a caller must refuse
+#: on — `comparative_direction`'s docstring says so and `claims.py` obeys it. Totality is
+#: asserted by a test rather than trusted, because a widened lexicon with an unstated polarity
+#: would turn a refusal into a pass at exactly the place this map exists to guard.
 COMPARATIVE_DIRECTION: Mapping[str, bool] = {
     "more": True, "less": False, "better": True, "worse": False, "faster": True,
     "slower": False, "higher": True, "lower": False, "outpaced": True, "held up": True,
     "lagged": False,
+    "exceeded": True, "exceeds": True, "exceed": True,
+    "surpassed": True, "surpasses": True, "surpass": True,
+    "topped": True, "tops": True, "beat": True, "beats": True,
+    "outperformed": True, "outperforms": True, "outperform": True,
+    "outpaces": True, "outpace": True,
+    "trailed": False, "trails": False, "trail": False, "lags": False, "lag": False,
+    "underperformed": False, "underperforms": False, "underperform": False,
+    "lead": True, "leads": True, "led": True,
+    "above": True, "below": False, "sat above": True, "sat below": False,
+    "sits above": True, "sits below": False,
+    "came in above": True, "came in below": False,
+    "stronger than": True, "weaker than": False,
+    "ahead of": True, "behind": False,
+    "greater than": True, "smaller than": False, "larger than": True,
 }
+
+#: What a sentence says *about* a metric: a direction, a level, or a financial state. Read only
+#: inside a `connective` sentence, where §13.14 permits no claim at all.
+#:
+#: **R8's defect E, measured**: replacing the demo's connective sentence with *"Opendoor's gross
+#: margin turned positive during the period."* passed with zero findings. `_connective_findings`
+#: looked at bindings, calculations and numerals and never at the prose, so a claim carrying no
+#: number and no declaration walked straight through. A connective naming a package metric
+#: beside one of these is refused.
+#:
+#: Deliberately includes the copulas. A `connective` sentence is *"transition, structure and
+#: reference only"*; naming a metric and saying it **was** anything is a claim, and this is the
+#: one place §13.14 says to prefer a false positive — a refused connective costs a sentence and
+#: an accepted false one costs the claim.
+STATE_TERMS: tuple[str, ...] = (
+    "is", "are", "was", "were", "remains", "remained", "stays", "stayed", "stands", "stood",
+    "positive", "negative", "profitable", "unprofitable", "loss", "losses", "profit",
+    "turned", "swung", "flipped", "reversed", "crossed", "recovered",
+    "rose", "rise", "risen", "fell", "fall", "fallen", "declined", "decline", "increased",
+    "increase", "decreased", "decrease", "dropped", "improved", "improve",
+    "deteriorated", "worsened", "widened", "narrowed", "expanded", "contracted",
+    "grew", "grown", "shrank", "shrunk", "climbed", "slipped", "surged", "plunged",
+    "reached", "hit", "came in", "held", "up", "down",
+)
+# The bare noun `"drop"` is deliberately absent while `"dropped"` is present: §16's read-only
+# scan reads every string constant in `story/` case-folded against the Cypher keyword list, and
+# a three-letter `"drop"` is `DROP`. Keeping the package-wide invariant literal is worth more
+# than one inflection that `"fell"`, `"declined"` and `"slipped"` already cover.
 
 #: §13.14's third class, verbatim.
 ABSENCE_TERMS: tuple[str, ...] = (
@@ -173,6 +236,7 @@ _SUPERLATIVE = _compile(SUPERLATIVE_TERMS)
 _COMPARATIVE = _compile(COMPARATIVE_TERMS)
 _ABSENCE = _compile(ABSENCE_TERMS)
 _TEMPORAL = _compile(TEMPORAL_TERMS)
+_STATE = _compile(STATE_TERMS)
 _FORWARD = _compile(FORWARD_LOOKING_TERMS)
 _FOREIGN = _compile(FOREIGN_SUBJECTS)
 
@@ -180,7 +244,14 @@ _FOREIGN = _compile(FOREIGN_SUBJECTS)
 #: boundary here and is not one in `numerals._clauses`, and the difference is deliberate:
 #: negation scope is clausal — *"revenue fell, not as a result of pricing"* — while a change
 #: verb and its numeral routinely sit either side of a comma.
-_CLAUSE = re.compile(r"[,;:.()—–]|\band\b|\bbut\b", re.IGNORECASE)
+#:
+#: **The `.` may not sit between two digits**, which `numerals._CLAUSE_BOUNDARY` already knew
+#: and this pattern did not. Measured by R8: *"The GAAP Gross Margin was **not** 15.9
+#: percentage points lower than the Adjusted Gross Margin."* — the `.` inside `15.9` opened a
+#: new clause between `not` and `lower`, so `negated()` reported `False` and the inversion
+#: passed. The same hole was live for §13.10 wherever a cited span carried a decimal between a
+#: negation and its causal marker.
+_CLAUSE = re.compile(r"[,;:()—–]|\.(?!\d)|(?<!\d)\.|\band\b|\bbut\b", re.IGNORECASE)
 
 _WORD = re.compile(r"[a-z0-9$%.,-]+")
 
@@ -242,6 +313,11 @@ def absence_claims(text: str) -> tuple[LexicalMatch, ...]:
 
 def temporal_orderings(text: str) -> tuple[LexicalMatch, ...]:
     return _scan(_TEMPORAL, text)
+
+
+def state_terms(text: str) -> tuple[LexicalMatch, ...]:
+    """Every direction, level or financial-state word in `text` (§13.14's connective rule)."""
+    return _scan(_STATE, text)
 
 
 def forward_looking(text: str) -> tuple[LexicalMatch, ...]:
@@ -318,6 +394,7 @@ __all__ = [
     "FORWARD_LOOKING_TERMS",
     "FRAME_DOCUMENT_TYPES",
     "NEGATION_TOKENS",
+    "STATE_TERMS",
     "SUPERLATIVE_TERMS",
     "TEMPORAL_TERMS",
     "LexicalMatch",
@@ -331,6 +408,7 @@ __all__ = [
     "frame_document_type",
     "negated",
     "occurrences",
+    "state_terms",
     "superlatives",
     "temporal_orderings",
     "ungrounded_words",

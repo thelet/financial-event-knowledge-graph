@@ -559,18 +559,86 @@ def surface_carries_relative_marker(rendered: str) -> bool:
     return _RELATIVE_SURFACE.search(rendered) is not None
 
 
-def surface_supports_operation(operation: PercentOperation, rendered: str) -> bool:
-    """§13.3's rendering requirement for each of the three readings.
+#: The arithmetic operations whose result is a quantity in the unit its inputs carry. `ratio`
+#: is not one of them — it divides the unit out — and the three §13.14 operations
+#: (`extremum`, `absence`, `temporal_order`) have no scalar result at all.
+UNIT_PRESERVING_OPERATIONS: tuple[str, ...] = (
+    "compare_levels", "compare_deltas", "difference", "sum",
+)
+
+
+def operation_result_surfaces(operation: str, input_unit: str) -> frozenset[SurfaceUnit]:
+    """What a calculation's `result_rendered` may be written in, given its inputs' unit.
+
+    **R8's defect D, measured.** The demo's own `compare_levels` sentence renders a gap between
+    two percent levels. Before this table nothing checked that rendering: `"15.9 basis points"`
+    passed (the gap is 1,590 bps — false by 100×), `"15.9x"` passed (the ratio is −0.26), and
+    `"15.9 percent"` passed, which is the exact percentage-point-versus-percent confusion
+    §13.3 exists to stop. `surface_supports_operation` only ever governed `delta_pp`,
+    `delta_bps` and `delta_relative`, so every other operation rendered whatever it liked.
+
+    A gap between two percent *levels* is in percentage points and in nothing else here.
+    `basis points` is the same quantity at a hundred times the number, so admitting it would
+    require scaling the recomputation by the surface; refusing it costs a true sentence that
+    can be rewritten in points, which is the direction §13.14 says the failure should point.
+    An empty set means *this module states no requirement* — the caller must not read it as
+    "anything goes" for an operation it thought was governed.
+    """
+    if operation == "ratio":
+        # Dimensionless: `2.5x`, or a bare numeral. A unit on a ratio is a unit that survived
+        # a division that should have cancelled it.
+        return frozenset({SurfaceUnit.MULTIPLE, SurfaceUnit.NONE})
+    if operation not in UNIT_PRESERVING_OPERATIONS:
+        return frozenset()
+    if input_unit == SurfaceUnit.PERCENT.value:
+        return frozenset({SurfaceUnit.PERCENTAGE_POINTS})
+    if input_unit == SurfaceUnit.USD.value:
+        return frozenset({SurfaceUnit.USD})
+    if input_unit == SurfaceUnit.HOMES.value:
+        return frozenset({SurfaceUnit.HOMES, SurfaceUnit.NONE})
+    if input_unit == SurfaceUnit.MARKETS.value:
+        return frozenset({SurfaceUnit.MARKETS, SurfaceUnit.NONE})
+    return frozenset()
+
+
+def surface_supports_operation(
+    operation: PercentOperation | str,
+    rendered: str,
+    *,
+    input_unit: str | None = None,
+) -> bool:
+    """§13.3's rendering requirement for each of the three percent readings, and §13.2's for
+    the five arithmetic operations that were never given one.
 
     `delta_relative` needs both halves — a `%`-suffixed numeral *and* an explicit relative
     marker — because the `%` alone is exactly what makes the sentence ambiguous.
+
+    For an operation outside `PercentOperation` the requirement is the inputs' own unit, via
+    `operation_result_surfaces`, and it needs `input_unit` to state one: called without it —
+    or for an operation this module governs no rendering of — the answer is `True`, because
+    *"no requirement stated"* must not be reported as *"requirement failed"*.
     """
-    if operation is PercentOperation.DELTA_PP:
-        return surface_carries_percentage_points(rendered)
-    if operation is PercentOperation.DELTA_BPS:
-        return surface_carries_basis_points(rendered)
-    return (surface_carries_relative_marker(rendered)
-            and any(token.unit is SurfaceUnit.PERCENT for token in tokenize_numerals(rendered)))
+    if isinstance(operation, PercentOperation) or operation in {op.value
+                                                                for op in PercentOperation}:
+        percent_operation = PercentOperation(operation)
+        if percent_operation is PercentOperation.DELTA_PP:
+            return surface_carries_percentage_points(rendered)
+        if percent_operation is PercentOperation.DELTA_BPS:
+            return surface_carries_basis_points(rendered)
+        return (surface_carries_relative_marker(rendered)
+                and any(token.unit is SurfaceUnit.PERCENT
+                        for token in tokenize_numerals(rendered)))
+    if input_unit is None:
+        return True
+    allowed = operation_result_surfaces(str(operation), input_unit)
+    if not allowed:
+        return True
+    tokens = tokenize_numerals(rendered)
+    if len(tokens) != 1:
+        # Nothing to judge a surface on. `_recompute_findings` already refuses this as
+        # `calculation_does_not_recompute`, and two codes for one fault help nobody.
+        return True
+    return tokens[0].unit in allowed
 
 
 @dataclass(frozen=True)
@@ -670,6 +738,7 @@ __all__ = [
     "PERCENTAGE_POINT_MARKERS",
     "RELATIVE_MARKERS",
     "SCALE_MULTIPLIERS",
+    "UNIT_PRESERVING_OPERATIONS",
     "AmbiguousPercentChange",
     "NumeralToken",
     "PercentOperation",
@@ -684,6 +753,7 @@ __all__ = [
     "delta_relative",
     "find_ambiguous_percent_changes",
     "matches_at_printed_precision",
+    "operation_result_surfaces",
     "percent_delta",
     "reconstruct_table_quote",
     "relative_change_across_zero",

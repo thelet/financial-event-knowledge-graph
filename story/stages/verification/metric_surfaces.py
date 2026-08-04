@@ -100,6 +100,26 @@ class MetricSurfaceResolution:
         return self.metric_ids[0] if len(self.metric_ids) == 1 else None
 
 
+@dataclass(frozen=True, slots=True)
+class MetricSurfaceOccurrence:
+    """One metric surface found *in prose*, and what it denotes.
+
+    Distinct from `MetricSurfaceResolution` because the question is different: a resolution
+    answers *"what does this declared surface mean"* and carries the declared string, while an
+    occurrence answers *"which metrics does this sentence name"* and there may be several. No
+    character span: `normalise` drops punctuation and collapses whitespace, so an offset into
+    the normalised text does not point at the sentence the reader sees, and a span that lies
+    about where it points is worse than none.
+    """
+
+    matched: str
+    metric_ids: tuple[str, ...]
+    declared_ambiguous: bool
+
+    def licenses(self, metric_id: str) -> bool:
+        return metric_id in self.metric_ids
+
+
 class MetricAliasIndex:
     """Surfaces to metric ids, plus the group membership §13.5's third refusal reads.
 
@@ -161,6 +181,37 @@ class MetricAliasIndex:
             shared_groups=(),
         )
 
+    def scan(self, text: str) -> tuple[MetricSurfaceOccurrence, ...]:
+        """Every metric surface `text` names, left to right, longest match winning.
+
+        `resolve` answers about one declared string and returns the single longest match in it;
+        this answers about a whole sentence, which may name two metrics — *"GAAP gross margin
+        was −12.6% and adjusted gross margin was 3.3%"* names both, and a longest-match-only
+        reading would see only the adjusted one and call the GAAP binding a contradiction.
+
+        Non-overlapping and longest-first for §13.5's own reason: `"gross margin" ⊂ "adjusted
+        gross margin"`, so a scan that reported both would let a sentence saying *"adjusted
+        gross margin"* license a `gaap_gross_margin` binding through the declared-ambiguous
+        surface hiding inside it. Consuming the words the longest match used is what stops that.
+        """
+        words = normalise(text).split()
+        found: list[MetricSurfaceOccurrence] = []
+        cursor = 0
+        while cursor < len(words):
+            for key in self._by_length:
+                length = key.count(" ") + 1
+                if words[cursor:cursor + length] == key.split():
+                    found.append(MetricSurfaceOccurrence(
+                        matched=key,
+                        metric_ids=self._entries[key],
+                        declared_ambiguous=key in DECLARED_AMBIGUOUS,
+                    ))
+                    cursor += length
+                    break
+            else:
+                cursor += 1
+        return tuple(found)
+
     def licenses(self, surface: str, metric_id: str) -> bool:
         """§13.7 Rule A step 3: is this surface a licensed one for this metric?
 
@@ -199,6 +250,7 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 __all__ = [
     "DECLARED_AMBIGUOUS",
     "MetricAliasIndex",
+    "MetricSurfaceOccurrence",
     "MetricSurfaceResolution",
     "normalise",
 ]

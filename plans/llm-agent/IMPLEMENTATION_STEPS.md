@@ -988,11 +988,89 @@ Qwen, because the draft schema is an input to `request_identity`. The planner's 
 byte-for-byte** (same digest, same 1,887 characters) since its prompt did not change. The model,
 given `compare_levels`, used it correctly on the first attempt — no prompt iteration.
 
+### R8 accepted — the verifier read declarations and, in six places, never read the prose
+
+**The defect class in one sentence: §13 checked what the writer *declared*, and where it read
+prose at all it read it through closed lexicons used as a *filter for claims* rather than a
+*trigger for checks*.** `if not comparatives: return []` means *"no lexicon hit ⇒ no claim"*,
+and ordinary investor English walks around a word list.
+
+**The cleanest statement of it is an asymmetry, and it is the reason to fix the metric side
+first.** A binding declares a `period_surface` and a `metric_surface`. The period was already
+protected — **because a period contains numerals**, so §13.1's coverage rule forced it into the
+text. Both directions were measured on the demo's accepted draft: prose moved to *"fourth
+quarter"* with the declaration left at Q3 gives `unbound_numeral`; the declaration moved too
+gives `period_mismatch`; *"fiscal 2022"* gives `period_mismatch`. **A metric name carries no
+numeral, so nothing forced it to occur at all** — and rewriting *"GAAP Gross Margin"* to
+*"Adjusted Gross Margin"*, or to *"net income"*, passed with zero findings.
+
+Eleven attacks, each mutating the demo's **accepted** draft and re-verified, each **measured
+passing before** and refused after *(2026-08-04)*:
+
+| # | Attack | Before | Now refused by |
+| --- | --- | --- | --- |
+| A | `exceeded` / `surpassed` / `topped` / `beat` / `outperformed`, declaration `left < right` untouched | passed ×5 | `comparative_not_supported_by_text` |
+| B | *"was **not** 15.9 points lower than"*, *"was **no lower than** …, a gap of 15.9 points"* | passed ×2 | `comparative_not_supported_by_text` (negation) |
+| C | prose says *"**Adjusted** Gross Margin of −12.6 percent"*, binding still GAAP | passed | `metric_named_in_text_contradicts_binding` |
+| C | prose says *"**net income** of −12.6 percent"* | passed | `metric_surface_absent_from_text` |
+| D | gap rendered `"15.9 basis points"` (it is 1,590), `"15.9x"` (the ratio is −0.26), `"15.9 percent"` | passed ×3 | `calculation_result_surface_mismatch` |
+| E | connective → *"Opendoor's gross margin turned positive during the period."* | passed | `connective_sentence_carries_a_claim` |
+| F | *"GAAP Gross Margin **fell 12.6 percent**"* — a *level* stated as a change | passed | `percent_change_reported_not_calculated` |
+
+**The default flip is the fix; widening `COMPARATIVE_DIRECTION` is the smaller half.** A
+`compare_levels` / `compare_deltas` sentence now **requires** a comparative construction the
+lexicon can read: absence of one is a refusal, because the sentence declares a comparison it
+does not make. That refuses the shape the old docstring defended (*"the gap between the two
+measures was 15.9 percentage points"* declared as `compare_levels`) and it should — that is a
+`difference`, not a comparison.
+
+**Two things found while fixing, neither of them in the brief.**
+
+* `language._CLAUSE` read the `.` inside `15.9` as a clause boundary, so *"was **not** 15.9
+  percentage points lower"* put the negation in a different clause from the comparative and
+  `negated()` answered `False`. The same hole was live for **§13.10 condition 5** wherever a
+  cited span carried a decimal between a negation and its causal marker. `numerals.
+  _CLAUSE_BOUNDARY` already knew the rule; the two now agree.
+* §13.3's second gate skipped every numeral a binding covered, so it could only fire where
+  `unbound_numeral` fires anyway. It is now tested on the **fact's** unit rather than the
+  numeral's surface, which is what catches `"12.6 percent"` — §13.1's tokeniser reads the `%`
+  sign and not the word, so that numeral's `SurfaceUnit` is `NONE` and a surface-only rule sees
+  no percentage in the sentence at all.
+
+**The latent hole R7 recorded is closed the honest way, not the expensive way.**
+`_covering_spans` licensed `result_rendered` for `extremum` / `absence` / `temporal_order` while
+`_recompute_findings` never recomputed one. They are **refused outright**
+(`operation_not_recomputable`) rather than given a recomputation nobody wrote. Still unreachable
+from `WRITER_OPERATIONS`; §13 is authoritative independently of the writer, which is the whole
+reason it mattered.
+
+**Demo disposition, both paths, reported as measured.** Replay: **`accepted`**, exit 0 — the
+draft the model already produced names its metric in its own prose, uses an unnegated in-lexicon
+comparative, and renders its gap in percentage points, so every new rule is satisfied without
+touching it. `--live`: **`rejected`**, one blocking finding —
+`comparative_not_supported_by_text`, *"expected `left < right` written as a term putting the
+first side below the second; observed `higher`"*. **That is R7's own recorded inversion firing
+on a fresh generation, not a new rule**: the live model wrote *"The Adjusted Gross Margin was
+15.9 percentage points higher than the GAAP Gross Margin"* against `input_observation_ids`
+listing GAAP first. No prompt was iterated and no check was weakened to chase an acceptance.
+
+**`WRITER_PROMPT_VERSION` deliberately not bumped, with the reasoning recorded.** Two
+obligations are genuinely new to the writer: a `reported` sentence must name its metric in its
+own prose, and a comparative must be unnegated. Rule 4 already tells the writer to write *"GAAP
+gross margin"* or *"adjusted gross margin"* in the sentence and rule 12 already requires *"one
+comparing word in the sentence"* from a named list, so neither obligation is a surprise the
+prompt is silent on — and nothing measured was refused for want of the disclosure. Against that,
+a bump changes `request_identity`, invalidates the committed generation store, and re-recording
+it via `--live` today would capture the **inverted** draft above, turning a replay demo that
+accepts into one that does not. **Recommendation for the next step: disclose both rules
+explicitly and re-record, once the live inversion is addressed** — the two changes want to land
+together, not one at a time.
+
 ## 9. Deferred / not implemented
 
 Everything in §1 "Out". Recorded here so it is not rediscovered as an omission.
 
-Added at R7: **recomputation for `extremum` / `absence` / `temporal_order` rendered results**
-(unreachable from the writer today, but the verifier is meant to be authoritative independently
-of it) and **`compare_deltas` in the writer's grammar** (a side needs four bound observations
-across two periods; every fact in the demo package is 2022Q3).
+Added at R7 and **closed at R8 by refusal rather than by recomputation**: `extremum` /
+`absence` / `temporal_order` rendered results. Still deferred: **`compare_deltas` in the
+writer's grammar** (a side needs four bound observations across two periods; every fact in the
+demo package is 2022Q3), and the `WRITER_PROMPT_VERSION` disclosure recorded under R8 above.

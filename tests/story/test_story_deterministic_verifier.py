@@ -1409,3 +1409,302 @@ def test_a_draft_with_no_title_reports_the_title_check_as_not_applicable(verifie
     verified = verifier.verify(make_draft(title=""), make_package(), make_plan())
     assert verified.check("title").outcome is CheckOutcome.NOT_APPLICABLE
     assert verified.passed is True
+
+
+# ---------------------------------------------------------------------------------------
+# R8 — the defect class: the verifier checked declarations and never read the prose
+#
+# Every attack below was **measured passing** against the demo's own accepted draft before the
+# repair (2026-08-04, `python -m story demo --out /tmp/r8base`, then the draft mutated and
+# re-verified). The values are the demo's: `gaap_gross_margin` 2022Q3 is −12.6,
+# `adjusted_gross_margin` is +3.3, and the gap is 15.9 percentage points.
+#
+# The cleanest statement of the class is an asymmetry. A `period_surface` was protected —
+# **because a period contains numerals**, so §13.1's coverage rule forced it into the text, and
+# both directions were checked: prose moved to "fourth quarter" with the declaration left at Q3
+# gives `unbound_numeral`, and the declaration moved too gives `period_mismatch`. A metric name
+# carries no numeral, so nothing forced it to occur at all.
+# ---------------------------------------------------------------------------------------
+
+
+def _reported_attack(text: str, rendered: str, **binding_overrides: object) -> DraftSentence:
+    """The demo's first sentence with its prose rewritten and its binding honestly re-anchored.
+
+    The span really does hold the rendering it claims, so `binding_span_does_not_match_text`
+    cannot be what catches these — the attack is a *true* declaration over *false* prose.
+    """
+    fields: dict[str, object] = dict(
+        fact_id=GGM_ID, rendered=rendered,
+        char_start=text.index(rendered), char_end=text.index(rendered) + len(rendered),
+        metric_surface="GAAP gross margin", period_surface="the third quarter of 2022",
+    )
+    fields.update(binding_overrides)
+    return DraftSentence(
+        index=0, text=text, kind=SentenceKind.REPORTED,
+        fact_bindings=(FactBinding(**fields),),  # type: ignore[arg-type]
+        citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+                                   char_start=_span("Gross Margin (12.6)")[0],
+                                   char_end=_span("Gross Margin (12.6)")[1]),),
+    )
+
+
+def test_a_reported_sentence_naming_the_other_metric_of_the_pair_is_refused(verifier):
+    """R8 defect C. One word — `adjusted` — moves the sentence to the other metric.
+
+    Every declared field stays valid: the fact id is real, the value matches it, the metric
+    surface still resolves to `gaap_gross_margin`, the period is right and the span holds what
+    it says. Measured: this passed with **zero findings**, and the adjusted margin was +3.3.
+    """
+    text = "Adjusted gross margin was -12.6% in the third quarter of 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6%"),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "metric_named_in_text_contradicts_binding"]
+    assert failure and failure[0].observed.startswith("the sentence names adjusted_gross_margin")
+    assert verified.passed is False
+
+
+def test_a_reported_sentence_naming_a_metric_the_package_does_not_carry_is_refused(verifier):
+    """R8 defect C, the other half: prose about a metric that is nowhere in the package.
+
+    Measured: *"Opendoor reported net income of −12.6 percent"* passed. `net_income` has no
+    fact, no metric row and no alias here, so there was nothing for any other check to catch.
+    """
+    text = "Net income was -12.6% in the third quarter of 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6%"),)), make_package(),
+        make_plan(required_warnings=()))
+    assert "metric_surface_absent_from_text" in codes_of(verified)
+    assert verified.passed is False
+
+
+def test_a_legitimate_alias_of_the_bound_metric_still_grounds_the_sentence(verifier):
+    """The grounding rule resolves through §13.5's index, so an alias is not a refusal.
+
+    `gaap_gross_margin` carries the alias `"GAAP gross margin"` and the label `"Gross Margin"`;
+    the sentence writing it in title case must still pass, or the rule would refuse the demo's
+    own prose.
+    """
+    text = "GAAP Gross Margin was -12.6% in the third quarter of 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "-12.6%"),)), make_package(),
+        make_plan(required_warnings=()))
+    assert "metric_surface_absent_from_text" not in codes_of(verified)
+    assert "metric_named_in_text_contradicts_binding" not in codes_of(verified)
+    assert verified.passed is True
+
+
+def test_a_sentence_naming_two_metrics_grounds_a_binding_to_either_of_them(verifier):
+    """Longest match alone would see only the adjusted one and call the GAAP binding a lie.
+
+    `"gross margin" ⊂ "adjusted gross margin"`, so the scan consumes the words the longest
+    match used and reports both surfaces rather than the single longest.
+    """
+    text = ("GAAP gross margin was -12.6% and adjusted gross margin was 3.3% in the third "
+            "quarter of 2022.")
+    sentence = DraftSentence(
+        index=0, text=text, kind=SentenceKind.REPORTED,
+        fact_bindings=(
+            FactBinding(fact_id=GGM_ID, rendered="-12.6%", char_start=text.index("-12.6%"),
+                        char_end=text.index("-12.6%") + len("-12.6%"),
+                        metric_surface="GAAP gross margin",
+                        period_surface="the third quarter of 2022"),
+            FactBinding(fact_id=AGM_ID, rendered="3.3%", char_start=text.index("3.3%"),
+                        char_end=text.index("3.3%") + len("3.3%"),
+                        metric_surface="Adjusted gross margin",
+                        period_surface="the third quarter of 2022"),
+        ),
+        citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+                                   char_start=_span("Gross Margin (12.6)")[0],
+                                   char_end=_span("Adjusted Gross Margin 3.3")[1]),),
+    )
+    verified = verifier.verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
+    assert "metric_named_in_text_contradicts_binding" not in codes_of(verified)
+    assert "metric_surface_absent_from_text" not in codes_of(verified)
+
+
+@pytest.mark.parametrize("verb", ["exceeded", "surpassed", "topped", "beat", "outperformed"])
+def test_a_comparative_outside_the_old_lexicon_no_longer_walks_around_the_check(verifier, verb):
+    """R8 defect A. Ordinary investor English walked around a closed word list.
+
+    Each of these sentences says the GAAP margin was the larger one. It was −12.6 against +3.3.
+    The declaration is left exactly as the demo wrote it — `left < right` over `(gaap,
+    adjusted)`, which recomputes — so nothing but the words can refuse them, and measured, none
+    of the five did.
+    """
+    text = (f"The GAAP gross margin {verb} the adjusted gross margin by 15.9 percentage points "
+            "in the third quarter of 2022.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(text=text),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure and failure[0].observed == verb
+    assert verified.passed is False
+
+
+def test_every_comparative_term_declares_its_polarity():
+    """A widened lexicon with an unstated polarity turns a refusal into a pass.
+
+    `comparative_direction` returns `None` for a term the map does not carry, and
+    `_comparison_text_findings` refuses on `None` — but a term in `COMPARATIVE_TERMS` and absent
+    from `COMPARATIVE_DIRECTION` would still be a comparison the verifier cannot read. Totality
+    is asserted rather than trusted.
+    """
+    from story.stages.verification.language import COMPARATIVE_DIRECTION, COMPARATIVE_TERMS
+
+    assert set(COMPARATIVE_TERMS) <= set(COMPARATIVE_DIRECTION)
+
+
+def test_a_declared_comparison_the_sentence_never_makes_is_refused(verifier):
+    """R8 defect A's other half, and the one that closes the class rather than five words in it.
+
+    The check read *"no lexicon hit ⇒ no claim"* and returned clean. It now reads *"a declared
+    comparison must be a comparison the verifier can read"*. This sentence states a size and no
+    direction, which is a `difference` or a `delta_pp` — not a `compare_levels`.
+    """
+    text = ("The gap between the two margins was 15.9 percentage points in the third quarter "
+            "of 2022.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(text=text),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure and failure[0].expected.startswith("a comparative construction")
+    assert verified.passed is False
+
+
+@pytest.mark.parametrize("text", [
+    ("The GAAP gross margin was not 15.9 percentage points lower than the adjusted gross "
+     "margin in the third quarter of 2022."),
+    ("The GAAP gross margin was no lower than the adjusted gross margin, a gap of 15.9 "
+     "percentage points in the third quarter of 2022."),
+])
+def test_a_negated_comparative_no_longer_passes_on_its_unnegated_reading(verifier, text):
+    """R8 defect B. §13.10 condition 5's rule, which §13.14 had never been given.
+
+    The comparative is in the lexicon, its polarity matches the declaration, and the sentence
+    asserts the opposite of both. Measured: both passed.
+
+    The `.` inside `15.9` was itself part of the defect — `language._CLAUSE` read it as a clause
+    boundary, so the `not` four words earlier fell in a different clause and `negated()` said
+    `False`. That hole was live for §13.10 too, wherever a cited span carried a decimal between
+    a negation and its causal marker.
+    """
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(text=text),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "comparative_not_supported_by_text"]
+    assert failure and failure[0].expected.startswith("an unnegated comparative")
+    assert verified.passed is False
+
+
+@pytest.mark.parametrize("rendered,phrase", [
+    ("15.9 basis points", "15.9 basis points"),
+    ("15.9x", "15.9x"),
+    ("15.9 percent", "15.9 percent"),
+])
+def test_a_comparison_rendered_in_the_wrong_unit_is_refused(verifier, rendered, phrase):
+    """R8 defect D. `surface_supports_operation` governed three operations and no others.
+
+    The gap is 15.9 percentage points: **1,590** basis points, a ratio of −0.26, and *not*
+    15.9 percent — which is the exact percentage-point-versus-percent confusion §13.3 exists to
+    stop, on the metric whose two readings §13.3 measures 45.5× apart. Measured: all three
+    passed, and the third recomputed cleanly while doing so.
+    """
+    text = (f"The GAAP gross margin was {phrase} lower than the adjusted gross margin in the "
+            "third quarter of 2022.")
+    verified = verifier.verify(
+        make_draft(sentences=(dated_gap_sentence(
+            text=text,
+            calculation=Calculation(
+                operation="compare_levels", input_observation_ids=(GGM_ID, AGM_ID),
+                expression="left < right", result_rendered=rendered,
+                period_surface="the third quarter of 2022")),)),
+        make_package(), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "calculation_result_surface_mismatch"]
+    assert failure and failure[0].observed == rendered
+    assert failure[0].expected.startswith("a result in percentage_points")
+    assert verified.passed is False
+
+
+def test_a_connective_sentence_making_a_wordless_claim_is_refused(verifier):
+    """R8 defect E. `_connective_findings` read three declarations and never the prose.
+
+    *"Opendoor's gross margin turned positive during the period"* is false — the GAAP margin was
+    −12.6 — and it carries no binding, no calculation and no numeral, so the three declaration
+    tests all found nothing. Measured: it passed.
+    """
+    sentence = DraftSentence(
+        index=0, kind=SentenceKind.CONNECTIVE,
+        text="Opendoor's gross margin turned positive during the period.")
+    verified = verifier.verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "connective_sentence_carries_a_claim"]
+    assert failure and "gaap_gross_margin" in failure[0].observed
+    assert verified.passed is False
+
+
+def test_a_connective_sentence_that_names_no_metric_is_still_a_transition(verifier):
+    """The prose scan resolves through §13.5, so it does not refuse an actual transition.
+
+    The demo's own connective sentence names no metric — `"profitability metrics"` resolves to
+    nothing — and a rule that refused it would have cost the demo its last sentence.
+    """
+    sentence = DraftSentence(
+        index=0, kind=SentenceKind.CONNECTIVE,
+        text=("This divergence highlights the impact of non-GAAP adjustments on profitability "
+              "metrics for the period."))
+    verified = verifier.verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
+    assert "connective_sentence_carries_a_claim" not in codes_of(verified)
+    assert verified.passed is True
+
+
+def test_a_change_verb_over_a_bound_level_is_refused_even_though_the_number_is_right(verifier):
+    """R8 defect F. §13.3's second gate skipped every numeral a binding covered.
+
+    So it could only fire where `unbound_numeral` fires anyway. −12.6% is the metric's *level*
+    in the quarter, not a fall of 12.6% in it, and no observation in this package is a change.
+    Measured: this passed.
+
+    Note the unit is read off the **fact**, not off the numeral: `"12.6 percent"` spelled in
+    words tokenises as `SurfaceUnit.NONE`, because §13.1's tokeniser reads the `%` sign and not
+    the word, so a surface-only rule sees no percentage in this sentence at all.
+    """
+    text = "GAAP gross margin fell 12.6 percent in the third quarter of 2022."
+    verified = verifier.verify(
+        make_draft(sentences=(_reported_attack(text, "12.6 percent"),)), make_package(),
+        make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings
+               if f.code == "percent_change_reported_not_calculated"]
+    assert failure and "fell" in failure[0].observed
+    assert verified.passed is False
+
+
+@pytest.mark.parametrize("operation", ["extremum", "absence", "temporal_order"])
+def test_an_operation_nothing_recomputes_may_not_cover_its_own_numeral(verifier, operation):
+    """R8's latent sixth: `_covering_spans` licensed a result `_recompute_findings` skipped.
+
+    Unreachable from `WRITER_OPERATIONS` today — none of the three is in the writer's enum — but
+    §13 is documented as authoritative independently of the writer, and a declaration that
+    covers a numeral while nothing evaluates it is the hole §13.1 exists to close. Refused
+    outright rather than given a recomputation nobody wrote.
+    """
+    sentence = DraftSentence(
+        index=0, kind=SentenceKind.CALCULATED,
+        text="The margin stood at 3.3 percentage points on that measure.",
+        calculation=Calculation(
+            operation=operation, input_observation_ids=(GGM_ID, AGM_ID),
+            expression="min", result_rendered="3.3 percentage points"),
+    )
+    verified = verifier.verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
+    failure = [f for f in verified.all_findings if f.code == "operation_not_recomputable"]
+    assert failure and failure[0].observed == operation
+    assert verified.passed is False

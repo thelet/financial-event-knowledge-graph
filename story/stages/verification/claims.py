@@ -86,7 +86,7 @@ def check_language(
             for span in language.occurrences(sentence.text, surface))
         found.extend(_forward_looking_findings(sentence))
         found.extend(_causal_findings(sentence, index))
-        found.extend(_connective_findings(sentence))
+        found.extend(_connective_findings(sentence, aliases))
         found.extend(_claim_findings(sentence, index, aliases, exempt))
     return CheckResult(name="language_safety", examined=examined, findings=tuple(found))
 
@@ -222,8 +222,26 @@ def _span_causal_findings(
             ))
     return found
 
-def _connective_findings(sentence: DraftSentence) -> list[VerificationFinding]:
-    """§13.14: *"a `connective` sentence may contain no claim"*."""
+def _connective_findings(
+    sentence: DraftSentence, aliases: MetricAliasIndex
+) -> list[VerificationFinding]:
+    """§13.14: *"a `connective` sentence may contain no claim"*.
+
+    **Three of the four tests here read declarations, and the prose scan is R8's.** Bindings, a
+    calculation and numerals are all things the writer *declared*, and a claim needs none of
+    them: replacing the demo's connective sentence with *"Opendoor's gross margin turned
+    positive during the period."* passed with zero findings. It is false — the GAAP margin was
+    −12.6 and the adjusted one +3.3 — and it carries no number, no binding and no operation for
+    any other check to reach.
+
+    The prose test is deliberately blunt: a package metric named through §13.5's alias index,
+    beside a direction, level or state word from `language.STATE_TERMS`. That refuses some
+    legitimate transitions, and §13.14 says so in its own words — *"this is where V1 is most
+    likely to be over-strict"* — because a refused connective costs a sentence and an accepted
+    false one costs the claim. It resolves through the alias index rather than by substring, so
+    a bare plural (*"Margins moved in opposite directions"*) names no metric and is not caught
+    here; §13.5's whole-word rule is what draws that line and it is drawn in one place.
+    """
     if sentence.kind is not SentenceKind.CONNECTIVE:
         return []
     carried: list[str] = []
@@ -234,6 +252,14 @@ def _connective_findings(sentence: DraftSentence) -> list[VerificationFinding]:
     numerals = tokenize_numerals(sentence.text)
     if numerals:
         carried.append("numeral(s) " + ", ".join(token.text for token in numerals))
+    named = aliases.scan(sentence.text)
+    states = language.state_terms(sentence.text)
+    if named and states:
+        carried.append(
+            "the metric(s) "
+            + ", ".join(sorted({metric_id for occurrence in named
+                                for metric_id in occurrence.metric_ids}))
+            + " beside " + ", ".join(sorted({match.term.lower() for match in states})))
     if not carried:
         return []
     return [finding(
@@ -478,10 +504,25 @@ def _comparison_text_findings(
 ) -> list[VerificationFinding]:
     """The sentence's own words against the sides the calculation declared.
 
-    No comparative in the text is not a failure: *"the gap between the two measures was 15.9
-    percentage points"* states a size and no direction, and there is nothing to disagree with.
-    Every other shape has to line up — one comparative, a polarity the lexicon knows, and the
-    two metrics named in the declared order on either side of it.
+    **The default is flipped, and the flip is the fix.** This read `if not comparatives: return
+    []` — *"no lexicon hit ⇒ no claim"* — which made a closed word list a **filter for claims**
+    instead of a **trigger for checks**, and ordinary investor English walks around a word
+    list. Measured on the demo's own accepted `compare_levels` sentence, with the declaration
+    `left < right` untouched: *"The GAAP Gross Margin **exceeded** the Adjusted Gross Margin by
+    15.9 percentage points"* passed with zero findings, and so did `surpassed`, `topped`,
+    `beat` and `outperformed`. Every one of those is false and inverted — GAAP was −12.6 and
+    adjusted +3.3.
+
+    A `compare_levels` or `compare_deltas` sentence now **requires** a recognised comparative:
+    the sentence declared a comparison, and a sentence that makes no comparison the verifier
+    can read is not the sentence the declaration describes. That refuses the shape the old
+    docstring defended — *"the gap between the two measures was 15.9 percentage points"* — and
+    it should: that sentence states a size and no direction, so it is a `difference` or a
+    `delta_pp`, not a comparison. Widening `COMPARATIVE_DIRECTION` is the smaller half; the
+    default flip is what closes the class rather than five words in it.
+
+    Every other shape still has to line up — one comparative, unnegated, a polarity the lexicon
+    states, and the two metrics named in the declared order on either side of it.
     """
     def refusal(expected: str, observed: str) -> list[VerificationFinding]:
         return [finding(
@@ -496,12 +537,22 @@ def _comparison_text_findings(
         )]
 
     if not comparatives:
-        return []
+        return refusal(
+            f"a comparative construction, which is what {calculation.operation} declares",
+            f"no comparative in {sentence.text!r}")
     if len(comparatives) > 1:
         return refusal(
             "one comparative, which is what one calculation can support",
             ", ".join(match.term for match in comparatives))
     match = comparatives[0]
+    if language.negated(sentence.text, match):
+        # §13.10 condition 5's rule, on §13.14's construction. *"was **not** 15.9 points lower
+        # than"* and *"was **no** lower than"* both passed: the comparative is in the lexicon,
+        # its polarity matches the declaration, and the sentence asserts the opposite of both.
+        # Measured on the demo's own draft, twice.
+        return refusal(
+            "an unnegated comparative, whose direction the declaration can be checked against",
+            f"{match.term!r} negated in {sentence.text!r}")
     direction = language.comparative_direction(match.term)
     if direction is None:
         return refusal("a comparative whose polarity the §13.14 lexicon states", match.term)

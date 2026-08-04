@@ -35,6 +35,26 @@ beside it.
    and the opposite claim. This is the code for *"the calculation and the prose disagree"*, and
    it exists because the operations it guards became writable in the same change.
 
+**R8's four, and the one asymmetry that explains all of them.** §13 checks what the writer
+*declares*; in several places it never checked what the writer *wrote*. A `period_surface` is
+protected because a period contains numerals and §13.1's coverage rule forces it to occur in
+the text — a prose period the declaration disagrees with is `unbound_numeral` or
+`period_mismatch`, measured both ways. **A metric name carries no numeral, so nothing forced
+it to occur at all**, and rewriting the demo's *"GAAP Gross Margin"* to *"Adjusted Gross
+Margin"* — or to *"net income"* — passed with zero findings while the binding stayed put.
+
+5. `metric_surface_absent_from_text` and `metric_named_in_text_contradicts_binding` (REFUSE,
+   §13.5). A `reported` sentence's prose must name a metric the binding's fact answers to,
+   resolved through the same alias index the declared surface is.
+6. `calculation_result_surface_mismatch` (REFUSE, §13.3). The unit of a derived result was
+   checked for `delta_pp`, `delta_bps` and `delta_relative` and for nothing else, so a
+   percentage-point gap rendered `"15.9 basis points"`, `"15.9x"` or `"15.9 percent"` passed.
+7. `operation_not_recomputable` (REFUSE, §13.9). `_covering_spans` licensed the rendered
+   numeral of `extremum`, `absence` and `temporal_order` while `_recompute_findings` never
+   recomputed one. Unreachable from `WRITER_OPERATIONS` today — but the verifier is
+   authoritative independently of the writer, so the honest answer is a refusal and not a
+   recomputation nobody wrote.
+
 **Two remedies §13.17's enum cannot express**, recorded because the enum lives in
 `story/core/models.py`, which this step does not own: a dropped `required_warning` and an
 absent counterpoint both want *"put the disclosure back"*, and the nearest member is
@@ -112,6 +132,8 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("percentage_point_surface_missing", Remedy.ADD_PERCENTAGE_POINT_QUALIFIER, "13.3"),
     _refuse("percent_change_reported_not_calculated", Remedy.RESTATE_AS_CALCULATION, "13.3"),
     _refuse("relative_change_across_zero", Remedy.RESTATE_AS_CALCULATION, "13.3"),
+    _refuse("calculation_result_surface_mismatch",
+            Remedy.ADD_PERCENTAGE_POINT_QUALIFIER, "13.3"),
 
     # -- §13.4 periods ---------------------------------------------------------------------
     _refuse("period_unresolvable", Remedy.ADD_PERIOD_QUALIFIER, "13.4"),
@@ -124,6 +146,8 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("metric_surface_ambiguous", Remedy.NARROW_METRIC_SURFACE, "13.5"),
     _refuse("metric_binding_mismatch", Remedy.NARROW_METRIC_SURFACE, "13.5"),
     _refuse("mutually_distinct_group_ambiguity", Remedy.NARROW_METRIC_SURFACE, "13.5"),
+    _refuse("metric_surface_absent_from_text", Remedy.NARROW_METRIC_SURFACE, "13.5"),
+    _refuse("metric_named_in_text_contradicts_binding", Remedy.NARROW_METRIC_SURFACE, "13.5"),
 
     # -- §13.6 / §13.11 subject and entity identity ----------------------------------------
     _refuse("foreign_subject_named", Remedy.DROP_SENTENCE, "13.6"),
@@ -159,6 +183,7 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("calculation_inputs_incomparable", Remedy.ADD_PERIOD_QUALIFIER, "13.9"),
     _refuse("calculation_does_not_recompute", Remedy.RESTATE_AS_CALCULATION, "13.9"),
     _refuse("calculation_operation_not_supported", Remedy.RESTATE_AS_CALCULATION, "13.9"),
+    _refuse("operation_not_recomputable", Remedy.RESTATE_AS_CALCULATION, "13.9"),
     _refuse("formula_version_not_valid_for_period", Remedy.RESTATE_AS_CALCULATION, "13.9"),
 
     # -- §13.10 causation ------------------------------------------------------------------

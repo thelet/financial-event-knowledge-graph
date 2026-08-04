@@ -71,6 +71,7 @@ from story.core.numerals import (
     compare_token_to_fact,
     find_ambiguous_percent_changes,
     matches_at_printed_precision,
+    operation_result_surfaces,
     percent_delta,
     relative_change_across_zero,
     surface_supports_operation,
@@ -614,7 +615,7 @@ class DeterministicVerifier:
                 found.extend(self._across_zero_findings(sentence, calculation, operation, index))
 
             if sentence.kind is SentenceKind.REPORTED and percent_facts:
-                found.extend(self._reported_change_findings(sentence, percent_facts))
+                found.extend(self._reported_change_findings(sentence, percent_facts, index))
 
         return CheckResult(name="percentages", examined=examined, findings=tuple(found))
 
@@ -656,8 +657,27 @@ class DeterministicVerifier:
         )]
 
     def _reported_change_findings(
-        self, sentence: DraftSentence, percent_facts: Sequence[PackagedFact]
+        self,
+        sentence: DraftSentence,
+        percent_facts: Sequence[PackagedFact],
+        index: PackageIndex,
     ) -> list[VerificationFinding]:
+        """§13.3's second gate, applied to the **bound** numerals as well as the loose ones.
+
+        **The half that was missing, measured.** The gate skipped any numeral inside a
+        fact-binding span, so it could only ever fire where `unbound_numeral` already fires.
+        Rewriting the demo's first sentence to *"Opendoor's GAAP Gross Margin **fell 12.6
+        percent** in the third quarter of 2022"* — the binding still on the same observation,
+        the span re-anchored — **passed**. −12.6% is the metric's *level* in the quarter and
+        not a change in it, and no observation in this package is a change: the extraction
+        refused all 186 it saw.
+
+        The test is the **fact's** unit and not the numeral's surface, which is what makes it
+        catch that sentence: `"12.6 percent"` spelled in words tokenises as `SurfaceUnit.NONE`
+        — §13.1's tokeniser reads the `%` sign and not the word — so a surface-only rule sees
+        no percentage there at all. A change verb governing a numeral bound to a percent-unit
+        *level* is the claim §13.3 refuses, however the writer spelled the unit.
+        """
         verb = _CHANGE_VERB.search(sentence.text)
         if verb is None:
             return []
@@ -680,6 +700,27 @@ class DeterministicVerifier:
                 explanation=(
                     "§13.3's second gate: a change of a percent metric may never be a reported "
                     "sentence. No observation in the package is a change."),
+            )]
+        for binding in sentence.fact_bindings:
+            fact = index.fact(binding.fact_id)
+            if fact is None or fact.unit != "percent":
+                continue
+            return [finding(
+                "percent_change_reported_not_calculated",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(fact.observation_id,),
+                expected="a level stated as a level, or kind=calculated with a Calculation",
+                observed=(f"kind=reported, change verb {verb.group(0)!r} over "
+                          f"{binding.rendered!r}, bound to the {fact.period_key} level "
+                          f"{fact.value!r}"),
+                explanation=(
+                    "§13.3's second gate, on a bound numeral. The gate skipped everything a "
+                    "binding covered, so it could only fire where `unbound_numeral` fires "
+                    "anyway. `fell 12.6 percent` bound to a −12.6 *level* passed: the number "
+                    "is the fact's and the sentence is false, because the package holds no "
+                    "change at all (174 DERIVED_CHANGE_COLUMN + 12 DERIVED_COMPARISON "
+                    "refused)."),
             )]
         return []
 
@@ -853,7 +894,79 @@ class DeterministicVerifier:
                             "number, which is §17's attack 1. Both margins read 15.4 at 2020Q4."),
                         suggested_fact_ids=self._suggestions(index, fact),
                     ))
+                if sentence.kind is SentenceKind.REPORTED:
+                    grounding, grounding_examined = self._metric_grounding_findings(
+                        sentence, binding, fact, index, aliases)
+                    examined += grounding_examined
+                    found.extend(grounding)
         return CheckResult(name="metric_identity", examined=examined, findings=tuple(found))
+
+    def _metric_grounding_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        fact: PackagedFact,
+        index: PackageIndex,
+        aliases: MetricAliasIndex,
+    ) -> tuple[list[VerificationFinding], int]:
+        """§13.5 applied to the sentence's **prose**, not only to what the binding declared.
+
+        **The asymmetry this closes, measured on the demo's own accepted draft.** A binding
+        declares a `period_surface` and a `metric_surface`, and only the first was protected:
+        a period contains numerals, so §13.1's coverage rule already forces it to occur in the
+        text, and moving the prose to *"the fourth quarter"* while the declaration says Q3
+        raises `unbound_numeral` — or `period_mismatch` if the declaration moves too. **A
+        metric name carries no numeral**, so nothing forced it to occur at all. Rewriting the
+        demo's first sentence to *"Opendoor reported an **Adjusted** Gross Margin of −12.6
+        percent"* with `metric_surface` left at `GAAP Gross Margin` and the binding span
+        honestly re-anchored **passed with zero findings**, and the adjusted margin was +3.3.
+        *"Opendoor reported **net income** of −12.6 percent"* passed too, over a metric the
+        package does not carry.
+
+        Resolved through §13.5's alias index rather than by substring, so a legitimate alias
+        still passes: the demo writes *"Adjusted Gross Margin"* and the index carries
+        `adjusted gross margin`. A declared-ambiguous surface in the prose — *"gross margin"* —
+        licenses either margin here, because it is `metric_surface_ambiguous`'s job to refuse a
+        writer for *declaring* it and this check's job to notice that the sentence talks about
+        something else entirely.
+
+        `reported` only. §13.9 gives a `calculated` sentence no bindings, and §13.14's
+        comparison check already reads a comparative's two sides out of the prose through this
+        same index.
+        """
+        named = aliases.scan(sentence.text)
+        if any(occurrence.licenses(fact.metric_id) for occurrence in named):
+            return [], 1
+        common = dict(
+            sentence_index=sentence.index,
+            char_start=binding.char_start, char_end=binding.char_end,
+            fact_ids=(fact.observation_id,),
+            suggested_fact_ids=self._suggestions(index, fact),
+        )
+        if not named:
+            return [finding(
+                "metric_surface_absent_from_text", **common,
+                expected=f"the sentence to name {fact.metric_id} ({binding.metric_surface!r})",
+                observed=sentence.text,
+                explanation=(
+                    "§13.5: a metric surface carries no numeral, so nothing else in §13 forces "
+                    "it into the sentence. Measured: the demo's own accepted draft passed with "
+                    "its metric renamed in the prose and the binding left untouched. A "
+                    "declaration nobody can read against the words is not a declaration."),
+            )], 1
+        return [finding(
+            "metric_named_in_text_contradicts_binding", **common,
+            expected=f"the sentence to name {fact.metric_id}",
+            observed=("the sentence names "
+                      + ", ".join(sorted({metric_id for occurrence in named
+                                          for metric_id in occurrence.metric_ids}))
+                      + f"; the binding declares {binding.metric_surface!r}"),
+            explanation=(
+                "§13.5 with longest match: \"gross margin\" ⊂ \"adjusted gross margin\", so the "
+                "one word `Adjusted` moves the sentence to the other metric while every "
+                "declared field stays valid. Both margins are in this package and they read "
+                "+3.3 and −12.6 in 2022Q3."),
+        )], 1
 
     # -- §13.6 / §13.11 subject ----------------------------------------------------------
 
@@ -1013,8 +1126,51 @@ class DeterministicVerifier:
 
         found.extend(self._comparability_findings(sentence, calculation, resolved))
         found.extend(self._formula_window_findings(sentence, calculation, index, resolved))
+        found.extend(self._result_surface_findings(sentence, calculation, resolved))
         found.extend(self._recompute_findings(sentence, calculation, resolved, ledgers))
         return found
+
+    def _result_surface_findings(
+        self,
+        sentence: DraftSentence,
+        calculation: Calculation,
+        inputs: Sequence[PackagedFact],
+    ) -> list[VerificationFinding]:
+        """§13.2 and §13.3 applied to a derived result, which had no unit rule at all.
+
+        `percentage_point_surface_missing` governs `delta_pp`, `delta_bps` and
+        `delta_relative`; every other operation rendered whatever it liked. Measured on the
+        demo's own `compare_levels` sentence: `"15.9 basis points"` passed and the gap is 1,590
+        bps, `"15.9x"` passed and the ratio is −0.26, and `"15.9 percent"` passed — the exact
+        percentage-point-versus-percent confusion §13.3 exists to stop, on the metric whose two
+        readings §13.3 measures 45.5× apart.
+
+        Skipped when the inputs disagree about their unit, because `calculation_inputs_incompar-
+        able` has already refused that and a second code for one fault helps nobody.
+        """
+        if not calculation.result_rendered:
+            return []
+        units = {fact.unit for fact in inputs}
+        if len(units) != 1:
+            return []
+        unit = units.pop()
+        if surface_supports_operation(
+                calculation.operation, calculation.result_rendered, input_unit=unit):
+            return []
+        allowed = operation_result_surfaces(calculation.operation, unit)
+        return [finding(
+            "calculation_result_surface_mismatch",
+            sentence_index=sentence.index,
+            fact_ids=tuple(fact.observation_id for fact in inputs),
+            expected=(f"a result in {' | '.join(sorted(surface.value for surface in allowed))} "
+                      f"for {calculation.operation} over {unit} inputs"),
+            observed=calculation.result_rendered,
+            explanation=(
+                "§13.3: a gap between two percent levels is in percentage points. The same "
+                "number in basis points is a hundred times too small, in `x` is a ratio nobody "
+                "computed, and in percent is the ambiguity §13.3's whole surface gate exists "
+                "to refuse."),
+        )]
 
     def _comparability_findings(
         self,
@@ -1133,7 +1289,24 @@ class DeterministicVerifier:
         """
         operation = calculation.operation
         if operation in {"extremum", "absence", "temporal_order"}:
-            return []  # §13.14 owns these; there is no scalar result to compare
+            # **Refused rather than passed to §13.14 alone.** `_covering_spans` licenses the
+            # `result_rendered` of these three, and nothing here ever recomputed one — so the
+            # numeral in *"the only quarter, 1 of 26"* was covered by a declaration no check
+            # evaluated. Latent today, because `WRITER_OPERATIONS` cannot emit them; §13 is
+            # documented as authoritative independently of the writer, and the honest V1
+            # answer is a refusal, not a recomputation nobody wrote.
+            return [finding(
+                "operation_not_recomputable",
+                sentence_index=sentence.index,
+                fact_ids=tuple(fact.observation_id for fact in inputs),
+                expected="an operation with a scalar result §13.9 can recompute",
+                observed=operation,
+                explanation=(
+                    "§13.9 says recompute. `extremum`, `absence` and `temporal_order` have no "
+                    "scalar result and §13.14 checks only their machinery, while §13.1's "
+                    "coverage rule was still licensing whatever numeral they rendered. An "
+                    "operation nothing recomputes must not cover a numeral."),
+            )]
         try:
             computed = _recompute(operation, [fact.value for fact in inputs])
         except RelativeChangeAcrossZero:
