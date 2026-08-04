@@ -180,6 +180,67 @@ Suggestions are **not** computed on page load. Before the button is pressed the 
 that suggestions are derived from metric histories, comparability rules and deterministic
 ranking.
 
+### Two corrections, found while building `api.py` *(verified 2026-08-04)*
+
+**1. §1's "`api.py` calls `register(...)` at import time" is wrong, and the endpoints are
+registered by an explicit `api.register_endpoints(router=None)` instead.**
+`tests/story/test_demo_ui_server.py::test_the_process_wide_router_carries_the_liveness_route_
+and_nothing_of_section_five` asserts the process-wide `ROUTER` holds no `/demo/` template, and
+pytest imports every test module before it runs any of them — so an import-time registration
+makes that committed test pass or fail on collection order. `register_endpoints` is idempotent
+and defaults to the process-wide router, so the composition root's call is one line.
+
+**2. `DemoUiApp.services` needs a third key, `story_pipeline`, for the same reason it needs the
+first two.** `story/pipeline.py` names `story.context` under `TYPE_CHECKING`, and
+`tests/story/test_story_package_structure.py::test_no_driver_is_reachable_from_the_contract_
+the_core_or_any_stage` reads a guarded import exactly as it reads a plain one. Measured against
+that test's own `closure()`: with `story/demo_ui/api.py` importing `story.pipeline`, the walked
+set reaches `story.providers.neo4j_connection imports neo4j` and the suite fails; without it,
+it does not. `importlib` is not the escape — that test's docstring names hiding an import behind
+it as a defeat of the check. So `story/cli.py:cmd_ui` owns the third factory:
+
+```python
+from .demo_ui import api
+
+def story_pipeline():
+    from story import pipeline
+    return pipeline
+
+api.register_endpoints()
+serve(root=…, host=…, port=…, services={"story_context": story_context,
+                                        "demo_config": demo_config,
+                                        "story_pipeline": story_pipeline})
+```
+
+**Both are integration edits to `story/cli.py`, which the endpoint workstream does not own.**
+Until they land, `python -m story ui` serves the static shell and `/demo-ui/health` only, and
+`POST /demo/generate` would answer `503 pipeline_unavailable` — which is the state
+`test_the_pipeline_is_refused_cleanly_until_the_composition_root_supplies_it` pins.
+
+### What the endpoints actually return
+
+| Endpoint | Body |
+| --- | --- |
+| `GET /demo/graph/overview` | `projection.build_projection` payload + `available_projections`, `available_views`, `honest_labels`. `?projection=` selects one of three names; anything else is `400 unknown_projection` **before** the executor is called |
+| `GET /demo/graph/subgraph` | the same payload shape with `view`, `candidate_id`, `metric_ids`, `anchor_period_keys`. The bound parameters are the *candidate's*, resolved from a discovery run this process performed |
+| `POST /demo/story-suggestions` | `202` + `run_id`, `events_url`, `result_url`, `filters` |
+| `GET /demo/story-suggestions/{run_id}` | `run`, `ready`, `result` (= `DiscoveryResult.as_dict()`), `error`, `failure` |
+| `GET /demo/candidates/{candidate_id}` | `suggestion` (with `score.suppressed`), `candidate`, `warnings` explained, `package_built`, `facts` |
+| `POST /demo/evidence-package` | identity, digest, `rebuilt`, `previous_digest`, `digest_stable`, budget, counts, facts, passages, documents, freshness |
+| `GET /demo/prompt-presets` | `prompt_presets.presets_payload(baseline_length_target=config.length_target)`, unchanged |
+| `POST /demo/generate` | `202` + `run_id`, three URLs, `prompt` = `ComposedPrompts.as_dict()`, `style_delivery`. `409 edited_prompt_requires_live` carries the same `prompt` block beside the error |
+| `GET /demo/runs/{run_id}` | `run`, `ready`, `error`, `outcome` — disposition, `rendered_as`, artifacts, manifest, plan, draft, verification, `post` **or** `rejection`, `cost`, `trace_events` |
+| `GET /demo/runs/{run_id}/sources` | documents → passages → citations (with the quote sliced from the passage by the citation's own span) and facts, plus `unresolved` |
+| both `/events` | SSE: `event: trace` frames carrying `TraceEvent.model_dump(mode="json")`, then exactly one `event: end` carrying `Run.summary()` |
+
+**Three honesty fields that are not decoration.** `cost.measured` is `false` on a replay with
+`prompt_tokens`/`completion_tokens`/`total_tokens`/`latency_ms` as `null` and a reason — the
+recorded store stores none of them, and a zero would be a fabricated measurement in an
+investor-facing panel. `package.retrieval_timing.measured` is `false` for the same reason
+one level down. `manifest.provider_model_id` is reduced to the model *filename*: the local
+runtime reports an absolute `.gguf` path that names the operator's home directory, and a test
+caught it reaching a response body.
+
 ---
 
 ## 6. Prompts — editable vs immutable
