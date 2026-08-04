@@ -566,11 +566,21 @@ def test_the_exit_codes_are_the_houses_zero_one_two():
     assert (cli.EXIT_OK, cli.EXIT_FAILED, cli.EXIT_USAGE) == (0, 1, 2)
 
 
-def test_the_parser_offers_only_the_demo_verb_and_the_rest_of_section_20_is_deferred():
-    """§8b traded the CLI family away. A verb that parsed and then refused would be a promise."""
+def test_the_parser_offers_the_demo_and_ui_verbs_and_the_rest_of_section_20_is_deferred():
+    """§8b traded the CLI family away. A verb that parsed and then refused would be a promise.
+
+    **Widened from `== ["demo"]` when INTERACTIVE_DEMO_UI added `ui`**, and no further: `ui`
+    serves the interface that plan describes and is implemented, so it is not one of the
+    promises §8b refused to make. Every name §20 deferred is still absent, which is the half of
+    this test that was ever load-bearing, and it is now asserted by name rather than by
+    exclusion — a bare inequality would have to be edited again by the next verb that lands.
+    """
     actions = [action for action in cli.build_parser()._actions
                if isinstance(action, __import__("argparse")._SubParsersAction)]
-    assert [name for name in actions[0].choices] == ["demo"]
+    assert sorted(actions[0].choices) == ["demo", "ui"]
+    deferred = {"discover", "package", "plan", "draft", "verify", "runs", "report", "rebuild",
+                "doctor", "ask", "issues", "rejected", "inspect", "candidate", "recheck"}
+    assert deferred.isdisjoint(actions[0].choices)
 
 
 def test_a_missing_candidate_id_is_a_usage_error(capsys):

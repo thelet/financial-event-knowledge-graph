@@ -464,7 +464,13 @@ def test_no_directory_exists_as_an_empty_placeholder():
 #: `pipeline`-shaped thing nobody decided to add.
 TOP_LEVEL_MODULES = {"__init__.py", "contracts.py", "context.py", "pipeline.py", "cli.py",
                      "__main__.py"}
-DECLARED_SUBPACKAGES = {"core", "stages", "providers"}
+#: `demo_ui` is INTERACTIVE_DEMO_UI §1's fourth subpackage — the local interface over the
+#: accepted pipeline. Added here rather than left to fail, because this test is the executable
+#: statement of the layout and the plan changed the layout. It is a *leaf*: the direction of the
+#: dependency is asserted in `tests/story/test_demo_ui_server.py::
+#: test_no_accepted_stage_imports_the_demo_interface`, which is what keeps the interface from
+#: becoming load-bearing for the pipeline.
+DECLARED_SUBPACKAGES = {"core", "stages", "providers", "demo_ui"}
 
 
 def test_the_package_layout_is_the_one_the_plan_declares():

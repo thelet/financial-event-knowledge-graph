@@ -48,6 +48,7 @@ this pipeline — a layout that moves between runs cannot be screenshotted, test
 ```
 story/demo_ui/__init__.py        public surface
 story/demo_ui/server.py          ThreadingHTTPServer, routing, SSE
+story/demo_ui/runs.py            in-memory run registry + the id patterns
 story/demo_ui/api.py             endpoint handlers -> plain dicts
 story/demo_ui/projection.py      bounded graph overview + focused subgraphs
 story/demo_ui/discovery.py       all four detectors + ranking, emitting trace events
@@ -56,9 +57,24 @@ story/demo_ui/prompt_presets.py  presets + the editable/fixed split
 story/demo_ui/static/            index.html, app.js, graph.js, style.css
 ```
 
+`runs.py` was not in this plan's first draft and is not a split for symmetry: a run's status,
+its event list and the lock the SSE threads read it under are a cohesive concern that belongs
+to neither the event type nor the socket, and putting it in `server.py` would have made the
+transport the owner of the pipeline's state. It is also where the two client-supplied id
+patterns live, so `RUN_ID_PATTERN` sits beside the code that mints the ids it matches.
+
 `demo_ui` imports `story.pipeline`, `story.stages.*` and `story.contracts` — never the reverse.
 A structural test asserts no accepted stage imports `story.demo_ui`, so the UI cannot become
 load-bearing for the pipeline.
+
+**And `demo_ui` imports no composition root either.** `story/cli.py:cmd_ui` builds the
+`StoryContext` and the `DemoConfig` and passes them as lazy zero-argument factories in
+`DemoUiApp.services`, under the keys `story_context` and `demo_config`. That is a rule and not a
+preference: `tests/story/test_story_package_structure.py::
+test_no_driver_is_reachable_from_the_contract_the_core_or_any_stage` exempts five named entry
+modules and walks the import closure of everything else, so a `demo_ui` module importing
+`story.context` would put `neo4j` in that closure and fail the suite. It also means the server
+starts, and its tests run, with no database running.
 
 ---
 

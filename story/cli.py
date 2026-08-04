@@ -1,8 +1,9 @@
 """Command-line entry point.
 
     python -m story [--root REPO] [--runs-root R] demo --candidate-id ID [--out DIR] [--live]
+    python -m story [--root REPO] [--runs-root R] ui [--host H] [--port P]
 
-**One verb, and the rest of §20's family is deferred rather than stubbed.** §8b traded away
+**Two verbs, and the rest of §20's family is deferred rather than stubbed.** §8b traded away
 `discover`, `package`, `plan`, `draft`, `verify`, `runs`, `report`, `rebuild`, `doctor`, `ask`,
 `issues`, `rejected`, `inspect`, `candidate` and `recheck` along with the production run
 lifecycle they act on. A subcommand that parsed and then said "not implemented" would be a
@@ -25,6 +26,14 @@ verification logic of its own — the verb is one call into `pipeline` and one r
 it returned. `EXIT_OK/EXIT_FAILED/EXIT_USAGE = 0/1/2`, long kebab-case flags only, no `--json`
 flag, matching `graph/cli.py` and `extraction/cli.py`.
 
+`ui` serves INTERACTIVE_DEMO_UI's local single-page interface on a loopback address and blocks
+until interrupted. It is **also** the composition root for the interface: the story context and
+the demo config are passed in as zero-argument factories, so `story/demo_ui/` never imports
+`story.context` and the driver stays out of its import closure
+(`tests/story/test_story_package_structure.py` walks that closure and would fail otherwise).
+Nothing is constructed until an endpoint asks for it, which is why the server starts with no
+database running.
+
 **Exits non-zero when the run produced no accepted post** — a draft the verifier rejected, a
 plan or draft §11/§12 refused, a stale graph, or a candidate id that no longer reproduces. A
 rejection is still a complete run and still writes its artifacts; the exit code says the demo
@@ -39,6 +48,7 @@ from pathlib import Path
 
 from .context import build_story_context
 from .core.graph_identity import GraphIdentityError
+from .demo_ui import DEFAULT_HOST, DEFAULT_PORT, serve
 from .pipeline import (
     ACCEPTED,
     MANIFEST_FILENAME,
@@ -159,6 +169,46 @@ def cmd_demo(args) -> int:
     return EXIT_FAILED
 
 
+def cmd_ui(args) -> int:
+    """Serve the demo interface, and own the two objects the endpoints would otherwise build.
+
+    Both factories are lazy and memoised in `built`: a `StoryContext` opens a Bolt connection,
+    and building one at startup would mean the interface could not be opened — or its own
+    tests run — without Neo4j up. The context is closed on the way out whether or not anything
+    asked for one, which is the same `finally` `cmd_demo` uses around the freshness gate.
+    """
+    root = Path(args.root) if args.root else None
+    runs_root = Path(args.runs_root) if args.runs_root else None
+    built: dict[str, object] = {}
+
+    def story_context():
+        if "context" not in built:
+            built["context"] = build_story_context(root, graph_runs_root=runs_root)
+        return built["context"]
+
+    def demo_config():
+        if "config" not in built:
+            built["config"] = DemoConfig.load(root if root is not None else Path.cwd())
+        return built["config"]
+
+    try:
+        serve(root=root if root is not None else Path.cwd(), host=args.host, port=args.port,
+              services={"story_context": story_context, "demo_config": demo_config})
+    except ValueError as exc:
+        # The one thing `serve` refuses outright is a non-loopback bind (§1, and the brief).
+        print(f"{exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except OSError as exc:
+        print(f"cannot serve on {args.host}:{args.port} — {exc.strerror or exc}",
+              file=sys.stderr)
+        return EXIT_FAILED
+    finally:
+        context = built.get("context")
+        if context is not None:
+            context.close()
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m story", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -177,6 +227,15 @@ def build_parser() -> argparse.ArgumentParser:
                       help="call the model server instead of replaying the recorded store. "
                            "May fail, and a failure is not retried (§15.3)")
     demo.set_defaults(handler=cmd_demo)
+
+    ui = sub.add_parser(
+        "ui", help="serve the interactive demo interface on a loopback address")
+    ui.add_argument("--host", default=DEFAULT_HOST,
+                    help=f"loopback host to bind (default: {DEFAULT_HOST}). A non-loopback "
+                         f"address is refused rather than bound")
+    ui.add_argument("--port", type=int, default=DEFAULT_PORT,
+                    help=f"port to bind (default: {DEFAULT_PORT})")
+    ui.set_defaults(handler=cmd_ui)
     return parser
 
 
