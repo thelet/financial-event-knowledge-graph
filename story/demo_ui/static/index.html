@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story agent demo — bounded graph projection</title>
+
+<!--
+  Content-Security-Policy, as a meta element because the standard-library server owns its own
+  headers and this workstream does not own that file. `default-src 'none'` means nothing loads
+  that is not named below, which is also the strongest available statement that this demo talks
+  to no network but its own origin: nothing on this page is fetched from another host, and no stylesheet could reach one.
+
+  `style-src` keeps 'unsafe-inline' and script-src does not. A splitter writes a width to an
+  element's style, and with `default-src 'none'` there is no host any injected CSS could send a
+  value to, so the residual risk is a visual one. Script injection is what the policy is about.
+
+  `require-trusted-types-for 'script'` makes `innerHTML = someString` throw in Chromium rather
+  than merely being forbidden by review. Firefox and Safari ignore the directive today, so
+  `tests/story/test_demo_ui_static.py` is the guard that holds in every browser; this is the one
+  that holds at runtime in the browser the demo is driven in.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'">
+
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ================================================================= Header -->
+  <header id="app-header">
+    <div id="header-identity">
+      <h1 id="app-title">Story agent — graph projection</h1>
+      <dl id="snapshot-identity">
+        <div class="field"><dt>Graph snapshot</dt><dd id="snapshot-run-id" class="mono">—</dd></div>
+        <div class="field"><dt>Loaded</dt><dd id="snapshot-completed-at" class="mono">—</dd></div>
+        <div class="field"><dt>Company</dt><dd id="header-company">—</dd></div>
+        <div class="field"><dt>Pipeline state</dt><dd id="pipeline-state">idle</dd></div>
+      </dl>
+    </div>
+
+    <div id="header-counts">
+      <!--
+        Every number here is written from the payload. None is hard-coded: the snapshot holds
+        tens of thousands of nodes today, and a figure written into the markup would keep saying
+        so long after the next load.
+      -->
+      <p id="projection-scale">
+        Drawn: <output id="count-drawn-nodes">—</output> nodes ·
+        <output id="count-drawn-edges">—</output> edges.
+        Whole graph: <output id="count-total-nodes">—</output> nodes ·
+        <output id="count-total-edges">—</output> edges.
+      </p>
+      <p id="projection-disclosure" class="disclosure">
+        This is a bounded visual projection of the loaded graph, not the whole graph. The
+        projection's own disclosure text is written here when a projection is fetched.
+      </p>
+      <p id="company-disclosure" class="disclosure">
+        The company node is derived rather than read. The projection's own wording is written
+        here when a projection is fetched.
+      </p>
+    </div>
+
+    <div id="header-actions">
+      <details id="settings">
+        <summary id="settings-summary">Settings</summary>
+        <div id="settings-panel">
+          <label><input type="checkbox" id="setting-aggregate" checked> Aggregate dense regions until zoomed</label>
+          <label><input type="checkbox" id="setting-labels" checked> Labels for hub nodes</label>
+          <label><input type="checkbox" id="setting-motion" checked> Animate highlights</label>
+          <label><input type="checkbox" id="setting-synthesised" checked> Mark derived nodes and edges</label>
+          <p class="note">
+            No credential, provider setting or environment value is shown anywhere in this
+            interface. The API sends none, and this panel is not a place to put one.
+          </p>
+        </div>
+      </details>
+    </div>
+  </header>
+
+  <p id="app-error" class="banner" hidden></p>
+
+  <!-- ============================================================== Workspace -->
+  <!--
+    Two resizable regions. The graph keeps the left, and the right panel has to be genuinely
+    usable for prompt editing, so its width is the user's decision: `#graph-region` carries CSS
+    `resize: horizontal`, which is a working splitter with no script at all, and `#split-divider`
+    is the full-height handle `app.js` upgrades it with. Both write the same inline width to the
+    same element, so they cannot disagree.
+  -->
+  <main id="workspace">
+
+    <section id="graph-region" aria-labelledby="graph-region-title">
+      <h2 id="graph-region-title" class="visually-hidden">Interactive graph</h2>
+
+      <div id="graph-toolbar">
+        <div id="view-switch" role="group" aria-label="Graph view">
+          <button type="button" id="view-full" data-view="full" aria-pressed="true">Full graph</button>
+          <button type="button" id="view-story" data-view="story" aria-pressed="false" disabled>Story neighbourhood</button>
+          <button type="button" id="view-evidence" data-view="evidence" aria-pressed="false" disabled>Evidence graph</button>
+        </div>
+        <nav id="graph-breadcrumb" aria-label="Graph view history"></nav>
+        <div id="graph-controls" role="group" aria-label="Viewport">
+          <button type="button" id="graph-zoom-out" aria-label="Zoom out">&minus;</button>
+          <button type="button" id="graph-zoom-in" aria-label="Zoom in">+</button>
+          <button type="button" id="graph-fit">Fit</button>
+          <button type="button" id="graph-reset">Reset layout</button>
+        </div>
+      </div>
+
+      <div id="graph-stage">
+        <canvas id="graph-canvas" tabindex="0"
+                aria-label="Force-directed projection of the loaded graph. Node details appear in the panel beside it."></canvas>
+        <div id="graph-empty" class="stage-overlay">
+          <p>No projection has been fetched yet.</p>
+        </div>
+      </div>
+
+      <div id="graph-footer">
+        <div id="graph-legend" aria-label="Legend"></div>
+        <p id="graph-status" class="mono">—</p>
+      </div>
+
+      <aside id="node-detail-card" hidden aria-live="polite">
+        <div id="node-detail-header">
+          <h3 id="node-detail-title">—</h3>
+          <button type="button" id="node-detail-close" aria-label="Close node details">&times;</button>
+        </div>
+        <p id="node-detail-derived" class="derived-note" hidden></p>
+        <dl id="node-detail-properties"></dl>
+        <p class="note">
+          Only stored or deterministically derived values appear here. The graph stores no nulls,
+          so an absent property means the value was not recorded.
+        </p>
+      </aside>
+    </section>
+
+    <div id="split-divider" role="separator" aria-orientation="vertical" tabindex="0"
+         aria-label="Resize the graph and the panel" data-axis="x" data-target="graph-region"></div>
+
+    <section id="side-panel" aria-labelledby="side-panel-title">
+      <h2 id="side-panel-title" class="visually-hidden">Story, facts, prompts and process trace</h2>
+
+      <div id="panel-tabs" role="tablist" aria-label="Panel">
+        <button type="button" role="tab" id="tab-story" data-panel="panel-story"
+                aria-controls="panel-story" aria-selected="true">Story</button>
+        <button type="button" role="tab" id="tab-facts" data-panel="panel-facts"
+                aria-controls="panel-facts" aria-selected="false">Facts</button>
+        <button type="button" role="tab" id="tab-prompts" data-panel="panel-prompts"
+                aria-controls="panel-prompts" aria-selected="false">Prompts</button>
+        <button type="button" role="tab" id="tab-trace" data-panel="panel-trace"
+                aria-controls="panel-trace" aria-selected="false">Process trace</button>
+      </div>
+
+      <div id="panel-bodies">
+
+        <div id="panel-story" role="tabpanel" aria-labelledby="tab-story" tabindex="0">
+          <div id="discovery-controls">
+            <button type="button" id="run-discovery">Find candidate stories</button>
+            <span id="discovery-state" class="mono">not started</span>
+          </div>
+          <p id="discovery-explainer" class="note">
+            Suggestions are not computed on page load. When asked for, they are derived from
+            metric histories, comparability rules and deterministic ranking — and the ranking
+            scores are prioritisation heuristics, not probabilities.
+          </p>
+          <ol id="candidate-list"></ol>
+          <div id="candidate-detail" hidden>
+            <h3 id="candidate-title">—</h3>
+            <dl id="candidate-properties"></dl>
+            <div id="score-breakdown"></div>
+            <p id="score-caveat" class="note">
+              Ranking scores are prioritisation heuristics, not probabilities. A component shown
+              as absent carries the recorded reason it was suppressed.
+            </p>
+            <button type="button" id="build-package">Build evidence package</button>
+          </div>
+        </div>
+
+        <div id="panel-facts" role="tabpanel" aria-labelledby="tab-facts" tabindex="0" hidden>
+          <div id="package-summary"></div>
+          <ul id="facts-list"></ul>
+          <div id="package-bounds"></div>
+        </div>
+
+        <div id="panel-prompts" role="tabpanel" aria-labelledby="tab-prompts" tabindex="0" hidden>
+          <div id="prompt-preset-row">
+            <label for="prompt-preset">Preset</label>
+            <select id="prompt-preset"></select>
+            <button type="button" id="prompt-reset">Reset to preset</button>
+            <button type="button" id="prompt-diff-toggle" aria-pressed="false">Diff against default</button>
+          </div>
+
+          <fieldset id="prompt-editable">
+            <legend>Editable instructions</legend>
+            <label for="planner-instructions">Planner instructions</label>
+            <textarea id="planner-instructions" rows="6" spellcheck="false"></textarea>
+            <label for="writer-instructions">Writer instructions</label>
+            <textarea id="writer-instructions" rows="6" spellcheck="false"></textarea>
+            <label for="style-guidance">Style guidance</label>
+            <textarea id="style-guidance" rows="4" spellcheck="false"></textarea>
+            <p id="prompt-lengths" class="mono"></p>
+          </fieldset>
+
+          <div id="prompt-warnings" role="status"></div>
+          <div id="prompt-diff" hidden></div>
+
+          <fieldset id="prompt-fixed">
+            <legend>Fixed factual-safety rules — read-only</legend>
+            <div id="fixed-rules"></div>
+            <p class="note">
+              These sections are composed on the server and are not accepted from this page under
+              any key. Bounded evidence, citation requirements, numeral binding and deterministic
+              verification cannot be turned off from here, and verification runs after generation
+              whatever was asked for.
+            </p>
+          </fieldset>
+
+          <p id="replay-notice" class="note">
+            Editing a prompt changes the request identity, so the run misses the replay store and
+            needs a live provider.
+          </p>
+          <button type="button" id="generate-post">Generate post</button>
+        </div>
+
+        <div id="panel-trace" role="tabpanel" aria-labelledby="tab-trace" tabindex="0" hidden>
+          <p class="note">
+            Process traces show pipeline activity, not private model chain-of-thought. Every entry
+            is either an event our own code emitted or a field the model returned under a schema.
+          </p>
+          <ol id="trace-events"></ol>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <div id="output-divider" role="separator" aria-orientation="horizontal" tabindex="0"
+       aria-label="Resize the result section" data-axis="y" data-target="output-region"></div>
+
+  <!-- ================================================================ Output -->
+  <section id="output-region" aria-labelledby="output-region-title">
+    <div id="output-tabs" role="tablist" aria-label="Result">
+      <h2 id="output-region-title" class="visually-hidden">Post, verification and sources</h2>
+      <button type="button" role="tab" id="tab-post" data-panel="panel-post"
+              aria-controls="panel-post" aria-selected="true">Post</button>
+      <button type="button" role="tab" id="tab-verification" data-panel="panel-verification"
+              aria-controls="panel-verification" aria-selected="false">Verification</button>
+      <button type="button" role="tab" id="tab-sources" data-panel="panel-sources"
+              aria-controls="panel-sources" aria-selected="false">Sources</button>
+      <span id="verdict-badge" class="mono"></span>
+      <button type="button" id="output-expand" aria-pressed="false">Expand</button>
+    </div>
+
+    <div id="output-bodies">
+      <div id="panel-post" role="tabpanel" aria-labelledby="tab-post" tabindex="0">
+        <article id="post-output"></article>
+        <p id="post-meta" class="mono"></p>
+      </div>
+      <div id="panel-verification" role="tabpanel" aria-labelledby="tab-verification" tabindex="0" hidden>
+        <div id="verification-summary"></div>
+        <ul id="verification-findings"></ul>
+        <div id="coverage-figures"></div>
+        <p class="note">
+          Coverage figures are reported only where they are computed — claim coverage, citation
+          coverage, numerical support, blocking findings and warnings. They are not precision,
+          recall or confidence.
+        </p>
+      </div>
+      <div id="panel-sources" role="tabpanel" aria-labelledby="tab-sources" tabindex="0" hidden>
+        <ul id="sources-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================================================== Standing statements -->
+  <footer id="standing-statements">
+    <ul>
+      <li>The graph view is a bounded visual projection of the loaded graph, not the whole graph.</li>
+      <li>Story selection can be manual for the demo.</li>
+      <li>Ranking scores are prioritisation heuristics, not probabilities.</li>
+      <li>Process traces show pipeline activity, not private model chain-of-thought.</li>
+      <li>Deterministic verification remains authoritative.</li>
+      <li>A node or edge marked as derived was computed from a stored property, not read as its own record.</li>
+      <li>The graph stores no nulls, so an absent property means the value was not recorded.</li>
+      <li>No credential, provider setting or environment value is shown anywhere in this interface.</li>
+    </ul>
+  </footer>
+
+</div>
+
+<noscript>
+  <p class="banner">
+    This interface needs JavaScript: the graph is drawn on a canvas and every number on the page
+    is fetched from the local API. Nothing is loaded from any other host.
+  </p>
+</noscript>
+
+</body>
+</html>

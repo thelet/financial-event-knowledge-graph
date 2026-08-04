@@ -1,0 +1,514 @@
+/*
+  Story agent demo — the whole stylesheet.
+
+  Responsibility: the shell's geometry, the two resizable splits, and the one palette both the
+  canvas and the legend read. Boundaries: no host but this one is contacted, so there is no
+  stylesheet import, no webfont and no image URL — the type stack is the system's and the only
+  colours are the custom properties below.
+
+  The canvas cannot read a stylesheet, so `graph.js` resolves `--graph-*` with getComputedStyle
+  on the canvas element. That is why the palette lives here rather than in the renderer: a legend
+  swatch and the disc it describes have to be the same colour, and one source is how that stays
+  true through a theme switch.
+*/
+
+:root {
+  color-scheme: light dark;
+
+  --ink: #16191f;
+  --ink-soft: #4a5261;
+  --ink-faint: #6f7787;
+  --surface: #ffffff;
+  --surface-sunk: #f4f6f9;
+  --surface-raised: #ffffff;
+  --line: #d8dde5;
+  --line-strong: #b8c0cc;
+  --accent: #1f5fa8;
+  --accent-soft: #e6effa;
+  --warn: #8a5300;
+  --warn-soft: #fdf3e2;
+  --bad: #a02020;
+  --good: #1b6b3a;
+
+  --radius: 6px;
+  --gap: 0.75rem;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* The graph palette. Eight hues, assigned to types by `graph.js` from a hash of the type
+     name, so no type is named in the renderer and the legend stays driven by the payload. */
+  --graph-palette-0: #2f6fb5;
+  --graph-palette-1: #b5542f;
+  --graph-palette-2: #2f8f6b;
+  --graph-palette-3: #7b52b8;
+  --graph-palette-4: #a8842a;
+  --graph-palette-5: #b03a68;
+  --graph-palette-6: #3c7f8f;
+  --graph-palette-7: #6d7a2f;
+
+  --graph-surface: #fbfcfe;
+  --graph-grid: #eef1f6;
+  --graph-edge: #9aa3b2;
+  --graph-label: #1b1f27;
+  --graph-label-halo: #ffffffdd;
+  --graph-selection: #1f5fa8;
+  --graph-highlight: #d08a00;
+  --graph-tooltip: #1b1f27;
+  --graph-tooltip-ink: #f7f9fc;
+
+  --split-left: 62%;
+  --output-height: 16rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e6eaf2;
+    --ink-soft: #b3bccb;
+    --ink-faint: #8b93a3;
+    --surface: #14171d;
+    --surface-sunk: #0f1216;
+    --surface-raised: #1b1f27;
+    --line: #2c323d;
+    --line-strong: #3d4550;
+    --accent: #6aa8e8;
+    --accent-soft: #1b2937;
+    --warn: #e0ae5a;
+    --warn-soft: #2a2314;
+    --bad: #e88080;
+    --good: #6ec994;
+
+    --graph-palette-0: #6aa8e8;
+    --graph-palette-1: #e8926a;
+    --graph-palette-2: #5fc79b;
+    --graph-palette-3: #b291e8;
+    --graph-palette-4: #dcc06a;
+    --graph-palette-5: #e884ab;
+    --graph-palette-6: #6fc0d0;
+    --graph-palette-7: #b0c05f;
+
+    --graph-surface: #101319;
+    --graph-grid: #191d25;
+    --graph-edge: #4c5665;
+    --graph-label: #e6eaf2;
+    --graph-label-halo: #0f1216dd;
+    --graph-selection: #6aa8e8;
+    --graph-highlight: #e0ae5a;
+    --graph-tooltip: #e6eaf2;
+    --graph-tooltip-ink: #101319;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font: 14px/1.5 var(--font);
+  color: var(--ink);
+  background: var(--surface-sunk);
+}
+
+.mono { font-family: var(--mono); font-size: 12px; }
+.note { color: var(--ink-faint); font-size: 12px; margin: 0.4rem 0; }
+.disclosure { color: var(--ink-soft); font-size: 12px; margin: 0.2rem 0 0; max-width: 62ch; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button[aria-pressed="true"], button[aria-selected="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+textarea, select, input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.45rem;
+}
+textarea {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  width: 100%;
+  min-height: 6rem;
+  resize: vertical;
+}
+
+/* ------------------------------------------------------------------ shell ---- */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+
+#app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--gap);
+  padding: 0.5rem 0.9rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+#app-title { font-size: 15px; margin: 0 0 0.25rem; }
+
+#snapshot-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.2rem;
+  margin: 0;
+}
+#snapshot-identity .field { display: flex; gap: 0.35rem; align-items: baseline; }
+#snapshot-identity dt { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+#snapshot-identity dd { margin: 0; font-size: 12px; }
+
+#header-counts { flex: 1 1 26rem; min-width: 20rem; }
+#projection-scale { margin: 0; font-size: 12px; font-family: var(--mono); }
+#header-actions { margin-left: auto; }
+
+#settings summary { cursor: pointer; font-size: 12px; }
+#settings-panel {
+  position: absolute;
+  right: 0.9rem;
+  z-index: 5;
+  display: grid;
+  gap: 0.3rem;
+  width: 22rem;
+  padding: 0.6rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px #0002;
+}
+#settings-panel label { font-size: 12px; display: flex; gap: 0.4rem; align-items: center; }
+
+.banner {
+  margin: 0;
+  padding: 0.4rem 0.9rem;
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+/* -------------------------------------------------------------- workspace ---- */
+
+#workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+  The splitter, twice over. `resize: horizontal` is a working handle with no script behind it —
+  it is why the panel can be widened for prompt editing even before `app.js` exists. The
+  full-height `#split-divider` writes the same inline width, so the two cannot disagree.
+
+  The size is a `width` and the flex basis is `auto` deliberately. A flex item with an explicit
+  `flex-basis` ignores its width, and `resize` has nothing to write but a width — declaring
+  `flex: 0 0 var(--split-left)` here would have left the native handle silently doing nothing.
+*/
+#graph-region {
+  flex: 0 0 auto;
+  width: var(--split-left);
+  min-width: 22rem;
+  max-width: calc(100% - 22rem);
+  resize: horizontal;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  position: relative;
+}
+
+#split-divider {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: var(--surface-sunk);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+#split-divider:hover, #split-divider:focus-visible { background: var(--accent-soft); }
+
+#graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+#graph-controls { margin-left: auto; display: flex; gap: 0.3rem; }
+#view-switch { display: flex; gap: 0.3rem; }
+
+#graph-breadcrumb { display: flex; align-items: center; gap: 0.25rem; font-size: 12px; }
+#graph-breadcrumb .crumb-separator { color: var(--ink-faint); }
+#graph-breadcrumb button { padding: 0.1rem 0.35rem; }
+#graph-breadcrumb .crumb-current { color: var(--ink-faint); padding: 0.1rem 0.35rem; }
+
+#graph-stage { position: relative; flex: 1 1 auto; min-height: 12rem; }
+#graph-canvas { display: block; width: 100%; height: 100%; background: var(--graph-surface); cursor: grab; }
+#graph-canvas.is-panning { cursor: grabbing; }
+#graph-canvas.is-over-node { cursor: pointer; }
+
+.stage-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: var(--ink-faint);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+#graph-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+#graph-status { margin: 0; margin-left: auto; color: var(--ink-faint); }
+
+#graph-legend { display: flex; flex-wrap: wrap; gap: 0.15rem 0.8rem; }
+.legend-group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.legend-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-faint); }
+.legend-entry { display: flex; align-items: center; gap: 0.3rem; font-size: 12px; }
+.legend-swatch {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.legend-swatch.is-edge { height: 0; border-radius: 0; border-width: 2px 0 0; width: 16px; }
+.legend-swatch.is-derived { border-style: dashed; background: transparent !important; }
+.legend-count { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; }
+.legend-derived-mark { color: var(--ink-faint); font-size: 11px; }
+
+#node-detail-card {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 3rem;
+  width: min(26rem, calc(100% - 1.2rem));
+  max-height: 60%;
+  overflow: auto;
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px #0003;
+}
+#node-detail-header { display: flex; align-items: baseline; gap: 0.5rem; }
+#node-detail-title { font-size: 13px; margin: 0; flex: 1 1 auto; word-break: break-word; }
+#node-detail-close { border: none; background: none; font-size: 16px; line-height: 1; }
+#node-detail-properties { display: grid; grid-template-columns: minmax(6rem, auto) 1fr; gap: 0.15rem 0.6rem; margin: 0.5rem 0; font-size: 12px; }
+#node-detail-properties dt { color: var(--ink-faint); }
+#node-detail-properties dd { margin: 0; font-family: var(--mono); word-break: break-word; }
+#node-detail-properties .is-absent { color: var(--ink-faint); font-style: italic; font-family: var(--font); }
+
+.derived-note {
+  margin: 0.3rem 0;
+  padding: 0.35rem 0.45rem;
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px dashed var(--warn);
+  border-radius: var(--radius);
+}
+
+/* ------------------------------------------------------------- side panel ---- */
+
+#side-panel {
+  flex: 1 1 22rem;
+  min-width: 20rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  min-height: 0;
+}
+
+#panel-tabs, #output-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+#panel-bodies, #output-bodies { flex: 1 1 auto; overflow: auto; padding: 0.6rem 0.7rem; min-height: 0; }
+[role="tabpanel"] { outline-offset: -2px; }
+
+#discovery-controls { display: flex; align-items: center; gap: 0.5rem; }
+#discovery-state { color: var(--ink-faint); }
+
+#candidate-list { list-style: none; margin: 0.6rem 0; padding: 0; display: grid; gap: 0.35rem; }
+#candidate-list li {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+#candidate-list li[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+#candidate-properties, #package-summary { font-size: 12px; }
+#score-breakdown { display: grid; gap: 0.2rem; margin: 0.5rem 0; font-size: 12px; }
+.score-row { display: grid; grid-template-columns: 10rem 1fr auto; gap: 0.4rem; align-items: center; }
+.score-bar { height: 6px; background: var(--accent); border-radius: 3px; }
+.score-suppressed { color: var(--ink-faint); font-style: italic; }
+
+#facts-list, #sources-list, #verification-findings, #trace-events {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+#facts-list li, #sources-list li, #verification-findings li, #trace-events li {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 0.4rem 0.5rem;
+  font-size: 12px;
+}
+#trace-events li { cursor: pointer; }
+#trace-events li[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.6rem;
+}
+legend { font-size: 12px; color: var(--ink-faint); padding: 0 0.3rem; }
+#prompt-editable label { display: block; margin: 0.5rem 0 0.2rem; font-size: 12px; color: var(--ink-soft); }
+#prompt-preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 12px; }
+
+#prompt-fixed { background: var(--surface-sunk); }
+#fixed-rules { font-size: 12px; white-space: pre-wrap; color: var(--ink-soft); font-family: var(--mono); }
+#prompt-warnings:not(:empty) {
+  margin: 0.5rem 0;
+  padding: 0.4rem 0.5rem;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+#prompt-diff { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+.diff-added { color: var(--good); }
+.diff-changed { color: var(--warn); }
+
+/* ----------------------------------------------------------------- output ---- */
+
+#output-divider {
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: var(--surface-sunk);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+#output-divider:hover, #output-divider:focus-visible { background: var(--accent-soft); }
+
+#output-region {
+  flex: 0 0 auto;
+  height: var(--output-height);
+  min-height: 5rem;
+  max-height: 80vh;
+  resize: vertical;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+/* `app.js` clears the inline height when it adds this class; an inline size outranks a rule. */
+#output-region.is-expanded { flex: 1 1 auto; height: auto; }
+
+#verdict-badge { margin-left: auto; padding: 0.15rem 0.45rem; border-radius: var(--radius); }
+#verdict-badge.is-accepted { color: var(--good); background: #1b6b3a1a; }
+#verdict-badge.is-rejected { color: var(--bad); background: #a020201a; }
+
+#post-output {
+  max-width: 68ch;
+  white-space: pre-wrap;
+  font-size: 13.5px;
+}
+#post-output h1, #post-output h2, #post-output h3 { font-size: 14px; margin: 0.8rem 0 0.3rem; }
+#post-output p { margin: 0.4rem 0; }
+#post-output code { font-family: var(--mono); font-size: 12px; background: var(--surface-sunk); padding: 0 0.2rem; }
+#post-output .citation { color: var(--accent); cursor: pointer; }
+#post-meta { color: var(--ink-faint); }
+
+#verification-findings li.is-blocking { border-left-color: var(--bad); }
+#verification-findings li.is-warning { border-left-color: var(--warn); }
+#coverage-figures { display: grid; gap: 0.2rem; font-size: 12px; margin: 0.5rem 0; }
+
+/* ---------------------------------------------------- standing statements ---- */
+
+#standing-statements {
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunk);
+  padding: 0.35rem 0.9rem;
+}
+#standing-statements ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+#standing-statements li::before { content: "· "; }
+
+/* ------------------------------------------------------------- narrow ---- */
+
+@media (max-width: 1024px) {
+  #workspace { flex-direction: column; }
+  /* `!important` is the one thing that outranks a width a drag left inline, and at this width
+     the horizontal split is gone: the two regions are stacked and the graph owns the row. */
+  #graph-region {
+    flex: 0 0 auto;
+    width: auto !important;
+    height: 55vh;
+    max-width: none;
+    resize: vertical;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  #split-divider { display: none; }
+  #side-panel { min-width: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
