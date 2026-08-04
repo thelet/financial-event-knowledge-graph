@@ -35,7 +35,7 @@ import pytest
 from story import pipeline
 from story.core.graph_identity import GraphIdentity
 from story.core.models import StoryCandidate, StoryEvidencePackage
-from story.demo_ui import api, discovery, projection, prompt_presets
+from story.demo_ui import api, candidate_resolution, discovery, projection, prompt_presets
 from story.demo_ui.runs import RunRegistry
 from story.demo_ui.server import (
     ROUTER,
@@ -160,8 +160,40 @@ class PipelineShim:
 
 
 def committed_inputs_pipeline(**overrides: Any) -> PipelineShim:
-    return PipelineShim(
-        resolve_demo_inputs=lambda context, **kwargs: demo_inputs(), **overrides)
+    """The real `story.pipeline`. Nothing on it needs replacing now — see `committed_resolution`.
+
+    Kept as a named factory rather than inlined: nineteen call sites read better naming what
+    they supply, and the day something on `pipeline` does need overriding for a test, the seam
+    is already where it belongs.
+    """
+    return PipelineShim(**overrides)
+
+
+def committed_resolution() -> Any:
+    """The committed 2022Q3 slice as a `ResolvedCandidate`, without touching Neo4j.
+
+    **The one call that needs a database moved on 2026-08-05** and this helper moved with it.
+    `POST /demo/evidence-package` and `POST /demo/generate` used to go through
+    `pipeline.resolve_demo_inputs`, which re-derives with §6.6's D4 alone — so every candidate
+    the other three detectors minted was refused with *"the detectors did not reproduce that
+    candidate"*, which the process could disprove from its own memory. `api._resolve` now calls
+    `candidate_resolution.resolve_candidate`, which runs all four detectors; this returns what
+    that call returns for the committed candidate, so the tests below drive the real handler
+    against the real payload shape and no graph.
+    """
+    inputs = demo_inputs()
+    return candidate_resolution.ResolvedCandidate(
+        identity=inputs.identity,
+        freshness=inputs.freshness,
+        candidate=inputs.candidate,
+        package=inputs.package,
+        detector_versions=dict(inputs.detector_versions),
+        policy_version=inputs.policy_version,
+        detector_id=cross_metric_divergence.DETECTOR_ID,
+        detectors_run=tuple(module.DETECTOR_ID
+                            for module in candidate_resolution.DETECTOR_MODULES),
+        candidates_reproduced=262,
+    )
 
 
 # ---------------------------------------------------------------------------------------
@@ -212,6 +244,19 @@ def clean_state():
     api.STATE.reset()
     yield
     api.STATE.reset()
+
+
+@pytest.fixture(autouse=True)
+def committed_graph_resolution(monkeypatch):
+    """Resolve the committed candidate from disk instead of re-deriving it from Neo4j.
+
+    Autouse and not per-test, because every endpoint that packages goes through this one call
+    and none of them is what a test here is about — the file's opening paragraph says the graph
+    half is supplied from disk and this is where. A test that wants a *refusal* patches the same
+    attribute with its own function, which is what the three refusal tests below do.
+    """
+    monkeypatch.setattr(api.candidate_resolution, "resolve_candidate",
+                        lambda context, **kwargs: committed_resolution())
 
 
 @pytest.fixture
@@ -497,6 +542,49 @@ def test_a_discovery_trace_carries_only_stages_of_its_own_phase(monkeypatch, gra
     assert [event.status for event in run.events()][-1] == "complete"
 
 
+def test_the_adapter_carries_units_period_keys_and_an_absent_count_across(monkeypatch,
+                                                                         graph_services):
+    """Three things it used to flatten, and each flattening produced a false line.
+
+    A unit-less count let `processed 5 · refused 85` read as one population; a period key in
+    `node_ids` made the message say `24 nodes` for ids that are not nodes of that projection;
+    and a `None` coerced to `0` gave §6.10's ranking a `refused 0` it never measured.
+    """
+
+    def fake(context, *, graph_run_id, filters=None, on_event=None, gate=True):
+        on_event(discovery.DiscoveryEvent(
+            sequence=0, stage="cross_metric_comparison", status="passed",
+            message="d4", processed=5, accepted=15, refused=85,
+            units={"processed": "declared metric pairs", "accepted": "candidates",
+                   "refused": "declines"},
+            highlight_node_ids=("adjusted_gross_margin",),
+            highlight_period_keys=("2022Q3", "2022Q2")))
+        on_event(discovery.DiscoveryEvent(
+            sequence=1, stage="ranking", status="passed",
+            message="ranking", processed=262, accepted=262, refused=None,
+            units={"processed": "candidates", "accepted": "candidates"}))
+        return _FakeResult([make_candidate()])
+
+    monkeypatch.setattr(api.discovery, "discover_from_context", fake)
+    harness = Harness(services=graph_services)
+    _, started = harness.json("POST", "/demo/story-suggestions")
+    harness.wait(started["run_id"])
+    by_stage = {event.stage: event for event in harness.registry.get(started["run_id"]).events()}
+
+    divergence = by_stage["cross_metric_comparison"]
+    assert divergence.counts.processed_unit == "declared metric pairs"
+    assert divergence.counts.refused_unit == "declines"
+    assert "processed 5 declared metric pairs" in divergence.message
+    assert "refused 85 declines" in divergence.message
+    assert divergence.graph_highlights.node_ids == ("adjusted_gross_margin",)
+    assert divergence.graph_highlights.period_keys == ("2022Q3", "2022Q2")
+    assert divergence.message.endswith("1 nodes · 2 period keys")
+
+    ranking = by_stage["ranking"]
+    assert ranking.counts.refused is None
+    assert "refused" not in ranking.message
+
+
 def test_a_stale_graph_leaves_the_run_failed_and_never_complete(monkeypatch, graph_services):
     report = FreshnessReport.model_validate(_read("freshness_report.json"))
     _fake_discovery(monkeypatch, [], raises=discovery.StaleGraphRefused(report))
@@ -567,6 +655,34 @@ def test_candidate_detail_carries_the_reason_a_score_component_is_absent(monkeyp
     assert payload["package_built"] is False and payload["facts"] == []
 
 
+def test_a_second_discovery_does_not_re_attribute_a_candidate_a_reader_is_looking_at(
+        monkeypatch, graph_services):
+    """**Reproduced: two concurrent discoveries flipped `discovery_run_id` 0001 -> 0002.**
+
+    With no user action, and with the data unchanged — discovery is deterministic, so the second
+    run produced the same row. The provenance was what moved, and a provenance field that moves
+    on its own is worse than one that is coarse. First writer wins; every run that reproduced it
+    is kept, so *"two runs agreed"* stays answerable.
+    """
+    candidate = make_candidate()
+    _fake_discovery(monkeypatch, [candidate])
+    harness = Harness(services=graph_services)
+
+    _, first = harness.json("POST", "/demo/story-suggestions", {})
+    harness.wait(first["run_id"])
+    _, before = harness.json("GET", f"/demo/candidates/{candidate.candidate_id}")
+
+    _, second = harness.json("POST", "/demo/story-suggestions", {})
+    harness.wait(second["run_id"])
+    _, after = harness.json("GET", f"/demo/candidates/{candidate.candidate_id}")
+
+    assert first["run_id"] != second["run_id"]
+    assert before["discovery_run_id"] == after["discovery_run_id"] == first["run_id"]
+    assert after["discovery_run_ids"] == [first["run_id"], second["run_id"]]
+    assert after["latest_discovery_run_id"] == second["run_id"]
+    assert "first discovery run" in after["attribution"]
+
+
 def test_an_unknown_candidate_detail_is_a_code(graph_services):
     harness = Harness(services=graph_services)
     status, payload = harness.json("GET", f"/demo/candidates/{make_candidate().candidate_id}")
@@ -615,28 +731,101 @@ def test_a_built_package_reaches_the_candidate_detail_endpoint(monkeypatch, grap
     assert len(payload["facts"]) == len(inputs.package.facts)
 
 
-def test_a_candidate_the_detectors_do_not_reproduce_is_named_as_such(graph_services):
+def _refusing_resolver(monkeypatch, exception: Exception) -> None:
     def refuses(context, **kwargs):
-        raise pipeline.CandidateNotFound(CANDIDATE_ID, ("cand:other",))
+        raise exception
 
-    harness = Harness(services={
-        **graph_services,
-        "story_pipeline": lambda: PipelineShim(resolve_demo_inputs=refuses)})
+    monkeypatch.setattr(api.candidate_resolution, "resolve_candidate", refuses)
+
+
+def test_a_candidate_the_detectors_do_not_reproduce_is_named_as_such(monkeypatch,
+                                                                     graph_services):
+    """And the refusal now says something that is true of all four detectors.
+
+    **This assertion changed on 2026-08-05 and the old one was the bug.** The refusal used to be
+    raised whenever `pipeline.resolve_demo_inputs` — D4 alone — did not mint the id, so a
+    `metric_move` candidate the same process had just served at position 1 came back as *"the
+    detectors did not reproduce that candidate."* The exception now carries which detectors ran
+    and how many candidates they produced, and it can only be raised after all four have.
+    """
+    _refusing_resolver(monkeypatch, candidate_resolution.CandidateNotReproduced(
+        CANDIDATE_ID,
+        detector_ids=[module.DETECTOR_ID
+                      for module in candidate_resolution.DETECTOR_MODULES],
+        produced=262))
+
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
     status, payload = harness.json("POST", "/demo/evidence-package",
                                    {"candidate_id": CANDIDATE_ID})
     assert (status, payload["error"]["code"]) == (404, "candidate_not_reproducible")
-    assert "cand:other" not in json.dumps(payload)
+    assert "all four detectors ran" in payload["error"]["message"]
+    context = payload["error"]["context"]
+    assert len(context["detectors_run"]) == 4
+    assert context["candidates_reproduced"] == 262
 
 
-def test_a_stale_graph_refuses_the_package_before_the_model(graph_services):
+def test_a_candidate_that_cannot_be_packaged_says_so_rather_than_blaming_the_detectors(
+        monkeypatch, graph_services):
+    """The distinction the old code could not draw: re-derived, and still not packageable.
+
+    Two different facts about two different things. A reader told *"the detectors did not
+    reproduce it"* goes looking for a graph problem; a reader told *"it was re-derived and its
+    observations are not in the load"* is looking at the actual disagreement.
+    """
+    _refusing_resolver(monkeypatch, candidate_resolution.CandidateNotPackageable(
+        CANDIDATE_ID,
+        detector_id="detector:metric_move",
+        reason=candidate_resolution.REASON_NO_LOADED_OBSERVATION,
+        metric_ids=("adjusted_gross_margin",),
+        period_keys=("2022Q3",)))
+
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
+    status, payload = harness.json("POST", "/demo/evidence-package",
+                                   {"candidate_id": CANDIDATE_ID})
+    error = payload["error"]
+    assert (status, error["code"]) == (409, "candidate_not_packageable")
+    assert error["explanation"] == candidate_resolution.PACKAGING_REASONS[
+        candidate_resolution.REASON_NO_LOADED_OBSERVATION]
+    assert error["context"]["detector_id"] == "detector:metric_move"
+    assert error["context"]["metric_ids"] == ["adjusted_gross_margin"]
+    assert "did not reproduce" not in json.dumps(payload)
+
+
+def test_an_explanation_outside_the_closed_table_never_reaches_a_body():
+    """`explanation` is the one prose field on an error, and it is not free text."""
+    invented = api.ApiError(
+        "candidate_not_packageable", explanation="I decided this candidate was uninteresting")
+    assert invented.payload().get("explanation") is None
+    allowed = api.ApiError(
+        "candidate_not_packageable",
+        explanation=candidate_resolution.PACKAGING_REASONS[
+            candidate_resolution.REASON_NO_CITATION_CHAIN])
+    assert allowed.payload()["explanation"] in api.EXPLANATIONS
+
+
+def test_an_error_context_drops_a_value_that_could_carry_a_path_or_a_url():
+    """The `context` block is bounded exactly as `detail` is; see `api._bounded_context`."""
+    error = api.ApiError("candidate_not_packageable", context={
+        "detector_id": "detector:metric_move",
+        "candidates_reproduced": 262,
+        "leaked": "read from /mnt/c/Users/thele/Projects/x/data; bolt://localhost:7687",
+        "Bad Key": "ok",
+        "metric_ids": ["adjusted_gross_margin", "a value with spaces"],
+    })
+    context = error.payload()["context"]
+    assert context == {"detector_id": "detector:metric_move",
+                       "candidates_reproduced": 262,
+                       "metric_ids": ["adjusted_gross_margin"]}
+
+
+def test_a_stale_graph_refuses_the_package_before_the_model(monkeypatch, graph_services):
     report = FreshnessReport.model_validate(_read("freshness_report.json"))
+    _refusing_resolver(monkeypatch, discovery.StaleGraphRefused(report))
 
-    def refuses(context, **kwargs):
-        raise pipeline.FreshnessRefused(report)
-
-    harness = Harness(services={
-        **graph_services,
-        "story_pipeline": lambda: PipelineShim(resolve_demo_inputs=refuses)})
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
     status, payload = harness.json("POST", "/demo/evidence-package",
                                    {"candidate_id": CANDIDATE_ID})
     assert (status, payload["error"]["code"]) == (409, "stale_graph")
@@ -1016,6 +1205,127 @@ def test_the_sources_endpoint_resolves_sentence_to_passage_to_document(graph_ser
                 assert citation["quoted_text"] in passage["text"]
 
 
+def test_every_passage_says_which_section_of_the_package_it_came_from(graph_services):
+    """**Counter-evidence rendered identically to support is the worst thing this panel can do.**
+
+    Verified on a live `GET /demo/runs/{id}/sources` body on 2026-08-05: the four §10 lists were
+    flattened into one dictionary and the passages carried no `role` and no
+    `is_counter_evidence`, so evidence *against* the thesis was indistinguishable from evidence
+    for it. The brief requires the four to be distinguishable; this is that, executable.
+    """
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}/sources")
+    sources = payload["sources"]
+
+    passages = [passage for document in sources["documents"]
+                for passage in document["passages"]]
+    assert passages
+    for passage in passages:
+        assert passage["role"] in api.PASSAGE_ROLE_ORDER
+        assert passage["role_description"] == api.PASSAGE_ROLES[passage["role"]]
+        assert passage["is_counter_evidence"] == (passage["role"] == "counter_evidence")
+
+    package = demo_inputs().package
+    counted = {role: sum(1 for p in passages if p["role"] == role)
+               for role in api.PASSAGE_ROLE_ORDER}
+    assert counted["primary"] == len(package.primary_passages)
+    assert counted["counter_evidence"] == len(package.counter_evidence)
+
+
+def test_a_role_with_no_passages_is_reported_as_zero_rather_than_dropped(graph_services):
+    """*"Zero counter-evidence found"* and *"counter-evidence was never fetched"* are different.
+
+    Both produce a count of zero, so the count alone cannot separate them and a falsy count that
+    was dropped separated nothing at all. `requested` carries the candidate's own
+    `want_counter_evidence` and `want_explanatory_search`, which is where the distinction lives.
+    """
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}/sources")
+    sources = payload["sources"]
+
+    assert set(sources["counts"]["by_role"]) == set(api.PASSAGE_ROLE_ORDER), (
+        "every role must be present including the zeros")
+    assert [row["role"] for row in sources["roles"]] == list(api.PASSAGE_ROLE_ORDER)
+    request = demo_inputs().candidate.evidence_request
+    assert sources["requested"]["counter_evidence"] is bool(request.want_counter_evidence)
+    assert sources["requested"]["explanatory_search"] is bool(
+        request.want_explanatory_search)
+
+
+def test_an_accepted_run_whose_post_is_unreadable_is_an_error_and_not_a_silent_null(
+        graph_services, monkeypatch):
+    """The body used to say `accepted: true, rendered_as: "post", post: null`.
+
+    From which the client rendered *"Refused · accepted"* — neither of the two things it is.
+    `run_demo` writes `post.md` under exactly the condition that sets `accepted`, so a missing
+    one is a broken run directory rather than a disposition, and the server's own answer has to
+    say which.
+    """
+    real_read = Path.read_text
+
+    def refuse_the_post(self, *args, **kwargs):
+        if self.name == pipeline.POST_FILENAME:
+            raise OSError(13, "permission denied")
+        return real_read(self, *args, **kwargs)
+
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
+    monkeypatch.setattr(Path, "read_text", refuse_the_post)
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    monkeypatch.undo()
+
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    outcome = payload["outcome"]
+    assert outcome["accepted"] is True
+    assert outcome["post"] is None
+    assert outcome["artifacts_complete"] is False
+    assert outcome["post_error"]["code"] == "post_artifact_unreadable"
+    assert outcome["post_error"]["filename"] == pipeline.POST_FILENAME
+    # The exception's text stays in the log, as everywhere else in this module.
+    assert "permission denied" not in json.dumps(payload)
+
+
+def test_a_coherent_accepted_run_carries_no_post_error(graph_services):
+    """The other half: the new field must be `null` on every run that is actually fine."""
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    assert payload["outcome"]["post_error"] is None
+    assert payload["outcome"]["artifacts_complete"] is True
+
+
+def test_planning_closes_before_drafting_opens(graph_services):
+    """Read top to bottom, the stream said drafting started before planning finished.
+
+    Measured on a live run: `drafting · running` at sequence 5, `planning · passed` at 6. It
+    never happened that way — `run_demo` reaches `write_story` only after `plan_story` returned
+    — and the fix is to emit the transition where it is observed, which is the moment the writer
+    call opens. See `api._GenerationTrace`.
+    """
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    events = harness.registry.get(started["run_id"]).events()
+    order = [(event.stage, event.status) for event in events]
+
+    assert order.index(("planning", "running")) < order.index(("planning", "passed"))
+    assert order.index(("planning", "passed")) < order.index(("drafting", "running"))
+    assert order.index(("drafting", "running")) < order.index(("drafting", "passed"))
+    # And planning closes exactly once, so the panel never shows two conflicting closures.
+    assert sum(1 for stage, status in order
+               if stage == "planning" and status in ("passed", "failed")) == 1
+
+
 def test_a_float_with_residue_is_displayed_short_and_kept_exact(graph_services):
     """§7: `15.899999999999999` renders as `15.9` and the exact value stays beside it."""
     harness = Harness(services={**graph_services,
@@ -1285,15 +1595,16 @@ def test_no_response_carries_the_models_raw_content(driven):
             assert json.dumps(raw)[1:-1] not in body
 
 
-def test_an_error_never_carries_the_text_of_the_exception_it_came_from(graph_services):
+def test_an_error_never_carries_the_text_of_the_exception_it_came_from(monkeypatch,
+                                                                       graph_services):
     """The shape the leak takes: a handler quoting `str(exc)` into a response body."""
 
     def explodes(context, **kwargs):
         raise RuntimeError(f"cannot reach bolt://neo4j:{ENV_MARKER_VALUE}@127.0.0.1:7687")
 
-    harness = Harness(services={
-        **graph_services,
-        "story_pipeline": lambda: PipelineShim(resolve_demo_inputs=explodes)})
+    monkeypatch.setattr(api.candidate_resolution, "resolve_candidate", explodes)
+    harness = Harness(services={**graph_services,
+                                "story_pipeline": committed_inputs_pipeline})
     status, payload = harness.json("POST", "/demo/evidence-package",
                                    {"candidate_id": CANDIDATE_ID})
     assert status == 503

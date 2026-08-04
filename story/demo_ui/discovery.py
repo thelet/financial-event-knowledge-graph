@@ -30,7 +30,7 @@ step that does not exist, and no count that is not read off a returned value:
     preparing_suggestions   the filter, applied to the ranked list
 
 The names are `story/demo_ui/trace.py`'s and not this module's inventions — see `TRACE_STAGES`,
-which also records the two that do not map cleanly onto that module's closed set.
+which also records the one that does not map cleanly onto that module's closed set.
 
 **`suppressed` is the point of the return type.** `CandidateScore` — the model §6.10 persists —
 carries `components` and no reason a component is missing, so a UI rendering it cannot tell *"no
@@ -163,21 +163,24 @@ STATUS_PASSED = "passed"
 STATUS_FAILED = "failed"
 STATUSES: tuple[str, ...] = (STATUS_RUNNING, STATUS_PASSED, STATUS_FAILED)
 
-#: This module's stage, as `story/demo_ui/trace.py` names it. **Ten of the twelve are identical**
-#: — the stage constants above adopt that module's `STAGES_BY_PHASE["discovery"]` vocabulary
-#: outright, because `TraceEvent` validates `stage` against it and a second set of names would
-#: guarantee a validation error at the wiring rather than a translation.
+#: This module's stage, as `story/demo_ui/trace.py` names it. **Eleven of the twelve are
+#: identical** — the stage constants above adopt that module's `STAGES_BY_PHASE["discovery"]`
+#: vocabulary outright, because `TraceEvent` validates `stage` against it and a second set of
+#: names would guarantee a validation error at the wiring rather than a translation.
 #:
-#: Two do not map cleanly and are recorded rather than smoothed over:
+#: One does not map and is recorded rather than smoothed over:
 #:
-#: * `metric_history` is a real step — §6.10 scores against distributions this module builds
-#:   before grouping — and the discovery phase's closed set has no name for it. Reported as a
-#:   second `ranking` event, which is what it is the input to; nothing is dropped.
 #: * `freshness` is in `trace.py`'s **generation** phase, not its discovery one. Discovery gates
 #:   first (§7), so an adapter emitting it onto the discovery stream would be refused by
 #:   `TraceEvent`'s phase validator. Either the report is rendered outside the trace or that
 #:   stage moves; it is not this module's call, and the mapping states the collision instead of
 #:   hiding it.
+#:
+#: **`metric_history` used to map onto `ranking` and no longer does (2026-08-05).** The mapping
+#: was honest about the collision in prose and dishonest in the stream: the live panel emitted
+#: `ranking` twice, before and after `grouping`, with different numbers, and the first read
+#: `ranking · passed · processed 537 · accepted 13 · refused 39` for work ranking had not done.
+#: `trace.py` now declares `metric_history` as its own discovery stage, which is what it is.
 TRACE_STAGES: Mapping[str, str] = {
     STAGE_FRESHNESS: STAGE_FRESHNESS,
     STAGE_GRAPH_SNAPSHOT: STAGE_GRAPH_SNAPSHOT,
@@ -187,7 +190,7 @@ TRACE_STAGES: Mapping[str, str] = {
     STAGE_TREND_REVERSAL: STAGE_TREND_REVERSAL,
     STAGE_ACCELERATION: STAGE_ACCELERATION,
     STAGE_DIVERGENCE: STAGE_DIVERGENCE,
-    STAGE_METRIC_HISTORY: STAGE_RANKING,
+    STAGE_METRIC_HISTORY: STAGE_METRIC_HISTORY,
     STAGE_GROUPING: STAGE_GROUPING,
     STAGE_RANKING: STAGE_RANKING,
     STAGE_SUGGESTIONS: STAGE_SUGGESTIONS,
@@ -195,8 +198,33 @@ TRACE_STAGES: Mapping[str, str] = {
 
 #: How many ids one event may highlight. The graph load touches 2,704 observations and an event
 #: carrying all of them is a payload, not a highlight. Sorted and then truncated, so the choice is
-#: deterministic and the event says when it truncated.
+#: deterministic and the event says when it truncated. Applied to each highlight kind separately,
+#: because the two are two lists and a shared cap would let the metrics crowd out the periods.
 HIGHLIGHT_LIMIT = 24
+
+#: The unit each count on an event is counting, as `story/demo_ui/trace.py:COUNT_UNITS` names
+#: them. Held as constants rather than as literals at nine call sites so a unit that is not in
+#: that closed set fails at import of this module's tests rather than at the wire.
+#:
+#: **This exists because three rows rendered two populations as one number.** Measured
+#: 2026-08-05: `cross-metric comparison · processed 5 · refused 85` — five *declared metric
+#: pairs* examined, eighty-five *declines* recorded, one per pair per period. Likewise
+#: `metric changes · processed 17 · accepted 227` (seventeen series, 227 candidates) and
+#: `sign reversals · processed 17 · refused 39`. Every one of those numbers is read off a
+#: returned value and none was wrong; what was missing was what each counted.
+UNIT_FRESHNESS_CHECKS = "freshness checks"
+UNIT_BOUNDED_READS = "bounded reads"
+UNIT_OBSERVATIONS = "observations"
+UNIT_METRICS = "metrics"
+UNIT_FACT_SLOTS = "fact slots"
+UNIT_ADJACENT_PAIRS = "adjacent same-shape pairs"
+UNIT_METRIC_SERIES = "metric series"
+UNIT_DECLARED_PAIRS = "declared metric pairs"
+UNIT_CANDIDATES = "candidates"
+UNIT_DECLINES = "declines"
+UNIT_CANONICAL_SLOTS = "canonical slots"
+UNIT_DISTRIBUTIONS = "metric-and-shape distributions"
+UNIT_STORIES = "stories"
 
 #: Where each detector's identity lives, in the order the UI lists them. Read from the modules so
 #: a version bump cannot fail to reach the response.
@@ -242,20 +270,32 @@ class DiscoveryEvent:
     and ids here, and discovery reaches no model at all.
 
     `processed`, `accepted`, `refused` and `warnings` mean something slightly different per
-    stage and each stage's emitter says which in `message`; the invariant is that all four are
-    read off a returned value and none is estimated.
+    stage, and `units` says which population each one counted. The invariant is that every count
+    present is read off a returned value and none is estimated.
+
+    **`None` is not zero, and the four counts default to `None` for that reason** (2026-08-05).
+    They were `0`, so a stage that never measured a refusal still reported `refused 0` — which
+    is an assertion, not a measurement, and §6.10's ranking was doing exactly that. `TraceCounts`
+    has always drawn this distinction; this type now matches it instead of flattening it on the
+    way in.
+
+    `highlight_period_keys` is separate from `highlight_node_ids` because a period key is not a
+    node of the overview projection — see `story/demo_ui/trace.py:GraphHighlights`.
     """
 
     sequence: int
     stage: str
     status: str
     message: str
-    processed: int = 0
-    accepted: int = 0
-    refused: int = 0
-    warnings: int = 0
+    processed: int | None = None
+    accepted: int | None = None
+    refused: int | None = None
+    warnings: int | None = None
     highlight_node_ids: tuple[str, ...] = ()
     highlights_truncated: bool = False
+    highlight_period_keys: tuple[str, ...] = ()
+    period_keys_truncated: bool = False
+    units: Mapping[str, str] = field(default_factory=dict)
     detail: Mapping[str, Any] = field(default_factory=dict)
     elapsed_ms: float = 0.0
 
@@ -271,8 +311,11 @@ class DiscoveryEvent:
                 "refused": self.refused,
                 "warnings": self.warnings,
             },
+            "count_units": dict(self.units),
             "highlight_node_ids": list(self.highlight_node_ids),
             "highlights_truncated": self.highlights_truncated,
+            "highlight_period_keys": list(self.highlight_period_keys),
+            "period_keys_truncated": self.period_keys_truncated,
             "detail": dict(self.detail),
             "elapsed_ms": round(self.elapsed_ms, 1),
         }
@@ -292,14 +335,15 @@ class _Emitter:
         self._sink = sink
         self._events: list[DiscoveryEvent] = []
         self._started = time.perf_counter()
-        self._universe: frozenset[str] | None = None
+        self._nodes: frozenset[str] | None = None
+        self._periods: frozenset[str] | None = None
 
     @property
     def events(self) -> tuple[DiscoveryEvent, ...]:
         return tuple(self._events)
 
-    def bind(self, universe: frozenset[str]) -> None:
-        """Fix the set a highlight may name, once the graph read has said what exists.
+    def bind(self, nodes: frozenset[str], periods: frozenset[str]) -> None:
+        """Fix the sets a highlight may name, once the graph read has said what exists.
 
         **This is where §3's *"highlights are never faked"* is enforced rather than intended.**
         The case that forces it is real: §6.6 D4 declares five metric pairs and refuses one with
@@ -307,8 +351,14 @@ class _Emitter:
         The refusal is a genuine finding and it names a genuine metric — and there is no node to
         highlight, so the name travels on `DetectorRefusal.metric_ids` and on the event's
         `detail`, and never on `highlight_node_ids`.
+
+        Two universes and not one, because the two lists are checked against different things: a
+        metric or observation id is a node of the overview projection, and a period key is a node
+        of the coverage projection under a different id form. Binding them together would let a
+        period key pass the check that says a node exists.
         """
-        self._universe = universe
+        self._nodes = nodes
+        self._periods = periods
 
     def emit(
         self,
@@ -316,17 +366,17 @@ class _Emitter:
         status: str,
         message: str,
         *,
-        processed: int = 0,
-        accepted: int = 0,
-        refused: int = 0,
-        warnings: int = 0,
+        processed: int | None = None,
+        accepted: int | None = None,
+        refused: int | None = None,
+        warnings: int | None = None,
+        units: Mapping[str, str] | None = None,
         highlights: Sequence[str] = (),
+        period_keys: Sequence[str] = (),
         detail: Mapping[str, Any] | None = None,
     ) -> DiscoveryEvent:
-        named = {identifier for identifier in highlights if identifier}
-        if self._universe is not None:
-            named &= self._universe
-        ordered = sorted(named)
+        nodes = self._bounded(highlights, self._nodes)
+        periods = self._bounded(period_keys, self._periods)
         event = DiscoveryEvent(
             sequence=len(self._events),
             stage=stage,
@@ -336,8 +386,11 @@ class _Emitter:
             accepted=accepted,
             refused=refused,
             warnings=warnings,
-            highlight_node_ids=tuple(ordered[:HIGHLIGHT_LIMIT]),
-            highlights_truncated=len(ordered) > HIGHLIGHT_LIMIT,
+            highlight_node_ids=tuple(nodes[:HIGHLIGHT_LIMIT]),
+            highlights_truncated=len(nodes) > HIGHLIGHT_LIMIT,
+            highlight_period_keys=tuple(periods[:HIGHLIGHT_LIMIT]),
+            period_keys_truncated=len(periods) > HIGHLIGHT_LIMIT,
+            units=dict(units or {}),
             detail=dict(detail or {}),
             elapsed_ms=(time.perf_counter() - self._started) * 1000.0,
         )
@@ -345,6 +398,14 @@ class _Emitter:
         if self._sink is not None:
             self._sink(event)
         return event
+
+    @staticmethod
+    def _bounded(values: Sequence[str], universe: frozenset[str] | None) -> list[str]:
+        """Deduplicated, filtered to what exists, and sorted — before any cap is applied."""
+        named = {identifier for identifier in values if identifier}
+        if universe is not None:
+            named &= universe
+        return sorted(named)
 
 
 # -- filters -------------------------------------------------------------------------------------
@@ -637,6 +698,34 @@ class DiscoveryResult:
             found.update(row.candidate.anchor_observation_ids)
         return frozenset(found)
 
+    def resolvable_node_ids(self) -> frozenset[str]:
+        """The subset of `resolvable_ids` that is a **node** — metric ids and observation ids.
+
+        Separate from `resolvable_period_keys` because the two resolve in different projections:
+        a metric id is a node of the overview, a period key is a node of the coverage projection
+        under the id `period:<key>`. `highlight_node_ids` is checked against this set and
+        `highlight_period_keys` against the other, which is what makes the trace's *"N nodes"*
+        a statement rather than a guess.
+        """
+        found: set[str] = set()
+        for record in self.load.records:
+            found.add(record.observation_id)
+            found.add(record.metric_id)
+        for metric_id, _reason in self.load.unreadable:
+            found.add(metric_id)
+        for row in self.ranking.ranked:
+            found.update(row.candidate.metric_ids)
+            found.update(row.candidate.anchor_observation_ids)
+        return frozenset(found)
+
+    def resolvable_period_keys(self) -> frozenset[str]:
+        """Every canonical period key this run touched. See `resolvable_node_ids`."""
+        found = {record.period.key for record in self.load.records}
+        found.update(self.periods)
+        for row in self.ranking.ranked:
+            found.update(row.candidate.anchor_period_keys)
+        return frozenset(found)
+
     def as_dict(self) -> dict[str, Any]:
         """The HTTP response body. Plain JSON, and nothing a model wrote — there was no model."""
         return {
@@ -765,11 +854,12 @@ def run_discovery(
     load = _load(emitter, retriever)
     # Bound as soon as the read has said what exists, and before any stage that could name
     # something that does not — see `_Emitter.bind`.
-    emitter.bind(frozenset(
-        [record.observation_id for record in load.records]
-        + [record.metric_id for record in load.records]
-        + [record.period.key for record in load.records]
-        + [metric_id for metric_id, _reason in load.unreadable]))
+    emitter.bind(
+        frozenset(
+            [record.observation_id for record in load.records]
+            + [record.metric_id for record in load.records]
+            + [metric_id for metric_id, _reason in load.unreadable]),
+        frozenset(record.period.key for record in load.records))
     points, slot_census = _canonicalize(emitter, load)
     series_by_metric = build_series(points)
     authority = default_authority()
@@ -829,6 +919,8 @@ def _emit_freshness(emitter: _Emitter, report: FreshnessReport) -> None:
         processed=len(report.checks),
         accepted=len(report.checks) - len(report.refusals),
         refused=len(report.refusals),
+        units={"processed": UNIT_FRESHNESS_CHECKS, "accepted": UNIT_FRESHNESS_CHECKS,
+               "refused": UNIT_FRESHNESS_CHECKS},
         detail={"codes": list(refusals)},
     )
     if not report.passed:
@@ -854,6 +946,8 @@ def _load(emitter: _Emitter, retriever: GraphRetriever) -> ObservationLoad:
         processed=load.calls,
         accepted=len(load.records),
         refused=len(load.unreadable),
+        units={"processed": UNIT_BOUNDED_READS, "accepted": UNIT_OBSERVATIONS,
+               "refused": UNIT_METRICS},
         highlights=(*load.metric_ids, *unreadable),
         detail={"metrics": len(load.metric_ids), "unreadable": list(unreadable)},
     )
@@ -878,8 +972,10 @@ def _canonicalize(emitter: _Emitter,
         accepted=slot_census.slots - slot_census.conflict,
         refused=slot_census.conflict,
         warnings=len(warned),
-        highlights=[point.metric_id for point in conflicted]
-                   + [point.period_key for point in conflicted],
+        units={"processed": UNIT_OBSERVATIONS, "accepted": UNIT_FACT_SLOTS,
+               "refused": UNIT_FACT_SLOTS, "warnings": UNIT_FACT_SLOTS},
+        highlights=[point.metric_id for point in conflicted],
+        period_keys=[point.period_key for point in conflicted],
         detail={
             "multi_valued": slot_census.multi_valued,
             "multi_cluster": slot_census.multi_cluster,
@@ -941,7 +1037,10 @@ def _sweep_comparability(
         f"{permitted} of {pairs} adjacent same-shape pairs may be compared; {refused} refused, "
         f"{warned} permitted with a disclosure",
         processed=pairs, accepted=permitted, refused=refused, warnings=warned,
-        highlights=(*sweep.refused_metric_ids, *sweep.refused_period_keys),
+        units={"processed": UNIT_ADJACENT_PAIRS, "accepted": UNIT_ADJACENT_PAIRS,
+               "refused": UNIT_ADJACENT_PAIRS, "warnings": UNIT_ADJACENT_PAIRS},
+        highlights=sweep.refused_metric_ids,
+        period_keys=sweep.refused_period_keys,
         detail={"refusals_by_rule": dict(sweep.refusals_by_rule),
                 "warnings_by_code": dict(sweep.warnings_by_code)},
     )
@@ -976,14 +1075,14 @@ def _detect(
             load, graph_run_id=graph_run_id, authority=authority)),
     ):
         outcomes.append(_run_detector(
-            emitter, module, run, examined=scanned, examined_unit="metric series"))
+            emitter, module, run, examined=scanned, examined_unit=UNIT_METRIC_SERIES))
 
     outcomes.append(_run_detector(
         emitter, cross_metric_divergence,
         lambda: detect_cross_metric_divergence(
             series_by_metric, graph_run_id=graph_run_id, authority=authority),
         examined=len(cross_metric_divergence.DIVERGENCE_PAIRS),
-        examined_unit="declared metric pairs"))
+        examined_unit=UNIT_DECLARED_PAIRS))
     return tuple(outcomes)
 
 
@@ -1030,11 +1129,17 @@ def _run_detector(
         accepted=len(result.candidates),
         refused=len(refusals),
         warnings=warned,
+        # Four numbers over three populations, and the row now says so: a detector examines
+        # series (or declared pairs), accepts candidates, and declines once per thing it
+        # declined — which for D4 is once per pair per period, hence 5 examined and 85 declined.
+        units={"processed": examined_unit, "accepted": UNIT_CANDIDATES,
+               "refused": UNIT_DECLINES, "warnings": UNIT_CANDIDATES},
         highlights=[value
                     for candidate in result.candidates
-                    for value in (*candidate.metric_ids, *candidate.anchor_period_keys,
-                                  *candidate.anchor_observation_ids)]
+                    for value in (*candidate.metric_ids, *candidate.anchor_observation_ids)]
                    + [metric_id for refusal in refusals for metric_id in refusal.metric_ids],
+        period_keys=[period_key for candidate in result.candidates
+                     for period_key in candidate.anchor_period_keys],
         detail={"reasons": _counted(refusal.reason for refusal in refusals)},
     )
     return outcome
@@ -1075,6 +1180,8 @@ def _history(emitter: _Emitter, points: Sequence[CanonicalPoint],
         processed=len(points),
         accepted=len(spreads),
         refused=len(history.distributions) - len(spreads),
+        units={"processed": UNIT_CANONICAL_SLOTS, "accepted": UNIT_DISTRIBUTIONS,
+               "refused": UNIT_DISTRIBUTIONS},
         highlights=sorted({metric_id for metric_id, _shape in history.distributions}),
         detail={"distributions": len(history.distributions), "slots": len(history.slots)},
     )
@@ -1114,9 +1221,11 @@ def _group(
         processed=len(candidates),
         accepted=len(clusters),
         refused=suppressed,
+        units={"processed": UNIT_CANDIDATES, "accepted": UNIT_STORIES,
+               "refused": UNIT_CANDIDATES},
         highlights=[metric_id for cluster in collapsed
-                    for metric_id in cluster.correlated_metric_ids]
-                   + [cluster.anchor_period_key for cluster in collapsed],
+                    for metric_id in cluster.correlated_metric_ids],
+        period_keys=[cluster.anchor_period_key for cluster in collapsed],
         detail={"collapsed_groups": len(collapsed)},
     )
     return clusters
@@ -1144,11 +1253,18 @@ def _rank(
         f"{with_suppressed} carry at least one score term that could not be computed",
         processed=len(candidates),
         accepted=len(ranking.ranked),
-        refused=0,
+        # **`refused` is omitted, not zero** (2026-08-05). It was a hardcoded `0`, which is an
+        # assertion rather than a measurement: §6.10 scores every candidate it is handed and
+        # refuses none, so there is no refusal count to read off `RankingResult`. `TraceCounts`
+        # renders an absent count as absent, which is the honest rendering of a stage that does
+        # not have one — a `refused 0` reads as "it looked and rejected nothing".
         warnings=with_suppressed,
-        highlights=[value for row in ranking.ranked[:HIGHLIGHT_LIMIT]
-                    for value in (*row.candidate.metric_ids,
-                                  *row.candidate.anchor_period_keys)],
+        units={"processed": UNIT_CANDIDATES, "accepted": UNIT_CANDIDATES,
+               "warnings": UNIT_CANDIDATES},
+        highlights=[metric_id for row in ranking.ranked[:HIGHLIGHT_LIMIT]
+                    for metric_id in row.candidate.metric_ids],
+        period_keys=[period_key for row in ranking.ranked[:HIGHLIGHT_LIMIT]
+                     for period_key in row.candidate.anchor_period_keys],
         detail={"policy_version": RANKING_POLICY_VERSION,
                 "suppressed_terms": _counted(
                     name for row in ranking.ranked for name in row.suppressed)},
@@ -1194,9 +1310,12 @@ def _suggest(
         accepted=len(suggestions),
         refused=len(ranking.ranked) - len(kept),
         warnings=warned,
-        highlights=[value for suggestion in suggestions
-                    for value in (*suggestion.candidate.metric_ids,
-                                  *suggestion.candidate.anchor_period_keys)],
+        units={"processed": UNIT_CANDIDATES, "accepted": UNIT_CANDIDATES,
+               "refused": UNIT_CANDIDATES, "warnings": UNIT_CANDIDATES},
+        highlights=[metric_id for suggestion in suggestions
+                    for metric_id in suggestion.candidate.metric_ids],
+        period_keys=[period_key for suggestion in suggestions
+                     for period_key in suggestion.candidate.anchor_period_keys],
         detail={"excluded_by": dict(sorted(reasons.items())),
                 "periods_known": len(periods)},
     )

@@ -52,6 +52,7 @@ from .server import (
     trace_stream,
 )
 from .trace import (
+    COUNT_UNITS,
     STAGE_LABELS,
     STAGES,
     STAGES_BY_PHASE,
@@ -69,6 +70,7 @@ from .trace import (
 
 __all__ = [
     "CANDIDATE_ID_PATTERN",
+    "COUNT_UNITS",
     "DEFAULT_HOST",
     "DEFAULT_PORT",
     "MAX_BODY_BYTES",

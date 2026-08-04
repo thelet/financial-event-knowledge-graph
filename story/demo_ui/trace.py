@@ -60,6 +60,13 @@ Status = Literal["queued", "running", "passed", "warning", "failed", "skipped", 
 #: §6.2's rule, `cross_metric_comparison` is D4, and the five `checking_*` stages are §13's
 #: deterministic checks in the order the verifier runs them. A stage exists here because code
 #: instruments it; there is no stage for "thinking".
+#:
+#: **`metric_history` was added 2026-08-05, after an adversarial review measured the cost of its
+#: absence.** `story/demo_ui/discovery.py` builds each metric's own delta distribution before it
+#: groups or ranks anything, and with no name for that step it mapped the events onto `ranking`
+#: — so the live stream emitted `ranking` twice, before and after `grouping`, with different
+#: numbers, and a viewer saw ranking run twice. A stage exists here because code instruments it;
+#: this one does, and borrowing another stage's name to report it was the dishonest option.
 STAGES_BY_PHASE: Mapping[str, tuple[str, ...]] = {
     "discovery": (
         "loading_graph_snapshot",
@@ -69,6 +76,7 @@ STAGES_BY_PHASE: Mapping[str, tuple[str, ...]] = {
         "sign_reversals",
         "acceleration",
         "cross_metric_comparison",
+        "metric_history",
         "grouping",
         "ranking",
         "preparing_suggestions",
@@ -102,6 +110,7 @@ STAGE_LABELS: Mapping[str, str] = {
     "sign_reversals": "sign reversals",
     "acceleration": "acceleration",
     "cross_metric_comparison": "cross-metric comparison",
+    "metric_history": "metric history",
     "grouping": "grouping",
     "ranking": "ranking",
     "preparing_suggestions": "preparing suggestions",
@@ -143,31 +152,92 @@ class TraceProgress(StoryModel):
         return self
 
 
+#: What a count may be counting. **A closed set, and that is the whole point of the field.**
+#:
+#: Added 2026-08-05 because three discovery rows rendered two populations as one number —
+#: `cross-metric comparison · processed 5 · refused 85` reads as a refusal rate of 1700%, when
+#: the 5 are *declared metric pairs* and the 85 are *declines*. A count with no unit is not a
+#: measurement a reader can check, and the fix is the unit rather than a reworked denominator:
+#: `examined` and `refused` genuinely count different things at every detector, and forcing them
+#: onto one population would lose the smaller number rather than explain it.
+#:
+#: Closed, not free text, for §3's reason: a `str` field on a trace model is exactly the seam
+#: prose gets in through. Every member below is written here, by us, and a value outside the set
+#: is a validation error rather than a rendered sentence.
+COUNT_UNITS: frozenset[str] = frozenset({
+    "freshness checks",
+    "bounded reads",
+    "observations",
+    "metrics",
+    "fact slots",
+    "adjacent same-shape pairs",
+    "metric series",
+    "declared metric pairs",
+    "candidates",
+    "declines",
+    "canonical slots",
+    "metric-and-shape distributions",
+    "stories",
+})
+
+
 class TraceCounts(StoryModel):
-    """What a stage measured. Every field optional and every field an integer.
+    """What a stage measured. Every count optional, every count an integer, each with its unit.
 
     Optional because the four are not all meaningful in one place — a detector processes and
     accepts, a verifier refuses and warns — and a zero is a measurement while an absence is
     not. `_compose_message` renders only the fields that were set, so the panel never shows a
     fabricated `refused 0` for a stage that refuses nothing.
+
+    The four `*_unit` fields name the population each number counted, drawn from `COUNT_UNITS`
+    and from nowhere else. An empty unit renders as it always did — a bare `processed 41` — so a
+    stage whose four counts share one obvious population need not say so four times.
     """
 
     processed: int | None = Field(default=None, ge=0)
     accepted: int | None = Field(default=None, ge=0)
     refused: int | None = Field(default=None, ge=0)
     warnings: int | None = Field(default=None, ge=0)
+    processed_unit: str = ""
+    accepted_unit: str = ""
+    refused_unit: str = ""
+    warnings_unit: str = ""
+
+    @model_validator(mode="after")
+    def _units_are_from_the_closed_set(self) -> "TraceCounts":
+        for name in ("processed_unit", "accepted_unit", "refused_unit", "warnings_unit"):
+            unit = getattr(self, name)
+            if unit and unit not in COUNT_UNITS:
+                raise ValueError(
+                    f"{unit!r} is not one of the units this trace declares; the closed set is "
+                    f"{', '.join(sorted(COUNT_UNITS))}")
+        return self
 
 
 class GraphHighlights(StoryModel):
-    """Ids the view should light up. **Never invented** (§3).
+    """Ids the view should light up. **Never invented** (§3), and separated by what they are.
 
     This type cannot check that an id exists — it has no graph. What it does is make the
     highlight a list of ids rather than a description of a region, so the discovery stage's
     own test can resolve every entry against the projection, the package or the candidate.
+
+    **`period_keys` was split out of `node_ids` on 2026-08-05, measured rather than argued.**
+    Eight of discovery's twelve stages highlight period keys (`2019Q4`,
+    `2020-01-01_2020-06-30`) alongside metric and observation ids, and the composed message said
+    `24 nodes` for a list in which — measured against the overview payload the client draws —
+    comparability resolved 0 of 24 and grouping 0 of 24. No id was invented, so §3's rule held;
+    the *count* was still a claim about nodes that most of the list did not support.
+    A period key is a real entity, but of the **coverage** projection, where it is a node whose
+    id is `period:<key>` — so it travels in its own field, is counted as its own thing, and the
+    view maps it to that projection's id form rather than looking for it among the metrics.
     """
 
     node_ids: tuple[str, ...] = ()
     edge_ids: tuple[str, ...] = ()
+    #: Canonical period keys, **unprefixed**. The coverage projection renders each as
+    #: `period:<key>`; the raw key is what the pipeline's own values are, so that is what is
+    #: carried and the prefixing belongs to whoever draws the projection.
+    period_keys: tuple[str, ...] = ()
 
 
 class TraceEvent(StoryModel):
@@ -227,10 +297,15 @@ def _compose_message(event: TraceEvent) -> str:
         for name in ("processed", "accepted", "refused", "warnings"):
             value = getattr(counts, name)
             if value is not None:
-                parts.append(f"{name} {value}")
+                unit = getattr(counts, f"{name}_unit")
+                parts.append(f"{name} {value} {unit}" if unit else f"{name} {value}")
     highlights = event.graph_highlights
     if highlights.node_ids:
         parts.append(f"{len(highlights.node_ids)} nodes")
+    if highlights.period_keys:
+        # Not "nodes". See `GraphHighlights` — these resolve in the coverage projection, under
+        # a different id form, and counting them as nodes was the claim that had to go.
+        parts.append(f"{len(highlights.period_keys)} period keys")
     if highlights.edge_ids:
         parts.append(f"{len(highlights.edge_ids)} edges")
     if event.related_fact_ids:
@@ -299,6 +374,7 @@ class TraceEmitter:
         counts: TraceCounts | None = None,
         node_ids: Sequence[str] = (),
         edge_ids: Sequence[str] = (),
+        period_keys: Sequence[str] = (),
         fact_ids: Sequence[str] = (),
         sentence_ids: Sequence[str] = (),
     ) -> TraceEvent:
@@ -312,7 +388,8 @@ class TraceEmitter:
             progress=progress,
             counts=counts,
             graph_highlights=GraphHighlights(
-                node_ids=tuple(node_ids), edge_ids=tuple(edge_ids)),
+                node_ids=tuple(node_ids), edge_ids=tuple(edge_ids),
+                period_keys=tuple(period_keys)),
             related_fact_ids=tuple(fact_ids),
             related_sentence_ids=tuple(sentence_ids),
         )
@@ -359,6 +436,7 @@ def write_trace_events(path: Path, events: Iterable[TraceEvent]) -> Path:
 
 
 __all__ = [
+    "COUNT_UNITS",
     "STAGES",
     "STAGES_BY_PHASE",
     "STAGE_LABELS",

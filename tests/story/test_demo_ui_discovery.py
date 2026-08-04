@@ -178,10 +178,16 @@ def test_the_stage_and_status_vocabulary_is_the_trace_contracts_own():
 
     `TraceEvent` validates `stage` against `STAGES_BY_PHASE` and `status` against a `Literal`, so
     a name of this module's own invention would not be a naming difference — it would be a
-    `ValidationError` the first time an event was streamed. Ten of the twelve stages are
-    identical and `TRACE_STAGES` records the two that are not: `metric_history`, which the
-    discovery phase has no name for, and `freshness`, which `trace.py` files under the
-    *generation* phase even though discovery gates before it reads.
+    `ValidationError` the first time an event was streamed. Eleven of the twelve stages are
+    identical and `TRACE_STAGES` records the one that is not: `freshness`, which `trace.py`
+    files under the *generation* phase even though discovery gates before it reads.
+
+    **`metric_history` used to be the second exception and no longer is** (2026-08-05). It was
+    mapped onto `ranking`, so the live stream emitted `ranking` twice — before and after
+    `grouping`, with different numbers — and the first read
+    `ranking · passed · processed 537 · accepted 13 · refused 39` for metric-history assembly.
+    A stage reporting another stage's work under its name is not a naming compromise; the closed
+    set gained the name the work already had.
     """
     from story.demo_ui import trace
 
@@ -192,7 +198,11 @@ def test_the_stage_and_status_vocabulary_is_the_trace_contracts_own():
     discovery_stages = set(trace.STAGES_BY_PHASE["discovery"])
     identical = {stage for stage in STAGES if discovery.TRACE_STAGES[stage] == stage}
     assert identical - {"freshness"} == discovery_stages
-    assert discovery.TRACE_STAGES["metric_history"] == "ranking"
+    assert discovery.TRACE_STAGES["metric_history"] == "metric_history"
+    # No two of this module's stages may share a trace stage — the property whose absence let
+    # `ranking` be emitted for two different pieces of work.
+    mapped = [discovery.TRACE_STAGES[stage] for stage in STAGES if stage != "freshness"]
+    assert len(mapped) == len(set(mapped))
     assert "freshness" in trace.STAGES_BY_PHASE["generation"]
     assert "freshness" not in discovery_stages
 
@@ -216,6 +226,27 @@ def test_every_highlighted_id_resolves_to_something_the_run_produced(result):
     assert highlighted <= result.resolvable_ids()
 
 
+def test_a_node_highlight_is_a_node_and_a_period_key_is_a_period_key(result):
+    """**The split, and why it is a split** (2026-08-05).
+
+    `highlight_node_ids` used to hold both, and `trace.py` composed `f"{len(node_ids)} nodes"`
+    from it — so `comparability` announced `24 nodes` for a list of which, measured against the
+    overview payload the client draws, 0 of 24 were nodes. They were period keys: real entities,
+    but of the *coverage* projection and under the id `period:<key>`.
+
+    No id was invented, so §3's rule held throughout; the count was still a claim the list did
+    not support. The two universes are checked separately here for the same reason the emitter
+    binds them separately.
+    """
+    nodes = {identifier for event in result.events
+             for identifier in event.highlight_node_ids}
+    periods = {key for event in result.events for key in event.highlight_period_keys}
+    assert nodes and periods, "one of the two kinds was never highlighted; this proves nothing"
+    assert nodes <= result.resolvable_node_ids()
+    assert periods <= result.resolvable_period_keys()
+    assert not nodes & periods, "a period key reached the node list"
+
+
 def test_a_truncated_highlight_list_says_that_it_truncated(result):
     """A cap that silently dropped ids would make a short highlight read as a small finding."""
     for event in result.events:
@@ -224,6 +255,47 @@ def test_a_truncated_highlight_list_says_that_it_truncated(result):
             assert len(event.highlight_node_ids) == HIGHLIGHT_LIMIT
         else:
             assert len(event.highlight_node_ids) < HIGHLIGHT_LIMIT
+        # The cap applies to each kind, so a run with many periods cannot crowd out the metrics.
+        assert len(event.highlight_period_keys) <= HIGHLIGHT_LIMIT
+        assert event.period_keys_truncated == (
+            len(event.highlight_period_keys) == HIGHLIGHT_LIMIT
+            and event.period_keys_truncated)
+
+
+def test_ranking_reports_no_refusal_count_rather_than_a_zero(result):
+    """§6.10 scores every candidate it is handed and refuses none; `refused=0` was an assertion.
+
+    `RankingResult` carries no refusal count, so there is nothing to read off it — and a
+    rendered `refused 0` says *"it looked and rejected nothing"*, which is a measurement this
+    stage never made.
+    """
+    ranking = next(event for event in result.events
+                   if event.stage == "ranking" and event.status == STATUS_PASSED)
+    assert ranking.refused is None
+    assert ranking.accepted == len(result.ranking.ranked)
+
+
+def test_every_unit_an_event_declares_is_in_the_trace_contracts_closed_set(result):
+    """The units are a vocabulary `trace.py` owns; this module may not invent one."""
+    from story.demo_ui.trace import COUNT_UNITS
+
+    declared = {unit for event in result.events for unit in event.units.values()}
+    assert declared, "no event declared a unit; three rows needed one"
+    assert declared <= COUNT_UNITS
+    for event in result.events:
+        assert set(event.units) <= {"processed", "accepted", "refused", "warnings"}
+
+
+def test_a_detector_row_names_two_different_denominators_rather_than_one(result):
+    """`cross-metric comparison · processed 5 · refused 85` read as a 1700% refusal rate."""
+    divergence = next(event for event in result.events
+                      if event.stage == "cross_metric_comparison"
+                      and event.status == STATUS_PASSED)
+    assert divergence.units["processed"] == "declared metric pairs"
+    assert divergence.units["accepted"] == "candidates"
+    assert divergence.units["refused"] == "declines"
+    assert divergence.units["processed"] != divergence.units["refused"], (
+        "the two counts are over two populations and the row has to say so")
 
 
 def test_counts_are_read_off_the_stage_and_not_estimated(result):

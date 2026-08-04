@@ -46,7 +46,16 @@ and its docstring says what each of its three jobs is for.
 the model's unstructured output and the one thing §3's no-chain-of-thought rule is about; the
 text of any exception, because a provider failure carries a URL and a filesystem failure
 carries a path; anything read from the process environment, which this module never reads;
-and any absolute path — a run directory is reported relative to the repository root.
+any absolute path — a run directory is reported relative to the repository root; and the
+authority of any URI, because the freshness gate's `graph_reachable` check composes
+`bolt://<host>:<port> database=<name>` into prose. `_scrub_paths` is where the last two are
+enforced and its docstring records that both were found in shipped bodies, not predicted.
+
+**A third correction, 2026-08-05: this module no longer packages through
+`pipeline.resolve_demo_inputs`.** That function re-derives with §6.6's D4 alone, so nineteen of
+the twenty candidates the suggestions endpoint served were refused here with a cause that was
+not true. `candidate_resolution.py` composes the same public pieces across all four detectors;
+`_resolve` says what was measured and why the accepted stage was not widened instead.
 
 **No Cypher from the browser.** The client names a projection or a view and passes bound
 parameters. Every statement is a module-level constant in `projection.py`, scanned by
@@ -75,7 +84,7 @@ from typing import Any, Callable, Mapping, Sequence
 from story.stages.generation import PLANNER_SCHEMA_NAME, WRITER_SCHEMA_NAME
 from story.stages.generation.prompts import PLAIN_INVESTOR_STYLE, writer_system
 
-from . import code_catalogue, discovery, projection, prompt_presets
+from . import candidate_resolution, code_catalogue, discovery, projection, prompt_presets
 from .runs import InvalidIdentifier, Run, UnknownRun, validate_candidate_id
 from .server import (
     ROUTER,
@@ -114,8 +123,11 @@ ERRORS: Mapping[str, tuple[int, str]] = {
     "unknown_candidate": (404, "no candidate with that id is held by this process; run "
                                "discovery first"),
     "unknown_run": (404, "no run with that id is registered in this process"),
-    "candidate_not_reproducible": (404, "the detectors did not reproduce that candidate from "
-                                        "this graph run"),
+    "candidate_not_reproducible": (404, "all four detectors ran against this graph run and none "
+                                        "of them produced that candidate"),
+    "candidate_not_packageable": (409, "the candidate was re-derived from this graph run, but "
+                                       "the bounded evidence builder could not package it; the "
+                                       "packaging block says which input is missing"),
     "stale_graph": (409, "the freshness gate refused the loaded graph"),
     "edited_prompt_requires_live": (409, "an edited prompt is a different request and is not "
                                          "in the recorded store; ask for a live run"),
@@ -138,25 +150,82 @@ ERRORS: Mapping[str, tuple[int, str]] = {
 #: shape a leak takes. The same rule and the same character class `server.py` applies.
 _DETAIL_PATTERN = re.compile(r"^[A-Za-z0-9_.:/-]{1,64}$")
 
+#: A key of an error's structured `context` block. Deliberately narrower than `_DETAIL_PATTERN`:
+#: a key is written by this repository at the raise site and never derived from a request.
+_CONTEXT_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+#: Every sentence an error may carry beyond `ERRORS`' own. A closed set built from the tables
+#: that declare them, so `explanation` cannot become the free-text field the rest of this module
+#: refuses to have. A value outside it is dropped, not truncated.
+EXPLANATIONS: frozenset[str] = frozenset(candidate_resolution.PACKAGING_REASONS.values())
+
 
 class ApiError(Exception):
-    """An error with a code from `ERRORS`. The status and the sentence come from the table."""
+    """An error with a code from `ERRORS`. The status and the sentence come from the table.
 
-    def __init__(self, code: str, *, detail: str | None = None) -> None:
+    `context` carries the structured *why* — which detector, which metric, which period — for the
+    refusals where "which" is the whole answer. It is bounded exactly as `detail` is: keys match
+    `_CONTEXT_KEY_PATTERN`, string values match `_DETAIL_PATTERN`, lists are filtered element by
+    element, and anything else is dropped. A raise site cannot put a path, a URL or a stage's
+    prose into a response body through it.
+
+    `explanation` is the one prose field and it is not free: it must be a member of `EXPLANATIONS`,
+    which is built from the closed tables that declare those sentences. Added 2026-08-05 because
+    the alternative was a refusal that could not say *why* without either a code nobody documented
+    or an exception's text — and the review that prompted it found the third option, a cause that
+    was simply untrue, already in place.
+    """
+
+    def __init__(self, code: str, *, detail: str | None = None,
+                 context: Mapping[str, Any] | None = None,
+                 explanation: str | None = None) -> None:
         super().__init__(code)
         self.code = code if code in ERRORS else "internal_error"
         self.status = ERRORS[self.code][0]
         self.detail = detail if detail and _DETAIL_PATTERN.match(detail) else None
+        self.context = _bounded_context(context)
+        self.explanation = explanation if explanation in EXPLANATIONS else None
 
     def payload(self) -> dict[str, Any]:
         body: dict[str, Any] = {
             "code": self.code, "message": ERRORS[self.code][1], "status": self.status}
         if self.detail is not None:
             body["detail"] = self.detail
+        if self.explanation is not None:
+            body["explanation"] = self.explanation
+        if self.context:
+            body["context"] = self.context
         return body
 
     def response(self) -> JsonResponse:
         return JsonResponse({"error": self.payload()}, status=self.status)
+
+
+def _bounded_context(context: Mapping[str, Any] | None) -> dict[str, Any]:
+    """`ApiError.context`, filtered to what may leave this process. See `ApiError`.
+
+    Integers and booleans pass; strings pass only if they match `_DETAIL_PATTERN`; a list is
+    filtered element by element rather than dropped whole, because a metric id list with one odd
+    member is still worth showing. Anything else is dropped — not stringified, which is how a
+    repr of an exception would arrive here.
+    """
+    if not context:
+        return {}
+    bounded: dict[str, Any] = {}
+    for key, value in context.items():
+        if not isinstance(key, str) or not _CONTEXT_KEY_PATTERN.match(key):
+            continue
+        if isinstance(value, bool) or isinstance(value, int):
+            bounded[key] = value
+        elif isinstance(value, str):
+            if _DETAIL_PATTERN.match(value):
+                bounded[key] = value
+        elif isinstance(value, (list, tuple)):
+            kept = [item for item in value
+                    if isinstance(item, str) and _DETAIL_PATTERN.match(item)]
+            if kept:
+                bounded[key] = kept
+    return bounded
 
 
 # ---------------------------------------------------------------------------------------
@@ -245,6 +314,31 @@ class _GenerationRecord:
     sources: dict[str, Any]
 
 
+@dataclass
+class _CandidateRecord:
+    """One candidate, and every discovery run in this process that produced it.
+
+    **Attribution is first-writer and stays first-writer** (2026-08-05). It was last-writer-wins:
+    two discoveries over the same graph flipped a candidate's `discovery_run_id` from `0001` to
+    `0002` with no user action, so a panel open on a candidate silently re-attributed it. The
+    data was never wrong — discovery is deterministic, so the second run produced the same row —
+    but the provenance was, and a provenance field that moves on its own is worse than one that
+    is coarse.
+
+    `run_ids` keeps every run that reproduced it, in order, so *"three runs agreed"* is
+    answerable and nothing is lost by pinning the first. `suggestion` is refreshed from the most
+    recent run, because that is the current reading of the current graph.
+    """
+
+    suggestion: Any
+    first_run_id: str
+    run_ids: tuple[str, ...]
+
+    @property
+    def latest_run_id(self) -> str:
+        return self.run_ids[-1]
+
+
 class DemoState:
     """What the endpoints remember between requests, and nothing the pipeline owns.
 
@@ -259,7 +353,7 @@ class DemoState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._discovery: dict[str, Any] = {}
-        self._candidates: dict[str, tuple[str, Any]] = {}
+        self._candidates: dict[str, _CandidateRecord] = {}
         self._packages: dict[str, dict[str, Any]] = {}
         self._generations: dict[str, _GenerationRecord] = {}
         self._failures: dict[str, dict[str, Any]] = {}
@@ -282,23 +376,39 @@ class DemoState:
         run genuinely produced. `Suggestion` is constructed here for the hidden rows so the two
         cases render through one type; `position` is the row's place in the full ordering,
         which is what `Suggestion.position` means.
+
+        A candidate this process has seen before keeps its **first** run as its attribution and
+        gains the new one in `run_ids` — see `_CandidateRecord`.
         """
         with self._lock:
             self._discovery[run_id] = result
+            seen: set[str] = set()
             for suggestion in result.suggestions:
-                self._candidates[suggestion.candidate.candidate_id] = (run_id, suggestion)
+                seen.add(suggestion.candidate.candidate_id)
+                self._remember(suggestion.candidate.candidate_id, run_id, suggestion)
             for position, row in enumerate(result.ranking.ranked, start=1):
                 candidate_id = row.candidate.candidate_id
-                if candidate_id in self._candidates:
+                if candidate_id in seen:
                     continue
-                self._candidates[candidate_id] = (
-                    run_id, discovery.Suggestion(row=row, position=position))
+                self._remember(candidate_id, run_id,
+                               discovery.Suggestion(row=row, position=position))
+
+    def _remember(self, candidate_id: str, run_id: str, suggestion: Any) -> None:
+        """Called under `self._lock` only. First run wins the attribution; every run is kept."""
+        previous = self._candidates.get(candidate_id)
+        if previous is None:
+            self._candidates[candidate_id] = _CandidateRecord(
+                suggestion=suggestion, first_run_id=run_id, run_ids=(run_id,))
+            return
+        runs = previous.run_ids if run_id in previous.run_ids else (*previous.run_ids, run_id)
+        self._candidates[candidate_id] = _CandidateRecord(
+            suggestion=suggestion, first_run_id=previous.first_run_id, run_ids=runs)
 
     def discovery_result(self, run_id: str) -> Any | None:
         with self._lock:
             return self._discovery.get(run_id)
 
-    def candidate(self, candidate_id: str) -> tuple[str, Any] | None:
+    def candidate(self, candidate_id: str) -> _CandidateRecord | None:
         with self._lock:
             return self._candidates.get(candidate_id)
 
@@ -682,7 +792,7 @@ def graph_subgraph(request: Request) -> JsonResponse:
     found = STATE.candidate(candidate_id)
     if found is None:
         raise ApiError("unknown_candidate")
-    _run_id, suggestion = found
+    suggestion = found.suggestion
     context = _context(request)
     try:
         payload = dict(projection.build_candidate_subgraph(
@@ -732,6 +842,11 @@ def _discovery_trace(emitter: TraceEmitter) -> Callable[[Any], None]:
     onto a discovery stream would raise. The gate's verdict is not lost — it travels in the
     result payload under `freshness` — and inventing a discovery stage for it here would be
     this layer minting a name the closed set does not have.
+
+    The adapter carries three things across that it used to flatten: the **unit** of each count,
+    so a row cannot read `processed 5 · refused 85` as one population; the **period keys**
+    separately from the node ids, so the composed message stops calling them nodes; and `None`
+    as `None`, so `ranking`'s absent refusal count is absent rather than a fabricated zero.
     """
     discovery_stages = frozenset(STAGES_BY_PHASE["discovery"])
 
@@ -739,11 +854,18 @@ def _discovery_trace(emitter: TraceEmitter) -> Callable[[Any], None]:
         stage = discovery.TRACE_STAGES.get(event.stage)
         if stage is None or stage not in discovery_stages:
             return
+        units = dict(event.units)
         emitter.emit(
             stage, event.status,
-            counts=TraceCounts(processed=event.processed, accepted=event.accepted,
-                               refused=event.refused, warnings=event.warnings),
-            node_ids=event.highlight_node_ids)
+            counts=TraceCounts(
+                processed=event.processed, accepted=event.accepted,
+                refused=event.refused, warnings=event.warnings,
+                processed_unit=units.get("processed", ""),
+                accepted_unit=units.get("accepted", ""),
+                refused_unit=units.get("refused", ""),
+                warnings_unit=units.get("warnings", "")),
+            node_ids=event.highlight_node_ids,
+            period_keys=event.highlight_period_keys)
 
     return on_event
 
@@ -805,11 +927,19 @@ def discovery_events(request: Request) -> EventStream:
 
 
 def discovery_result(request: Request) -> JsonResponse:
-    """`GET /demo/story-suggestions/{run_id}` — the ranked candidates, once complete."""
+    """`GET /demo/story-suggestions/{run_id}` — the ranked candidates, once complete.
+
+    **The whole result is scrubbed, not only its failure branch** (2026-08-05). The first fix
+    routed `StaleGraphRefused`'s report through `_scrub_paths` and left the success path alone,
+    so a run that *passed* the gate still returned four `freshness.checks[].detail` strings
+    naming the operator's home directory — the leak was on the ordinary path, not the rare one.
+    Scrubbing `result` whole rather than reaching into `result["freshness"]` is deliberate: a
+    future field carrying a path would otherwise reintroduce it silently.
+    """
     run = _run(request, "discovery")
     payload = _run_envelope(run)
     result = STATE.discovery_result(run.run_id)
-    payload["result"] = None if result is None else result.as_dict()
+    payload["result"] = None if result is None else _scrub_paths(result.as_dict())
     failure = STATE.failure(run.run_id)
     if failure is not None:
         payload["failure"] = failure
@@ -851,12 +981,21 @@ def candidate_detail(request: Request) -> JsonResponse:
     found = STATE.candidate(candidate_id)
     if found is None:
         raise ApiError("unknown_candidate")
-    run_id, suggestion = found
+    suggestion = found.suggestion
     package = STATE.package(candidate_id)
     return JsonResponse({
         "candidate_id": candidate_id,
-        "discovery_run_id": run_id,
-        "in_suggestions": candidate_id in STATE.suggested_ids(run_id),
+        # The **first** run in this process that produced this candidate, and it does not move.
+        # See `_CandidateRecord`: this field used to be last-writer-wins, so a second discovery
+        # re-attributed a candidate a reader was already looking at.
+        "discovery_run_id": found.first_run_id,
+        "discovery_run_ids": list(found.run_ids),
+        "latest_discovery_run_id": found.latest_run_id,
+        "attribution": ("the first discovery run in this process that produced this candidate. "
+                        "Later runs that reproduce it are listed in discovery_run_ids and do "
+                        "not change the attribution."),
+        # Against the latest run, because that is the filter currently in force.
+        "in_suggestions": candidate_id in STATE.suggested_ids(found.latest_run_id),
         "suggestion": suggestion.as_dict(),
         "candidate": suggestion.candidate.model_dump(mode="json"),
         "warnings": _explanations(suggestion.candidate.warnings),
@@ -871,14 +1010,29 @@ def candidate_detail(request: Request) -> JsonResponse:
 #: An absolute filesystem path, POSIX or Windows-drive, of at least two segments.
 _ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:)?(?:/[^\s/\"',;)]+){2,}")
 
+#: The authority of any URI — `bolt://localhost:7687`, `http://127.0.0.1:8080`. Scrubbed to the
+#: scheme, because the scheme is a fact about the pipeline and the host and port are facts about
+#: the operator's machine.
+#:
+#: **This is a third leak and it is the one the path scrubber structurally could not catch**
+#: (found 2026-08-05, reproduced on both endpoints): `_ABSOLUTE_PATH` requires two `/`-separated
+#: segments *each with content*, and `//localhost:7687` has an empty first one — so
+#: `"detail": "bolt://localhost:7687 database=neo4j"` survived a scrub written to stop exactly
+#: this class of thing. A database URI is what the no-secrets rule is for.
+_URI_AUTHORITY = re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*)://[^\s\"',;)]+")
+
 #: How many trailing segments of a scrubbed path survive. Two keeps the run directory and
 #: the file — `graph_runs/graph-v1-0483dc6b4b10` — which is what makes a freshness detail
 #: readable, while the operator's home directory is what makes it a leak.
 _PATH_TAIL_SEGMENTS = 2
 
+#: What a scrubbed URI authority is replaced by. Named rather than inlined so a test can assert
+#: on the replacement instead of on the absence of a host.
+URI_PLACEHOLDER = "://<host>"
+
 
 def _scrub_paths(value: Any) -> Any:
-    """Reduce every absolute path in a payload to its last two segments.
+    """Reduce every absolute path in a payload to its last two segments, and every URI to its scheme.
 
     **Found by the frontend agent and confirmed against the running server (2026-08-05): four
     of the fourteen freshness checks carried the operator's home directory** —
@@ -896,11 +1050,24 @@ def _scrub_paths(value: Any) -> Any:
 
     The run directory survives because it is identity a reader needs (`graph-v1-0483dc6b4b10`
     is the snapshot the whole demo is pinned to); the machine it sits on does not.
+
+    **The URI half was added 2026-08-05 after the first fix shipped without it.** `bolt://` and
+    `neo4j://` are not paths and `_ABSOLUTE_PATH` cannot match them (see `_URI_AUTHORITY`), so
+    `graph_reachable`'s `"bolt://localhost:7687 database=neo4j"` reached both response bodies.
+    The scheme and everything after the authority survive — `database=neo4j` is the pipeline's
+    own configuration and is worth reading — and the host and port do not.
+
+    **This function is applied to freshness payloads and to the discovery result, and to nothing
+    that carries a source URL.** A packaged passage's `source_url` is an SEC address, is the
+    citation a reader follows, and would be destroyed by the URI rule; it is dumped directly and
+    never routed through here. That is a deliberate boundary rather than an oversight.
     """
     if isinstance(value, str):
+        scrubbed = _URI_AUTHORITY.sub(
+            lambda match: match.group(1) + URI_PLACEHOLDER, value)
         return _ABSOLUTE_PATH.sub(
             lambda match: ".../" + "/".join(match.group(0).split("/")[-_PATH_TAIL_SEGMENTS:]),
-            value)
+            scrubbed)
     if isinstance(value, Mapping):
         return {key: _scrub_paths(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -974,26 +1141,36 @@ def _package_payload(inputs: Any, previous: Mapping[str, Any] | None) -> dict[st
     }
 
 
-def _resolve_inputs(request: Request, candidate_id: str) -> Any:
-    """`resolve_demo_inputs`, with every refusal it can raise mapped onto a code.
+def _resolve(request: Request, candidate_id: str) -> Any:
+    """`candidate_resolution.resolve_candidate`, with every refusal mapped onto a true code.
 
-    **What this endpoint can package, stated rather than discovered by the reader.**
-    `resolve_demo_inputs` re-derives the candidate through §6.6's D4 alone — §8b's path runs
-    one detector — so a candidate found by D1, D2 or D3 in a discovery run reaches
-    `candidate_not_reproducible` here. That is the pipeline's own boundary and this layer does
-    not widen it: composing a second packaging path would make the demo's evidence come from
-    somewhere the accepted pipeline does not.
+    **This replaced a call to `pipeline.resolve_demo_inputs`, and the reason is a measurement.**
+    That function re-derives with §6.6's D4 alone — §8b's deliberate narrowing — so every
+    candidate the other three detectors minted reached `candidate_not_reproducible` here.
+    Against the running server on 2026-08-05 that was **nineteen of the twenty rows the
+    suggestions endpoint had just served**, each refused with *"the detectors did not reproduce
+    that candidate from this graph run"* — a sentence this process could disprove from its own
+    memory. The candidate was reproducible; D1 had simply not been run.
+
+    `story/pipeline.py` is not widened to fix it: §8b's `selection_mode: manual_demo_candidate`
+    is an honest label a discovery-capable `resolve_demo_inputs` would falsify, and the accepted
+    stages are not this workstream's to move. `candidate_resolution` composes the same public
+    pieces — the same gate, the same load, the same `BoundedEvidencePackageBuilder` — and runs
+    all four detectors, so a `candidate_not_reproducible` from here is now a fact rather than a
+    consequence of which detector the demo path happened to call.
     """
-    pipeline = _pipeline(request)
     context = _context(request)
     config = _config(request)
     try:
-        return pipeline.resolve_demo_inputs(
+        return candidate_resolution.resolve_candidate(
             context, candidate_id=candidate_id, graph_run_id=str(config.graph_run_id))
-    except pipeline.FreshnessRefused:
+    except discovery.StaleGraphRefused:
         raise ApiError("stale_graph") from None
-    except pipeline.CandidateNotFound:
-        raise ApiError("candidate_not_reproducible") from None
+    except candidate_resolution.CandidateNotReproduced as exc:
+        raise ApiError("candidate_not_reproducible", context=exc.context()) from None
+    except candidate_resolution.CandidateNotPackageable as exc:
+        raise ApiError("candidate_not_packageable", detail=exc.reason,
+                       context=exc.context(), explanation=exc.explanation) from None
     except ApiError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -1001,11 +1178,28 @@ def _resolve_inputs(request: Request, candidate_id: str) -> Any:
         raise ApiError("graph_unavailable", detail="packaging") from None
 
 
+def _resolve_inputs(request: Request, candidate_id: str) -> Any:
+    """The same resolution, as the `DemoInputs` `run_demo` consumes.
+
+    `story.pipeline` is reached through `services` and not imported (see the module docstring),
+    so the dataclass is constructed through the module the composition root supplied — which is
+    also why `ResolvedCandidate.as_demo_inputs` takes a factory instead of building one itself.
+    """
+    pipeline = _pipeline(request)
+    return _resolve(request, candidate_id).as_demo_inputs(pipeline.DemoInputs)
+
+
 def build_package(request: Request) -> JsonResponse:
     """`POST /demo/evidence-package` — build or rebuild one package and hash it."""
     candidate_id = _candidate_id(request.body)
     previous = STATE.package(candidate_id)
-    payload = _package_payload(_resolve_inputs(request, candidate_id), previous)
+    resolved = _resolve(request, candidate_id)
+    pipeline = _pipeline(request)
+    payload = _package_payload(resolved.as_demo_inputs(pipeline.DemoInputs), previous)
+    # Which detector actually minted this candidate, and how many ran. Reported because the
+    # refusal beside it names a detector, and a reader comparing the two should not have to infer
+    # which one produced the package that succeeded.
+    payload["resolution"] = resolved.as_dict()
     STATE.put_package(candidate_id, payload)
     return JsonResponse(payload)
 
@@ -1070,22 +1264,41 @@ def _provider_for(request: Request, config: Any, *, live: bool) -> Any:
     return ReplayingStoryGenerationProvider(store, model_id=provider_config.model)
 
 
-def _generation_trace(emitter: TraceEmitter) -> Callable[[str], None]:
+class _GenerationTrace:
     """One event as each model call opens, from inside the provider decorator.
 
     `run_demo` is one blocking call, so without this the whole generation half would arrive at
     the trace panel at once. The decorator is already in the path for §6's prompt composition,
     and the schema name it is handed says which of the two call sites is opening — which is an
     operational fact this code observes, not a narration of one.
+
+    **This is a class rather than a closure because of what it has to remember** (2026-08-05).
+    The two hooks emitted `planning · running` and then `drafting · running`, and every
+    `planning · passed` came afterwards from `_emit_outcome` — so read top to bottom the stream
+    said drafting started before planning finished, at sequences 5 and 6 on a real run. It never
+    did: `run_demo` calls `write_story` only after `plan_story` returned.
+
+    The fix is to emit the transition where it is observed. The writer call opening **is** the
+    planner having returned — there is no other way to reach `write_story` — so `planning ·
+    passed` is emitted there, from the same fact, and `drafting · running` follows it. The plan's
+    counts are not available at that moment, which is the one thing this costs; `_emit_outcome`
+    fills them in only when the writer never opened, so the panel never carries two conflicting
+    `planning` closures. `plan` is in the outcome payload whole either way.
     """
 
-    def on_call(schema_name: str) -> None:
-        if schema_name == PLANNER_SCHEMA_NAME:
-            emitter.emit("planning", "running")
-        elif schema_name == WRITER_SCHEMA_NAME:
-            emitter.emit("drafting", "running")
+    def __init__(self, emitter: TraceEmitter) -> None:
+        self._emitter = emitter
+        self.planning_closed = False
 
-    return on_call
+    def __call__(self, schema_name: str) -> None:
+        if schema_name == PLANNER_SCHEMA_NAME:
+            self._emitter.emit("planning", "running")
+        elif schema_name == WRITER_SCHEMA_NAME:
+            # The planner returned; that is what makes this call reachable.
+            if not self.planning_closed:
+                self._emitter.emit("planning", "passed")
+                self.planning_closed = True
+            self._emitter.emit("drafting", "running")
 
 
 def _emit_inputs(emitter: TraceEmitter, inputs: Any) -> None:
@@ -1113,13 +1326,22 @@ def _emit_inputs(emitter: TraceEmitter, inputs: Any) -> None:
                            warnings=len(package.counter_evidence)))
 
 
-def _emit_outcome(emitter: TraceEmitter, outcome: Any, accepted: str) -> None:
-    """The generation half's events, every count read off `DemoOutcome`."""
+def _emit_outcome(emitter: TraceEmitter, outcome: Any, accepted: str, *,
+                  planning_closed: bool = False) -> None:
+    """The generation half's events, every count read off `DemoOutcome`.
+
+    `planning_closed` is `_GenerationTrace`'s: when the writer call opened, planning was already
+    reported as passed at the moment it actually passed, and re-reporting it here — after
+    `drafting · running` — is what made the stream read out of order. See `_GenerationTrace`.
+    """
     plan, draft, verified = outcome.plan, outcome.draft, outcome.verified
     if plan is None:
         emitter.emit("planning", "failed",
                      counts=TraceCounts(refused=len(outcome.refusal_codes)))
-    else:
+    elif not planning_closed:
+        # The planner produced a plan and the writer never opened — a refusal inside
+        # `write_story` before it reached the provider. Rare, and the only path on which nothing
+        # has yet closed the planning stage.
         emitter.emit("planning", "passed",
                      counts=TraceCounts(processed=len(plan.key_points),
                                         accepted=len(plan.counterpoints),
@@ -1261,7 +1483,9 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
     **A refused or rejected run renders as rejected, and there is one branch that decides it.**
     `post` is populated only on `ACCEPTED`, which is the same condition `pipeline._write_run`
     writes `post.md` under; every other disposition carries `rejection` instead. The two can
-    never both be present, here or on disk.
+    never both be present, here or on disk. When that invariant does not hold on disk —
+    accepted, and no readable `post.md` — the body says so through `post_error` rather than
+    returning a null the client has to interpret.
 
     `outcome.refusal` is deliberately **not** in this payload. It is `str(exc)` from whatever
     refused, and a `StoryProviderError` raised by the HTTP adapter carries the server's URL.
@@ -1271,12 +1495,31 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
     accepted = outcome.disposition == pipeline.ACCEPTED
     directory = Path(outcome.directory)
     post = None
+    post_error = None
     if accepted:
         post_path = directory / pipeline.POST_FILENAME
-        if post_path.is_file():
+        try:
             post = {"filename": pipeline.POST_FILENAME,
                     "markdown": post_path.read_text(encoding="utf-8"),
                     "sentences": len(outcome.draft.sentences) if outcome.draft else 0}
+        except OSError as exc:
+            # **An accepted run with no readable post is an error state, and the server says so**
+            # (2026-08-05). The previous branch was `if post_path.is_file()`, so an unreadable
+            # artifact produced `accepted: true, rendered_as: "post", post: null` — a body from
+            # which the client rendered *"Refused · accepted"*, which is neither. `run_demo`
+            # writes `post.md` under exactly the condition that sets `accepted`, so its absence
+            # is a broken run directory, not a disposition; naming it is the only coherent
+            # answer. The exception's text stays in the log, as everywhere else here.
+            _log(f"the accepted run {outcome.story_run_id} has no readable "
+                 f"{pipeline.POST_FILENAME}", exc)
+            post_error = {
+                "code": "post_artifact_unreadable",
+                "filename": pipeline.POST_FILENAME,
+                "message": ("this run was accepted and pipeline._write_run writes post.md under "
+                            "exactly that condition, so the artifact should exist and be "
+                            "readable. It is not. The run's disposition is unchanged and is "
+                            "still an acceptance; what is missing is the rendered file."),
+            }
     rejection = None
     if not accepted:
         family = (code_catalogue.FAMILY_PLANNER
@@ -1293,6 +1536,21 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
             "codes": _explanations(outcome.refusal_codes, family),
             "verifier_ran": outcome.verified is not None,
         }
+        if not outcome.refusal_codes:
+            # **Measured on three live runs, 2026-08-05: a refusal can carry no code at all.**
+            # `_codes_of` reads `codes` off §11/§12's rejections and `violations` off a schema
+            # error, and a `StoryProviderError` raised by the transport — a 500, a context
+            # overflow, a truncated JSON body — has neither. The panel then said *"Refused"* and
+            # nothing else. `outcome.refusal` is still withheld (it is `str(exc)` and the HTTP
+            # adapter's carries the server's URL), so what is added here is the *shape* of the
+            # answer and where the untruncated one lives — which is true, and is more than an
+            # empty list.
+            rejection["codes_absent_reason"] = (
+                "this refusal carried no structured code. §11 and §12's own rejections carry "
+                "codes and a schema violation carries violations; a provider or transport "
+                f"failure carries neither. The run directory's {pipeline.REJECTED_FILENAME} "
+                "holds the full detail, which is not served because it is an exception's text "
+                "and can name the model server's address.")
     return {
         "story_run_id": outcome.story_run_id,
         "directory": _relative(directory, root),
@@ -1312,6 +1570,10 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
         "verification": (None if outcome.verified is None
                          else _verification_payload(outcome.verified)),
         "post": post,
+        #: `null` on every coherent run. Non-null means `accepted` and `post` disagree, and the
+        #: disagreement is the server's to report rather than the client's to guess at.
+        "post_error": post_error,
+        "artifacts_complete": post_error is None,
         "rejection": rejection,
         "cost": _cost_panel(outcome, live=live),
         # A summary rather than the whole composition: `POST /demo/generate` already returned
@@ -1338,8 +1600,32 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
     }
 
 
+#: What §10 section a passage came out of, and what that means for a reader. The four are the
+#: package's own four lists; the sentence beside each is this repository's.
+#:
+#: **Added 2026-08-05.** `_sources_payload` flattened all four lists into one dictionary and the
+#: response carried no `role` and no `is_counter_evidence` — verified on a live
+#: `GET /demo/runs/{id}/sources` body. The brief requires primary support, context,
+#: counter-evidence and warning-only evidence to be distinguishable, and a counter-evidence
+#: passage rendered identically to a supporting one is the single most misleading thing this
+#: panel could do: it turns evidence *against* the thesis into evidence for it.
+PASSAGE_ROLES: Mapping[str, str] = {
+    "primary": "cited in support of a packaged fact; §10's primary_passages",
+    "context": "surrounding disclosure retrieved with a primary passage; not itself cited",
+    "explanatory": "a fulltext hit the candidate asked for; explanatory, not supporting",
+    "counter_evidence": ("evidence that cuts against the thesis. §10 retrieves it deliberately "
+                         "and §11's planner must weigh it; it is not support and must never be "
+                         "rendered as support"),
+}
+
+#: The four roles, in the order the panel should read them. A tuple so `counts.by_role` can hold
+#: a `0` for a section that was considered and empty — which is a different fact from a section
+#: that was never fetched, and the two were indistinguishable when a falsy count was dropped.
+PASSAGE_ROLE_ORDER: tuple[str, ...] = ("primary", "context", "explanatory", "counter_evidence")
+
+
 def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
-    """Sentence to fact to citation to passage to document, grouped by document.
+    """Sentence to fact to citation to passage to document, grouped by document, with roles.
 
     The link the demo claims, resolved in one direction and reported where it breaks. A
     citation whose passage is not in the package is listed under `unresolved` rather than
@@ -1349,8 +1635,22 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
     The quote is taken from the passage text by the citation's own span, which is what a
     citation *is* in §12 — the model declares a substring and `writer.draft_from` locates it.
     `quote_resolved` says whether the span landed inside the text it names.
+
+    **Every passage carries the §10 section it came from** (`role`, plus the derived
+    `is_counter_evidence` for the one distinction a renderer must not miss). See `PASSAGE_ROLES`
+    for why a flattened list was wrong. `want_counter_evidence` and `want_explanatory_search`
+    travel beside the counts, because *"zero counter-evidence found"* and *"counter-evidence was
+    not requested"* are different answers and only one of them is reassuring.
     """
     package = inputs.package
+    by_role = {
+        "primary": package.primary_passages,
+        "context": package.context_passages,
+        "explanatory": package.explanatory_passages,
+        "counter_evidence": package.counter_evidence,
+    }
+    role_of = {passage.passage_id: role
+               for role in PASSAGE_ROLE_ORDER for passage in by_role[role]}
     passages = {p.passage_id: p for p in (
         package.primary_passages + package.context_passages
         + package.explanatory_passages + package.counter_evidence)}
@@ -1427,6 +1727,11 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
                 "heading_path": list(passage.heading_path),
                 "excerpted": passage.excerpted,
                 "source_url": passage.source_url,
+                # The §10 section this passage came out of, and the one derived flag a renderer
+                # must not be able to miss. See `PASSAGE_ROLES`.
+                "role": role_of.get(passage.passage_id, ""),
+                "role_description": PASSAGE_ROLES.get(role_of.get(passage.passage_id, ""), ""),
+                "is_counter_evidence": role_of.get(passage.passage_id) == "counter_evidence",
                 "citations": citations_by_passage.get(passage.passage_id, []),
                 "facts": facts_by_passage.get(passage.passage_id, []),
             }
@@ -1456,6 +1761,24 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
             "citations": citation_count,
             "facts": len(package.facts),
             "unresolved": len(unresolved),
+            # Every role, always, including the zeros. A dropped `counter_evidence: 0` reads as
+            # "not considered" and this package did consider it — see `requested` below.
+            "by_role": {role: len(by_role[role]) for role in PASSAGE_ROLE_ORDER},
+        },
+        "roles": [{"role": role, "description": PASSAGE_ROLES[role],
+                   "count": len(by_role[role])}
+                  for role in PASSAGE_ROLE_ORDER],
+        # What the candidate's own evidence request asked §10 to look for. The distinction
+        # between "searched and found none" and "never searched" lives here and nowhere else:
+        # both produce a count of zero.
+        "requested": {
+            "counter_evidence": bool(
+                inputs.candidate.evidence_request.want_counter_evidence),
+            "explanatory_search": bool(
+                inputs.candidate.evidence_request.want_explanatory_search),
+            "note": ("a role with count 0 that was requested was searched for and not found; a "
+                     "role with count 0 that was not requested was never fetched, and §10 "
+                     "records that on the candidate rather than inferring it from the result."),
         },
         "honest_labels": list(HONEST_LABELS),
     }
@@ -1512,11 +1835,12 @@ def start_generation(request: Request) -> JsonResponse:
         emitter.emit("freshness", "running")
         inputs = _resolve_inputs(request, candidate_id)
         _emit_inputs(emitter, inputs)
+        generation_trace = _GenerationTrace(emitter)
         provider = ObservedProvider(
             prompt_presets.EditedSystemProvider(inner=provider_base, composed=composed),
             composed=composed,
             store=getattr(provider_base, "store", None),
-            on_call=_generation_trace(emitter))
+            on_call=generation_trace)
         try:
             outcome = pipeline.run_demo(inputs, provider=provider, config=run_config, live=live)
         except MissingGenerationError:
@@ -1535,7 +1859,8 @@ def start_generation(request: Request) -> JsonResponse:
             _log("the generation run failed", exc)
             raise ApiError("internal_error", detail="run_demo") from None
 
-        _emit_outcome(emitter, outcome, pipeline.ACCEPTED)
+        _emit_outcome(emitter, outcome, pipeline.ACCEPTED,
+                      planning_closed=generation_trace.planning_closed)
         events = run.events()
         path = write_trace_events(Path(outcome.directory) / TRACE_EVENTS_FILENAME, events)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -1651,11 +1976,15 @@ def register_endpoints(router: Router | None = None) -> Router:
 
 __all__ = [
     "CHECK_STAGES",
+    "EXPLANATIONS",
     "GENERATE_OWN_FIELDS",
     "ENDPOINTS",
     "ERRORS",
     "HONEST_LABELS",
+    "PASSAGE_ROLES",
+    "PASSAGE_ROLE_ORDER",
     "STATE",
+    "URI_PLACEHOLDER",
     "VERIFICATION_STAGES",
     "ApiError",
     "DemoState",

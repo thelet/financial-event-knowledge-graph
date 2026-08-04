@@ -306,6 +306,42 @@ size bounds; fake-provider end-to-end accepted **and** rejected; source link res
 sentence → fact → citation → passage → document; and the security set — no `raw_content` in any
 response, no secrets, no client Cypher, id validation, bounded prompt text, safe rendering.
 
+## 9b. Wave 4 repairs — the backend half *(2026-08-05, each reproduced before it was fixed)*
+
+Wave 4's adversarial review found seven things the earlier waves got wrong. All seven were
+measured against the running server on `graph-v1-0483dc6b4b10`; none was predicted from reading.
+`story/pipeline.py` and the accepted stages were not touched.
+
+| # | What was wrong | What it is now |
+| --- | --- | --- |
+| F1 | `POST /demo/evidence-package` refused **19 of the 20** rows `POST /demo/story-suggestions` had just served, with `candidate_not_reproducible` — *"the detectors did not reproduce that candidate from this graph run"*. **The message was false**: the cause was `resolve_demo_inputs` re-deriving with §6.6's D4 alone (§8b's narrowing), not the candidate | `story/demo_ui/candidate_resolution.py` re-derives through **all four** detectors and packages with the same `BoundedEvidencePackageBuilder`. All four families package (measured below). `candidate_not_reproducible` can now only be raised after four detectors ran, and carries which ran and how many candidates they minted; `candidate_not_packageable` is a separate refusal for a candidate that *was* re-derived |
+| F2 | A third path leak, on two paths: `_scrub_paths` never reached `DiscoveryResult.as_dict()` (four `freshness.checks[].detail` strings carried the operator's home directory on the **success** path), and `_ABSOLUTE_PATH` structurally cannot match `//localhost`, so `"bolt://localhost:7687 database=neo4j"` survived on both endpoints | The discovery result is scrubbed whole; `_URI_AUTHORITY` reduces any URI to its scheme (`bolt://<host> database=neo4j`). Swept: every endpoint, success and error, is clean of `/mnt/`, `/home/`, `/Users/`, `bolt://`, `neo4j://`, `NEO4J_`, `api_key`, `127.0.0.1` |
+| F3 | `graph_highlights.node_ids` carried period keys for 8 of 12 stages and `trace.py` composed `f"{len(node_ids)} nodes"`. Measured against the overview payload: comparability 0 of 24 resolved, grouping 0 of 24 | `GraphHighlights.period_keys` is its own field, counted as *"N period keys"*. Period keys resolve **24 of 24** in the coverage projection as `period:<key>`; node ids resolve fully for every non-detector stage. The detector stages' residual misses are `obs:` ids outside the bounded 20-per-metric overview sample — real nodes, disclosed bound |
+| F4 | `discovery.TRACE_STAGES` mapped `metric_history → ranking`, so the stream emitted `ranking` twice with different numbers | `metric_history` is a stage of `trace.py`'s closed discovery set, ordered before `grouping` and `ranking`. No two discovery stages share a trace stage, and a test asserts it |
+| F10 | `drafting · running` (seq 5) preceded `planning · passed` (seq 6) | `planning · passed` is emitted where it is observed — the moment the writer call opens, which is what makes that call reachable. It closes exactly once |
+| F11/F12 | Three rows rendered two populations as one number (`processed 5 · refused 85`); `ranking`'s `refused` was a hardcoded `0` | `TraceCounts` carries a unit per count from a closed `COUNT_UNITS`; `ranking` omits `refused` because `RankingResult` has none to read |
+| F7/F8/F16 | An accepted run with an unreadable `post.md` returned a silent `null`; `/sources` flattened the four §10 passage lists with no `role`; `discovery_run_id` was last-writer-wins | `post_error` + `artifacts_complete`; `role`, `role_description`, `is_counter_evidence`, `counts.by_role` (zeros kept) and `requested`; attribution is first-writer with `discovery_run_ids` beside it |
+
+**What each detector family can do, measured 2026-08-05.** Package: all four, in ~3 s each
+(one graph load shared by four detectors and the builder).
+
+| Family | Package | Generate (replay) | Generate (live Qwen) |
+| --- | --- | --- | --- |
+| `metric_move` | 2 facts, 2 primary passages, 2 counter-evidence | `generation_not_recorded` — the committed store holds only D4's answers | reached the planner; §11 refused a truncated JSON plan at 2048 tokens |
+| `trend_reversal` | 4 facts, 4 primary passages | `generation_not_recorded` | reached the writer; §12 refused — the writer prompt is 8,599 tokens against an 8,192 context |
+| `acceleration` | 4 facts, 4 primary passages | `generation_not_recorded` | reached the writer; §12 refused, same context limit |
+| `cross_metric_divergence` | 5 facts, 3 primary passages | **accepted**, `post.md` rendered, verifier passed | reached the writer; §12 refused |
+
+Two honest consequences, neither hidden: the recorded store holds one candidate's answers, so
+the other three families need `--live`; and the local 8,192-token runtime cannot hold the writer
+prompt for the larger packages, so a *live* post is not produced for them today. That is a
+runtime bound, not a resolver bound — the package, the plan and the model call all happen.
+
+**The D4 package built through the new resolver is byte-identical** to the one
+`resolve_demo_inputs` built on 2026-08-04 (`package_content_digest b01a8d573f08…`), and
+`detector_versions` carries the minting detector alone so `story_run_id` matches the CLI's for
+the same candidate. A `neo4j`-marked test asserts both.
+
 ## 10. Out of scope
 
 Publishing. Authentication. Multi-user state. Writing anything to Neo4j or to an authoritative
