@@ -1,0 +1,88 @@
+{
+  "anchor_observation_ids": [
+    "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",
+    "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db",
+    "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd",
+    "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:cfa61af17de1",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:d31a729d1d52",
+    "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:f819670c12f3"
+  ],
+  "anchor_period_keys": [
+    "2022Q3"
+  ],
+  "audience": "external",
+  "candidate_id": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+  "detector_id": "detector:cross_metric_divergence",
+  "detector_version": "1.0.0",
+  "event_ids": [],
+  "evidence_request": {
+    "event_ids": [],
+    "metric_ids": [
+      "adjusted_gross_margin",
+      "gaap_gross_margin"
+    ],
+    "observation_ids": [
+      "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",
+      "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db",
+      "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd",
+      "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:cfa61af17de1",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:d31a729d1d52",
+      "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:f819670c12f3"
+    ],
+    "period_keys": [
+      "2022Q3"
+    ],
+    "want_counter_evidence": true,
+    "want_explanatory_search": false
+  },
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "metric_ids": [
+    "adjusted_gross_margin",
+    "gaap_gross_margin"
+  ],
+  "policy_version": "canon-policy:1.0.0",
+  "signals": {
+    "comparable_overlap": 25,
+    "gap": 15.899999999999999,
+    "gap_direction": "increase",
+    "gap_mean": -0.348,
+    "gap_pstdev": 4.1181665823519085,
+    "gap_pstdev_excluding_anchor": 2.491527309369362,
+    "left_formula_expression": "adjusted_gross_profit / revenue",
+    "left_formula_id": "adjusted_gross_margin_v1",
+    "left_metric_id": "adjusted_gross_margin",
+    "left_polarity": "ratio",
+    "left_value": 3.3,
+    "period_shape": "quarter",
+    "periods_excluded": 0,
+    "periods_unresolved": 0,
+    "population_first_period": "2020Q1",
+    "population_last_period": "2026Q1",
+    "population_size": 25,
+    "relation": "shared_components",
+    "relation_group_ids": "margin_measures",
+    "right_formula_expression": "gaap_gross_profit / revenue",
+    "right_formula_id": "gaap_gross_margin_v1",
+    "right_metric_id": "gaap_gross_margin",
+    "right_polarity": "ratio",
+    "right_value": -12.6,
+    "shared_component_metrics": "revenue",
+    "sign_convention": "positive",
+    "unit": "percent",
+    "variance_floor": 0.2,
+    "z": 3.945445060340583
+  },
+  "story_type": "cross_metric_divergence",
+  "subject_entity_id": "opendoor",
+  "warnings": []
+}

@@ -243,10 +243,31 @@ def test_no_driver_is_reachable_from_the_contract_the_core_or_any_stage():
     stage — which is exactly how `tests/graph/test_graph_package_structure.py::
     test_no_driver_is_reachable_from_core_or_projection` scopes the same rule (`DATABASE_FREE`
     is `graph/core` plus `graph/stages/projection`, not "everything but the loader"). The
-    guarantee is unchanged and the exemption is two named paths wide: a *stage* that imported
-    the adapter still fails here.
+    guarantee is unchanged and a *stage* that imported the adapter still fails here.
+
+    **Widened at D6, for the same reason and no further.** `story/cli.py` calls
+    `build_story_context` — it is the only module in the package that builds one — so the
+    closure from it reaches the composition root and then the driver in two hops;
+    `story/__main__.py` reaches it in three, and `story/pipeline.py` names `StoryContext` for
+    the type of its argument. The S0c correction's own argument applies unchanged: the rule as
+    written could only be kept by a package with no command-line entry point, and
+    `TOP_LEVEL_MODULES` below already declares all four of these files as part of the layout.
+
+    **`pipeline.py` is exempt even though its import is under `TYPE_CHECKING`**, because
+    `imports()` reads the AST and an `ast.walk` sees a guarded import exactly as it sees any
+    other — correctly, since a rule that could be satisfied by indenting an import would not be
+    a rule. The guard stays in `pipeline.py` as the honest statement of a module that
+    constructs no context; the exemption here is what makes the statement checkable rather than
+    what makes it true.
+
+    The exemption is a list of four named composition and entry modules rather than a
+    directory, and the walked set is what the rule is about: `contracts.py`, all of `core/`,
+    and every stage. A stage or a `core/` module that reached the adapter still fails here, and
+    `test_the_composition_root_is_the_only_module_outside_providers_that_reaches_the_adapter`
+    keeps the *direct* import at one file.
     """
-    exempt = (DRIVER_OWNING_MODULE, PACKAGE / "context.py")
+    exempt = (DRIVER_OWNING_MODULE, PACKAGE / "context.py", PACKAGE / "cli.py",
+              PACKAGE / "pipeline.py", PACKAGE / "__main__.py")
     driver_free = [p for p in STORY_MODULES if p not in exempt]
     assert driver_free, "nothing to walk"
     assert any(p.is_relative_to(PACKAGE / "core") for p in driver_free)

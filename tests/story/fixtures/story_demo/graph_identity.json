@@ -1,0 +1,13 @@
+{
+  "edge_count": 35600,
+  "extraction_run_directory": "data/extraction_runs/extract-v1-lexical-833f7bcfbce9",
+  "extraction_run_id": "extract-v1-lexical-833f7bcfbce9",
+  "graph_projection_version": "1.2.0",
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "input_content_digest": "40ea214c701c",
+  "node_count": 28836,
+  "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
+  "ontology_id": "real_estate_marketplace_v1",
+  "ontology_version": "2.0.0",
+  "run_complete_sha256": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e"
+}

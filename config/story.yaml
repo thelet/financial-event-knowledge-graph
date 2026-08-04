@@ -1,0 +1,88 @@
+# Story agent configuration — V1_STORY_AGENT §10.2, §14, §15, and IMPLEMENTATION_STEPS §8b.
+#
+# NON-SECRET DEFAULTS ONLY, the same rule `config/graph.yaml` states. There is no credential
+# here and there must never be one: `story/providers/public.py:from_config` **refuses** a
+# `provider.api_key`, `api_token`, `authorization` or `token` key rather than reading it, and
+# `STORY_LLM_API_KEY` in the gitignored repository-root `.env` is the only place one may live.
+#
+# This file is a digest input. `story/pipeline.py` hashes the document **as written** into
+# `config_hash`, which is a `story_run_id` input (§14), so every key below — including one this
+# loader does not read — moves the run id when it changes. That is what makes `length_target`
+# safe to keep here: it changes the writer's prompt text without changing
+# `WRITER_PROMPT_VERSION`, and without the config hash nothing in the id would notice.
+#
+# **Scope.** This file serves the §8b demo path and nothing else. The production run lifecycle,
+# the `discover`/`package`/`plan`/`draft`/`verify` CLI family and the research mode are deferred
+# by §8b and have no keys here; adding one for a verb that does not exist would be a claim.
+
+version: v1
+
+# §15's provider block. Read by `story/providers/public.py:load_provider_config`, which layers
+# `.env` and then the process environment over these values — `STORY_LLM_BASE_URL`,
+# `STORY_LLM_MODEL`, `STORY_LLM_TIMEOUT_SECONDS`, `STORY_LLM_MAX_RETRIES`,
+# `STORY_LLM_MAX_OUTPUT_TOKENS`, `STORY_LLM_CONTEXT_TOKENS`. The machine wins.
+#
+# These are the validated local runtime (LOCAL_RUNTIME_VALIDATED.md §1) and were re-verified
+# against the running server on 2026-08-04: `GET /health` returns `{"status":"ok"}` and the
+# planner answered in 10.4 s over this model.
+#
+# There is deliberately **no `temperature` key**. §15.1 pins it as `PINNED_TEMPERATURE = 0.0`
+# at the call site because it is a digest input to every stored generation, and a value that
+# could be edited here would silently re-key the whole replay store.
+provider:
+  kind: local_openai_compatible
+  base_url: http://127.0.0.1:8080
+  model: Qwen3.5-9B-Q4_K_M.gguf
+  context_tokens: 8192
+
+  # 2048 rather than the module default of 1024: both call sites below ask for 2048, and a
+  # configured ceiling below what the code requests would be a bound that never binds.
+  max_output_tokens: 2048
+  timeout_seconds: 120
+  max_retries: 2
+
+# §11 and §12's two call sites. `planner_max_tokens` and `writer_max_tokens` are digest inputs
+# to `request_identity`, so changing one re-keys that stage's stored generations by design.
+generation:
+  planner_max_tokens: 2048
+  writer_max_tokens: 2048
+
+  # §12's `length_target`, in sentences. **4, and the code default is 5** — measured, not
+  # preferred. Six live writer calls against the demo package on 2026-08-04, one per target,
+  # with the planner's answer replayed so only this number moved:
+  #
+  #   target 3  draft constructed, 3 sentences   verifier REJECTED (9 blocking findings)
+  #   target 4  draft constructed, 4 sentences   verifier REJECTED (9 blocking findings)
+  #   target 5  §12 refused: citation_quote_ambiguous_in_passage
+  #   target 6  §12 refused: citation_quote_ambiguous_in_passage, citation_quote_not_in_passage
+  #   target 7  §12 refused: citation_quote_not_in_passage ×2
+  #   target 8  §12 refused: citation_quote_ambiguous_in_passage ×2, citation_quote_not_in_passage
+  #
+  # At 5 and above the writer's own construction checks refuse the draft, so §13 never runs and
+  # the demo cannot demonstrate the one thing it claims — that the numbers, periods, identities
+  # and citations are *deterministically verified*. 4 is the longest target that reaches the
+  # verifier. It does not make the draft pass: the recorded run's disposition is **rejected**.
+  length_target: 4
+
+# §8b's demo path. `candidate_id` is not here on purpose — it is the one argument
+# `python -m story demo` requires, so the manual selection is visible in the command a reader
+# runs rather than buried in a file.
+demo:
+  # IMPLEMENTATION_STEPS §0, verified 2026-08-03 and re-verified by the freshness gate on
+  # 2026-08-04: 14 of 14 checks pass against the loaded graph.
+  graph_run_id: graph-v1-0483dc6b4b10
+
+  # Under gitignored `data/`. Generated prose never leaves this directory: §14 forbids it in
+  # `data/extraction_runs/`, in `data/graph_runs/` and in Neo4j.
+  out_root: data/story_demo
+
+  # The recorded answer store the deterministic path replays — real Qwen responses, captured
+  # 2026-08-04 from the server named above. Tracked, because §14 keeps `tests/story/fixtures/`
+  # and "a small committed answer store for replay tests" in git; the pattern is
+  # `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores it and calls the server.
+  generation_store: tests/story/fixtures/story_demo/generations.jsonl
+
+# §10.2's bounds are **not restated here.** `story/core/models.py:BudgetParameters` holds them,
+# every field of it is already a digest input to both `package_id` and `story_run_id` through
+# `digest_parts()`, and a second copy in YAML would be a second place to look for an answer
+# that has not changed — the argument `story/context.py` makes for `data/graph_runs`.

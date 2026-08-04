@@ -1,0 +1,117 @@
+{
+  "checks": [
+    {
+      "code": "graph_manifest_unreadable",
+      "detail": "read from /mnt/c/Users/thele/Projects/FKG-story-agent-impl/data/graph_runs/graph-v1-0483dc6b4b10; projection 1.2.0, extraction run extract-v1-lexical-833f7bcfbce9",
+      "expected": "graph-v1-0483dc6b4b10",
+      "name": "graph_manifest",
+      "observed": "graph-v1-0483dc6b4b10",
+      "passed": true
+    },
+    {
+      "code": "extraction_run_directory_missing",
+      "detail": "/mnt/c/Users/thele/Projects/FKG-story-agent-impl/data/extraction_runs/extract-v1-lexical-833f7bcfbce9",
+      "expected": "present",
+      "name": "extraction_run_directory",
+      "observed": "present",
+      "passed": true
+    },
+    {
+      "code": "package_input_digest_mismatch",
+      "detail": "sha256(/mnt/c/Users/thele/Projects/FKG-story-agent-impl/data/extraction_runs/extract-v1-lexical-833f7bcfbce9/run.complete); the extraction run id 'extract-v1-lexical-833f7bcfbce9' is *not* what identifies these bytes — one id has named two different runs (§18), which is why this check hashes",
+      "expected": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e",
+      "name": "package_input_digest",
+      "observed": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e",
+      "passed": true
+    },
+    {
+      "code": "package_input_digest_mismatch",
+      "detail": "10 files listed by run.complete under /mnt/c/Users/thele/Projects/FKG-story-agent-impl/data/extraction_runs/extract-v1-lexical-833f7bcfbce9, each re-hashed; the marker is a manifest of the run, so verifying only the marker's own bytes verifies nothing it lists",
+      "expected": "<empty>",
+      "name": "extraction_run_contents",
+      "observed": "<empty>",
+      "passed": true
+    },
+    {
+      "code": "graph_unreachable",
+      "detail": "bolt://localhost:7687 database=neo4j",
+      "expected": "ok",
+      "name": "graph_reachable",
+      "observed": "ok",
+      "passed": true
+    },
+    {
+      "code": "load_incomplete",
+      "detail": "exactly one (:GraphLoad) node; found 1",
+      "expected": "1",
+      "name": "load_marker_present",
+      "observed": "1",
+      "passed": true
+    },
+    {
+      "code": "load_incomplete",
+      "detail": "a marker left at 'loading' or 'failed' means the load never finished; §10 writes the completion marker last precisely so this is detectable",
+      "expected": "complete",
+      "name": "load_status_complete",
+      "observed": "complete",
+      "passed": true
+    },
+    {
+      "code": "graph_run_id_mismatch",
+      "detail": "",
+      "expected": "graph-v1-0483dc6b4b10",
+      "name": "load_marker_graph_run_id",
+      "observed": "graph-v1-0483dc6b4b10",
+      "passed": true
+    },
+    {
+      "code": "graph_run_id_mismatch",
+      "detail": "the distinct graph_run_id over every loaded node; more than one means two runs were merged into one database (§6.2)",
+      "expected": "graph-v1-0483dc6b4b10",
+      "name": "node_graph_run_id",
+      "observed": "graph-v1-0483dc6b4b10",
+      "passed": true
+    },
+    {
+      "code": "graph_run_id_mismatch",
+      "detail": "",
+      "expected": "graph-v1-0483dc6b4b10",
+      "name": "edge_graph_run_id",
+      "observed": "graph-v1-0483dc6b4b10",
+      "passed": true
+    },
+    {
+      "code": "graph_run_id_mismatch",
+      "detail": "2704 :Observation nodes; §7 names this label because an observation from a superseded run is the fact that ends up quoted",
+      "expected": "graph-v1-0483dc6b4b10",
+      "name": "observation_graph_run_id",
+      "observed": "graph-v1-0483dc6b4b10",
+      "passed": true
+    },
+    {
+      "code": "count_mismatch",
+      "detail": "what the loader recorded it wrote, against what the export says it produced",
+      "expected": "edges=35600 nodes=28836",
+      "name": "load_marker_counts",
+      "observed": "edges=35600 nodes=28836",
+      "passed": true
+    },
+    {
+      "code": "count_mismatch",
+      "detail": "counted now, excluding the loader's own (:GraphLoad) marker — the database holds one more node than the export wrote, and a count that included it would refuse every correct run",
+      "expected": "edges=35600 nodes=28836",
+      "name": "loaded_element_counts",
+      "observed": "edges=35600 nodes=28836",
+      "passed": true
+    },
+    {
+      "code": "ontology_hash_mismatch",
+      "detail": "ontology real_estate_marketplace_v1 2.0.0; the distinct ontology_definition_hash over every loaded node against the hash this checkout computes now",
+      "expected": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
+      "name": "node_ontology_definition_hash",
+      "observed": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
+      "passed": true
+    }
+  ],
+  "graph_run_id": "graph-v1-0483dc6b4b10"
+}
