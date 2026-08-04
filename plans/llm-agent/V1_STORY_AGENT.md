@@ -695,8 +695,10 @@ floor.)* **Zero-delta handling must be specified, not left to the implementation
 of exactly 0 has no sign and breaks a run rather than continuing or reversing it.
 
 **D3 `acceleration`.** Three consecutive same-sign deltas with monotone **increasing** `|d|` and
-`|d[i]| ≥ 1.5 × |d[i−2]|`. Under that literal spec the corpus yields **8 firings across 6
-metrics**, and — a correction — **none of them is a deceleration**, because the monotone-increasing
+`|d[i]| ≥ 1.5 × |d[i−2]|`. Under that literal spec the corpus yields **7 firings across 5 metrics**
+*(measured 2026-08-04 at R3; it was 8 across 6 until D9 was fixed — one window,
+`gaap_gross_margin 2020Q1–2020Q4`, existed only because R8 compared raw float subtraction and
+so failed to refuse a one-printed-unit opening step. Over all shapes R3 admits: 9 across 6)*, and — a correction — **none of them is a deceleration**, because the monotone-increasing
 condition cannot fire on one. The first draft's dedup example (*"the 2023Q1 decelerations of
 AGP, CP, CM and AGM are the same event four times"*) describes candidates this detector cannot
 produce. **Decision: implement acceleration only in V1.** A deceleration detector needs its own

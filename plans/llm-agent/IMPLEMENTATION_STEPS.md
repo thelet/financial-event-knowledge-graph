@@ -222,7 +222,12 @@ Legend — status: `PLANNED` · `RUNNING` · `REVIEW` · `ACCEPTED` · `BLOCKED`
 | **Tests** | real fixtures from the current run; the 2022Q3 cluster appears; small-base guard; adjacency; polarity; dedup of correlated lineage |
 | **Acceptance** | no free-text thesis; no LLM; no self-ranking; blocked detectors skipped with a reason; ids stable |
 | **Review** | adversarial detector reviewer |
-| **Status** | PLANNED |
+| **Status** | **ACCEPTED** 2026-08-04 |
+| **Commits** | S3-A `b478864` · S3-B `961d51b` · S3-C `b2303a6` · R3 integration `b910e29` |
+| **Delivered** | 4 detectors, ~7,500 lines across 12 files, 130 detector tests |
+| **Live census (orchestrator-verified independently)** | `metric_move` **227** · `trend_reversal` **11** · `acceleration` **9** (all shapes) / 7 (quarters) · `cross_metric_divergence` **15** · **total 262 candidates, 262 distinct ids, 0 prose signals** |
+| **Spike candidates emitted** | `cand:metric-move:adjusted-ebitda:opendoor:2022Q2_2022Q3:1503b5b21731` δ=`-429000000.0` crosses_zero · `cand:metric-move:gaap-gross-margin:...:15b62d34dbaa` δpp=`-24.2` crosses_zero · `cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a` gap=`15.9` z=`3.945` n=`25` |
+| **Suites** | story `1193 passed` ×3 · neo4j `91 passed` · offline `3823 passed` |
 
 ### S4 — Ranking and deduplication
 
@@ -662,6 +667,39 @@ acceleration census is **8 only because this step survives R8**. Rounded, it is 
 S3-B found it, refused to paper over it, and asserted the dependency in a named test rather than
 adjusting its own count. Repair deferred until S3-A and S3-C land so the fix and the three
 affected test files move once rather than three times.
+
+### S3 accepted — four plan defects, one per detector, plus D9 closed
+
+**Every detector found a defect in the rule it was implementing.** None adjusted its result to
+match the number it was given.
+
+| # | Defect | Measured | Corrected in |
+| --- | --- | --- | --- |
+| **P10** | **§6.6 D1's firing expression left the relative arm unguarded**, so it applied to percent metrics alongside the pp arm. With `pp_min` and `pct_min` one column, a **3.0 pp** bar became a **3.0 % relative** bar — **0.24 pp** at GGM's 8% base, a factor of twelve | **310 candidates literal vs 227 corrected**; GGM 37→11, AGM 36→18, `pct_>120d` 10→4 | plan §6.6 D1 |
+| **P11** | §6.6 D2's `max(D1 threshold, σ)` **has no literal meaning** — D1's bar is a disjunction, not a number | implemented as a conjunction; identical on percent metrics | plan §6.6 D2 |
+| **P12** | §6.6 D2's low-variance exclusion **excludes nothing**, and its reason is **wrong about the data**: `market_count` does not "alternate ±0", it steps up through 2021–22 then flattens, σ = 3.26 against a one-market tolerance | rule kept, fires on nothing; what removes `market_count` is R8 + R10 + the population floor | plan §6.6 D2 |
+| **P13** | §6.6 D2's **"84 reversals across 13 metrics" does not reproduce** under any zero-handling or shape grouping tried | closest 76/12 ignoring comparability, 71/11 honouring it; shipped census **11/9** | plan §6.6 D2 |
+| **D9** | **R8 compared raw float subtraction**, failing its own docstring on exactly one corpus case | fixed by rounding to `DELTA_PRECISION`; acceleration census **8→7** quarters, **10→9** all shapes. First suite run after the fix failed exactly three tests and no others — the blast-radius claim reproduced | `story/core/series.py:405` |
+
+**A boundary the fix had to respect:** `DELTA_PRECISION` could not live in `detector_config.py`,
+because `core/` may not import a stage (`test_core_never_imports_a_stage_a_provider_or_the_cli`)
+and R8 must round to the same places the detectors do. It lives in `story/core/series.py:74`,
+with an **AST test asserting exactly one file in `story/` assigns it** — two copies could
+silently disagree.
+
+**A distinction worth keeping (S3-A):** polarity (*is this a cost?*) is separated from
+`VALUE_SIGN` (*how is it stored?*), because conflating them is the actual bug. `direct_selling_costs`
+and `holding_costs` are stored negative (46/46 and 15/15, measured). `adjusted_ebitda` is
+negative in 37 of 48 slots and **that is a loss, not a sign convention**. `cost_of_revenue` and
+`inventory_valuation_adjustment` have zero observations, so the corpus cannot say — their
+candidates carry `metric_sign_convention_unverified` and **no direction at all**.
+
+**Two open items carried forward, not defects:** `CanonicalPoint` carries no `ambiguity_codes`,
+so §6.6 D8's "the candidate must surface `pct_120_days_denominator`" is not satisfiable from the
+canonical layer — **§10 packages them from the observations instead**, flagged for the S5 packet.
+And 112 of `metric_move`'s 227 candidates are twelve-month steps judged against quarter-over-quarter
+percentiles; narrowing the scan was rejected (§6.2 makes instant series first-class), so
+`period_shape` is a signal and **§6.10 ranking is where an annual restatement should lose**.
 
 ## 8. Founder gates
 
