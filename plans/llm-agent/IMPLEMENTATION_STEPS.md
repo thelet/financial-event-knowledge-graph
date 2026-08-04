@@ -780,12 +780,38 @@ ids, **every signal value**, and candidate order byte-identical; **no threshold 
 
 **A fixture correction worth keeping:** three offline divergence fixtures were **built on the defect** — each constructed a perfectly flat gap and pushed one quarter out of it, the exact single-point excursion the floor now refuses. They exercised R6 and R9 through a population the detector should never have scored. Same shape as AR1's fixture that could not express its own failure; third occurrence this session.
 
+### R5 accepted (`447380f`) — the versioning gap G2 exposed
+
+`RANKING_POLICY_VERSION = "1.1.0"` in `scoring.py`, threaded into the `story_run_id` digest as a
+**required parameter** (never an import — `core/` may not reach a stage) and recorded in
+`StoryRunManifest`. `1.0.0` is deliberately skipped: it would name §6.10's literal `Δpct/p90`
+term, which no run ever used.
+
+**Bump rule, stated in the code:** it moves whenever two runs over one graph could rank
+differently — a term added or removed, any weight, any saturation/horizon/precision constant,
+the ordering key, or §6.6 D3's dedup rule (deduplication elects the representative, so it
+decides what can become a post). It does **not** move for a rename or a refactor that leaves
+every total and position identical.
+
+**Proof the ranking did not move**, which is what made this safe to land: R5 dumped every rank,
+id, total, component map, suppression map, `dedup_group`, representative flag and cluster
+explanation before and after — **225,760 bytes, sha256 identical, `cmp` byte-for-byte equal**.
+
+**Orchestrator verification:** `RANKING_POLICY_VERSION` assigned in exactly one file;
+`story-v1-abf9d29f8552` at `1.1.0` vs `story-v1-ab2442baa8fa` at `1.2.0` — **a ranking change is
+now visible in run identity**, which it was not before. Plan §14's digest-input list swept to
+match (R5 correctly declined to edit it as outside its ownership).
+
+**Open, expected:** `story_run_id` still has no production caller — nothing in `story/` invokes
+it or `build_manifest` yet. S11 wires it. The parameter is **required, with no default**, so
+whichever stage wires the run up cannot forget it.
+
 ## 8. Founder gates
 
 | # | Question | Status |
 | --- | --- | --- |
 | D1 | Neo4j connection boundary | **RESOLVED** — see §7 |
-| **G2** | **§6.10's ranking units term is not implementable as written.** See below | **OPEN** |
+| **G2** | §6.10's ranking units term | **CLOSED 2026-08-04 — founder chose option A.** `clip(\|Δ\|/p90(\|Δ\|))` stands; `Δpct/p90` not restored; no hybrid. Recorded as an approved correction at plan §6.10.1 with old/new formula, the 130-of-262 affected population, F1 at 16th vs 37th, and the explicit statement that the `delta_pct` safety rule is unchanged. **Exposed a real versioning gap** — the contract had no ranking version at all, so a scoring change was invisible to `story_run_id`; closed by R5 `447380f` |
 | G1 | The local llama.cpp server was not running | **CLOSED 2026-08-03.** Founder started it. `:8080` returns `{"status":"ok"}` serving `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf` — verified by the orchestrator. `:8081` (embeddings) remains down and is **irrelevant**: embeddings are deferred from V1. S6's two live tests can now run instead of skipping, and S12 can report a real local-Qwen run alongside the recorded one |
 
 ---

@@ -2055,6 +2055,7 @@ data/story_runs/<story_run_id>/          gitignored by .gitignore:3 — no chang
 `story_run_id = story-v1-<digest12>` over `(story_layout_version, graph_run_id,
 run_complete_sha256, ontology_definition_hash, config_hash, prompt_version, model_id,
 provider_model_id, temperature, max_tokens, schema_digests, detector_versions, policy_version,
+ranking_policy_version,
 selection)` where `selection` is the normalised, sorted tuple of every argument that changes
 *what is in the run* — `--limit`, `--candidates`, `--detectors`, `--since`, `--until` — plus the
 §10.2 budget parameters. Derived, **no clock** — matching `graph/core/manifest.py:104-139`.
