@@ -1748,7 +1748,13 @@ equality**. *(Correction 2026-08-04: this section used `5.2 − 2.2` as the floa
 and that subtraction is **exactly 3.0** in IEEE-754. The hazard is real and the instance was
 not. Real residues from this corpus: `adjusted_gross_margin` `9.9 − 7.3 = 2.6000000000000005`,
 `13.2 − 9.9 = 3.299999999999999`, and — a spike value — `3.3 − 13.2 = −9.899999999999999`.)*
-Require ≥2 resolving inputs sharing metric and unit and passing §13.4, and require a
+Require ≥2 resolving inputs sharing **unit and period shape** and passing §13.4 — *(corrected
+2026-08-04, D5: this said "sharing **metric** and unit", which **refuses this plan's own
+recommended spike**. `cross_metric_divergence` subtracts `gaap_gross_margin` from
+`adjusted_gross_margin`, and the metrics differing **is** the story; a same-metric rule kills
+every cross-metric comparison the D4 detector exists to find. Shared unit and period shape is
+the constraint that actually matters — it stops a percent being differenced against a count, or
+a quarter against a fiscal year.)* — and require a
 `formula_version_id` that `check_formula_for_date` accepts **for the period computed over, not
 the filing date**.
 
@@ -1897,7 +1903,7 @@ ones pass the whole of §13:
 | Attack | Why it is false in this corpus |
 | --- | --- |
 | *"That was the only quarter in which the company reported a negative adjusted gross margin."* | `adjusted_gross_margin` is negative in **2022Q4 (−3.2) and 2023Q1 (−3.3)**. The same sentence about *GAAP* gross margin is true (2022Q3 only), so the form is unfalsifiable by inspection |
-| *"Contribution profit held up better than adjusted gross profit through the downturn."* | False by $2M — the 2022Q2→Q3 fall is **−$444M** for CP and **−$446M** for AGP. Both facts are in the package; the comparison is over *deltas*, which nothing evaluates |
+| *"Contribution profit held up better than adjusted gross profit through the downturn."* | **This verdict was backwards and is corrected (2026-08-04, D5): the sentence is TRUE by $2M.** The 2022Q2→Q3 fall is **−$444M** for CP against **−$446M** for AGP, and a smaller fall *is* holding up better. The mechanism the row exists to justify stands untouched — the comparison is over *deltas*, which nothing evaluates, so the sentence is unverifiable either way — but a worked example whose own arithmetic contradicts its verdict is worse than no example |
 | *"Opendoor has not reported revenue growth since 2022."* | `revenue` has **zero** observations. §17.7's `unpopulated_metric` code is reached through §13.1 step 2 — i.e. through a numeral — so an absence claim has nothing to bind and nothing to refuse |
 | *"The board changes took effect before the quarter closed."* | All three `executive_change` events have `occurred_on: null`. §13.8 refuses an asserted effective *date*; this asserts an effective *ordering* |
 
