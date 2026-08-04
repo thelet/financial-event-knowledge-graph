@@ -448,13 +448,27 @@ def test_no_directory_exists_as_an_empty_placeholder():
     directory in the layout that no test can constrain, and a `stages/__init__.py` beside no
     stage is a promise rather than a boundary. The rule survives S1 unchanged — it says every
     directory that exists holds a module, not that a particular set exists.
+
+    **A directory of non-Python assets is not a placeholder, and the rule now says so.**
+    Measured 2026-08-04: `story/demo_ui/static/` — INTERACTIVE_DEMO_UI §1's `index.html`,
+    `app.js`, `graph.js`, `style.css` — was reported as empty, because the walk only ever
+    counted `.py` files. That is a false positive rather than a finding: the defect this test
+    exists to catch is a *Python package* that promises a boundary and holds no code, and a
+    directory holding four real files is neither empty nor a package. So a directory is a
+    placeholder only when it holds no module **and** no other file. A bare directory, and one
+    holding nothing but `__init__.py`, both still fail.
     """
+    def holds_nothing(directory: Path) -> bool:
+        contents = [p for p in directory.rglob("*")
+                    if p.is_file() and "__pycache__" not in p.parts
+                    and p.name != "__init__.py"]
+        return not contents
+
     empty = [
         directory.relative_to(REPO_ROOT).as_posix()
         for directory in PACKAGE.rglob("*")
         if directory.is_dir() and directory.name != "__pycache__"
-        and not [p for p in directory.rglob("*.py")
-                 if "__pycache__" not in p.parts and p.name != "__init__.py"]
+        and holds_nothing(directory)
     ]
     assert empty == [], f"directories holding nothing but an __init__.py: {empty}"
 
