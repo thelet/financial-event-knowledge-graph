@@ -19,27 +19,37 @@ D4 `package_content_digest` with them — now `5c420f8c5071…` on package `…:
 those reach the prompt, which is what the store is keyed on, so one re-record (§4 S7) replaced
 both rows: planner `10a417c704ed…`, writer `37cb65bf6dc7…`.
 
-**The disposition of the genuine pair is `rejected`, and that is the honest S7 outcome rather
-than a check that was loosened.** The writer's third sentence declares `compare_levels` over
-`(gaap, adjusted)` with `left < right` — which recomputes — and states it as *"The difference
-between the two margins is 15.9 percentage points."*, a **size with no direction**. §13.14
-refuses it as `comparative_not_supported_by_text`, and refusing exactly that shape is a rule
-`claims._comparison_text_findings` states in its own docstring: *"that sentence states a size
-and no direction, so it is a `difference` or a `delta_pp`, not a comparison."* The model
-mis-declared the operation; nothing in §13 changed. The recording before this one happened to
-write the comparative and was accepted — the local runtime is nondeterministic across
-processes, which `story/providers/generation_store.py` states as a design fact, and three
-`--live` runs at S7 gave one rejection and two acceptances.
+**Two recordings sit here, and the split between them is published rather than chosen.** Across
+**six `--live` runs** of this one candidate the model wrote *identical prose* every time — same
+title, same three sentences — and moved exactly one field, `calculation.operation`. **Five
+declared `difference` and were accepted; one declared `compare_levels` and was refused.** Both
+outcomes are committed:
 
-**Two synthetic stores sit beside it, and neither is a recording.** Both are the genuine pair
+* `generations.jsonl` — an accepted run, and the store `config/story.yaml` points the demo at.
+  It is the majority outcome, not a shopped one.
+* `generations_rejected_recorded.jsonl` — the one refusal. The sentence *"The difference between
+  the two margins is 15.9 percentage points."* is a **size with no direction**, while the
+  declaration says `compare_levels` over `(gaap, adjusted)` with `left < right` — which
+  recomputes perfectly. §13.14 refuses it as `comparative_not_supported_by_text`, exactly the
+  rule `claims._comparison_text_findings` states in its own docstring: *"that sentence states a
+  size and no direction, so it is a `difference` or a `delta_pp`, not a comparison."* **The model
+  mis-declared the operation; nothing in §13 changed.**
+
+Keeping the refusal matters more than which store is default: it is the only fixture in this
+directory where a real model made a real mistake and the verifier caught it. The synthetic pair
+below proves the check *fires*; this one proves it fires on something a model actually wrote.
+The nondeterminism is a design fact `story/providers/generation_store.py` states — byte-identical
+replay is achievable, byte-identical generation is not.
+
+**Two synthetic stores sit beside them, and neither is a recording.** Both are the genuine pair
 above with exactly one edit, to sentence 2's prose, and the declaration is untouched in both —
 so each is a test of what the *words* say against a calculation that still recomputes:
 
 * `generations_accepted_synthetic.jsonl` — *"The GAAP Gross Margin was 15.9 percentage points
   lower than the Adjusted Gross Margin."*, which is true and which the 2026-08-04 recording
-  produced verbatim. It exists because the genuine pair no longer reaches the **accepted**
-  branch, and that branch — `post.md` written, no `rejected.json`, exit 0 — still has to be
-  driven by something.
+  produced verbatim. It drives the accepted branch through a **comparative**, where
+  `generations.jsonl` now reaches it through a `difference`; the two exercise different §13.14
+  paths to one disposition.
 * `generations_rejected_synthetic.jsonl` — the same sentence **reversed**, *"The Adjusted Gross
   Margin was 15.9 percentage points lower than the GAAP Gross Margin."*, false by 15.9 points.
   It is kept rather than dropped as redundant because it fails §13.14 a *different* way from the
@@ -102,11 +112,17 @@ ALWAYS_WRITTEN = {
     "verification_report.json", "generations.jsonl", "demo_manifest.json",
 }
 
-#: The two synthetic stores this module's docstring describes. Named rather than spelled at each
-#: call site so that "which branch is this test driving" is one word rather than a filename a
-#: reader has to compare character by character against another filename.
+#: The stores this module's docstring describes. Named rather than spelled at each call site so
+#: that "which branch is this test driving" is one word rather than a filename a reader has to
+#: compare character by character against another filename.
 ACCEPTED_STORE = "generations_accepted_synthetic.jsonl"
 REJECTED_STORE = "generations_rejected_synthetic.jsonl"
+
+#: A **recording**, not a synthetic: the one `--live` run in six that the verifier refused.
+#: Kept because it is the only fixture in this directory where a real model made a real mistake
+#: and §13 caught it — the synthetic pair is two hand-edits of a sentence, which proves the
+#: check fires but not that it fires on anything a model actually writes.
+REJECTED_RECORDING = "generations_rejected_recorded.jsonl"
 
 
 def _read(name: str) -> Any:
@@ -256,22 +272,27 @@ def test_verification_actually_executes_rather_than_being_recorded_as_having_run
 def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_blocking_finding(
     tmp_path, config
 ):
-    """The demo's actual disposition, and what every check had to look at to reach it.
+    """A real model mistake, refused — and what every check had to look at to reach it.
 
-    **Rejected, and the name of this test is true again after S7's re-record.** Asserting the
-    disposition alone would pass against a verifier that looked at nothing, so the denominators
-    are asserted with it: the numbers check counted every numeral in the draft, the periods check
+    **This drives `REJECTED_RECORDING`, which is a recording and not a synthetic.** Across six
+    `--live` runs of one candidate the model wrote *identical prose* every time and moved exactly
+    one field: `calculation.operation`. Five declared `difference` and were accepted; **one
+    declared `compare_levels`** — a comparison — over a sentence stating a size and no direction,
+    and §13.14 refused it. That run is this fixture.
+
+    Asserting the disposition alone would pass against a verifier that looked at nothing, so the
+    denominators are asserted with it: the numbers check counted every numeral, the periods check
     resolved a surface for both bindings *and* for the derivation, and the calculation ledger
-    holds the recomputed gap — the declaration is arithmetically fine and it is the *prose* that
-    is refused. Eleven of twelve checks pass; the one blocking finding is §13.14's
-    `comparative_not_supported_by_text` against a sentence that states a size and no direction.
+    holds the recomputed gap — **the declaration is arithmetically fine and it is the prose that
+    is refused.** Eleven of twelve checks pass.
 
-    No check was weakened to get here and none was loosened to get the previous `accepted`
-    either: `test_story_deterministic_verifier.py`'s ten malicious drafts are the guard on that
-    and are untouched. What moved is the model's answer, on a runtime
-    `story/providers/generation_store.py` documents as non-reproducible across processes.
+    No check was weakened, and none was loosened to let the accepted store through either:
+    `test_story_deterministic_verifier.py`'s ten malicious drafts are the guard on that and are
+    untouched. What moves between these two fixtures is one enum field in the model's answer, on
+    a runtime `story/providers/generation_store.py` documents as non-reproducible across
+    processes.
     """
-    outcome = run_demo(demo_inputs(), provider=replaying(), config=config,
+    outcome = run_demo(demo_inputs(), provider=replaying(REJECTED_RECORDING), config=config,
                        out_dir=tmp_path / "run")
     assert outcome.verified is not None
 
@@ -533,7 +554,7 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     assert manifest["demo"]["package_id"] == inputs.package.package_id
     assert manifest["demo"]["package_content_digest"] == inputs.package.package_content_digest
     assert manifest["demo"]["graph_input_content_digest"] == inputs.identity.input_content_digest
-    assert manifest["demo"]["disposition"] == REJECTED
+    assert manifest["demo"]["disposition"] == ACCEPTED
     assert manifest["demo"]["generation_mode"] == "replay"
     assert manifest["graph_run_id"] == GRAPH_RUN_ID
     assert manifest["model_id"] == MODEL_ID
@@ -785,16 +806,17 @@ def test_live_the_demo_runs_end_to_end_from_the_graph_and_the_recorded_store(
     says the committed `evidence_package.json` and the store were recorded against each other:
     a package whose digest or warning kinds had drifted would **miss the store entirely**, and a
     package whose digest had drifted after the prompt was rendered would refuse at §13.13.
-    Neither happens, which is the claim — the disposition being `rejected` is the recording's
-    content and not a mismatch, and the two are told apart by the store replaying at all.
+    Neither happens, and that is the claim. **The disposition is the recording's content, not
+    this test's subject** — the two failure modes above are told apart by the store replaying at
+    all, and `REJECTED_RECORDING` drives the refusing branch from a fixture whose verdict cannot
+    move under it.
     """
     outcome = run_demo(live_inputs, provider=replaying(), config=config,
                        out_dir=tmp_path / "run")
 
-    assert outcome.disposition == REJECTED
-    assert outcome.verified is not None and outcome.verified.passed is False
-    assert [f.code for f in outcome.verified.all_findings] == [
-        "comparative_not_supported_by_text"]
+    assert outcome.disposition == ACCEPTED
+    assert outcome.verified is not None and outcome.verified.passed is True
+    assert [f.code for f in outcome.verified.all_findings] == []
     assert outcome.verified.check("identity_and_freshness").findings == ()
     assert (tmp_path / "run" / "demo_manifest.json").is_file()
 
