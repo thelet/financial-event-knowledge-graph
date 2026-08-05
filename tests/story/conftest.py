@@ -41,6 +41,7 @@ from story.core.models import (
     DraftSentence,
     EditorialPlan,
     EvidenceRequest,
+    EvidenceRole,
     FactBinding,
     HealthStatus,
     KeyPoint,
@@ -135,7 +136,8 @@ def make_package(**overrides: Any) -> StoryEvidencePackage:
         ),
         primary_passages=(
             PackagedPassage(passage_id="psg:1", document_id="doc:1",
-                            text="Adjusted EBITDA (211)", char_count=21),
+                            text="Adjusted EBITDA (211)", char_count=21,
+                            role=EvidenceRole.PRIMARY_SUPPORT),
         ),
         documents=(PackagedDocument(document_id="doc:1", form="10-Q"),),
         budget=PackageBudget(artifact_token_estimate=536, prompt_token_estimate=402,

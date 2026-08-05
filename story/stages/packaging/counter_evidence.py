@@ -21,10 +21,16 @@ which that is true.
 contradiction is a §13.14 refusal waiting to happen — *"the same sentence about GAAP gross
 margin is true and about adjusted gross margin is false"* is the shape of the attack, and a
 package that let a neighbouring table's `AMBIGUOUS_ALIAS` refusal read as a contradiction of the
-cited cell would be handing the writer that sentence. §10's `counter_evidence[]` is typed
-`tuple[PackagedPassage, ...]` in `story/core/models.py`, which S5 does not own and which has no
-field for a match basis, so the basis travels as one of two `ANNOTATE` warnings per row and
-`match_basis_of` reads it back. Recorded as a finding rather than worked around silently.
+cited cell would be handing the writer that sentence.
+
+**The workaround this module recorded is gone.** It used to say that §10's `counter_evidence[]`
+is typed `tuple[PackagedPassage, ...]` in a module S5 did not own and which had no field for a
+match basis, so the basis travelled as one of two `ANNOTATE` warnings per row and
+`match_basis_of` read it back out of the package. S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS owns
+that module: `PackagedPassage.match_basis` is a real field and `match_basis_of` reads it.
+The two disclosure warnings stay, because they are what §13.17's evidence panel renders beside
+the claim and no consumer of them changed; both they and the field are written from one value at
+one call site, and `CounterEvidenceRow` refuses a row where the two disagree.
 """
 
 from __future__ import annotations
@@ -73,6 +79,22 @@ class CounterEvidenceRow:
     period_key: str
     row_label: str | None
     excerpt: Excerpt
+
+    def __post_init__(self) -> None:
+        """The passage and the row agree on the basis, or neither is built.
+
+        Two readers now exist — `match_basis_of` reads `passage.match_basis` and `disclosure()`
+        writes `self.match_basis` into the warning — and a row that could hold two answers is a
+        package whose panel and whose consumer disagree about whether a refusal sits in the
+        cited cell. Both are set from one value in `evidence_package._add_counter_evidence`;
+        this is what makes that a rule rather than a habit.
+        """
+        if self.passage.match_basis != self.match_basis:
+            raise ValueError(
+                f"{self.passage.passage_id}: the row was built with match_basis="
+                f"{self.match_basis!r} and its passage carries "
+                f"{self.passage.match_basis!r}; the disclosure warning and the packaged row "
+                "would then say different things about the same association")
 
     @property
     def sort_key(self) -> tuple[int, int, str, str]:
@@ -189,21 +211,16 @@ def match_basis(passage_id: str, cited_passage_ids: Sequence[str]) -> str:
 def match_basis_of(package: StoryEvidencePackage) -> Mapping[str, str]:
     """Every counter-evidence passage in a package, mapped to the basis it was associated on.
 
-    The reader half of the pair of warning codes. Written as a function rather than left to a
-    caller so that no consumer parses a `detail` string: `match_basis_of(package)[passage_id]`
-    is the whole interface, and a package whose counter-evidence lost its disclosure shows up
-    as a missing key rather than as a plausible default.
+    **Reads `PackagedPassage.match_basis`.** Until S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS the
+    row type had no such field and this function reconstructed the basis from the two disclosure
+    warnings — which meant a package trimmed past its warning cap silently lost the answer for a
+    row it was still carrying, and a caller could not tell that from a row with no basis at all.
+    The signature and the contract are unchanged: `match_basis_of(package)[passage_id]` is the
+    whole interface, and a row carrying no basis is a missing key rather than a plausible
+    default.
     """
-    by_passage: dict[str, str] = {}
-    counter_ids = {row.passage_id for row in package.counter_evidence}
-    for warning in package.warnings:
-        basis = CODE_BASIS.get(warning.code)
-        if basis is None:
-            continue
-        for subject in warning.subject_ids:
-            if subject in counter_ids:
-                by_passage[subject] = basis
-    return by_passage
+    return {row.passage_id: row.match_basis
+            for row in package.counter_evidence if row.match_basis}
 
 
 def needles_for(row: Mapping[str, Any]) -> tuple[str, ...]:

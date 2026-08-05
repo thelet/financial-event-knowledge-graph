@@ -66,6 +66,7 @@ from story.core.models import (
     Conflict,
     ConflictCluster,
     EvidenceRequest,
+    EvidenceRole,
     MetricAmbiguity,
     PackagedEvent,
     PackagedFact,
@@ -499,8 +500,11 @@ class BoundedEvidencePackageBuilder:
             if row is None:
                 continue
             assembly.remember_document(sections, row)
-            kept.append(self._packaged_passage(row, excerpt=passage_excerpts.whole(
-                str(row.get("text") or ""))))
+            # `PRIMARY_SUPPORT` is true today and not an aspiration: this section is built from
+            # the passages the surviving facts are bound to, one entry per `fact.passage_id`.
+            kept.append(self._packaged_passage(
+                row, excerpt=passage_excerpts.whole(str(row.get("text") or "")),
+                role=EvidenceRole.PRIMARY_SUPPORT))
         kept.sort(key=lambda passage: section_bounds.passage_sort_key(
             passage.passage_id, first_citing_fact_rank=order.index(passage.passage_id)))
 
@@ -551,7 +555,8 @@ class BoundedEvidencePackageBuilder:
                     section_bounds.context_sort_key(
                         passage_id, primary_rank=rank, offset=offset),
                     self._packaged_passage(
-                        row, excerpt=passage_excerpts.whole(str(row.get("text") or ""))),
+                        row, excerpt=passage_excerpts.whole(str(row.get("text") or "")),
+                        role=EvidenceRole.CONTEXT),
                 ))
 
         collected.sort(key=lambda pair: pair[0])
@@ -638,9 +643,14 @@ class BoundedEvidencePackageBuilder:
             text = str((full or row).get("text") or row.get("text_excerpt") or "")
             excerpt = passage_excerpts.window(
                 text, needles=derived.terms, radius=self._budget.excerpt_radius_chars)
+            # `CONTEXT` and not a role of its own. An explanatory passage is a fulltext hit
+            # that explains; it is bound to no fact, so it supports nothing, and §4 S1's
+            # vocabulary has no `explanatory` member because the distinction that matters to a
+            # reader is what the passage *does*, not which search found it. The section name
+            # still records the provenance, and S6 owns the one canonical mapper.
             kept.append(self._packaged_passage(
-                full or row, excerpt=excerpt, query_terms=derived.terms,
-                score=float(row.get("score") or 0.0)))
+                full or row, excerpt=excerpt, role=EvidenceRole.CONTEXT,
+                query_terms=derived.terms, score=float(row.get("score") or 0.0)))
         if len(ranked) > len(kept):
             sections.caps_hit.add("explanatory_passages")
         sections.explanatory_passages = kept
@@ -716,9 +726,19 @@ class BoundedEvidencePackageBuilder:
                 excerpt = passage_excerpts.window(
                     text, needles=counter.needles_for(row),
                     radius=self._budget.excerpt_radius_chars)
+            # **The role that is true today, not the one S2 will compute.** Every row in this
+            # section is presented to the planner as counter-evidence right now, and §1 measured
+            # that most of them are extraction diagnostics about a different concept in the same
+            # filing. Labelling them `WARNING_ONLY` here would be S1 quietly performing S2's
+            # reclassification with none of S2's evidence; labelling them `COUNTER_EVIDENCE`
+            # states what the package currently claims, which is what a later stage has to be
+            # able to see in order to correct it.
+            basis = counter.match_basis(passage_id, cited_passages)
             built.append(counter.CounterEvidenceRow(
-                passage=self._packaged_passage(full, excerpt=excerpt),
-                match_basis=counter.match_basis(passage_id, cited_passages),
+                passage=self._packaged_passage(
+                    full, excerpt=excerpt, role=EvidenceRole.COUNTER_EVIDENCE,
+                    match_basis=basis),
+                match_basis=basis,
                 issue_id=str(row.get("issue_id") or ""),
                 code=str(row.get("code") or ""),
                 severity=str(row.get("severity") or ""),
@@ -1103,12 +1123,22 @@ class BoundedEvidencePackageBuilder:
         row: Mapping[str, Any],
         *,
         excerpt: passage_excerpts.Excerpt,
+        role: EvidenceRole,
+        match_basis: str = "",
         query_terms: Sequence[str] = (),
         score: float | None = None,
     ) -> PackagedPassage:
         """`char_count` is the **full** passage's length even on an excerpt, so a fragment is
         visibly a fragment: `char_end - char_start < char_count` is the check, and a row that
-        reported the window's own length would make every excerpt look whole."""
+        reported the window's own length would make every excerpt look whole.
+
+        `role` is a required argument for the reason `PackagedPassage.role` is a required field:
+        every one of the four call sites below knows which section it is filling, and a default
+        here would be this helper answering for the one that does not.
+
+        `quality_status` is left at `UNASSESSED` on every row. Nothing in this stage assesses a
+        passage's content yet — S2 is the stage that does — and stamping `USABLE` would be a
+        clean bill of health issued by a check that has not been written."""
         return PackagedPassage(
             passage_id=str(row.get("passage_id") or ""),
             document_id=str(row.get("document_id") or ""),
@@ -1123,6 +1153,8 @@ class BoundedEvidencePackageBuilder:
             excerpted=excerpt.excerpted,
             query_terms=tuple(query_terms),
             score=score,
+            role=role,
+            match_basis=match_basis,
         )
 
     def _records_for(

@@ -1,6 +1,6 @@
 {
   "budget": {
-    "artifact_token_estimate": 5543,
+    "artifact_token_estimate": 5807,
     "caps_hit": [
       "context_passages",
       "primary_passages",
@@ -25,8 +25,9 @@
       "max_total_tokens": 5000,
       "max_warnings": 20
     },
-    "prompt_token_estimate": 4297,
+    "prompt_token_estimate": 4545,
     "section_counts": {
+      "comparability_facts": 0,
       "compatibility": 1,
       "conflicts": 0,
       "context_passages": 0,
@@ -37,14 +38,17 @@
       "explanatory_passages": 0,
       "facts": 5,
       "formula_windows": 2,
+      "identity_facts": 0,
       "metrics": 2,
       "primary_passages": 3,
       "relationships": 0,
       "retrieval_trace": 21,
+      "semantic_facts": 0,
       "warnings": 5
     }
   },
   "candidate_id": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+  "comparability_facts": [],
   "compatibility": [
     {
       "comparable": true,
@@ -91,9 +95,13 @@
     {
       "ambiguity_codes": [],
       "column_label": "2022",
+      "corroborating_document_ids": [],
+      "corroborating_observation_ids": [],
+      "corroborating_passage_ids": [],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
       "evidence_source_id": null,
+      "fact_kind": "observed",
       "instant_date": null,
       "metric_id": "adjusted_gross_margin",
       "metric_label": "Adjusted Gross Margin",
@@ -118,9 +126,13 @@
     {
       "ambiguity_codes": [],
       "column_label": "2022",
+      "corroborating_document_ids": [],
+      "corroborating_observation_ids": [],
+      "corroborating_passage_ids": [],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
       "evidence_source_id": null,
+      "fact_kind": "observed",
       "instant_date": null,
       "metric_id": "gaap_gross_margin",
       "metric_label": "Gross Margin",
@@ -145,9 +157,13 @@
     {
       "ambiguity_codes": [],
       "column_label": "2022",
+      "corroborating_document_ids": [],
+      "corroborating_observation_ids": [],
+      "corroborating_passage_ids": [],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
       "evidence_source_id": null,
+      "fact_kind": "observed",
       "instant_date": null,
       "metric_id": "adjusted_gross_margin",
       "metric_label": "Adjusted Gross Margin",
@@ -172,9 +188,13 @@
     {
       "ambiguity_codes": [],
       "column_label": "2022",
+      "corroborating_document_ids": [],
+      "corroborating_observation_ids": [],
+      "corroborating_passage_ids": [],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
       "evidence_source_id": null,
+      "fact_kind": "observed",
       "instant_date": null,
       "metric_id": "gaap_gross_margin",
       "metric_label": "Gross Margin",
@@ -199,9 +219,13 @@
     {
       "ambiguity_codes": [],
       "column_label": "2022",
+      "corroborating_document_ids": [],
+      "corroborating_observation_ids": [],
+      "corroborating_passage_ids": [],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
       "evidence_source_id": null,
+      "fact_kind": "observed",
       "instant_date": null,
       "metric_id": "gaap_gross_margin",
       "metric_label": "Gross Margin",
@@ -254,6 +278,7 @@
   ],
   "graph_projection_version": "1.2.0",
   "graph_run_id": "graph-v1-0483dc6b4b10",
+  "identity_facts": [],
   "metrics": [
     {
       "aliases": [
@@ -261,6 +286,7 @@
       ],
       "allowed_units": [],
       "ambiguities": [],
+      "description": null,
       "distinct_from": [
         "gaap_gross_margin",
         "contribution_margin",
@@ -283,6 +309,7 @@
       ],
       "allowed_units": [],
       "ambiguities": [],
+      "description": null,
       "distinct_from": [
         "adjusted_gross_margin",
         "contribution_margin"
@@ -302,9 +329,9 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "b01a8d573f0807926623fd42e2a350c65539ee8f60cb8a161ed108902ee0f257",
-  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:a12e47402914",
-  "package_version": "1.0.0",
+  "package_content_digest": "354f3d5944bd7b5851ba391aa6011ac9e13a5f583cc1c7d3711c8e8a3bb24913",
+  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:8e0cb0cf6655",
+  "package_version": "1.1.0",
   "policy_version": "canon-policy:1.0.0",
   "primary_passages": [
     {
@@ -318,13 +345,17 @@
         "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
         "Contribution (Loss) Profit / Margin After Interest"
       ],
+      "match_basis": "",
       "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139",
       "passage_kind": "table",
+      "quality_status": "unassessed",
       "query_terms": [],
+      "role": "primary_support",
       "score": null,
       "section_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#s107",
       "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
-      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2022 |  | 2021 |  | 2022 |  | 2021 |  |  |  |  |  |  |  |  |\n| Gross (loss) profit (GAAP) |  | $ | (425) |  |  | $ | 202 |  |  | $ | 596 |  |  | $ | 458 |  |\n| Gross Margin |  | (12.6) | % |  | 8.9 | % |  | 4.7 | % |  | 10.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 573 |  |  | 31 |  |  | 620 |  |  | 32 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (38) |  |  | — |  |  | (38) |  |  | — |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit |  | $ | 110 |  |  | $ | 233 |  |  | $ | 1,178 |  |  | $ | 490 |  |\n| Adjusted Gross Margin |  | 3.3 | % |  | 10.3 | % |  | 9.3 | % |  | 11.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (100) |  |  | (52) |  |  | (336) |  |  | (96) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (14) |  |  | (7) |  |  | (73) |  |  | (19) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (18) |  |  | (5) |  |  | (37) |  |  | (2) |  |  |  |  |  |\n| Contribution (Loss) Profit |  | $ | (22) |  |  | $ | 169 |  |  | $ | 732 |  |  | $ | 373 |  |\n| Contribution Margin |  | (0.7) | % |  | 7.5 | % |  | 5.8 | % |  | 8.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Interest on homes sold – Current Period(8)(9) |  | (16) |  |  | (6) |  |  | (74) |  |  | (17) |  |  |  |  |  |\n| Interest on homes sold – Prior Periods(8)(10) |  | (18) |  |  | (4) |  |  | (35) |  |  | (1) |  |  |  |  |  |\n| Contribution (Loss) Profit After Interest |  | $ | (56) |  |  | $ | 159 |  |  | $ | 623 |  |  | $ | 355 |  |\n| Contribution Margin After Interest |  | (1.7) | % |  | 7.0 | % |  | 4.9 | % |  | 8.5 | % |  |  |  |  |"
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2022 |  | 2021 |  | 2022 |  | 2021 |  |  |  |  |  |  |  |  |\n| Gross (loss) profit (GAAP) |  | $ | (425) |  |  | $ | 202 |  |  | $ | 596 |  |  | $ | 458 |  |\n| Gross Margin |  | (12.6) | % |  | 8.9 | % |  | 4.7 | % |  | 10.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 573 |  |  | 31 |  |  | 620 |  |  | 32 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (38) |  |  | — |  |  | (38) |  |  | — |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit |  | $ | 110 |  |  | $ | 233 |  |  | $ | 1,178 |  |  | $ | 490 |  |\n| Adjusted Gross Margin |  | 3.3 | % |  | 10.3 | % |  | 9.3 | % |  | 11.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (100) |  |  | (52) |  |  | (336) |  |  | (96) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (14) |  |  | (7) |  |  | (73) |  |  | (19) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (18) |  |  | (5) |  |  | (37) |  |  | (2) |  |  |  |  |  |\n| Contribution (Loss) Profit |  | $ | (22) |  |  | $ | 169 |  |  | $ | 732 |  |  | $ | 373 |  |\n| Contribution Margin |  | (0.7) | % |  | 7.5 | % |  | 5.8 | % |  | 8.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Interest on homes sold – Current Period(8)(9) |  | (16) |  |  | (6) |  |  | (74) |  |  | (17) |  |  |  |  |  |\n| Interest on homes sold – Prior Periods(8)(10) |  | (18) |  |  | (4) |  |  | (35) |  |  | (1) |  |  |  |  |  |\n| Contribution (Loss) Profit After Interest |  | $ | (56) |  |  | $ | 159 |  |  | $ | 623 |  |  | $ | 355 |  |\n| Contribution Margin After Interest |  | (1.7) | % |  | 7.0 | % |  | 4.9 | % |  | 8.5 | % |  |  |  |  |",
+      "unusable_reason": null
     },
     {
       "char_count": 1675,
@@ -337,13 +368,17 @@
         "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
         "Contribution Profit (Loss) / Margin"
       ],
+      "match_basis": "",
       "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125",
       "passage_kind": "table",
+      "quality_status": "unassessed",
       "query_terms": [],
+      "role": "primary_support",
       "score": null,
       "section_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#s95",
       "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
-      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2023 |  | 2022 |  | 2023 |  | 2022 |  |  |  |  |  |  |  |  |\n| Gross profit (loss) (GAAP) |  | $ | 96 |  |  | $ | (425) |  |  | $ | 415 |  |  | $ | 596 |  |\n| Gross Margin |  | 9.8 | % |  | (12.6) | % |  | 6.8 | % |  | 4.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 17 |  |  | 573 |  |  | 24 |  |  | 620 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (29) |  |  | (38) |  |  | (450) |  |  | (38) |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit (Loss) |  | $ | 84 |  |  | $ | 110 |  |  | $ | (11) |  |  | $ | 1,178 |  |\n| Adjusted Gross Margin |  | 8.6 | % |  | 3.3 | % |  | (0.2) | % |  | 9.3 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (28) |  |  | (100) |  |  | (171) |  |  | (336) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (4) |  |  | (14) |  |  | (41) |  |  | (73) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (9) |  |  | (18) |  |  | (65) |  |  | (37) |  |  |  |  |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (22) |  |  | $ | (288) |  |  | $ | 732 |  |\n| Contribution Margin |  | 4.4 | % |  | (0.7) | % |  | (4.7) | % |  | 5.8 | % |  |  |  |  |"
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2023 |  | 2022 |  | 2023 |  | 2022 |  |  |  |  |  |  |  |  |\n| Gross profit (loss) (GAAP) |  | $ | 96 |  |  | $ | (425) |  |  | $ | 415 |  |  | $ | 596 |  |\n| Gross Margin |  | 9.8 | % |  | (12.6) | % |  | 6.8 | % |  | 4.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 17 |  |  | 573 |  |  | 24 |  |  | 620 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (29) |  |  | (38) |  |  | (450) |  |  | (38) |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit (Loss) |  | $ | 84 |  |  | $ | 110 |  |  | $ | (11) |  |  | $ | 1,178 |  |\n| Adjusted Gross Margin |  | 8.6 | % |  | 3.3 | % |  | (0.2) | % |  | 9.3 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (28) |  |  | (100) |  |  | (171) |  |  | (336) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (4) |  |  | (14) |  |  | (41) |  |  | (73) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (9) |  |  | (18) |  |  | (65) |  |  | (37) |  |  |  |  |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (22) |  |  | $ | (288) |  |  | $ | 732 |  |\n| Contribution Margin |  | 4.4 | % |  | (0.7) | % |  | (4.7) | % |  | 5.8 | % |  |  |  |  |",
+      "unusable_reason": null
     },
     {
       "char_count": 2331,
@@ -356,13 +391,17 @@
         "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
         "Financial Highlights"
       ],
+      "match_basis": "",
       "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108",
       "passage_kind": "table",
+      "quality_status": "unassessed",
       "query_terms": [],
+      "role": "primary_support",
       "score": null,
       "section_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#s81",
       "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
-      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  |  |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages, homes purchased, homes sold, number of markets, and homes in inventory) |  | 2023 |  | 2022 |  | Change |  | 2023 |  | 2022 |  | Change |  |  |  |  |  |  |  |  |  |  |  |  |\n| Revenue |  | $ | 980 |  |  | $ | 3,361 |  |  | $ | (2,381) |  |  | $ | 6,076 |  |  | $ | 12,710 |  |  | $ | (6,634) |  |\n| Homes sold |  | 2,687 |  |  | 8,520 |  |  | (5,833) |  |  | 16,344 |  |  | 31,671 |  |  | (15,327) |  |  |  |  |  |  |  |\n| Gross profit (loss) |  | $ | 96 |  |  | $ | (425) |  |  | $ | 521 |  |  | $ | 415 |  |  | $ | 596 |  |  | $ | (181) |  |\n| Gross Margin |  | 9.8 | % |  | (12.6) | % |  |  |  | 6.8 | % |  | 4.7 | % |  |  |  |  |  |  |  |  |  |  |\n| Net loss |  | $ | (106) |  |  | $ | (928) |  |  | $ | 822 |  |  | $ | (184) |  |  | $ | (954) |  |  | $ | 770 |  |\n| Adjusted Net Loss |  | $ | (75) |  |  | $ | (328) |  |  | $ | 253 |  |  | $ | (681) |  |  | $ | (107) |  |  | $ | (574) |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (22) |  |  | $ | 65 |  |  | $ | (288) |  |  | $ | 732 |  |  | $ | (1,020) |  |\n| Contribution Margin |  | 4.4 | % |  | (0.7) | % |  |  |  | (4.7) | % |  | 5.8 | % |  |  |  |  |  |  |  |  |  |  |\n| Adjusted EBITDA |  | $ | (49) |  |  | $ | (211) |  |  | $ | 162 |  |  | $ | (558) |  |  | $ | 183 |  |  | $ | (741) |  |\n| Adjusted EBITDA Margin |  | (5.0) | % |  | (6.3) | % |  |  |  | (9.2) | % |  | 1.4 | % |  |  |  |  |  |  |  |  |  |  |\n| Number of markets (at period end) |  | 53 |  | 51 |  | 2 |  |  | 53 |  | 51 |  | 2 |  |  |  |  |  |  |  |  |  |  |  |\n| Homes purchased |  | 3,136 |  |  | 8,380 |  |  | (5,244) |  |  | 7,563 |  |  | 31,535 |  |  | (23,972) |  |  |  |  |  |  |  |\n| Inventory (at period end) |  | $ | 1,311 |  |  | $ | 6,093 |  |  | $ | (4,782) |  |  | $ | 1,311 |  |  | $ | 6,093 |  |  | $ | (4,782) |  |\n| Homes in inventory (at period end) |  | 4,007 |  |  | 16,873 |  |  | (12,866) |  |  | 4,007 |  |  | 16,873 |  |  | (12,866) |  |  |  |  |  |  |  |"
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  |  |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages, homes purchased, homes sold, number of markets, and homes in inventory) |  | 2023 |  | 2022 |  | Change |  | 2023 |  | 2022 |  | Change |  |  |  |  |  |  |  |  |  |  |  |  |\n| Revenue |  | $ | 980 |  |  | $ | 3,361 |  |  | $ | (2,381) |  |  | $ | 6,076 |  |  | $ | 12,710 |  |  | $ | (6,634) |  |\n| Homes sold |  | 2,687 |  |  | 8,520 |  |  | (5,833) |  |  | 16,344 |  |  | 31,671 |  |  | (15,327) |  |  |  |  |  |  |  |\n| Gross profit (loss) |  | $ | 96 |  |  | $ | (425) |  |  | $ | 521 |  |  | $ | 415 |  |  | $ | 596 |  |  | $ | (181) |  |\n| Gross Margin |  | 9.8 | % |  | (12.6) | % |  |  |  | 6.8 | % |  | 4.7 | % |  |  |  |  |  |  |  |  |  |  |\n| Net loss |  | $ | (106) |  |  | $ | (928) |  |  | $ | 822 |  |  | $ | (184) |  |  | $ | (954) |  |  | $ | 770 |  |\n| Adjusted Net Loss |  | $ | (75) |  |  | $ | (328) |  |  | $ | 253 |  |  | $ | (681) |  |  | $ | (107) |  |  | $ | (574) |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (22) |  |  | $ | 65 |  |  | $ | (288) |  |  | $ | 732 |  |  | $ | (1,020) |  |\n| Contribution Margin |  | 4.4 | % |  | (0.7) | % |  |  |  | (4.7) | % |  | 5.8 | % |  |  |  |  |  |  |  |  |  |  |\n| Adjusted EBITDA |  | $ | (49) |  |  | $ | (211) |  |  | $ | 162 |  |  | $ | (558) |  |  | $ | 183 |  |  | $ | (741) |  |\n| Adjusted EBITDA Margin |  | (5.0) | % |  | (6.3) | % |  |  |  | (9.2) | % |  | 1.4 | % |  |  |  |  |  |  |  |  |  |  |\n| Number of markets (at period end) |  | 53 |  | 51 |  | 2 |  |  | 53 |  | 51 |  | 2 |  |  |  |  |  |  |  |  |  |  |  |\n| Homes purchased |  | 3,136 |  |  | 8,380 |  |  | (5,244) |  |  | 7,563 |  |  | 31,535 |  |  | (23,972) |  |  |  |  |  |  |  |\n| Inventory (at period end) |  | $ | 1,311 |  |  | $ | 6,093 |  |  | $ | (4,782) |  |  | $ | 1,311 |  |  | $ | 6,093 |  |  | $ | (4,782) |  |\n| Homes in inventory (at period end) |  | 4,007 |  |  | 16,873 |  |  | (12,866) |  |  | 4,007 |  |  | 16,873 |  |  | (12,866) |  |  |  |  |  |  |  |",
+      "unusable_reason": null
     }
   ],
   "relationships": [],
@@ -597,6 +636,7 @@
     }
   ],
   "run_complete_sha256": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e",
+  "semantic_facts": [],
   "subject": {
     "entity_id": "opendoor",
     "entity_text": "opendoor",

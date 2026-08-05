@@ -68,7 +68,7 @@ right; its input was wrong.
 | `PackagedMetric` carries a definition | **No** — it has no `description` field. The `:Metric` node does (22 properties incl. `description`), and the ontology is authoritative (C4) |
 | Passages carry a role | **No.** `counter_evidence[]` is `tuple[PackagedPassage, ...]` and `PackagedPassage` has no role field. The basis travels as one of two `ANNOTATE` warnings, read back by `match_basis_of` — recorded as a known finding, not an oversight |
 | Issue severity is available | **Yes** — `COUNTER_EVIDENCE` already returns a `severity_rank` (`rejection` 0, `refusal` 1, `diagnostic` 2) and sorts by it |
-| A role enum exists | **No.** Reuse `Severity`, `WarningKind`, `UnusableReason`, `RetrievalOutcome`; add exactly two new closed vocabularies |
+| A role enum exists | **No.** Reuse `Severity`, `WarningKind`, `RetrievalOutcome`. ~~Add exactly two new closed vocabularies~~ — **corrected at S1: four were added, not two.** `EvidenceRole` and `FactKind` as planned, plus `PassageQuality` and `PassageUnusableReason`, because `UnusableReason` could not be reused. See §4 S1 |
 | `counter_evidence_unaccounted` | **Keep unchanged.** It is correct and this plan does not touch it |
 
 ---
@@ -79,6 +79,18 @@ right; its input was wrong.
 is the key the recorded generation store is indexed by.** The committed replay demo
 (`story-v1-552ffb8abf3e`, package `b01a8d573f08…`) **will stop replaying** the moment the package
 schema moves.
+
+**Measured at S1 (2026-08-05), and the mechanism is one step longer than this section assumed.**
+The package rebuilt from `graph-v1-0483dc6b4b10` is now
+`pkg:…-opendoor-2022q3:8e0cb0cf6655`, digest
+`354f3d5944bd7b5851ba391aa6011ac9e13a5f583cc1c7d3711c8e8a3bb24913`, up from `a12e47402914` and
+`b01a8d573f08…`. The extra step is what produces the `MissingGenerationError` this section
+predicts: adding three sections and re-shaping four row types is exactly the event
+`PACKAGE_VERSION` exists for, so it moved to `1.1.0`; that moves `package_id`; and `package_id`
+is rendered into both the planner and the writer prompt, which is what the generation store is
+keyed on. **A digest change alone would not have missed the store** — it would have fired
+§13.13's `package_content_digest_mismatch` instead, which is a rejection rather than a miss.
+Thirty tests are `xfail(strict=True)` naming S7.
 
 This is not a reason to avoid the change; it is a reason to sequence it. The re-record is one
 step (S7), it needs the live model server, and it must happen **once**, after every schema change
@@ -91,28 +103,70 @@ has landed — not per stage. Until S7, the replay demo is expected to fail with
 
 Ordered by dependency. S1 is a barrier; S2–S5 may run in parallel after it.
 
-### S1 — One schema change, all at once
+### S1 — One schema change, all at once — **landed 2026-08-05**
 
 Because §3 makes each schema change expensive, they land together.
 
 **New closed vocabularies** in `story/core/models.py`, following the existing `str, Enum` pattern:
 
 ```
-EvidenceRole   primary_support | corroborating_support | context |
-               counter_evidence | warning_only | unusable
-FactKind       observed | derived | semantic | identity | comparability
+EvidenceRole            primary_support | corroborating_support | context |
+                        counter_evidence | warning_only | unusable
+FactKind                observed | derived | semantic | identity | comparability
+PassageQuality          unassessed | usable | unusable
+PassageUnusableReason   empty_or_structural_only | no_relevant_proposition |
+                        corrupted_extraction | insufficient_content
 ```
 
-**Field additions:**
+**Four, not the two §2 planned, and the count is corrected rather than quietly exceeded.**
+`PassageUnusableReason` could not be four more members on `UnusableReason`: that enum's five
+members are editorial dispositions the *planner model* declares about an item it chose not to use
+(§11 point 2), and they reach the model as an `enum` in §15.3's portable schema. The four above
+are decided by code before any model runs. Widening the existing enum would have offered the
+planner `corrupted_extraction` as a judgement it has no way to establish, **and** would have
+changed the grammar the server is constrained by — a change to what the model may *assert*, not
+to what the packager may record. `PassageQuality` is then the type `quality_status` needs, and
+its three members exist so *"nobody has looked"* and *"looked and it is fine"* stay different
+facts. `tests/story/test_story_evidence_roles.py` asserts the planner schema did not widen.
 
-- `PackagedPassage.role: EvidenceRole`, `.match_basis: str`, `.quality_status`, `.unusable_reason`
-- `PackagedFact.fact_kind: FactKind = OBSERVED`, `.corroborating_observation_ids`,
-  `.corroborating_passage_ids`, `.corroborating_document_ids`
-- `PackagedMetric.description: str | None` — the plain-language definition, **from the ontology**
-- New `SemanticFact`, `IdentityFact`, `ComparabilityFact` package sections
+**Field additions.** Every one is inert at S1; the stage that fills it is named against it.
 
-`match_basis` becomes a real field rather than a warning read back by `match_basis_of` — that
-workaround exists only because S5 did not own `models.py`, and this stage does.
+| field | default | filled by |
+| --- | --- | --- |
+| `PackagedPassage.role: EvidenceRole` | **required, no default** | the section it is built from, today |
+| `PackagedPassage.match_basis: str` | `""` | S2 adds the qualifying bases |
+| `PackagedPassage.quality_status` | `UNASSESSED` | S2 |
+| `PackagedPassage.unusable_reason` | `None` | S2 |
+| `PackagedFact.fact_kind` | `OBSERVED` | — |
+| `PackagedFact.corroborating_{observation,passage,document}_ids` | `()`, sorted-unique | S3 |
+| `PackagedMetric.description: str \| None` | `None` | S4, **from the ontology** (C4) |
+| `semantic_facts` / `identity_facts` / `comparability_facts` | `()` | S4 |
+
+`role` has **no default** because every candidate default is a claim: `primary_support` would
+have an unmigrated call site assert that an arbitrary passage backs a fact, and `unusable` that
+it backs nothing. Seventeen call sites had to state one; each knew the answer. Counter-evidence
+rows are labelled `COUNTER_EVIDENCE` — *what is true today*, not the `WARNING_ONLY` §1 shows most
+of them deserve, because relabelling them here would be S1 performing S2's reclassification with
+none of S2's evidence.
+
+`SemanticFact`, `IdentityFact` and `ComparabilityFact` each carry **required** `authoritative` and
+`editable` flags — the ontology is authoritative and subject identity is not
+(`subject_identity_not_read_from_graph`), so a default would answer for S4 — plus
+`citations: tuple[CitationHandle, ...]`, ordinarily empty, because a definition the ontology
+asserts is not a sentence in a 10-Q. `ComparabilityFact` is the ontology's **rule**, deliberately
+not a second `CompatibilityDecision`: that type is §6.9's answer about one *pair of slots*.
+`IdentityFact.available` carries S4's *"mark the description unavailable"*.
+
+`match_basis` is now a real field rather than a warning read back by `match_basis_of` — that
+workaround existed only because S5 did not own `models.py`, and this stage does. The two
+`ANNOTATE` disclosures stay, because §13.17's evidence panel renders them and no consumer of them
+changed; both they and the field are written from one value at one call site, and
+`CounterEvidenceRow` now refuses a row where the two disagree.
+
+**Deliberately not done here.** No `BudgetParameters` cap was added for the three new sections:
+`digest_parts()` feeds `package_id`, which is in the prompt, and the trimming priority is S5's.
+`section_counts` and `prompt_slice` cover them from day one, because a section the digest does
+not cover is a section two runs can differ on silently.
 
 ### S2 — Counter-evidence qualification
 

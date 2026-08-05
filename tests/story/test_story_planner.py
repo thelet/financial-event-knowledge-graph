@@ -34,6 +34,7 @@ from story.core.models import (
     ConflictCluster,
     Counterpoint,
     EditorialPlan,
+    EvidenceRole,
     GenerationResult,
     HealthStatus,
     KeyPoint,
@@ -89,6 +90,7 @@ from story.stages.generation.prompts import (
     planner_prompt,
     planner_schema,
 )
+from story.stages.packaging.counter_evidence import MATCH_BASIS_SAME_DOCUMENT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLANNER_MODULE = REPO_ROOT / "story" / "stages" / "generation" / "planner.py"
@@ -191,12 +193,15 @@ def divergence_package(**overrides: Any) -> StoryEvidencePackage:
         primary_passages=(
             PackagedPassage(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=PASSAGE_TEXT,
                             char_count=2564, passage_kind="table",
+                            role=EvidenceRole.PRIMARY_SUPPORT,
                             heading_path=("EX-99.1", "Non-GAAP Financial Measures",
                                           "RECONCILIATION OF GAAP TO NON-GAAP MEASURES")),
         ),
         counter_evidence=(
             PackagedPassage(passage_id=COUNTER_PASSAGE_ID, document_id=DOCUMENT_ID,
                             text=COUNTER_TEXT, char_count=2273, passage_kind="table",
+                            role=EvidenceRole.COUNTER_EVIDENCE,
+                            match_basis=MATCH_BASIS_SAME_DOCUMENT,
                             excerpted=True, char_start=380, char_end=380 + len(COUNTER_TEXT)),
         ),
         warnings=(
@@ -230,6 +235,7 @@ def package_with_a_causal_excerpt(text: str = EXPLANATORY_TEXT) -> StoryEvidence
     return divergence_package(explanatory_passages=(
         PackagedPassage(passage_id=EXPLANATORY_PASSAGE_ID, document_id=DOCUMENT_ID, text=text,
                         char_count=2285, passage_kind="narrative", excerpted=True,
+                        role=EvidenceRole.CONTEXT,
                         char_start=1120, char_end=1120 + len(text),
                         query_terms=("adjusted gross margin", "2022Q3"), score=4.81),))
 
@@ -446,7 +452,8 @@ def test_a_marker_outside_every_cited_span_does_not_license_reported_only():
     package = divergence_package(primary_passages=(
         PackagedPassage(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
                         text=PASSAGE_TEXT + "\nThe decline was due to inventory write-downs.",
-                        char_count=2564, passage_kind="table"),))
+                        char_count=2564, passage_kind="table",
+                        role=EvidenceRole.PRIMARY_SUPPORT),))
     assert causal_language_for(package) is CausalLanguage.FORBIDDEN
     assert causal_marker_hits(package) == ()
 
@@ -647,7 +654,9 @@ def test_a_counter_evidence_item_the_plan_neither_used_nor_declared_unusable_is_
         *divergence_package().counter_evidence,
         PackagedPassage(passage_id=DOCUMENT_ID + "#p12", document_id=DOCUMENT_ID,
                         text="[refused: UNRESOLVED_METRIC — 'Basic' matches no metric]",
-                        char_count=1804, excerpted=True, char_start=0, char_end=55),))
+                        char_count=1804, excerpted=True, char_start=0, char_end=55,
+                        role=EvidenceRole.COUNTER_EVIDENCE,
+                        match_basis=MATCH_BASIS_SAME_DOCUMENT),))
     with pytest.raises(EditorialPlanRejected) as raised:
         plan_with(FakePlanProvider(valid_answer()), package)
     assert COUNTER_EVIDENCE_UNACCOUNTED in raised.value.codes
@@ -659,7 +668,9 @@ def test_an_unused_counter_evidence_item_declared_with_an_enum_reason_is_accepte
         *divergence_package().counter_evidence,
         PackagedPassage(passage_id=DOCUMENT_ID + "#p12", document_id=DOCUMENT_ID,
                         text="[refused: UNRESOLVED_METRIC — 'Basic' matches no metric]",
-                        char_count=1804, excerpted=True, char_start=0, char_end=55),))
+                        char_count=1804, excerpted=True, char_start=0, char_end=55,
+                        role=EvidenceRole.COUNTER_EVIDENCE,
+                        match_basis=MATCH_BASIS_SAME_DOCUMENT),))
     answer = valid_answer(unusable_evidence=[
         {"id": DOCUMENT_ID + "#p12", "reason": "outside_thesis_scope"}])
     plan = plan_with(FakePlanProvider(answer), package).plan

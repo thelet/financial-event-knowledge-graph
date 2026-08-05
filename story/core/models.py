@@ -45,7 +45,17 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 #: The evidence package's own version (§10). Bumped when a section is added, removed or
 #: re-shaped; a digest input to `package_id`, so two shapes can never share an id.
-PACKAGE_VERSION = "1.0.0"
+#:
+#: **1.1.0 at S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS.** Three sections were added
+#: (`semantic_facts`, `identity_facts`, `comparability_facts`) and four row types re-shaped
+#: (`PackagedPassage` gained a role, a match basis and a quality pair; `PackagedFact` a kind and
+#: three corroboration lists; `PackagedMetric` a description). That is exactly the event this
+#: constant exists for, and the consequence the plan's §3 predicted follows from it: `package_id`
+#: moves, `package_id` is rendered into the planner and writer prompts, so the recorded
+#: generation store misses and the committed replay demo raises `MissingGenerationError` until
+#: S7 re-records it once. Not bumping it would have kept the demo green by letting two package
+#: shapes share one id, which is the single thing this field forbids.
+PACKAGE_VERSION = "1.1.0"
 
 #: The canonicalisation policy every candidate and every canonical series is computed under
 #: (§6.1). A digest input to `candidate_id`, so a policy change mints new candidates rather
@@ -118,6 +128,89 @@ class UnusableReason(str, Enum):
     DIFFERENT_POPULATION = "different_population"
     IMMATERIAL_AT_STATED_PRECISION = "immaterial_at_stated_precision"
     OUTSIDE_THESIS_SCOPE = "outside_thesis_scope"
+
+
+class PassageUnusableReason(str, Enum):
+    """Why a passage's own *content* cannot carry evidence, decided by code at packaging time.
+
+    **Separate from `UnusableReason`, and the separation is the point.** `UnusableReason`'s five
+    members — superseded, different period shape, different population, immaterial, outside
+    thesis scope — are editorial dispositions the *planner model* declares about an item it
+    chose not to use (§11 point 2), and they reach the model as an enum in §15.3's portable
+    schema. The four below are determinations *code* makes about a passage before any model
+    sees it: a pipe-only table row, a passage with no proposition about the candidate, an
+    extraction that came back corrupted, a fragment too short to state anything. Folding them
+    into one vocabulary would do two wrong things at once — it would let the planner claim
+    `corrupted_extraction` as an editorial judgement it has no way to establish, and it would
+    widen the plan schema the model is constrained by, which is a change to what the model may
+    assert rather than to what the packager may record.
+
+    Populated at S2 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS. Nothing sets it today, and
+    `PackagedPassage.quality_status` says so rather than defaulting to a clean bill of health.
+    """
+
+    EMPTY_OR_STRUCTURAL_ONLY = "empty_or_structural_only"
+    NO_RELEVANT_PROPOSITION = "no_relevant_proposition"
+    CORRUPTED_EXTRACTION = "corrupted_extraction"
+    INSUFFICIENT_CONTENT = "insufficient_content"
+
+
+class PassageQuality(str, Enum):
+    """Whether a passage's content has been assessed, and what the assessment found.
+
+    Three members and not two, because *"nobody has looked"* and *"looked and it is fine"* are
+    different facts and only one of them licenses using the passage as evidence. `UNASSESSED` is
+    the default for exactly that reason: S1 adds the field, S2 computes it, and until S2 lands
+    every passage in every package honestly reports that no quality assessment ran.
+    """
+
+    UNASSESSED = "unassessed"
+    USABLE = "usable"
+    UNUSABLE = "unusable"
+
+
+class EvidenceRole(str, Enum):
+    """What a packaged passage *is to this story* — EVIDENCE_ROLES_AND_SEMANTIC_FACTS §4 S1.
+
+    The defect this vocabulary exists to make expressible: today a passage's role is its §10
+    section, and `counter_evidence[]` is joined at document grain, so the best-corroborated fact
+    in the corpus arrives labelled as contradicted by a diagnostic about a different concept in
+    the same filing (§1). A section is a place; a role is a claim about the evidence, and only
+    the second can be wrong in a way a check can catch.
+
+    * `PRIMARY_SUPPORT` — the passage a used fact was read from.
+    * `CORROBORATING_SUPPORT` — a second, concordant source for a fact already carried. S3.
+    * `CONTEXT` — surrounding or explanatory disclosure that supports nothing by itself.
+    * `COUNTER_EVIDENCE` — deterministic evidence that challenges *this* story. S2 states the
+      qualifying bases; a shared document and a shared keyword are not among them.
+    * `WARNING_ONLY` — an extraction or data-quality diagnostic. It qualifies a fact and is not
+      a counterpoint, which is the distinction §1.1 measured being lost.
+    * `UNUSABLE` — the content cannot carry evidence at all; `PassageUnusableReason` says why.
+    """
+
+    PRIMARY_SUPPORT = "primary_support"
+    CORROBORATING_SUPPORT = "corroborating_support"
+    CONTEXT = "context"
+    COUNTER_EVIDENCE = "counter_evidence"
+    WARNING_ONLY = "warning_only"
+    UNUSABLE = "unusable"
+
+
+class FactKind(str, Enum):
+    """What kind of thing a packaged fact is — EVIDENCE_ROLES_AND_SEMANTIC_FACTS §4 S1.
+
+    `OBSERVED` and `DERIVED` are quantities: one read from a filing, one computed from readings.
+    The other three are the plan's §4 S4 correction — the ontology *defines* every metric the
+    post names, and carrying that definition as metadata beside the facts rather than as a fact
+    is why a post can state a number whose declared meaning never reached the model. They are
+    facts, they are authoritative, and they are not editable.
+    """
+
+    OBSERVED = "observed"
+    DERIVED = "derived"
+    SEMANTIC = "semantic"
+    IDENTITY = "identity"
+    COMPARABILITY = "comparability"
 
 
 class Severity(str, Enum):
@@ -326,6 +419,56 @@ class CandidateScore(StoryModel):
 
 
 # ---------------------------------------------------------------------------------------
+# Citation handles — §13.7
+#
+# **Moved above the package rows at S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS, and only moved.**
+# They lived beside `DraftSentence` while a draft sentence was the only thing that cited; the
+# ontology facts §4 S4 adds cite too — *"scope rules where source-backed, citation handles"* —
+# so the handle is now shared vocabulary and has to be defined before its first use. Nothing
+# about either type changed.
+# ---------------------------------------------------------------------------------------
+
+
+class PassageCitation(StoryModel):
+    """A citation into filed text: Rules A and B (§13.7) apply and the span must exist."""
+
+    kind: Literal["passage"] = "passage"
+    passage_id: str
+    document_id: str
+    char_start: int
+    char_end: int
+
+    @model_validator(mode="after")
+    def _span_is_usable(self) -> "PassageCitation":
+        _require_span(self.char_start, self.char_end, f"citation {self.passage_id}")
+        return self
+
+
+class EvidenceSourceCitation(StoryModel):
+    """A citation to evidence that names no filed passage — Rule C (§13.7.2).
+
+    The chain ends at the `:EvidenceSource`; there is no span to contain, so support is
+    coordinate reconstruction or input recursion. **Refused in V1** with
+    `evidence_kind_not_supported_in_v1` until a lane emits one, which is deliberate: an
+    unimplemented rule that silently passes is worse than one that refuses.
+    """
+
+    kind: Literal["evidence_source"] = "evidence_source"
+    evidence_source_id: str
+    evidence_kind: str
+    source_url: str | None = None
+
+
+#: A citation is *either* a passage citation or an evidence-source citation. Modelled as a
+#: discriminated union rather than one type with two optional halves, so "neither" is not a
+#: value that can be constructed and then have to be caught downstream. `CITATION_ADAPTER` is
+#: how a caller validates a raw mapping into one.
+CitationHandle = Annotated[
+    Union[PassageCitation, EvidenceSourceCitation], Field(discriminator="kind")]
+CITATION_ADAPTER: TypeAdapter[Any] = TypeAdapter(CitationHandle)
+
+
+# ---------------------------------------------------------------------------------------
 # Evidence package rows — §10
 # ---------------------------------------------------------------------------------------
 
@@ -347,6 +490,15 @@ class PackagedFact(StoryModel):
     `PART_OF` edge, so a fact evidenced by one has no `passage_id`, and `:MarketData` and
     `:Calculated` carry no `document_id` at all *"because nobody filed it"*. Zero such rows
     exist today; the shape exists so the XBRL lane cannot arrive by widening this type.
+
+    **The three `corroborating_*` lists are empty on every package built today, and that is a
+    measurement rather than a shape.** EVIDENCE_ROLES_AND_SEMANTIC_FACTS §1.1 counted
+    `housing_inventory_homes` 2023-03-31 at **6 observations, all 6261.0 homes, 6 different
+    documents**; canonicalisation collapses the slot to one fact and §10 carries one passage, so
+    five concordant sources are discarded and the best-corroborated fact in the candidate is
+    presented as thinly sourced. S3 puts them here — one canonical fact, one `primary_support`
+    source, the rest recorded by id — and **does not mint duplicate facts**, which is why this is
+    three id lists on the fact rather than five more rows in `facts[]`.
     """
 
     observation_id: str
@@ -379,6 +531,23 @@ class PackagedFact(StoryModel):
     quoted_text: str | None = None
     #: Set instead of `passage_id` when the fact's evidence names no filed passage (§13.7.2).
     evidence_source_id: str | None = None
+    #: `OBSERVED` by default because every row this package has ever carried is one reading of
+    #: one filed cell. A derived quantity is the writer's `Calculation` today and is not a
+    #: packaged fact; the member exists so it cannot arrive by widening `OBSERVED`.
+    fact_kind: FactKind = FactKind.OBSERVED
+    #: The concordant sources §6.1 collapsed into this one canonical fact. Sorted and unique for
+    #: `_require_sorted_unique`'s reason: these are digest inputs by way of the package digest,
+    #: and two orderings of one set would be two byte sequences describing one thing.
+    corroborating_observation_ids: tuple[str, ...] = ()
+    corroborating_passage_ids: tuple[str, ...] = ()
+    corroborating_document_ids: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _corroboration_is_sorted(self) -> "PackagedFact":
+        for name in ("corroborating_observation_ids", "corroborating_passage_ids",
+                     "corroborating_document_ids"):
+            _require_sorted_unique(getattr(self, name), name)
+        return self
 
     @model_validator(mode="after")
     def _has_some_evidence(self) -> "PackagedFact":
@@ -398,6 +567,25 @@ class PackagedPassage(StoryModel):
     carry `excerpted: true`, so a citation still resolves to the byte and an evidence panel
     can fetch the rest. A passage a fact is bound to is never excerpted — Rule A needs the
     whole table.
+
+    **`role` has no default, and the absence is the design.** Every value it could default to is
+    a claim about evidence: `PRIMARY_SUPPORT` would let an unmigrated construction assert that
+    an arbitrary passage backs a fact, and `UNUSABLE` would assert that it backs nothing. The
+    honest third option is that a caller who has not said cannot build one, so the field is
+    required and pydantic refuses the construction by name. Seventeen call sites had to state a
+    role when this landed; each of them knew the answer.
+
+    **`match_basis` is a field here rather than a warning read back out of the package.**
+    `counter_evidence.py` recorded the workaround it was forced into — *"§10's
+    `counter_evidence[]` is typed `tuple[PackagedPassage, ...]` … which S5 does not own and
+    which has no field for a match basis, so the basis travels as one of two `ANNOTATE` warnings
+    and `match_basis_of` reads it back"*. S1 owns this module, so the basis is on the row. The
+    two disclosure warnings stay: they are what an evidence panel renders beside the claim, and
+    both they and this field are written from one value at one call site. Empty string means
+    *"this passage was not associated with a fact on any basis"*, which is true of every passage
+    outside `counter_evidence[]`; the named bases live in
+    `story/stages/packaging/counter_evidence.py` beside the code that decides them, and S2 adds
+    the rest of them there rather than as an enum here.
     """
 
     passage_id: str
@@ -415,6 +603,23 @@ class PackagedPassage(StoryModel):
     #: recorded so the reason a passage is in the package is inspectable.
     query_terms: tuple[str, ...] = ()
     score: float | None = None
+    #: What this passage is to the story. Required — see the class docstring.
+    role: EvidenceRole
+    #: Why this passage was associated with the candidate's facts, when it was. Empty otherwise.
+    match_basis: str = ""
+    #: `UNASSESSED` until S2 runs a quality assessment. A default of `USABLE` would be this
+    #: module asserting a check that has not been written, on every passage in every package.
+    quality_status: PassageQuality = PassageQuality.UNASSESSED
+    unusable_reason: PassageUnusableReason | None = None
+
+    @model_validator(mode="after")
+    def _a_reason_needs_a_finding(self) -> "PackagedPassage":
+        if self.unusable_reason is not None and self.quality_status is not PassageQuality.UNUSABLE:
+            raise ValueError(
+                f"{self.passage_id}: unusable_reason={self.unusable_reason.value} on a passage "
+                f"whose quality_status is {self.quality_status.value}. A reason without the "
+                "finding it explains is a row a consumer can read either way")
+        return self
 
 
 class EventParticipant(StoryModel):
@@ -502,10 +707,20 @@ class PackagedMetric(StoryModel):
     `distinct_from` or `reconciles_to`, and the 36 `DISTINCT_FROM` edges may support graph
     inspection but must never be the source of a comparability ruling. A packager that read
     these off the graph would silently fill them with nothing.
+
+    **`description` is the plain-language definition, and it comes from the ontology.** The
+    `:Metric` node carries 22 properties including one called `description`, and it is **not**
+    the source of truth (recon correction C4, restated by
+    EVIDENCE_ROLES_AND_SEMANTIC_FACTS §2): the same argument that keeps `percentage_min` and
+    `distinct_from` off the graph keeps this off it. `None` today — S1 adds the field and S4
+    populates it — and `None` here means the field has not been populated yet rather than that
+    the ontology declares no definition.
     """
 
     metric_id: str
     label: str
+    #: The metric in words, as the ontology states it. `None` until S4; never read off `:Metric`.
+    description: str | None = None
     unit: str
     allowed_units: tuple[str, ...] = ()
     period_type: str | None = None
@@ -535,6 +750,123 @@ class PackagedFormulaWindow(StoryModel):
     component_metrics: tuple[str, ...] = ()
     adjustment_components: tuple[Mapping[str, str], ...] = ()
     basis: str | None = None
+
+
+# ---------------------------------------------------------------------------------------
+# Semantic, identity and comparability facts — EVIDENCE_ROLES_AND_SEMANTIC_FACTS §4 S4
+#
+# **Why these are facts and not more metadata.** §10 already carries `metrics[]`,
+# `formula_windows[]` and `compatibility[]`, and the planner already receives seven metric
+# fields through `prompts._metric_lines`. What it does not receive is the *definition* — what
+# the number means in words — and a post whose numbers have no declared meaning is the failure
+# S5 turns into a package refusal. The plan's answer is not another metadata block: it is that
+# the ontology's declarations enter the package on the same footing as the observations, with
+# an authority, an editability and a citation handle, so §11's planner and S6's evidence panel
+# read them as facts rather than as configuration.
+#
+# **Authority is stated per row, not assumed.** The ontology is authoritative for metric
+# semantics (C4) and is not editable from the prompt UI (S6). Subject identity is a different
+# case and must not be flattered into the same one: today `subject_identity_not_read_from_graph`
+# records that `entity_text` and `labels` are the *caller's* and `resolved` is inferred, so an
+# identity fact built from them is not authoritative. Both fields are required on all three
+# types for that reason — a default would be this module answering a question the populating
+# stage is the only one that can.
+#
+# Every section is empty on every package built at S1. S4 fills them.
+# ---------------------------------------------------------------------------------------
+
+
+class SemanticFact(StoryModel):
+    """One thing the ontology declares about a metric, stated as a fact (§4 S4).
+
+    `attribute` names which of the plan's per-metric declarations this row carries — display
+    name, aliases, plain-language definition, unit, scale, instant-vs-duration semantics,
+    formula version and effective window, a source-backed scope rule. A free string and not an
+    enum, matching `PackagedPassage.match_basis`: the names belong beside the code that emits
+    them, and S4 is the stage that decides what the list is. `statement` is the ontology's own
+    words rather than a paraphrase, for `MetricAmbiguity`'s reason — a paraphrase of a
+    definition is a new definition.
+    """
+
+    fact_id: str
+    fact_kind: Literal[FactKind.SEMANTIC] = FactKind.SEMANTIC
+    metric_id: str
+    attribute: str
+    #: The declaration in plain language, as the model will read it.
+    statement: str
+    #: The structured value the statement renders, where there is one — `"percent"`, `"instant"`,
+    #: a version id. Empty when the declaration is prose and has no other form.
+    value: str = ""
+    #: True for the ontology (C4). Stated, never defaulted — see the section comment.
+    authoritative: bool
+    #: Whether a human may change it from the prompt UI. False for the ontology (S6).
+    editable: bool
+    #: What declared it — `ontology:<id>@<semantic_version>` for a row read from the ontology.
+    source: str = ""
+    #: Filed text backing the declaration, where the corpus has any. Empty is the ordinary case:
+    #: a definition the ontology asserts is not a sentence in a 10-Q, and inventing a span for it
+    #: would be the fabrication §13.7 exists to refuse.
+    citations: tuple[CitationHandle, ...] = ()
+    warning_codes: tuple[str, ...] = ()
+
+
+class IdentityFact(StoryModel):
+    """One structured thing known about the story's subject (§4 S4).
+
+    **`available` is the field that keeps a missing description missing.** §4 S4: *"No company
+    description may be invented from model knowledge. If no source-backed description exists,
+    carry structured identity only and mark the description unavailable."* A package that simply
+    omitted the row would leave the model free to supply one from its weights and leave the
+    evidence panel unable to say the corpus was asked; a row with `available: false` says both.
+    """
+
+    fact_id: str
+    fact_kind: Literal[FactKind.IDENTITY] = FactKind.IDENTITY
+    entity_id: str
+    #: `legal_name`, `ticker`, `entity_type`, `description` — S4 owns the list.
+    attribute: str
+    statement: str
+    value: str = ""
+    #: False when the corpus carries no source-backed answer. `statement` then says so, and
+    #: `value` is empty.
+    available: bool = True
+    authoritative: bool
+    editable: bool
+    source: str = ""
+    citations: tuple[CitationHandle, ...] = ()
+    warning_codes: tuple[str, ...] = ()
+
+
+class ComparabilityFact(StoryModel):
+    """One comparison rule the ontology declares, stated as a fact (§4 S4).
+
+    **Not a second `CompatibilityDecision`, and the boundary is worth stating once.**
+    `CompatibilityDecision` is §6.9's *answer about one pair of slots* — `left_id`, `right_id`,
+    comparable or not, and the rule that decided it. This is the *rule itself*, ranging over the
+    metrics it constrains and readable without a pair: that `adjusted_gross_margin` and
+    `gaap_gross_margin` are mutually distinct, that a percentage and a percentage-point change
+    are not one quantity (§13.3), that a formula version boundary separates two definitions of
+    one name. The planner needs the rule to avoid writing the sentence; the decision only tells
+    it whether one comparison it already made was allowed.
+    """
+
+    fact_id: str
+    fact_kind: Literal[FactKind.COMPARABILITY] = FactKind.COMPARABILITY
+    #: The ontology's own rule identifier, so a reader can find what this is a rendering of.
+    rule_id: str
+    #: The metrics the rule ranges over, sorted and unique.
+    metric_ids: tuple[str, ...] = ()
+    statement: str
+    authoritative: bool
+    editable: bool
+    source: str = ""
+    citations: tuple[CitationHandle, ...] = ()
+    warning_codes: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _metric_ids_are_sorted(self) -> "ComparabilityFact":
+        _require_sorted_unique(self.metric_ids, "metric_ids")
+        return self
 
 
 class PackagedEvidenceSource(StoryModel):
@@ -713,9 +1045,10 @@ class PackageIdentity(StoryModel):
 class StoryEvidencePackage(StoryModel):
     """The model's entire universe (§10), serializable, hashed and reproducible.
 
-    Sixteen bounded sections. Nothing a model produced may enter one, and nothing outside one
-    may reach a prompt: that is the whole of §2's line — the model chooses words, code chooses
-    facts.
+    Nineteen bounded sections — sixteen at S0, plus `semantic_facts`, `identity_facts` and
+    `comparability_facts` at S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS. Nothing a model produced
+    may enter one, and nothing outside one may reach a prompt: that is the whole of §2's line —
+    the model chooses words, code chooses facts.
 
     `package_content_digest` is the sha256 of this package's own canonical JSON **with that
     field excluded**, which is the only way §10.3's "digest over the whole package" can be a
@@ -740,6 +1073,12 @@ class StoryEvidencePackage(StoryModel):
 
     subject: PackagedSubject
     facts: tuple[PackagedFact, ...] = ()
+    #: The ontology's declarations, as facts (§4 S4). Empty until S4 populates them; they are
+    #: inside `prompt_slice` from the day they are added, because a section the token budget
+    #: does not cover is a section two runs can differ on silently.
+    semantic_facts: tuple[SemanticFact, ...] = ()
+    identity_facts: tuple[IdentityFact, ...] = ()
+    comparability_facts: tuple[ComparabilityFact, ...] = ()
     metrics: tuple[PackagedMetric, ...] = ()
     formula_windows: tuple[PackagedFormulaWindow, ...] = ()
     events: tuple[PackagedEvent, ...] = ()
@@ -892,45 +1231,6 @@ class Calculation(StoryModel):
     result_rendered: str
     formula_version_id: str | None = None
     period_surface: str = ""
-
-
-class PassageCitation(StoryModel):
-    """A citation into filed text: Rules A and B (§13.7) apply and the span must exist."""
-
-    kind: Literal["passage"] = "passage"
-    passage_id: str
-    document_id: str
-    char_start: int
-    char_end: int
-
-    @model_validator(mode="after")
-    def _span_is_usable(self) -> "PassageCitation":
-        _require_span(self.char_start, self.char_end, f"citation {self.passage_id}")
-        return self
-
-
-class EvidenceSourceCitation(StoryModel):
-    """A citation to evidence that names no filed passage — Rule C (§13.7.2).
-
-    The chain ends at the `:EvidenceSource`; there is no span to contain, so support is
-    coordinate reconstruction or input recursion. **Refused in V1** with
-    `evidence_kind_not_supported_in_v1` until a lane emits one, which is deliberate: an
-    unimplemented rule that silently passes is worse than one that refuses.
-    """
-
-    kind: Literal["evidence_source"] = "evidence_source"
-    evidence_source_id: str
-    evidence_kind: str
-    source_url: str | None = None
-
-
-#: A citation is *either* a passage citation or an evidence-source citation. Modelled as a
-#: discriminated union rather than one type with two optional halves, so "neither" is not a
-#: value that can be constructed and then have to be caught downstream. `CITATION_ADAPTER` is
-#: how a caller validates a raw mapping into one.
-CitationHandle = Annotated[
-    Union[PassageCitation, EvidenceSourceCitation], Field(discriminator="kind")]
-CITATION_ADAPTER: TypeAdapter[Any] = TypeAdapter(CitationHandle)
 
 
 class DraftSentence(StoryModel):
@@ -1274,6 +1574,7 @@ __all__ = [
     "CheckOutcome",
     "CheckResult",
     "CitationHandle",
+    "ComparabilityFact",
     "CompatibilityDecision",
     "Conflict",
     "ConflictCluster",
@@ -1282,12 +1583,15 @@ __all__ = [
     "DraftSentence",
     "EditorialPlan",
     "EventParticipant",
+    "EvidenceRole",
     "EvidenceRequest",
     "EvidenceSourceCitation",
     "FactBinding",
+    "FactKind",
     "FactLedgerEntry",
     "GenerationResult",
     "HealthStatus",
+    "IdentityFact",
     "KeyPoint",
     "MetricAmbiguity",
     "PackageBudget",
@@ -1303,12 +1607,15 @@ __all__ = [
     "PackagedSubject",
     "PackagedWarning",
     "PassageCitation",
+    "PassageQuality",
+    "PassageUnusableReason",
     "Remedy",
     "RetrievalOutcome",
     "RetrievalResult",
     "RetrievalTraceEntry",
     "RejectedDraft",
     "RunSelection",
+    "SemanticFact",
     "SentenceKind",
     "Severity",
     "StatementClass",

@@ -43,6 +43,7 @@ from story.core.models import (
     Draft,
     DraftSentence,
     EditorialPlan,
+    EvidenceRole,
     FactBinding,
     GenerationResult,
     HealthStatus,
@@ -107,6 +108,7 @@ from story.stages.generation.writer import (
 from story.stages.verification import DeterministicVerifier
 from story.stages.verification.deterministic import REQUIRED_WARNING_QUALIFIERS
 from story.stages.verification.period_grammar import resolve as resolve_period
+from story.stages.packaging.counter_evidence import MATCH_BASIS_SAME_DOCUMENT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WRITER_MODULE = REPO_ROOT / "story" / "stages" / "generation" / "writer.py"
@@ -209,12 +211,15 @@ def make_package(**overrides: Any) -> StoryEvidencePackage:
         metrics=METRICS,
         primary_passages=(
             PackagedPassage(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=PASSAGE_TEXT,
-                            char_count=len(PASSAGE_TEXT), passage_kind="normalized_table"),
+                            char_count=len(PASSAGE_TEXT), passage_kind="normalized_table",
+                            role=EvidenceRole.PRIMARY_SUPPORT),
         ),
         counter_evidence=(
             PackagedPassage(passage_id=COUNTER_PASSAGE_ID, document_id=DOCUMENT_ID,
                             text=COUNTER_TEXT, char_count=len(COUNTER_TEXT),
-                            passage_kind="normalized_table", excerpted=True),
+                            passage_kind="normalized_table", excerpted=True,
+                            role=EvidenceRole.COUNTER_EVIDENCE,
+                            match_basis=MATCH_BASIS_SAME_DOCUMENT),
         ),
         warnings=(
             PackagedWarning(code="filing_date_unknown", severity=Severity.ANNOTATE,

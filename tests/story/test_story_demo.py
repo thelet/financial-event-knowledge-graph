@@ -67,6 +67,27 @@ from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
 from story.stages.freshness import FreshnessReport
 
+#: Every test below drives the demo through the **recorded** generation store, and the store no
+#: longer holds the rows those runs ask for.
+#:
+#: S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS added three package sections and re-shaped four row
+#: types, which is exactly the event `PACKAGE_VERSION` exists for; the version moved to `1.1.0`,
+#: so `package_id` moved, and `package_id` is rendered into the planner and writer prompts
+#: (`prompts.planner_prompt`, `prompts.writer_prompt`). The store is keyed on the prompt, so
+#: every lookup misses with `MissingGenerationError` — which is precisely the intermediate state
+#: the plan's §3 predicted and named: *"Until S7, the replay demo is expected to fail with
+#: `MissingGenerationError`, and that is a known intermediate state rather than a regression."*
+#:
+#: **`strict=True` on purpose.** S7 re-records the store once, against the final schema; the day
+#: it does, these start passing and a non-strict marker would let them stay marked forever. A
+#: strict xfail turns "S7 is done" into a failing suite until the markers are removed.
+REPLAY_AWAITS_S7 = pytest.mark.xfail(
+    strict=True,
+    reason="the recorded generation store is keyed on a prompt carrying package_id, and S1 "
+           "moved PACKAGE_VERSION to 1.1.0; S7 re-records it once (EVIDENCE_ROLES_AND_"
+           "SEMANTIC_FACTS §3)")
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures" / "story_demo"
 
@@ -195,6 +216,7 @@ def config() -> DemoConfig:
 # ---------------------------------------------------------------------------------------
 
 
+@REPLAY_AWAITS_S7
 def test_the_demo_runs_end_to_end_from_a_recorded_response_and_writes_every_artifact(
     tmp_path, config
 ):
@@ -212,6 +234,7 @@ def test_the_demo_runs_end_to_end_from_a_recorded_response_and_writes_every_arti
     assert outcome.disposition in (ACCEPTED, REJECTED)
 
 
+@REPLAY_AWAITS_S7
 def test_verification_actually_executes_rather_than_being_recorded_as_having_run(
     tmp_path, config
 ):
@@ -231,6 +254,7 @@ def test_verification_actually_executes_rather_than_being_recorded_as_having_run
     assert outcome.verified.check("identity_and_freshness").examined == 9
 
 
+@REPLAY_AWAITS_S7
 def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_blocking_finding(
     tmp_path, config
 ):
@@ -260,6 +284,7 @@ def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_block
     assert outcome.verified.calculation_ledger[0].recomputed_value == 15.899999999999999
 
 
+@REPLAY_AWAITS_S7
 def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config):
     """A rejection is a completed run, not a failure to run (§8b, §14).
 
@@ -285,6 +310,7 @@ def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config
             if f["blocking"]] == ["comparative_not_supported_by_text"]
 
 
+@REPLAY_AWAITS_S7
 def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
     """The genuine recording's branch: the two files are mutually exclusive.
 
@@ -307,6 +333,7 @@ def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
 # ---------------------------------------------------------------------------------------
 
 
+@REPLAY_AWAITS_S7
 def test_two_runs_over_one_package_agree_on_every_artifact_but_the_clock(tmp_path, config):
     """§21's byte-identity claim, at the demo's scale: replay is reproducible, generation is not.
 
@@ -340,6 +367,7 @@ def test_two_runs_over_one_package_agree_on_every_artifact_but_the_clock(tmp_pat
     assert manifests[0] == manifests[1]
 
 
+@REPLAY_AWAITS_S7
 def test_two_runs_agree_on_the_candidate_the_package_digest_and_the_verdict(tmp_path, config):
     """The three values §8b's claim is made of, stated separately from the byte comparison.
 
@@ -361,6 +389,7 @@ def test_two_runs_agree_on_the_candidate_the_package_digest_and_the_verdict(tmp_
     assert first.verified.all_findings == second.verified.all_findings
 
 
+@REPLAY_AWAITS_S7
 def test_the_run_id_is_derived_from_versions_and_digests_and_never_from_the_clock(
     tmp_path, config
 ):
@@ -374,6 +403,7 @@ def test_the_run_id_is_derived_from_versions_and_digests_and_never_from_the_cloc
     assert first.manifest.created_at != second.manifest.created_at
 
 
+@REPLAY_AWAITS_S7
 def test_a_changed_config_mints_a_different_run_id(tmp_path, config):
     """`config_hash` is a digest input, which is what puts `length_target` inside the id.
 
@@ -438,6 +468,7 @@ def test_the_named_candidate_is_returned_unchanged_when_it_does_reproduce(config
     assert select_candidate({CANDIDATE_ID: candidate}, CANDIDATE_ID) is candidate
 
 
+@REPLAY_AWAITS_S7
 def test_a_draft_the_writer_refuses_is_recorded_as_its_own_disposition(tmp_path, config):
     """§11 and §12 can each refuse before §13 runs, and the demo must not report that as a
     verifier rejection — the verifier never saw the draft."""
@@ -478,6 +509,7 @@ def test_a_replay_only_store_with_no_matching_row_refuses_rather_than_inventing_
 # ---------------------------------------------------------------------------------------
 
 
+@REPLAY_AWAITS_S7
 def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposition(
     tmp_path, config
 ):
@@ -508,6 +540,7 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     assert manifest["detector_versions"] == {"detector:cross_metric_divergence": "1.0.0"}
 
 
+@REPLAY_AWAITS_S7
 def test_the_manifest_is_written_last_and_names_the_hash_of_every_other_artifact(
     tmp_path, config
 ):
@@ -596,6 +629,7 @@ def test_an_unknown_subcommand_is_a_usage_error():
     assert raised.value.code == cli.EXIT_USAGE
 
 
+@REPLAY_AWAITS_S7
 def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_rejected(
     tmp_path, monkeypatch, capsys
 ):
@@ -630,6 +664,7 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
     assert not (tmp_path / "run" / "post.md").exists()
 
 
+@REPLAY_AWAITS_S7
 def test_the_command_exits_zero_and_names_the_post_when_the_draft_is_accepted(
     tmp_path, monkeypatch, capsys
 ):
@@ -723,6 +758,7 @@ def test_live_a_candidate_id_that_the_graph_does_not_produce_refuses(live_inputs
 
 
 @pytest.mark.neo4j
+@REPLAY_AWAITS_S7
 def test_live_the_demo_runs_end_to_end_from_the_graph_and_the_recorded_store(
     live_inputs, tmp_path, config,  # type: ignore[no-untyped-def]
 ):

@@ -36,8 +36,10 @@ from story.core.keys import package_content_digest, package_id
 from story.core.models import (
     PACKAGE_VERSION,
     BudgetParameters,
+    ComparabilityFact,
     CompatibilityDecision,
     Conflict,
+    IdentityFact,
     PackageBudget,
     PackagedDocument,
     PackagedEvent,
@@ -48,6 +50,7 @@ from story.core.models import (
     PackagedSubject,
     PackagedWarning,
     RetrievalTraceEntry,
+    SemanticFact,
     StoryCandidate,
     StoryEvidencePackage,
 )
@@ -99,6 +102,11 @@ class PackageSections:
 
     subject: PackagedSubject | None = None
     facts: list[PackagedFact] = field(default_factory=list)
+    #: The ontology's declarations as facts (§4 S4). Selected by S4; carried, counted and
+    #: digested from S1 so the section cannot arrive without the budget noticing.
+    semantic_facts: list[SemanticFact] = field(default_factory=list)
+    identity_facts: list[IdentityFact] = field(default_factory=list)
+    comparability_facts: list[ComparabilityFact] = field(default_factory=list)
     metrics: list[PackagedMetric] = field(default_factory=list)
     formula_windows: list[PackagedFormulaWindow] = field(default_factory=list)
     events: list[PackagedEvent] = field(default_factory=list)
@@ -323,6 +331,9 @@ class PackageAssembler:
             ontology_semantic_version=self.identity.ontology_version,
             subject=sections.subject,
             facts=facts,
+            semantic_facts=tuple(sections.semantic_facts),
+            identity_facts=tuple(sections.identity_facts),
+            comparability_facts=tuple(sections.comparability_facts),
             metrics=tuple(sections.metrics),
             formula_windows=tuple(sections.formula_windows),
             events=tuple(sections.events),
@@ -413,10 +424,16 @@ def remember_document(sections: PackageSections, row: Mapping[str, Any]) -> None
 
 
 def section_counts(sections: PackageSections) -> dict[str, int]:
-    """§10's `budget.section_counts`. Every section, including the two that are always empty —
+    """§10's `budget.section_counts`. Every section, including the five that are always empty —
     a count that vanished when it reached zero would make an absent section unreadable."""
     return {
         "facts": len(sections.facts),
+        # The three ontology-fact sections are counted from the day they exist rather than from
+        # the day S4 fills them: a section the digest does not cover is a section two runs can
+        # differ on silently, and `section_counts` is inside `package_content_digest`.
+        "semantic_facts": len(sections.semantic_facts),
+        "identity_facts": len(sections.identity_facts),
+        "comparability_facts": len(sections.comparability_facts),
         "metrics": len(sections.metrics),
         "formula_windows": len(sections.formula_windows),
         "events": len(sections.events),

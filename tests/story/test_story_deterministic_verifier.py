@@ -37,6 +37,7 @@ from story.core.models import (
     DraftSentence,
     EditorialPlan,
     EventParticipant,
+    EvidenceRole,
     FactBinding,
     KeyPoint,
     PackageBudget,
@@ -63,6 +64,7 @@ from story.stages.verification.codes import UndeclaredCode, finding
 from story.stages.verification.metric_surfaces import MetricAliasIndex
 from story.stages.verification.period_grammar import resolve as resolve_period
 from story.stages.verification.period_grammar import scan as scan_periods
+from story.stages.packaging.counter_evidence import MATCH_BASIS_SAME_DOCUMENT
 
 # ---------------------------------------------------------------------------------------
 # The run this implementation is built on (IMPLEMENTATION_STEPS §0, verified 2026-08-03)
@@ -174,7 +176,8 @@ def make_package(**overrides: object) -> StoryEvidencePackage:
         metrics=METRICS,
         primary_passages=(
             PackagedPassage(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=PASSAGE_TEXT,
-                            char_count=len(PASSAGE_TEXT), passage_kind="normalized_table"),
+                            char_count=len(PASSAGE_TEXT), passage_kind="normalized_table",
+                            role=EvidenceRole.PRIMARY_SUPPORT),
         ),
         documents=(PackagedDocument(document_id=DOCUMENT_ID, form="10-Q",
                                     document_type="10-Q", filing_date="2022-11-03"),),
@@ -437,7 +440,8 @@ def test_the_tolerance_test_compares_magnitudes_so_a_loss_written_unsigned_still
                                 unit="USD", aliases=("adjusted ebitda",)),),
         primary_passages=(PackagedPassage(
             passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
-            text="Adjusted EBITDA (27,075)", char_count=24),),
+            text="Adjusted EBITDA (27,075)", char_count=24,
+            role=EvidenceRole.PRIMARY_SUPPORT),),
     )
     sentence = DraftSentence(
         index=0, text=text, kind=SentenceKind.REPORTED,
@@ -746,7 +750,8 @@ def test_document_grain_counter_evidence_may_never_be_cited_as_passage_level_sup
     """§10's counter-evidence join is at document grain; §13.14 is what waits for the misuse."""
     other = PackagedPassage(
         passage_id="psg:opendoor-10q-2022q3:inventory-table", document_id=DOCUMENT_ID,
-        text="Inventory 2,152", char_count=15, excerpted=True)
+        text="Inventory 2,152", char_count=15, excerpted=True,
+        role=EvidenceRole.COUNTER_EVIDENCE, match_basis=MATCH_BASIS_SAME_DOCUMENT)
     package = make_package(counter_evidence=(other,))
     sentence = agm_sentence(citations=(PassageCitation(
         passage_id=other.passage_id, document_id=DOCUMENT_ID, char_start=0, char_end=15),))
@@ -1081,7 +1086,7 @@ def test_a_span_carrying_two_causal_markers_is_refused_because_the_binding_canno
                     "Contribution profit fell as a result of holding costs.")
     package = make_package(primary_passages=(PackagedPassage(
         passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=passage_text,
-        char_count=len(passage_text)),))
+        char_count=len(passage_text), role=EvidenceRole.PRIMARY_SUPPORT),))
     text = ("The company said gross margin declined due to home price depreciation.")
     sentence = DraftSentence(
         index=0, text=text, kind=SentenceKind.EXPLANATORY,
@@ -1099,7 +1104,7 @@ def test_a_negated_causal_construction_in_the_span_is_refused(verifier):
                     "general solicitation.")
     package = make_package(primary_passages=(PackagedPassage(
         passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=passage_text,
-        char_count=len(passage_text)),))
+        char_count=len(passage_text), role=EvidenceRole.PRIMARY_SUPPORT),))
     text = "The company said the agreement was entered into as a result of a solicitation."
     sentence = DraftSentence(
         index=0, text=text, kind=SentenceKind.EXPLANATORY,
@@ -1299,7 +1304,8 @@ def test_the_same_uniqueness_claim_dressed_as_an_extremum_dies_on_recomputation(
 def test_malicious_citation_to_an_unrelated_passage_is_caught_by_citation_support(verifier):
     other = PackagedPassage(
         passage_id="psg:opendoor-10q-2022q3:liquidity", document_id=DOCUMENT_ID,
-        text="We had $1.4 billion of unrestricted cash.", char_count=41)
+        text="We had $1.4 billion of unrestricted cash.", char_count=41,
+        role=EvidenceRole.PRIMARY_SUPPORT)
     package = make_package(
         primary_passages=(make_package().primary_passages[0], other))
     sentence = agm_sentence(citations=(PassageCitation(

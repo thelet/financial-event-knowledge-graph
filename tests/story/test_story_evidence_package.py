@@ -27,6 +27,7 @@ from story.core.graph_identity import GraphIdentity
 from story.core.models import (
     BudgetParameters,
     EvidenceRequest,
+    EvidenceRole,
     PackagedFact,
     PackagedPassage,
     PackagedSubject,
@@ -764,17 +765,24 @@ def counter_row(basis: str, rank: int, issue_id: str,
                 passage_id: str = Q3_PASSAGE) -> counter.CounterEvidenceRow:
     excerpt = passage_excerpts.window(TABLE_TEXT, needles=("Gross Margin",))
     return counter.CounterEvidenceRow(
-        passage=_packaged(passage_id, excerpt), match_basis=basis, issue_id=issue_id,
+        passage=_packaged(passage_id, excerpt, basis), match_basis=basis, issue_id=issue_id,
         code="AMBIGUOUS_ALIAS", severity="refusal", severity_rank=rank,
         metric_id="gaap_gross_margin", period_key="2022Q3", row_label="Gross Margin",
         excerpt=excerpt)
 
 
-def _packaged(passage_id: str, excerpt: passage_excerpts.Excerpt) -> PackagedPassage:
+def _packaged(passage_id: str, excerpt: passage_excerpts.Excerpt,
+              match_basis: str = "") -> PackagedPassage:
+    """The passage a `CounterEvidenceRow` wraps, carrying the same basis the row does.
+
+    `CounterEvidenceRow.__post_init__` refuses a row whose passage disagrees with it, so the
+    basis has to be threaded here rather than defaulted — which is the point of the guard.
+    """
     return PackagedPassage(
         passage_id=passage_id, document_id=passage_id.rsplit("#p", 1)[0], text=excerpt.text,
         char_count=len(TABLE_TEXT), char_start=excerpt.char_start, char_end=excerpt.char_end,
-        excerpted=excerpt.excerpted)
+        excerpted=excerpt.excerpted, role=EvidenceRole.COUNTER_EVIDENCE,
+        match_basis=match_basis)
 
 
 def test_counter_evidence_is_ordered_passage_grain_first_then_most_severe():
@@ -1368,7 +1376,8 @@ def hand_built_sections() -> assembly.PackageSections:
             source_url="https://www.sec.gov/x", quoted_text=str(value)))
         sections.primary_passages.append(PackagedPassage(
             passage_id=passage_id, document_id=document_id, text=TABLE_TEXT,
-            char_count=len(TABLE_TEXT), char_end=len(TABLE_TEXT)))
+            char_count=len(TABLE_TEXT), char_end=len(TABLE_TEXT),
+            role=EvidenceRole.PRIMARY_SUPPORT))
         assembly.remember_document(sections, passage_row(passage_id))
     sections.required_slots = {("gaap_gross_margin", "2022Q3")}
     return sections
