@@ -402,6 +402,36 @@ textarea {
 #trace-events li { cursor: pointer; }
 #trace-events li[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); }
 
+/*
+  "Facts sent to the model". Two of these rules carry meaning rather than layout and are worth
+  stating: an unavailable row is muted but **still drawn**, because there is no company
+  description anywhere in this corpus and a row that vanished would read as a question nobody
+  asked; and a counter-evidence passage gets the same left edge a blocking finding gets, because
+  a counterpoint drawn like support is the one thing this panel must never do.
+*/
+#model-facts-section { margin: 0.6rem 0; }
+#model-facts-section h3, #packaged-facts-title { font-size: 13px; margin: 0.6rem 0 0.2rem; }
+#model-facts [data-fact-id] {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 0.35rem 0.5rem;
+  margin: 0.3rem 0;
+  font-size: 12px;
+}
+#model-facts [data-fact-id].is-absent {
+  border-left-color: var(--ink-faint);
+  background: var(--surface-sunk);
+}
+#model-facts .citation,
+#package-bounds .citation,
+#sources-list .citation { color: var(--accent); cursor: default; }
+#model-facts .is-absent, #sources-list .is-absent { color: var(--ink-faint); font-style: italic; }
+#sources-list [data-role="counter_evidence"] {
+  border-left: 3px solid var(--bad);
+  padding-left: 0.4rem;
+}
+
 fieldset {
   border: 1px solid var(--line);
   border-radius: var(--radius);

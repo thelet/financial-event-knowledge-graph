@@ -191,6 +191,23 @@
 
         <div id="panel-facts" role="tabpanel" aria-labelledby="tab-facts" tabindex="0" hidden>
           <div id="package-summary"></div>
+
+          <!--
+            The facts the model was given, in the five groups the plan names: observed, derived,
+            semantic, company context, comparison rules. Written from `model_facts`, which the
+            server composes with one mapper — nothing here decides what a row is.
+
+            A row marked unavailable stays on screen. There is no company description anywhere
+            in this corpus, and a panel that dropped that row would leave a reader unable to
+            tell "nobody asked" from "the corpus was asked and has nothing".
+          -->
+          <section id="model-facts-section" aria-labelledby="model-facts-title">
+            <h3 id="model-facts-title">Facts sent to the model</h3>
+            <p id="model-facts-note" class="note"></p>
+            <div id="model-facts"></div>
+          </section>
+
+          <h3 id="packaged-facts-title">Packaged observations</h3>
           <ul id="facts-list"></ul>
           <div id="package-bounds"></div>
         </div>

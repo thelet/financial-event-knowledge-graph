@@ -34,8 +34,15 @@ import pytest
 
 from story import pipeline
 from story.core.graph_identity import GraphIdentity
-from story.core.models import StoryCandidate, StoryEvidencePackage
-from story.demo_ui import api, candidate_resolution, discovery, projection, prompt_presets
+from story.core.models import EvidenceRole, StoryCandidate, StoryEvidencePackage
+from story.demo_ui import (
+    api,
+    candidate_resolution,
+    discovery,
+    package_view,
+    projection,
+    prompt_presets,
+)
 from story.demo_ui.runs import RunRegistry
 from story.demo_ui.server import (
     ROUTER,
@@ -1241,6 +1248,12 @@ def test_every_passage_says_which_section_of_the_package_it_came_from(graph_serv
     flattened into one dictionary and the passages carried no `role` and no
     `is_counter_evidence`, so evidence *against* the thesis was indistinguishable from evidence
     for it. The brief requires the four to be distinguishable; this is that, executable.
+
+    **Rewritten at S6**, when the two questions were separated: `section` says which §10 list a
+    row was fetched from and `role` says what it turned out to be. This endpoint used to write
+    the section into the field named `role`, which is how a `diagnostic_passages` row — whose
+    role can be `primary_support` — read as a diagnostic here and as support on the package
+    endpoint.
     """
     harness = Harness(services={**graph_services,
                                 "story_pipeline": committed_inputs_pipeline})
@@ -1252,16 +1265,21 @@ def test_every_passage_says_which_section_of_the_package_it_came_from(graph_serv
     passages = [passage for document in sources["documents"]
                 for passage in document["passages"]]
     assert passages
+    labels = {role.value: package_view.ROLE_LABEL[role] for role in EvidenceRole}
     for passage in passages:
-        assert passage["role"] in api.PASSAGE_ROLE_ORDER
-        assert passage["role_description"] == api.PASSAGE_ROLES[passage["role"]]
+        assert passage["section"] in package_view.SECTION_ORDER
+        assert passage["section_description"] == (
+            package_view.SECTION_DESCRIPTION[passage["section"]])
+        assert passage["role"] in labels, "role: None must be unreachable"
+        assert passage["role_label"] == labels[passage["role"]]
         assert passage["is_counter_evidence"] == (passage["role"] == "counter_evidence")
 
     package = demo_inputs().package
-    counted = {role: sum(1 for p in passages if p["role"] == role)
-               for role in api.PASSAGE_ROLE_ORDER}
-    assert counted["primary"] == len(package.primary_passages)
+    counted = {section: sum(1 for p in passages if p["section"] == section)
+               for section in package_view.SECTION_ORDER}
+    assert counted["primary_passages"] == len(package.primary_passages)
     assert counted["counter_evidence"] == len(package.counter_evidence)
+    assert counted["diagnostic_passages"] == len(package.diagnostic_passages)
 
 
 @REPLAY_AWAITS_S7
@@ -1279,9 +1297,14 @@ def test_a_role_with_no_passages_is_reported_as_zero_rather_than_dropped(graph_s
     _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}/sources")
     sources = payload["sources"]
 
-    assert set(sources["counts"]["by_role"]) == set(api.PASSAGE_ROLE_ORDER), (
+    assert set(sources["counts"]["by_section"]) == set(package_view.SECTION_ORDER), (
+        "every section must be present including the zeros")
+    assert set(sources["counts"]["by_role"]) == {role.value for role in EvidenceRole}, (
         "every role must be present including the zeros")
-    assert [row["role"] for row in sources["roles"]] == list(api.PASSAGE_ROLE_ORDER)
+    assert [row["section"] for row in sources["sections"]] == list(
+        package_view.SECTION_ORDER)
+    assert [row["role"] for row in sources["roles"]] == [
+        role.value for role in EvidenceRole]
     request = demo_inputs().candidate.evidence_request
     assert sources["requested"]["counter_evidence"] is bool(request.want_counter_evidence)
     assert sources["requested"]["explanatory_search"] is bool(

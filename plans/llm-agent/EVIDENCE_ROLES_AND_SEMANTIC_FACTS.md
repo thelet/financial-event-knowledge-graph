@@ -571,7 +571,7 @@ that makes it exact, and the **selection stage is the only place that can call i
 sites in `evidence_package.py` (`len(plans)`, `len(order)`, `len(built)`), left for S4/S6 because
 that file was being edited concurrently by S2/S3.
 
-### S6 — Canonical role serialisation and UI
+### S6 — Canonical role serialisation and UI — **landed 2026-08-05**
 
 **One canonical mapper, serialised identically everywhere.** The same evidence item must carry
 the same role in `POST /demo/evidence-package`, `GET /demo/runs/{id}/sources`, the story-
@@ -590,6 +590,61 @@ ordering / lowest retained severity and states the result is not exhaustive; `to
 shows before, after, sections trimmed, items dropped and that no required fact was dropped;
 `section_truncated` shows *"4 of 9 primary passages sent to the model"* with a control to inspect
 all available items.
+
+**What landed.** `story/demo_ui/package_view.py` — one module, no HTTP, no graph — is the only
+place a row's role, label, section, category or consequence is decided. `api.py` holds none:
+`PASSAGE_ROLES` and `PASSAGE_ROLE_ORDER` are gone, `_package_payload` and `_sources_payload` both
+call `package_view.passage_rows`, and `GET /demo/candidates/{id}` reads the already-mapped block
+out of the stored payload rather than composing a fifth one. `role: None` is unreachable:
+`role_of` raises `UnroledPassage` rather than defaulting, because every default is a claim about
+evidence.
+
+**Verified live against `graph-v1-0483dc6b4b10` on 2026-08-05**, through the running server on
+`:8391` and in-process: the D4 package's one passage carries `primary_support` in
+`POST /demo/evidence-package`, in `GET /demo/candidates/{id}`, in `_sources_payload`, and in the
+committed `evidence_package.json`. The panel renders 2 observed, 0 derived, 10 semantic, 4
+identity (one of them unavailable) and 3 comparability facts, which is what §4 S4 measured.
+
+**One finding the mapper forced, and it is the reason `passage_rows` is not keyed on
+`passage_id`.** On three candidates — `cand:cross-metric-divergence:adjusted-gross-profit-
+contribution-profit:opendoor:2021Q4` and two others — `q42021formxex992sharehol.htm#p10` is
+**`primary_support` in `primary_passages` and `counter_evidence` in `counter_evidence[]` at the
+same time**, on `match_basis=scope_undermines_comparison` with `MISSING_PERIOD`. That is §1.1's
+sentence again, except S2 has since made the second half earn it. The old `_sources_payload`
+built `{passage_id: passage}` across all five sections in visit order, so `counter_evidence`
+overwrote `primary_passages` and the panel showed a supporting passage as a counterpoint and
+never as support. Both rows are now emitted, each naming the other in `also_in`, and
+`revealPassage` opens both. **Whether one passage should be able to hold both roles at once is
+left to S7's *"missed contradiction"* review**; what S6 fixes is that no surface may silently
+choose between them.
+
+The inventory story's own shareholder letter could not be checked as the brief describes it,
+because on this graph run **no `housing_inventory_homes` candidate carries a shareholder-letter
+passage in any section** — S3a's third consequence removed it, and the letter is a corroborating
+*document* now. The nearest live instance of the same shape was used instead and is in the
+jsdom evidence: `q22022formxex991earningsre.htm#p22` on
+`cand:trend-reversal:contribution-profit:…` is `primary_support` carrying an `AMBIGUOUS_ALIAS` in
+`diagnostic_codes`, and it renders as *primary support* with the diagnostic beside it, never as
+counter-evidence.
+
+**`available: null` renders as unknown.** `section_summary` returns `available_known: false` and
+leaves the number `null`; `sectionLedgerLine` prints *"10 semantic_facts sent to the model;
+available: unknown"* rather than *"10 of 10"*, and says the count was never taken. Demonstrated
+in jsdom by forcing the `None` the D4 package does not happen to contain.
+
+**Placement, stated because the plan's words admit two readings.** *"the selected-story panel"*
+is `#panel-story` in the markup, which holds discovery and the candidate's score; the selected
+story's **package** renders in `#panel-facts`, which is where `renderPackage` writes and where
+`buildEvidencePackage` switches to. The section is there, under *"Facts sent to the model"*, with
+the older packaged-observation list kept beneath it as *"Packaged observations"*. Putting it in
+`#panel-story` would have meant two panels rendering facts from one package, which is the
+duplication S6 exists to remove.
+
+**What no test here can prove.** Nothing in the suite renders a browser. The behavioural
+evidence is a jsdom run against payloads captured from the live pipeline — recorded in the S6
+commit message — and what `tests/story/test_demo_ui_app.py` asserts is the source-level property
+each demonstration rests on. Layout, contrast, focus order and whether the `<details>` controls
+are usable with a keyboard are **unverified**; they need a browser and a person.
 
 ### S7 — Regression, re-record, adversarial review
 

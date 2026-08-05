@@ -84,7 +84,14 @@ from typing import Any, Callable, Mapping, Sequence
 from story.stages.generation import PLANNER_SCHEMA_NAME, WRITER_SCHEMA_NAME
 from story.stages.generation.prompts import PLAIN_INVESTOR_STYLE, writer_system
 
-from . import candidate_resolution, code_catalogue, discovery, projection, prompt_presets
+from . import (
+    candidate_resolution,
+    code_catalogue,
+    discovery,
+    package_view,
+    projection,
+    prompt_presets,
+)
 from .runs import InvalidIdentifier, Run, UnknownRun, validate_candidate_id
 from .server import (
     ROUTER,
@@ -1003,6 +1010,15 @@ def candidate_detail(request: Request) -> JsonResponse:
         "package_built": package is not None,
         "package": None if package is None else package["package"],
         "facts": [] if package is None else package["facts"],
+        # **Read out of the stored package payload rather than recomputed** (§4 S6). Recomputing
+        # here would be a fifth serialiser, which is the thing the plan forbids; taking the
+        # already-mapped block means this endpoint cannot disagree with the one that built it.
+        "model_facts": None if package is None else package["model_facts"],
+        "roles": None if package is None else package["roles"],
+        "role_counts": None if package is None else package["role_counts"],
+        "passages": ([] if package is None else
+                     [row for section in package_view.SECTION_ORDER
+                      for row in package[section]]),
         "honest_labels": list(HONEST_LABELS),
     })
 
@@ -1087,11 +1103,20 @@ def _package_payload(inputs: Any, previous: Mapping[str, Any] | None) -> dict[st
     executed rather than asserted. `digest_stable` is `None` on a first build, because there is
     nothing to compare against and reporting `true` would be an answer to a question nobody
     asked.
+
+    **Every passage row and every warning row comes out of `package_view`** (§4 S6). This
+    function used to dump four of the five passage sections directly and let
+    `_sources_payload` write a `role` of its own; that is the per-serialiser patching the plan
+    forbids, and it is what let one row read `warning_only` here and `"diagnostic"` there.
     """
     package = inputs.package
     digest = package.package_content_digest
     prior = None if previous is None else previous["package"]["package_content_digest"]
     facts = [fact.model_dump(mode="json") for fact in package.facts]
+    warnings = package_view.warning_view(package, _explanations(
+        [warning.code for warning in package.warnings],
+        code_catalogue.FAMILY_PACKAGE_WARNING))
+    passage_rows = package_view.passage_rows(package)
     return {
         "candidate_id": package.candidate_id,
         "graph_run_id": package.graph_run_id,
@@ -1122,23 +1147,26 @@ def _package_payload(inputs: Any, previous: Mapping[str, Any] | None) -> dict[st
                 "retrieval_trace": len(package.retrieval_trace),
             },
             "subject": package.subject.model_dump(mode="json"),
-            "warnings": [
-                {**warning.model_dump(mode="json"),
-                 "explanation": _explanations(
-                     [warning.code], code_catalogue.FAMILY_PACKAGE_WARNING)[0]}
-                for warning in package.warnings
-            ],
+            "warnings": warnings["rows"],
+            "warning_view": {name: value for name, value in warnings.items()
+                             if name != "rows"},
             "retrieval_trace": [entry.model_dump(mode="json")
                                 for entry in package.retrieval_trace],
             "retrieval_timing": {"measured": False, "reason": RETRIEVAL_TIMING_REASON},
         },
         "facts": facts,
-        "primary_passages": [p.model_dump(mode="json") for p in package.primary_passages],
-        "context_passages": [p.model_dump(mode="json") for p in package.context_passages],
-        "counter_evidence": [p.model_dump(mode="json") for p in package.counter_evidence],
-        # §4 S2's demoted rows, carried beside `counter_evidence` and never inside it: the panel
-        # must be able to show what the run pointed at *and* that it does not dispute the story.
-        "diagnostic_passages": [p.model_dump(mode="json") for p in package.diagnostic_passages],
+        # §4 S6's *"Facts sent to the model"*, five groups, one mapper. The three ontology
+        # sections travel **only** here: a second copy of `semantic_facts` beside `facts` would
+        # be a second answer to "what was the model given".
+        "model_facts": package_view.model_facts(package, display=_display_number),
+        # All five passage sections through one function, `explanatory_passages` included — it
+        # was absent from this payload until S6 and is a §10 section like the others. Grouped
+        # out of `passage_rows` rather than built section by section, so `also_in` says the same
+        # thing here as it does on the sources endpoint.
+        **{section: [row for row in passage_rows if row["section"] == section]
+           for section in package_view.SECTION_ORDER},
+        "roles": package_view.role_catalogue(package),
+        "role_counts": package_view.role_counts(package),
         "documents": [d.model_dump(mode="json") for d in package.documents],
         "freshness": _scrub_paths(inputs.freshness.model_dump(mode="json")),
         "honest_labels": list(HONEST_LABELS),
@@ -1604,42 +1632,6 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
     }
 
 
-#: What §10 section a passage came out of, and what that means for a reader. The four are the
-#: package's own four lists; the sentence beside each is this repository's.
-#:
-#: **Added 2026-08-05.** `_sources_payload` flattened all four lists into one dictionary and the
-#: response carried no `role` and no `is_counter_evidence` — verified on a live
-#: `GET /demo/runs/{id}/sources` body. The brief requires primary support, context,
-#: counter-evidence and warning-only evidence to be distinguishable, and a counter-evidence
-#: passage rendered identically to a supporting one is the single most misleading thing this
-#: panel could do: it turns evidence *against* the thesis into evidence for it.
-PASSAGE_ROLES: Mapping[str, str] = {
-    "primary": "cited in support of a packaged fact; §10's primary_passages",
-    "context": "surrounding disclosure retrieved with a primary passage; not itself cited",
-    "explanatory": "a fulltext hit the candidate asked for; explanatory, not supporting",
-    "counter_evidence": ("evidence that cuts against the thesis. §10 retrieves it deliberately "
-                         "and §11's planner must weigh it; it is not support and must never be "
-                         "rendered as support"),
-    "diagnostic": ("a passage `find_counter_evidence` pointed at that did **not** qualify as "
-                   "counter-evidence (§4 S2) — an extraction or data-quality diagnostic, or "
-                   "content that carries no proposition at all. Each row's own `role` says "
-                   "which; none of them disputes the thesis"),
-}
-
-#: The five sections, in the order the panel should read them. A tuple so `counts.by_role` can
-#: hold a `0` for a section that was considered and empty — which is a different fact from a
-#: section that was never fetched, and the two were indistinguishable when a falsy count was
-#: dropped.
-#:
-#: **`diagnostic` is a section name, not an `EvidenceRole`.** S2 splits the two: the section
-#: says why a row was collected and `PackagedPassage.role` says what it turned out to be, so a
-#: `diagnostic` row can be `warning_only`, `unusable` or `corroborating_support`. S6 owns the
-#: one canonical mapper that renders both; this keeps the rows visible in the meantime, which is
-#: what they were before S2 moved them out of `counter_evidence`.
-PASSAGE_ROLE_ORDER: tuple[str, ...] = (
-    "primary", "context", "explanatory", "counter_evidence", "diagnostic")
-
-
 def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
     """Sentence to fact to citation to passage to document, grouped by document, with roles.
 
@@ -1652,26 +1644,31 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
     citation *is* in §12 — the model declares a substring and `writer.draft_from` locates it.
     `quote_resolved` says whether the span landed inside the text it names.
 
-    **Every passage carries the §10 section it came from** (`role`, plus the derived
-    `is_counter_evidence` for the one distinction a renderer must not miss). See `PASSAGE_ROLES`
-    for why a flattened list was wrong. `want_counter_evidence` and `want_explanatory_search`
-    travel beside the counts, because *"zero counter-evidence found"* and *"counter-evidence was
-    not requested"* are different answers and only one of them is reassuring.
+    **Both the section and the role, and neither is invented here (§4 S6).** This function used
+    to write its own `role` — `"primary"`, `"context"`, `"explanatory"`, `"diagnostic"` — from
+    the §10 section a passage sat in, while `POST /demo/evidence-package` returned
+    `PackagedPassage.role`. One field name, two vocabularies, and a `diagnostic_passages` row
+    that is `primary_support` carrying an `AMBIGUOUS_ALIAS` read as a diagnostic here and as
+    support there. `package_view.passage_payload` is now the only place either is decided, so
+    the two endpoints cannot disagree.
+
+    **One row per occurrence, because one passage can be in two sections.** Measured live on
+    2026-08-05: `q42021formxex992sharehol.htm#p10` is `primary_support` in `primary_passages`
+    and `counter_evidence` in `counter_evidence[]` on three candidates. The old
+    `{passage_id: passage}` dictionary silently kept whichever section came last, so the panel
+    showed a supporting passage as a counterpoint and never as support. `package_view.
+    passage_rows` emits both, each naming the other in `also_in`.
+
+    `want_counter_evidence` and `want_explanatory_search` travel beside the counts, because
+    *"zero counter-evidence found"* and *"counter-evidence was not requested"* are different
+    answers and only one of them is reassuring.
     """
     package = inputs.package
-    by_role = {
-        "primary": package.primary_passages,
-        "context": package.context_passages,
-        "explanatory": package.explanatory_passages,
-        "counter_evidence": package.counter_evidence,
-        "diagnostic": package.diagnostic_passages,
-    }
-    role_of = {passage.passage_id: role
-               for role in PASSAGE_ROLE_ORDER for passage in by_role[role]}
-    passages = {p.passage_id: p for p in (
-        package.primary_passages + package.context_passages
-        + package.explanatory_passages + package.counter_evidence
-        + package.diagnostic_passages)}
+    by_section = package_view.passage_sections(package)
+    rows_by_document: dict[str, list[dict[str, Any]]] = {}
+    for row in package_view.passage_rows(package):
+        rows_by_document.setdefault(row["document_id"], []).append(row)
+    passages = {p.passage_id: p for rows in by_section.values() for p in rows}
     documents = {d.document_id: d for d in package.documents}
     facts_by_passage: dict[str, list[dict[str, Any]]] = {}
     citations_by_passage: dict[str, list[dict[str, Any]]] = {}
@@ -1739,22 +1736,15 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
         document = documents.get(document_id)
         rows = [
             {
-                "passage_id": passage.passage_id,
-                "text": passage.text,
-                "char_count": passage.char_count,
-                "heading_path": list(passage.heading_path),
-                "excerpted": passage.excerpted,
-                "source_url": passage.source_url,
-                # The §10 section this passage came out of, and the one derived flag a renderer
-                # must not be able to miss. See `PASSAGE_ROLES`.
-                "role": role_of.get(passage.passage_id, ""),
-                "role_description": PASSAGE_ROLES.get(role_of.get(passage.passage_id, ""), ""),
-                "is_counter_evidence": role_of.get(passage.passage_id) == "counter_evidence",
-                "citations": citations_by_passage.get(passage.passage_id, []),
-                "facts": facts_by_passage.get(passage.passage_id, []),
+                # The whole row through the canonical mapper — section, role, label, the
+                # derived `is_counter_evidence` a renderer must not be able to miss, the match
+                # basis, the quality finding and the issue codes stamped on it — plus the two
+                # joins only this endpoint computes.
+                **row,
+                "citations": citations_by_passage.get(row["passage_id"], []),
+                "facts": facts_by_passage.get(row["passage_id"], []),
             }
-            for passage in sorted(passages.values(), key=lambda p: p.passage_id)
-            if passage.document_id == document_id
+            for row in rows_by_document.get(document_id, [])
         ]
         grouped.append({
             "document_id": document_id,
@@ -1774,18 +1764,26 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
         "unresolved": unresolved,
         "counts": {
             "documents": len(grouped),
+            # Distinct passages, and the rows they produce. The two differ when one passage sits
+            # in two sections, which three live candidates do.
             "passages": len(passages),
+            "passage_rows": sum(len(rows) for rows in rows_by_document.values()),
             "sentences": sentence_count,
             "citations": citation_count,
             "facts": len(package.facts),
             "unresolved": len(unresolved),
-            # Every role, always, including the zeros. A dropped `counter_evidence: 0` reads as
-            # "not considered" and this package did consider it — see `requested` below.
-            "by_role": {role: len(by_role[role]) for role in PASSAGE_ROLE_ORDER},
+            # Every section and every role, always, including the zeros. A dropped
+            # `counter_evidence: 0` reads as "not considered" and this package did consider it —
+            # see `requested` below. The two are different questions: `by_section` says where a
+            # row was fetched from, `by_role` what the rows turned out to be.
+            "by_section": {section: len(rows) for section, rows in by_section.items()},
+            "by_role": package_view.role_counts(package),
         },
-        "roles": [{"role": role, "description": PASSAGE_ROLES[role],
-                   "count": len(by_role[role])}
-                  for role in PASSAGE_ROLE_ORDER],
+        "sections": [{"section": section,
+                      "description": package_view.SECTION_DESCRIPTION[section],
+                      "count": len(rows)}
+                     for section, rows in by_section.items()],
+        "roles": package_view.role_catalogue(package),
         # What the candidate's own evidence request asked §10 to look for. The distinction
         # between "searched and found none" and "never searched" lives here and nowhere else:
         # both produce a count of zero.
@@ -1999,8 +1997,6 @@ __all__ = [
     "ENDPOINTS",
     "ERRORS",
     "HONEST_LABELS",
-    "PASSAGE_ROLES",
-    "PASSAGE_ROLE_ORDER",
     "STATE",
     "URI_PLACEHOLDER",
     "VERIFICATION_STAGES",

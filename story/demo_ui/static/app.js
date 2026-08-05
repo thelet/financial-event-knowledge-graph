@@ -198,6 +198,8 @@ const dom = {
   buildPackage: document.getElementById('build-package'),
 
   packageSummary: document.getElementById('package-summary'),
+  modelFacts: document.getElementById('model-facts'),
+  modelFactsNote: document.getElementById('model-facts-note'),
   factsList: document.getElementById('facts-list'),
   packageBounds: document.getElementById('package-bounds'),
 
@@ -283,6 +285,22 @@ export const LABELS = Object.freeze({
     'The run has sent no trace event for a while and has not reported a terminal state. It may '
     + 'still be running on the server. This is not a claim that it completed, and not a claim '
     + 'that it failed. The interface is enabled again.',
+  factUnavailable:
+    'Not available. The corpus and the ontology were both asked and neither carries this, so '
+    + 'the package says so rather than leaving a gap. Nothing on this page and nothing in the '
+    + 'prompt fills it in.',
+  readOnlyFact:
+    'Read-only and authoritative. The ontology declares it, the prompt panel cannot reach it, '
+    + 'and no field on this page edits it.',
+  availableUnknown:
+    'How many this section had was never counted, so it is shown as unknown rather than as '
+    + 'equal to the number carried. The warning beside it names the bound that applied.',
+  droppedNotListable:
+    'The rows that did not fit are not in the package, so they cannot be listed here. What is '
+    + 'below is every row the model was given for this section.',
+  noRequiredFactDropped:
+    'No required fact was dropped — measured from the facts that survived, not asserted. A '
+    + 'package that cannot hold one refuses instead.',
 });
 
 // ---------------------------------------------------------------------------------------
@@ -477,6 +495,10 @@ const state = {
   quiet: false,
   paintedStatus: '',
   sentenceRows: new Map(),
+  // passage id -> **every** block drawn for it. One passage can be in two §10 sections at once
+  // — measured live: a shareholder-letter passage that is `primary_support` in
+  // `primary_passages` and `counter_evidence` in `counter_evidence[]` — so a map holding one
+  // block per id would have silently kept whichever was drawn last.
   passageRows: new Map(),
   factRows: new Map(),
   busy: false,
@@ -1488,8 +1510,132 @@ function renderPackage(payload) {
     .join(' · ');
   host.append(make('p', 'mono', countLine));
 
+  renderModelFacts(payload.model_facts);
   renderFacts(payload.facts ?? []);
   renderPackageBounds(payload);
+}
+
+/**
+ * "Facts sent to the model", in the five groups the server composed.
+ *
+ * Everything a row says about itself — kind, statement, source, authority, editability, whether
+ * it reached the model-visible slice — is read from `model_facts`, which `package_view.py`
+ * builds with the same mapper every other surface uses. This function decides nothing; it
+ * chooses where things go on the screen.
+ *
+ * The two rules it does enforce are about *absence*. A row with `available: false` is rendered
+ * as unavailable rather than skipped or blanked, because the only company-description row this
+ * corpus can produce is that one and a gap is what a reader (or a model) fills in. And a
+ * section whose `available` count is unknown says so, rather than being drawn as complete.
+ */
+function renderModelFacts(modelFacts) {
+  const host = clear(dom.modelFacts);
+  if (!modelFacts) {
+    setText(dom.modelFactsNote, '');
+    host.append(make('p', 'is-absent', 'No package has been built for this story yet.'));
+    return;
+  }
+  setText(dom.modelFactsNote, modelFacts.slice_note);
+  for (const group of modelFacts.groups ?? []) {
+    const box = details(host,
+      `${group.label} (${formatCount(group.count)})`, { open: group.count > 0 });
+    box.append(make('p', 'note', group.description));
+    box.append(sectionLedgerLine(group.ledger));
+    if (!group.count) {
+      box.append(make('div', 'is-absent',
+        'The package carries none of these.'));
+      continue;
+    }
+    for (const row of group.rows ?? []) {
+      box.append(modelFactRow(row));
+    }
+  }
+}
+
+/** One fact row: what it says, where it came from, who is authoritative, and can it be edited. */
+function modelFactRow(row) {
+  const item = make('div', row.available === false ? 'is-absent' : null);
+  item.dataset.factId = row.fact_id;
+  item.dataset.factKind = row.fact_kind;
+
+  const head = make('div');
+  head.append(make('span', 'citation', row.fact_kind));
+  head.append(make('strong', null, `  ${row.statement}`));
+  item.append(head);
+
+  if (row.available === false) {
+    // The unavailable row is the one place this panel adds a sentence of its own, and it says
+    // that nothing may fill the gap — which is the whole reason the row exists.
+    item.append(make('div', 'is-absent', LABELS.factUnavailable));
+  }
+  const list = document.createElement('dl');
+  field(list, 'source', row.source);
+  if (row.source_detail) field(list, 'source detail', row.source_detail);
+  field(list, 'authority', row.authority);
+  field(list, 'authoritative', row.authoritative);
+  field(list, 'editable', row.editable);
+  field(list, 'statement is', row.statement_source);
+  field(list, 'sent to the model', row.in_model_slice);
+  item.append(list);
+
+  if (row.editable === false && row.authoritative === true) {
+    item.append(make('div', 'note', LABELS.readOnlyFact));
+  } else if (row.editable === false && row.not_editable_because) {
+    item.append(make('div', 'note', row.not_editable_because));
+  }
+  if ((row.warning_codes ?? []).length) {
+    item.append(make('div', 'mono', `warnings: ${row.warning_codes.join(', ')}`));
+  } else {
+    item.append(make('div', 'note', 'no warning is recorded against this fact'));
+  }
+  if ((row.corroborating_document_ids ?? []).length) {
+    item.append(make('div', 'mono',
+      `${plural(row.corroborating_document_ids.length, 'corroborating document')}: `
+      + row.corroborating_document_ids.join(', ')));
+  }
+  item.append(make('div', 'mono', row.fact_id));
+  return item;
+}
+
+/**
+ * One section's ledger, and the only honest way to print an uncounted `available`.
+ *
+ * "4 of 9 primary passages sent to the model" is a reading of `available` and `carried`. Where
+ * `available_known` is false the server deliberately sent no number — an earlier cap dropped
+ * rows and reported no count — and printing `carried` in its place would turn "the section had
+ * nine" into "the section had four".
+ */
+function sectionLedgerLine(ledger) {
+  const box = make('div');
+  if (!ledger) {
+    box.append(make('div', 'is-absent', 'no ledger row for this section'));
+    return box;
+  }
+  const carried = formatCount(ledger.carried);
+  if (ledger.available_known) {
+    box.append(make('div', 'mono',
+      `${carried} of ${formatCount(ledger.available)} ${ledger.section} sent to the model`));
+  } else {
+    box.append(make('div', 'mono',
+      `${carried} ${ledger.section} sent to the model; available: unknown`));
+    box.append(make('div', 'note', LABELS.availableUnknown));
+  }
+  if (ledger.dropped) {
+    box.append(make('div', 'mono', `dropped: ${formatCount(ledger.dropped)}`));
+    box.append(make('div', 'note', LABELS.droppedNotListable));
+  }
+  if ((ledger.reasons ?? []).length) {
+    box.append(make('div', 'mono', `reason: ${ledger.reasons.join(', ')}`));
+  }
+  if (ledger.protected) {
+    box.append(make('div', 'note', 'protected: the token trimmer may not take a row from here'));
+  }
+  if (ledger.required_dropped === false) {
+    box.append(make('div', 'note', LABELS.noRequiredFactDropped));
+  } else if (ledger.required_dropped === true) {
+    box.append(make('div', 'is-blocking', 'a required fact was dropped from this section'));
+  }
+  return box;
 }
 
 /**
@@ -1543,6 +1689,41 @@ function renderFacts(facts) {
   }
 }
 
+/**
+ * One warning, with its §4 S5 category and the consequence the numbers alone do not state.
+ *
+ * `detail` carries the counts — how many rows were returned, the ordering they kept, the lowest
+ * severity that survived — and is printed as it arrived. `consequence` is the server's standing
+ * sentence for the truncation codes, and it is the part a reader needs once: that the result is
+ * not exhaustive.
+ */
+function warningRow(warning) {
+  const row = make('div');
+  row.append(make('strong', null, `${warning.code} · ${warning.severity}`));
+  if (warning.category_label) {
+    row.append(make('span', 'citation', `  ${warning.category_label}`));
+  }
+  if (warning.detail) row.append(make('div', null, warning.detail));
+  if (warning.consequence) row.append(make('div', 'note', warning.consequence));
+  const explanation = warning.explanation ?? {};
+  if (explanation.description) row.append(make('div', 'note', explanation.description));
+  if ((warning.subject_ids ?? []).length) {
+    row.append(make('div', 'mono', warning.subject_ids.join(', ')));
+  }
+  return row;
+}
+
+/** One carried row inside a section's inspect control, labelled with the role it plays. */
+function carriedRow(item) {
+  const row = make('div', 'mono');
+  const identifier = item.passage_id ?? item.fact_id ?? item.observation_id ?? '';
+  row.textContent = String(identifier);
+  if (item.role_label) {
+    row.append(make('span', 'citation', `  ${item.role_label}`));
+  }
+  return row;
+}
+
 function renderPackageBounds(payload) {
   const host = clear(dom.packageBounds);
   const pkg = payload.package ?? {};
@@ -1562,19 +1743,39 @@ function renderPackageBounds(payload) {
   const parameterBox = details(budgetBox, 'Budget parameters');
   parameterBox.append(parameters);
 
-  const warnings = pkg.warnings ?? [];
+  const view = pkg.warning_view ?? {};
+  const limitationCodes = new Set(
+    (view.capability_limitations ?? []).map((row) => row.code));
+  const warnings = (pkg.warnings ?? []).filter((row) => !limitationCodes.has(row.code));
   const warningBox = details(host, `Package warnings (${warnings.length})`,
     { open: warnings.length > 0 });
   for (const warning of warnings) {
-    const row = make('div');
-    row.append(make('strong', null, `${warning.code} · ${warning.severity}`));
-    row.append(make('div', null, warning.detail));
-    const explanation = warning.explanation ?? {};
-    if (explanation.description) row.append(make('div', 'note', explanation.description));
-    if ((warning.subject_ids ?? []).length) {
-      row.append(make('div', 'mono', warning.subject_ids.join(', ')));
+    warningBox.append(warningRow(warning));
+  }
+
+  // §4 S5 and §4 S6: a capability limitation is a thing this version cannot do at all, it fires
+  // on every package ever built, and it is **not** a defect in this evidence. Rendered as its
+  // own group with the server's own sentence, so it cannot read as a caveat about the post.
+  const limitations = view.capability_limitations ?? [];
+  const limitationBox = details(host, `Limitations of this version (${limitations.length})`,
+    { open: limitations.length > 0 });
+  if (view.limitation_note) limitationBox.append(make('p', 'note', view.limitation_note));
+  for (const warning of limitations) limitationBox.append(warningRow(warning));
+
+  // Every section's available / carried / dropped / reason, which is what "4 of 9 primary
+  // passages sent to the model" is a reading of, with the control to expand each one.
+  const ledger = view.section_ledger ?? budget.section_ledger ?? [];
+  const ledgerBox = details(host, `What each section carried (${ledger.length})`);
+  for (const row of ledger) {
+    const section = make('div');
+    section.append(make('strong', null, row.section));
+    section.append(sectionLedgerLine(row));
+    const rows = payload[row.section];
+    if (Array.isArray(rows) && rows.length) {
+      const inspect = details(section, `inspect the ${formatCount(rows.length)} carried`);
+      for (const passage of rows) inspect.append(carriedRow(passage));
     }
-    warningBox.append(row);
+    ledgerBox.append(section);
   }
 
   const trace = pkg.retrieval_trace ?? [];
@@ -2596,7 +2797,22 @@ function renderSources(sources) {
   const counts = sources.counts ?? {};
   const heading = make('li');
   heading.append(make('div', 'mono',
-    Object.entries(counts).map(([name, value]) => `${name} ${value}`).join(' · ')));
+    Object.entries(counts)
+      .filter(([, value]) => typeof value === 'number')
+      .map(([name, value]) => `${name} ${value}`).join(' · ')));
+  // Where a row was fetched from and what it turned out to be, as two lines: a section with no
+  // rows is not the same fact as a role nothing plays, and both zeros are kept.
+  for (const [name, breakdown] of [['by section', counts.by_section],
+    ['by role', counts.by_role]]) {
+    if (!breakdown) continue;
+    heading.append(make('div', 'mono',
+      `${name}: ` + Object.entries(breakdown)
+        .map(([key, value]) => `${key} ${value}`).join(' · ')));
+  }
+  for (const role of sources.roles ?? []) {
+    if (!role.count) continue;
+    heading.append(make('div', 'note', `${role.label}: ${role.description}`));
+  }
   if ((sources.unresolved ?? []).length) {
     heading.classList.add('is-blocking');
     heading.append(make('div', null,
@@ -2642,9 +2858,33 @@ function renderSources(sources) {
 function passageBlock(passage, document_) {
   const wrapper = make('div');
   wrapper.dataset.passageId = passage.passage_id;
+  wrapper.dataset.role = passage.role ?? '';
+  if (passage.is_counter_evidence) wrapper.classList.add('is-blocking');
   const box = details(wrapper,
-    `${passage.passage_id} · ${passage.char_count} chars · `
-    + `${(passage.facts ?? []).length} facts · ${(passage.citations ?? []).length} citations`);
+    `${passage.role_label ?? passage.role} · ${passage.passage_id} · `
+    + `${passage.char_count} chars · ${(passage.facts ?? []).length} facts · `
+    + `${(passage.citations ?? []).length} citations`);
+
+  // The role and the section are two different facts and both are shown. The section says why
+  // the row was fetched; the role says what it turned out to be — and a `diagnostic_passages`
+  // row that is `primary_support` must read as support, not as a diagnostic.
+  box.append(make('div', 'note', passage.role_description ?? ''));
+  box.append(make('div', 'note',
+    `from ${passage.section}: ${passage.section_description ?? ''}`));
+  if ((passage.also_in ?? []).length) {
+    box.append(make('div', 'note',
+      `this passage is also carried in ${passage.also_in.join(', ')}, in another role`));
+  }
+  if (passage.match_basis) {
+    box.append(make('div', 'mono', `matched on: ${passage.match_basis}`));
+  }
+  if ((passage.diagnostic_codes ?? []).length) {
+    box.append(make('div', 'mono',
+      `issue codes on this passage: ${passage.diagnostic_codes.join(', ')}`));
+  }
+  if (passage.unusable_reason) {
+    box.append(make('div', 'is-absent', `unusable: ${passage.unusable_reason}`));
+  }
 
   if ((passage.heading_path ?? []).length) {
     box.append(make('div', 'note', passage.heading_path.join(' › ')));
@@ -2694,7 +2934,10 @@ function passageBlock(passage, document_) {
 
   const text = details(box, 'passage text');
   text.append(make('div', 'mono', passage.text));
-  state.passageRows.set(passage.passage_id, { box, wrapper });
+  if (!state.passageRows.has(passage.passage_id)) {
+    state.passageRows.set(passage.passage_id, []);
+  }
+  state.passageRows.get(passage.passage_id).push({ box, wrapper, role: passage.role });
   return wrapper;
 }
 
@@ -2728,13 +2971,19 @@ function revealSentence(index, { navigate = true } = {}) {
   mark(row);
 }
 
-/** Post → sources, by passage. */
+/**
+ * Post → sources, by passage.
+ *
+ * Every block drawn for the id is opened, not only the first: a passage carried in two sections
+ * has two, and opening one of them would hide the fact that the same text is playing a second
+ * part. The mark goes on the first, because a mark is a pointer and there is one cursor.
+ */
 function revealPassage(passageId) {
-  const found = state.passageRows.get(String(passageId));
-  if (!found) return;
+  const found = state.passageRows.get(String(passageId)) ?? [];
+  if (!found.length) return;
   selectTab(dom.tabSources);
-  found.box.open = true;
-  mark(found.wrapper);
+  for (const entry of found) entry.box.open = true;
+  mark(found[0].wrapper);
   highlightIds([passageId], [], { focus: true });
 }
 

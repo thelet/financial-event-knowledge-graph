@@ -191,6 +191,35 @@ def test_the_panel_module_names_no_credential_and_no_environment_value() -> None
 # ---------------------------------------------------------------------------------------
 
 
+#: `/* … */` and `// …`, so a test that forbids a *sentence* in the code is not defeated by the
+#: comment that explains why it is forbidden. Written as a scan rather than a parse: the file
+#: has no regex literal containing `//` and `node --check` is what proves the syntax.
+_COMMENT = re.compile(r"/\*.*?\*/|(?<![:'\"])//[^\n]*", re.S)
+
+
+def code_only(source: str) -> str:
+    return _COMMENT.sub(" ", source)
+
+
+def labels_text() -> dict[str, str]:
+    """`app.js`'s own `LABELS` object, read as source: key -> the sentence it holds.
+
+    The values are broken across lines with `+`, so the string literals are collected and
+    joined rather than matched whole. Read rather than executed, like everything else here.
+    """
+    source = app_source()
+    block = re.search(r"export const LABELS = Object\.freeze\(\{(.*?)\n\}\);", source, re.S)
+    assert block is not None, "app.js no longer declares a LABELS table"
+    found: dict[str, str] = {}
+    for entry in re.finditer(r"\n  (\w+):((?:[^\n]|\n    )*)", block.group(1)):
+        found[entry.group(1)] = "".join(re.findall(r"'((?:[^'\\]|\\.)*)'", entry.group(2)))
+    return found
+
+
+#: Read once: the file does not change between tests.
+LABELS_TEXT = labels_text()
+
+
 def declared_ids() -> set[str]:
     return set(re.findall(r'\bid="([^"]+)"', index_source()))
 
@@ -656,6 +685,141 @@ def test_the_live_stream_reports_a_highlight_resolution_the_way_a_click_does() -
         "the live path resolves ids by some other route than the one the click uses")
     assert "focus: false" in report, (
         "the live path moves the camera; a stream that re-framed every frame is unusable")
+
+
+# ---------------------------------------------------------------------------------------
+# S6 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS — the facts panel and the role labels.
+#
+# Every one of these was *demonstrated* by driving the real `app.js` in jsdom against payloads
+# captured from the live pipeline against `graph-v1-0483dc6b4b10`; the run's output is in the
+# commit message. What is asserted here is the source-level property each demonstration rests
+# on, which is the most this environment can do — see this module's docstring.
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_facts_panel_is_divided_into_the_five_groups_the_server_sends() -> None:
+    """§4 S6's own division — observed, derived, semantic, company context, comparison rules.
+
+    The five names are **not** in this file: the server composes them in `package_view.
+    FACT_GROUPS` and the panel iterates `model_facts.groups`. A copy here would be a sixth
+    place the division is written down and the first place it could disagree.
+    """
+    source = app_source()
+    assert "function renderModelFacts(" in source
+    assert "modelFacts.groups" in source
+    assert "dom.modelFacts" in source
+    for name in ("Observed facts", "Derived facts", "Semantic facts", "Company context",
+                 "Comparison rules"):
+        assert name not in source, (
+            f"{name!r} is written in app.js; the group labels are the server's")
+    assert 'id="model-facts"' in index_source()
+    assert "Facts sent to the model" in index_source()
+
+
+def test_every_fact_row_renders_the_seven_things_the_plan_asks_for() -> None:
+    """kind, statement, source, authority, editability, warnings, and whether it reached the
+    model-visible slice. Each is a field the server sends and this asserts the panel reads it."""
+    source = app_source()
+    row = source[source.index("function modelFactRow("):
+                 source.index("function sectionLedgerLine(")]
+    for field_name in ("row.fact_kind", "row.statement", "row.source", "row.authority",
+                       "row.authoritative", "row.editable", "row.warning_codes",
+                       "row.in_model_slice"):
+        assert field_name in row, f"a fact row never renders {field_name}"
+
+
+def test_the_unavailable_company_description_renders_as_unavailable() -> None:
+    """**There is no company description anywhere in this corpus** — not on the ontology
+    instance, not on any `:Entity` node, and no `:Entity` node carries a `description` property
+    key at all (S4, measured live). The package therefore ships an `available: false` row, and
+    the panel must render it as unavailable rather than as empty, and must never fill it.
+
+    Two properties: the row is drawn on the `available === false` branch rather than skipped,
+    and the sentence it carries says nothing on this page supplies the missing value.
+    """
+    source = app_source()
+    assert "row.available === false" in source, (
+        "the panel has no branch for an unavailable fact, so it renders one as an empty row")
+    row = source[source.index("function modelFactRow("):
+                 source.index("function sectionLedgerLine(")]
+    assert "LABELS.factUnavailable" in row
+    assert "continue" not in row, "an unavailable row must not be skipped"
+    assert "fills it in" in LABELS_TEXT["factUnavailable"]
+
+
+def test_an_uncounted_available_is_rendered_as_unknown_and_never_as_the_carried_count() -> None:
+    """S5 put the `None` there deliberately: *"4 of 4 available"* about a section that had nine
+    is a false statement. The panel branches on `available_known` and prints no number where
+    the server sent none — a fallback to `carried` would be the flattering lie by another
+    route."""
+    source = app_source()
+    ledger = source[source.index("function sectionLedgerLine("):
+                    source.index("// ------", source.index("function sectionLedgerLine("))]
+    assert "ledger.available_known" in ledger
+    assert "LABELS.availableUnknown" in ledger
+    assert "ledger.available ?? ledger.carried" not in ledger, (
+        "an unknown available falls back to carried, which is the false statement itself")
+    assert "was never counted" in LABELS_TEXT["availableUnknown"]
+
+
+def test_the_trimming_and_truncation_disclosures_render_their_real_content() -> None:
+    """`retrieval_truncated`, `token_budget_trimmed` and `section_truncated` all carry their
+    numbers in `detail`, which is printed as it arrived, and a standing `consequence` sentence
+    the server declares. The panel writes neither."""
+    source = app_source()
+    row = source[source.index("function warningRow("):source.index("function carriedRow(")]
+    assert "warning.detail" in row
+    assert "warning.consequence" in row
+    assert "warning.category_label" in row
+    assert "not exhaustive" not in code_only(source), (
+        "the consequence sentences belong to the server")
+    assert "LABELS.noRequiredFactDropped" in source
+    assert "LABELS.droppedNotListable" in source
+
+
+def test_a_capability_limitation_is_its_own_group_and_not_a_warning_about_the_evidence() -> None:
+    """§4 S5 and §4 S6: these must not reduce the post's verification status. They are filtered
+    out of the warning list and rendered under their own heading with the server's own note —
+    which is the difference between *"this build cannot do that"* and *"distrust this
+    evidence"*."""
+    source = app_source()
+    assert "view.capability_limitations" in source
+    assert "limitationCodes" in source
+    assert "Limitations of this version" in source
+    assert "view.limitation_note" in source
+
+
+def test_a_passage_renders_its_role_and_its_section_as_two_different_facts() -> None:
+    """The seam S6 exists to close. A section says why a row was fetched; a role says what it
+    turned out to be, and a `diagnostic_passages` row that is `primary_support` must read as
+    support. Both come off the payload; neither is derived in this file."""
+    source = app_source()
+    block = source[source.index("function passageBlock("):source.index("function mark(")]
+    assert "passage.role_label" in block
+    assert "passage.role_description" in block
+    assert "passage.section_description" in block
+    assert "passage.is_counter_evidence" in block
+    assert "passage.diagnostic_codes" in block
+    assert "passage.match_basis" in block
+    # The labels are the server's; a copy here is a second vocabulary. Checked against the
+    # code with comments stripped, so the sentence explaining the rule does not break it.
+    code = code_only(source)
+    for label in ("primary support", "corroborating support", "counter-evidence"):
+        assert label not in code, f"app.js writes the role label {label!r} itself"
+
+
+def test_one_passage_carried_in_two_sections_keeps_both_of_its_blocks() -> None:
+    """Measured live: `q42021formxex992sharehol.htm#p10` is `primary_support` in
+    `primary_passages` and `counter_evidence` in `counter_evidence[]` on three candidates. A
+    map holding one block per passage id kept whichever was drawn last, so the panel showed a
+    supporting passage as a counterpoint and never as support."""
+    source = app_source()
+    assert "state.passageRows.get(passage.passage_id).push(" in source
+    assert "state.passageRows.has(passage.passage_id)" in source
+    reveal = source[source.index("function revealPassage("):source.index("/** Post → sources, by fact. */")]
+    assert "for (const entry of found) entry.box.open = true;" in reveal, (
+        "revealPassage opens one block, so a passage playing two parts shows one of them")
+    assert "passage.also_in" in source
 
 
 def test_this_file_is_honest_about_being_unable_to_run_the_code_it_tests() -> None:
