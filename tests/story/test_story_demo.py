@@ -5,33 +5,49 @@ re-derive the candidate and the package from the live graph; the `live`-marked o
 model server.
 
 **The recorded responses in `fixtures/story_demo/generations.jsonl` are genuine Qwen output.**
-Re-captured 2026-08-04 from `http://127.0.0.1:8080` serving
+Re-captured 2026-08-05 at S7 from `http://127.0.0.1:8080` serving
 `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf`, against the package
 `fixtures/story_demo/evidence_package.json` in the same directory — the planner's answer at
-`PLANNER_MAX_TOKENS` and the writer's at `length_target: 4`. Two rows, nothing hand-edited.
-The demo therefore replays something the model actually produced, and the manifest names the
-model it came from.
+`PLANNER_MAX_TOKENS` and the writer's at `length_target: 4`. Two rows, nothing hand-edited,
+both `finish_reason: stop`. The demo therefore replays something the model actually produced,
+and the manifest names the model it came from.
 
-**The planner's row is byte-identical to the one recorded before the seam repair** — same
-request digest `5dc07fa8bf0f…`, same 1,887 characters of answer — because the planner's prompt
-and schema did not change. Only the writer's row is new, and it had to be: the draft schema
-gained `calculation.period_surface` and `compare_levels`, which re-keys the writer's request by
-construction.
+**Both rows are new, and every earlier row is unreachable.** S1–S6a of
+EVIDENCE_ROLES_AND_SEMANTIC_FACTS moved `PACKAGE_VERSION` 1.0.0 → 1.2.0,
+`PLANNER_PROMPT_VERSION` 1.0.0 → 1.1.0 and `WRITER_PROMPT_VERSION` 1.1.0 → 1.3.0, and the
+D4 `package_content_digest` with them — now `5c420f8c5071…` on package `…:6a858ae5c031`. All of
+those reach the prompt, which is what the store is keyed on, so one re-record (§4 S7) replaced
+both rows: planner `10a417c704ed…`, writer `37cb65bf6dc7…`.
 
-**The disposition of the genuine pair is now `accepted`, and it changed because four seams were
-repaired rather than because any check was loosened.** The earlier recording was refused nine
-times over, and every one of the nine was a refusal of a *true, correctly bound* sentence for a
-structural reason: a `calculated` sentence could not declare its period, a comparative could not
-be declared at all, a title could not carry a period key, and five build-provenance warnings
-demanded prose an investor post must not carry. The 60+ verifier tests and the ten malicious
-drafts in `test_story_deterministic_verifier.py` are unchanged and still pass.
+**The disposition of the genuine pair is `rejected`, and that is the honest S7 outcome rather
+than a check that was loosened.** The writer's third sentence declares `compare_levels` over
+`(gaap, adjusted)` with `left < right` — which recomputes — and states it as *"The difference
+between the two margins is 15.9 percentage points."*, a **size with no direction**. §13.14
+refuses it as `comparative_not_supported_by_text`, and refusing exactly that shape is a rule
+`claims._comparison_text_findings` states in its own docstring: *"that sentence states a size
+and no direction, so it is a `difference` or a `delta_pp`, not a comparison."* The model
+mis-declared the operation; nothing in §13 changed. The recording before this one happened to
+write the comparative and was accepted — the local runtime is nondeterministic across
+processes, which `story/providers/generation_store.py` states as a design fact, and three
+`--live` runs at S7 gave one rejection and two acceptances.
 
-**`fixtures/story_demo/generations_rejected_synthetic.jsonl` is not a recording.** It is the two
-rows above with one edit — sentence 2's prose reversed to *"The Adjusted Gross Margin was 15.9
-percentage points lower than the GAAP Gross Margin"*, which is false by 15.9 points while its
-declared calculation still recomputes — made so the *rejected* branch has something to exercise,
-and chosen because it is the attack a recomputation on its own would have accepted. It is named
-`synthetic` because it is one, and no test presents it as a recording.
+**Two synthetic stores sit beside it, and neither is a recording.** Both are the genuine pair
+above with exactly one edit, to sentence 2's prose, and the declaration is untouched in both —
+so each is a test of what the *words* say against a calculation that still recomputes:
+
+* `generations_accepted_synthetic.jsonl` — *"The GAAP Gross Margin was 15.9 percentage points
+  lower than the Adjusted Gross Margin."*, which is true and which the 2026-08-04 recording
+  produced verbatim. It exists because the genuine pair no longer reaches the **accepted**
+  branch, and that branch — `post.md` written, no `rejected.json`, exit 0 — still has to be
+  driven by something.
+* `generations_rejected_synthetic.jsonl` — the same sentence **reversed**, *"The Adjusted Gross
+  Margin was 15.9 percentage points lower than the GAAP Gross Margin."*, false by 15.9 points.
+  It is kept rather than dropped as redundant because it fails §13.14 a *different* way from the
+  genuine pair: the genuine draft carries no comparative at all, this one carries a comparative
+  naming the two sides in the wrong order — *"adjusted_gross_margin before and gaap_gross_margin
+  after"*. It is the attack a recomputation on its own would have accepted.
+
+Both are named `synthetic` because they are, and no test presents either as a recording.
 """
 
 from __future__ import annotations
@@ -67,27 +83,6 @@ from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
 from story.stages.freshness import FreshnessReport
 
-#: Every test below drives the demo through the **recorded** generation store, and the store no
-#: longer holds the rows those runs ask for.
-#:
-#: S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS added three package sections and re-shaped four row
-#: types, which is exactly the event `PACKAGE_VERSION` exists for; the version moved to `1.1.0`,
-#: so `package_id` moved, and `package_id` is rendered into the planner and writer prompts
-#: (`prompts.planner_prompt`, `prompts.writer_prompt`). The store is keyed on the prompt, so
-#: every lookup misses with `MissingGenerationError` — which is precisely the intermediate state
-#: the plan's §3 predicted and named: *"Until S7, the replay demo is expected to fail with
-#: `MissingGenerationError`, and that is a known intermediate state rather than a regression."*
-#:
-#: **`strict=True` on purpose.** S7 re-records the store once, against the final schema; the day
-#: it does, these start passing and a non-strict marker would let them stay marked forever. A
-#: strict xfail turns "S7 is done" into a failing suite until the markers are removed.
-REPLAY_AWAITS_S7 = pytest.mark.xfail(
-    strict=True,
-    reason="the recorded generation store is keyed on a prompt carrying package_id, and S1 "
-           "moved PACKAGE_VERSION to 1.1.0; S7 re-records it once (EVIDENCE_ROLES_AND_"
-           "SEMANTIC_FACTS §3)")
-
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures" / "story_demo"
 
@@ -106,6 +101,12 @@ ALWAYS_WRITTEN = {
     "candidate.json", "evidence_package.json", "editorial_plan.json", "draft.json",
     "verification_report.json", "generations.jsonl", "demo_manifest.json",
 }
+
+#: The two synthetic stores this module's docstring describes. Named rather than spelled at each
+#: call site so that "which branch is this test driving" is one word rather than a filename a
+#: reader has to compare character by character against another filename.
+ACCEPTED_STORE = "generations_accepted_synthetic.jsonl"
+REJECTED_STORE = "generations_rejected_synthetic.jsonl"
 
 
 def _read(name: str) -> Any:
@@ -216,7 +217,6 @@ def config() -> DemoConfig:
 # ---------------------------------------------------------------------------------------
 
 
-@REPLAY_AWAITS_S7
 def test_the_demo_runs_end_to_end_from_a_recorded_response_and_writes_every_artifact(
     tmp_path, config
 ):
@@ -234,7 +234,6 @@ def test_the_demo_runs_end_to_end_from_a_recorded_response_and_writes_every_arti
     assert outcome.disposition in (ACCEPTED, REJECTED)
 
 
-@REPLAY_AWAITS_S7
 def test_verification_actually_executes_rather_than_being_recorded_as_having_run(
     tmp_path, config
 ):
@@ -254,28 +253,34 @@ def test_verification_actually_executes_rather_than_being_recorded_as_having_run
     assert outcome.verified.check("identity_and_freshness").examined == 9
 
 
-@REPLAY_AWAITS_S7
 def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_blocking_finding(
     tmp_path, config
 ):
     """The demo's actual disposition, and what every check had to look at to reach it.
 
-    Asserting `accepted` alone would pass against a verifier that looked at nothing, so the
-    denominators are asserted with it: the numbers check counted every numeral in the draft, the
-    periods check resolved a surface for both bindings *and* for the derivation, and the
-    calculation ledger holds the recomputed gap. The nine findings the previous recording drew
-    are gone because four seams were repaired — the derivation can now declare the period it
-    computed over, the comparative can be declared as `compare_levels` and recomputed, the title
-    may carry the package's own period key, and build-provenance warnings no longer demand
-    prose. No check was weakened; `test_story_deterministic_verifier.py` is the guard on that.
+    **Rejected, and the name of this test is true again after S7's re-record.** Asserting the
+    disposition alone would pass against a verifier that looked at nothing, so the denominators
+    are asserted with it: the numbers check counted every numeral in the draft, the periods check
+    resolved a surface for both bindings *and* for the derivation, and the calculation ledger
+    holds the recomputed gap — the declaration is arithmetically fine and it is the *prose* that
+    is refused. Eleven of twelve checks pass; the one blocking finding is §13.14's
+    `comparative_not_supported_by_text` against a sentence that states a size and no direction.
+
+    No check was weakened to get here and none was loosened to get the previous `accepted`
+    either: `test_story_deterministic_verifier.py`'s ten malicious drafts are the guard on that
+    and are untouched. What moved is the model's answer, on a runtime
+    `story/providers/generation_store.py` documents as non-reproducible across processes.
     """
     outcome = run_demo(demo_inputs(), provider=replaying(), config=config,
                        out_dir=tmp_path / "run")
     assert outcome.verified is not None
 
-    assert outcome.disposition == ACCEPTED
-    assert outcome.ok is True
-    assert [f.code for f in outcome.verified.all_findings] == []
+    assert outcome.disposition == REJECTED
+    assert outcome.ok is False
+    assert [f.code for f in outcome.verified.all_findings] == [
+        "comparative_not_supported_by_text"]
+    assert [check.name for check in outcome.verified.checks if check.findings] == [
+        "language_safety"]
     assert outcome.verified.check("numbers").examined == 5
     assert outcome.verified.check("periods").examined == 3
     assert outcome.verified.check("title").examined == 1
@@ -284,19 +289,24 @@ def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_block
     assert outcome.verified.calculation_ledger[0].recomputed_value == 15.899999999999999
 
 
-@REPLAY_AWAITS_S7
 def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config):
     """A rejection is a completed run, not a failure to run (§8b, §14).
 
-    Driven by the **synthetic** store — see this module's docstring. `rejected.json` carries the
-    §13.17 `RejectedDraft` whole, checks included and not only the blocking findings, because
-    the `examined` denominators are what say which checks ran.
+    Driven by the **rejected synthetic** store — see this module's docstring. `rejected.json`
+    carries the §13.17 `RejectedDraft` whole, checks included and not only the blocking
+    findings, because the `examined` denominators are what say which checks ran.
+
+    The `expected`/`observed` pair is asserted as well as the code, because the genuine
+    recording is *also* refused as `comparative_not_supported_by_text` and the code alone would
+    no longer say which of §13.14's two failures this store exercises. This one is the
+    inversion: a comparative is present and it names the sides the wrong way round.
     """
-    outcome = run_demo(demo_inputs(),
-                       provider=replaying("generations_rejected_synthetic.jsonl"),
+    outcome = run_demo(demo_inputs(), provider=replaying(REJECTED_STORE),
                        config=config, out_dir=tmp_path / "run")
     written = {path.name for path in (tmp_path / "run").iterdir()}
     rejected = json.loads((tmp_path / "run" / "rejected.json").read_text(encoding="utf-8"))
+    blocking = [f for check in rejected["rejection"]["checks"] for f in check["findings"]
+                if f["blocking"]]
 
     assert "rejected.json" in written
     assert "post.md" not in written
@@ -305,24 +315,29 @@ def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config
     assert len(rejected["rejection"]["checks"]) == 12
     assert outcome.artifacts["rejected.json"]
     # The one edit, caught by the one check that reads the sentence against its calculation.
-    assert [f["code"]
-            for check in rejected["rejection"]["checks"] for f in check["findings"]
-            if f["blocking"]] == ["comparative_not_supported_by_text"]
+    assert [f["code"] for f in blocking] == ["comparative_not_supported_by_text"]
+    assert blocking[0]["observed"] == \
+        "adjusted_gross_margin before and gaap_gross_margin after"
 
 
-@REPLAY_AWAITS_S7
 def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
-    """The genuine recording's branch: the two files are mutually exclusive.
+    """The accepted branch: the two files are mutually exclusive.
+
+    Driven by the **accepted synthetic** store, because the genuine S7 recording is rejected —
+    see this module's docstring. The branch is still real: §13 runs in full over the draft and
+    returns no finding, and `pipeline._write_run` chooses `post.md` on the same condition it
+    always did.
 
     The prose is rendered from the structured draft and never from the model's own text (§12),
     which is why the post can be asserted to hold a figure the verifier bound.
     """
-    outcome = run_demo(demo_inputs(), provider=replaying(), config=config,
+    outcome = run_demo(demo_inputs(), provider=replaying(ACCEPTED_STORE), config=config,
                        out_dir=tmp_path / "run")
     written = {path.name for path in (tmp_path / "run").iterdir()}
 
     assert outcome.disposition == ACCEPTED
     assert outcome.ok is True
+    assert outcome.verified is not None and outcome.verified.all_findings == ()
     assert "post.md" in written
     assert "rejected.json" not in written
     assert "3.3 percent" in (tmp_path / "run" / "post.md").read_text(encoding="utf-8")
@@ -333,7 +348,6 @@ def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
 # ---------------------------------------------------------------------------------------
 
 
-@REPLAY_AWAITS_S7
 def test_two_runs_over_one_package_agree_on_every_artifact_but_the_clock(tmp_path, config):
     """§21's byte-identity claim, at the demo's scale: replay is reproducible, generation is not.
 
@@ -367,7 +381,6 @@ def test_two_runs_over_one_package_agree_on_every_artifact_but_the_clock(tmp_pat
     assert manifests[0] == manifests[1]
 
 
-@REPLAY_AWAITS_S7
 def test_two_runs_agree_on_the_candidate_the_package_digest_and_the_verdict(tmp_path, config):
     """The three values §8b's claim is made of, stated separately from the byte comparison.
 
@@ -389,7 +402,6 @@ def test_two_runs_agree_on_the_candidate_the_package_digest_and_the_verdict(tmp_
     assert first.verified.all_findings == second.verified.all_findings
 
 
-@REPLAY_AWAITS_S7
 def test_the_run_id_is_derived_from_versions_and_digests_and_never_from_the_clock(
     tmp_path, config
 ):
@@ -403,7 +415,6 @@ def test_the_run_id_is_derived_from_versions_and_digests_and_never_from_the_cloc
     assert first.manifest.created_at != second.manifest.created_at
 
 
-@REPLAY_AWAITS_S7
 def test_a_changed_config_mints_a_different_run_id(tmp_path, config):
     """`config_hash` is a digest input, which is what puts `length_target` inside the id.
 
@@ -468,7 +479,6 @@ def test_the_named_candidate_is_returned_unchanged_when_it_does_reproduce(config
     assert select_candidate({CANDIDATE_ID: candidate}, CANDIDATE_ID) is candidate
 
 
-@REPLAY_AWAITS_S7
 def test_a_draft_the_writer_refuses_is_recorded_as_its_own_disposition(tmp_path, config):
     """§11 and §12 can each refuse before §13 runs, and the demo must not report that as a
     verifier rejection — the verifier never saw the draft."""
@@ -509,7 +519,6 @@ def test_a_replay_only_store_with_no_matching_row_refuses_rather_than_inventing_
 # ---------------------------------------------------------------------------------------
 
 
-@REPLAY_AWAITS_S7
 def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposition(
     tmp_path, config
 ):
@@ -524,23 +533,23 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     assert manifest["demo"]["package_id"] == inputs.package.package_id
     assert manifest["demo"]["package_content_digest"] == inputs.package.package_content_digest
     assert manifest["demo"]["graph_input_content_digest"] == inputs.identity.input_content_digest
-    assert manifest["demo"]["disposition"] == ACCEPTED
+    assert manifest["demo"]["disposition"] == REJECTED
     assert manifest["demo"]["generation_mode"] == "replay"
     assert manifest["graph_run_id"] == GRAPH_RUN_ID
     assert manifest["model_id"] == MODEL_ID
     assert manifest["provider_model_id"].endswith(".gguf")
     assert manifest["temperature"] == 0.0
-    # The writer's wording and schema changed with the seam repair and its version says so;
-    # the planner's did not, and its recorded row replays byte-for-byte because of it.
-    assert manifest["prompt_versions"] == {"story_editorial_plan": "1.0.0",
-                                           "story_post_draft": "1.1.0"}
+    # Both prompts moved across EVIDENCE_ROLES_AND_SEMANTIC_FACTS S4 and S6a — the planner
+    # gained rule 8 and the writer rules 18 and 19 for the three ontology sections — and the
+    # manifest is where a reader sees which wording produced these rows.
+    assert manifest["prompt_versions"] == {"story_editorial_plan": "1.1.0",
+                                           "story_post_draft": "1.3.0"}
     assert sorted(manifest["schema_digests"]) == ["story_editorial_plan", "story_post_draft"]
     assert manifest["ranking_policy_version"] == "1.1.0"
     assert manifest["policy_version"] == POLICY_VERSION
     assert manifest["detector_versions"] == {"detector:cross_metric_divergence": "1.0.0"}
 
 
-@REPLAY_AWAITS_S7
 def test_the_manifest_is_written_last_and_names_the_hash_of_every_other_artifact(
     tmp_path, config
 ):
@@ -629,7 +638,6 @@ def test_an_unknown_subcommand_is_a_usage_error():
     assert raised.value.code == cli.EXIT_USAGE
 
 
-@REPLAY_AWAITS_S7
 def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_rejected(
     tmp_path, monkeypatch, capsys
 ):
@@ -645,7 +653,7 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
 
     synthetic = DemoConfig(**{
         **vars(DemoConfig.load(REPO_ROOT)),
-        "generation_store": str(FIXTURES / "generations_rejected_synthetic.jsonl")})
+        "generation_store": str(FIXTURES / REJECTED_STORE)})
     monkeypatch.setattr(cli, "build_story_context", lambda *a, **k: Closable())
     monkeypatch.setattr(cli, "resolve_demo_inputs", lambda *a, **k: demo_inputs())
     monkeypatch.setattr(cli.DemoConfig, "load", classmethod(lambda cls, root: synthetic))
@@ -664,17 +672,27 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
     assert not (tmp_path / "run" / "post.md").exists()
 
 
-@REPLAY_AWAITS_S7
 def test_the_command_exits_zero_and_names_the_post_when_the_draft_is_accepted(
     tmp_path, monkeypatch, capsys
 ):
-    """The accepted branch of the same verb, over the shipped store and the shipped config."""
+    """The accepted branch of the same verb, over the **accepted synthetic** store.
+
+    Pointed at that store for the same reason `test_an_accepted_run_writes_the_post_and_no_
+    rejection` is: the genuine S7 recording is rejected, so the shipped store no longer reaches
+    this branch, and the branch — exit 0, the post named on stdout, `post.md` on disk — is what
+    this test exists for. The config is otherwise the shipped one, and the store is swapped the
+    way the rejected test above swaps it.
+    """
     class Closable:
         def close(self) -> None:
             self.closed = True
 
+    accepted = DemoConfig(**{
+        **vars(DemoConfig.load(REPO_ROOT)),
+        "generation_store": str(FIXTURES / ACCEPTED_STORE)})
     monkeypatch.setattr(cli, "build_story_context", lambda *a, **k: Closable())
     monkeypatch.setattr(cli, "resolve_demo_inputs", lambda *a, **k: demo_inputs())
+    monkeypatch.setattr(cli.DemoConfig, "load", classmethod(lambda cls, root: accepted))
 
     code = cli.main(["--root", str(REPO_ROOT), "demo", "--candidate-id", CANDIDATE_ID,
                      "--out", str(tmp_path / "run")])
@@ -758,7 +776,6 @@ def test_live_a_candidate_id_that_the_graph_does_not_produce_refuses(live_inputs
 
 
 @pytest.mark.neo4j
-@REPLAY_AWAITS_S7
 def test_live_the_demo_runs_end_to_end_from_the_graph_and_the_recorded_store(
     live_inputs, tmp_path, config,  # type: ignore[no-untyped-def]
 ):
@@ -766,13 +783,19 @@ def test_live_the_demo_runs_end_to_end_from_the_graph_and_the_recorded_store(
 
     The package is built from the graph rather than read from the fixture, so this is also what
     says the committed `evidence_package.json` and the store were recorded against each other:
-    a package whose digest or warning kinds had drifted would refuse at §13.13 here.
+    a package whose digest or warning kinds had drifted would **miss the store entirely**, and a
+    package whose digest had drifted after the prompt was rendered would refuse at §13.13.
+    Neither happens, which is the claim — the disposition being `rejected` is the recording's
+    content and not a mismatch, and the two are told apart by the store replaying at all.
     """
     outcome = run_demo(live_inputs, provider=replaying(), config=config,
                        out_dir=tmp_path / "run")
 
-    assert outcome.disposition == ACCEPTED
-    assert outcome.verified is not None and outcome.verified.passed is True
+    assert outcome.disposition == REJECTED
+    assert outcome.verified is not None and outcome.verified.passed is False
+    assert [f.code for f in outcome.verified.all_findings] == [
+        "comparative_not_supported_by_text"]
+    assert outcome.verified.check("identity_and_freshness").findings == ()
     assert (tmp_path / "run" / "demo_manifest.json").is_file()
 
 

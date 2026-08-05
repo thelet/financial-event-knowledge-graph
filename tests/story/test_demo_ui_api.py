@@ -66,27 +66,6 @@ from story.stages.generation.prompts import (
 
 from conftest import RecordedReadExecutor, make_candidate  # type: ignore[import-not-found]
 
-#: Every test below drives the demo through the **recorded** generation store, and the store no
-#: longer holds the rows those runs ask for.
-#:
-#: S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS added three package sections and re-shaped four row
-#: types, which is exactly the event `PACKAGE_VERSION` exists for; the version moved to `1.1.0`,
-#: so `package_id` moved, and `package_id` is rendered into the planner and writer prompts
-#: (`prompts.planner_prompt`, `prompts.writer_prompt`). The store is keyed on the prompt, so
-#: every lookup misses with `MissingGenerationError` — which is precisely the intermediate state
-#: the plan's §3 predicted and named: *"Until S7, the replay demo is expected to fail with
-#: `MissingGenerationError`, and that is a known intermediate state rather than a regression."*
-#:
-#: **`strict=True` on purpose.** S7 re-records the store once, against the final schema; the day
-#: it does, these start passing and a non-strict marker would let them stay marked forever. A
-#: strict xfail turns "S7 is done" into a failing suite until the markers are removed.
-REPLAY_AWAITS_S7 = pytest.mark.xfail(
-    strict=True,
-    reason="the recorded generation store is keyed on a prompt carrying package_id, and S1 "
-           "moved PACKAGE_VERSION to 1.1.0; S7 re-records it once (EVIDENCE_ROLES_AND_"
-           "SEMANTIC_FACTS §3)")
-
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = REPO_ROOT / "story"
 FIXTURES = Path(__file__).parent / "fixtures" / "story_demo"
@@ -1052,15 +1031,19 @@ def test_a_system_message_without_its_fixed_rules_is_refused_at_the_wire(config)
 
 
 REJECTED_STORE = "tests/story/fixtures/story_demo/generations_rejected_synthetic.jsonl"
+ACCEPTED_STORE = "tests/story/fixtures/story_demo/generations_accepted_synthetic.jsonl"
 
 
-def rejecting_config(config: pipeline.DemoConfig) -> pipeline.DemoConfig:
-    """The same configuration against the synthetic store `test_story_demo.py` documents.
+def _config_over(config: pipeline.DemoConfig, store: str) -> pipeline.DemoConfig:
+    """The same configuration against one of the two synthetic stores `test_story_demo.py`
+    documents.
 
-    `generations_rejected_synthetic.jsonl` is **not** a recording: it is the genuine pair with
-    sentence 2's prose reversed so that a true declaration carries a false sentence. It exists
-    so the rejected branch has something to exercise, and nothing here presents it as a
-    recording.
+    Neither is a recording. Both are the genuine S7 pair with one edit to sentence 2's prose and
+    the declaration untouched: the accepted one states the comparative the way the calculation
+    declares it, the rejected one reverses it so that a true declaration carries a false
+    sentence. **The shipped store — the genuine recording — is `rejected` since S7**, on a
+    different §13.14 failure (no comparative at all), so the accepted branch below needs a store
+    of its own, and nothing here presents either file as a recording.
 
     **`raw` is edited beside the field, and that is not tidiness.** `config_hash` is taken over
     `raw` as written and is a `story_run_id` input, so replacing only the dataclass field would
@@ -1070,19 +1053,32 @@ def rejecting_config(config: pipeline.DemoConfig) -> pipeline.DemoConfig:
     the store in `config/story.yaml`, which is how an operator would do it, moves both.
     """
     raw = json.loads(json.dumps(config.raw))
-    raw.setdefault("demo", {})["generation_store"] = REJECTED_STORE
-    return dataclasses.replace(config, raw=raw, generation_store=REJECTED_STORE)
+    raw.setdefault("demo", {})["generation_store"] = store
+    return dataclasses.replace(config, raw=raw, generation_store=store)
 
 
-@REPLAY_AWAITS_S7
-def test_a_replayed_run_produces_an_accepted_post_and_every_artifact(graph_services):
+def rejecting_config(config: pipeline.DemoConfig) -> pipeline.DemoConfig:
+    return _config_over(config, REJECTED_STORE)
+
+
+def accepting_services(graph_services: Mapping[str, Any],
+                       config: pipeline.DemoConfig) -> dict[str, Any]:
+    """`graph_services` with the accepted synthetic store swapped in for the shipped one."""
+    return {**graph_services,
+            "demo_config": lambda: _config_over(config, ACCEPTED_STORE),
+            "story_pipeline": committed_inputs_pipeline}
+
+
+def test_a_replayed_run_produces_an_accepted_post_and_every_artifact(graph_services, config):
     """The demo's claim through the endpoint: package in, plan, draft, verdict, artifacts out.
 
-    The provider is replay-only over the committed store, so the whole path runs with nothing
-    listening on `:8080` — which is what makes this a test rather than a probe.
+    The provider is replay-only over a committed store, so the whole path runs with nothing
+    listening on `:8080` — which is what makes this a test rather than a probe. The store is the
+    **accepted synthetic** one since S7, because the genuine recording is rejected; see
+    `_config_over`. The endpoint's accepted rendering is what is under test here, and it needs a
+    run that reaches it.
     """
-    harness = Harness(services={**graph_services,
-                                "story_pipeline": committed_inputs_pipeline})
+    harness = Harness(services=accepting_services(graph_services, config))
     status, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
     assert status == 202 and started["live"] is False
     harness.wait(started["run_id"])
@@ -1106,7 +1102,6 @@ def test_a_replayed_run_produces_an_accepted_post_and_every_artifact(graph_servi
     assert outcome["style_delivery"]["is_recorded_default"] is True
 
 
-@REPLAY_AWAITS_S7
 def test_a_rejected_run_renders_as_a_rejection_and_writes_no_post(graph_services, config):
     """**A refused draft must never be presented as an accepted post.** One branch decides it,
     and it is the same condition `pipeline._write_run` writes `post.md` under."""
@@ -1133,7 +1128,6 @@ def test_a_rejected_run_renders_as_a_rejection_and_writes_no_post(graph_services
                for row in outcome["verification"]["blocking_findings"])
 
 
-@REPLAY_AWAITS_S7
 def test_a_replayed_run_reports_no_token_count_rather_than_a_zero(graph_services):
     """An investor-facing cost panel showing zeroes would be a fabricated measurement (§7)."""
     harness = Harness(services={**graph_services,
@@ -1158,7 +1152,6 @@ def test_a_replayed_run_reports_no_token_count_rather_than_a_zero(graph_services
     assert package["package"]["retrieval_timing"]["measured"] is False
 
 
-@REPLAY_AWAITS_S7
 def test_the_trace_is_written_beside_the_artifacts_and_matches_the_stream(graph_services):
     harness = Harness(services={**graph_services,
                                 "story_pipeline": committed_inputs_pipeline})
@@ -1179,7 +1172,6 @@ def test_the_trace_is_written_beside_the_artifacts_and_matches_the_stream(graph_
     assert "completion marker" in payload["outcome"]["trace_events"]["note"]
 
 
-@REPLAY_AWAITS_S7
 def test_every_stage_the_trace_emits_is_in_the_closed_set_and_in_order(graph_services):
     harness = Harness(services={**graph_services,
                                 "story_pipeline": committed_inputs_pipeline})
@@ -1200,7 +1192,6 @@ def test_every_stage_the_trace_emits_is_in_the_closed_set_and_in_order(graph_ser
         assert set(event.related_fact_ids) <= package_ids
 
 
-@REPLAY_AWAITS_S7
 def test_every_verifier_check_is_mapped_onto_a_trace_stage(graph_services):
     """A check absent from `CHECK_STAGES` is a check the panel would silently drop."""
     harness = Harness(services={**graph_services,
@@ -1214,7 +1205,6 @@ def test_every_verifier_check_is_mapped_onto_a_trace_stage(graph_services):
     assert set(api.CHECK_STAGES.values()) == set(api.VERIFICATION_STAGES)
 
 
-@REPLAY_AWAITS_S7
 def test_the_sources_endpoint_resolves_sentence_to_passage_to_document(graph_services):
     harness = Harness(services={**graph_services,
                                 "story_pipeline": committed_inputs_pipeline})
@@ -1240,7 +1230,6 @@ def test_the_sources_endpoint_resolves_sentence_to_passage_to_document(graph_ser
                 assert citation["quoted_text"] in passage["text"]
 
 
-@REPLAY_AWAITS_S7
 def test_every_passage_says_which_section_of_the_package_it_came_from(graph_services):
     """**Counter-evidence rendered identically to support is the worst thing this panel can do.**
 
@@ -1282,7 +1271,6 @@ def test_every_passage_says_which_section_of_the_package_it_came_from(graph_serv
     assert counted["diagnostic_passages"] == len(package.diagnostic_passages)
 
 
-@REPLAY_AWAITS_S7
 def test_a_role_with_no_passages_is_reported_as_zero_rather_than_dropped(graph_services):
     """*"Zero counter-evidence found"* and *"counter-evidence was never fetched"* are different.
 
@@ -1311,9 +1299,8 @@ def test_a_role_with_no_passages_is_reported_as_zero_rather_than_dropped(graph_s
         request.want_explanatory_search)
 
 
-@REPLAY_AWAITS_S7
 def test_an_accepted_run_whose_post_is_unreadable_is_an_error_and_not_a_silent_null(
-        graph_services, monkeypatch):
+        graph_services, config, monkeypatch):
     """The body used to say `accepted: true, rendered_as: "post", post: null`.
 
     From which the client rendered *"Refused · accepted"* — neither of the two things it is.
@@ -1328,8 +1315,7 @@ def test_an_accepted_run_whose_post_is_unreadable_is_an_error_and_not_a_silent_n
             raise OSError(13, "permission denied")
         return real_read(self, *args, **kwargs)
 
-    harness = Harness(services={**graph_services,
-                                "story_pipeline": committed_inputs_pipeline})
+    harness = Harness(services=accepting_services(graph_services, config))
     monkeypatch.setattr(Path, "read_text", refuse_the_post)
     _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
     harness.wait(started["run_id"])
@@ -1346,11 +1332,14 @@ def test_an_accepted_run_whose_post_is_unreadable_is_an_error_and_not_a_silent_n
     assert "permission denied" not in json.dumps(payload)
 
 
-@REPLAY_AWAITS_S7
-def test_a_coherent_accepted_run_carries_no_post_error(graph_services):
-    """The other half: the new field must be `null` on every run that is actually fine."""
-    harness = Harness(services={**graph_services,
-                                "story_pipeline": committed_inputs_pipeline})
+def test_a_coherent_accepted_run_carries_no_post_error(graph_services, config):
+    """The other half: the new field must be `null` on every run that is actually fine.
+
+    Over the accepted synthetic store, so the run this asserts about is an accepted one — the
+    field would be `null` on the rejected genuine recording too, and a test named for the
+    accepted branch that never reaches it proves the weaker thing.
+    """
+    harness = Harness(services=accepting_services(graph_services, config))
     _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
     harness.wait(started["run_id"])
     _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
@@ -1358,7 +1347,6 @@ def test_a_coherent_accepted_run_carries_no_post_error(graph_services):
     assert payload["outcome"]["artifacts_complete"] is True
 
 
-@REPLAY_AWAITS_S7
 def test_planning_closes_before_drafting_opens(graph_services):
     """Read top to bottom, the stream said drafting started before planning finished.
 
@@ -1382,7 +1370,6 @@ def test_planning_closes_before_drafting_opens(graph_services):
                if stage == "planning" and status in ("passed", "failed")) == 1
 
 
-@REPLAY_AWAITS_S7
 def test_a_float_with_residue_is_displayed_short_and_kept_exact(graph_services):
     """§7: `15.899999999999999` renders as `15.9` and the exact value stays beside it."""
     harness = Harness(services={**graph_services,
@@ -1517,7 +1504,6 @@ def test_a_discovery_stream_carries_every_event_and_ends_once(monkeypatch, graph
     assert frames[-1][1]["status"] == "complete"
 
 
-@REPLAY_AWAITS_S7
 def test_a_generation_stream_reaches_the_planner_the_writer_and_the_verifier(graph_services,
                                                                             serve_api):
     harness, client = serve_api({**graph_services,
@@ -1672,7 +1658,6 @@ def test_an_error_never_carries_the_text_of_the_exception_it_came_from(monkeypat
     assert payload["error"]["message"] == api.ERRORS["graph_unavailable"][1]
 
 
-@REPLAY_AWAITS_S7
 def test_no_response_carries_an_absolute_path(driven):
     """A run directory names the operator's home and username when it is absolute.
 

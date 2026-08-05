@@ -952,6 +952,14 @@ statement through.** The 60 existing verifier tests, including all 10 malicious 
 guard. Demo disposition after: **`accepted`, zero findings, 12 checks, every denominator
 non-zero.** The prose is unchanged in substance from the sentence that was refused.
 
+> **That disposition measures the 2026-08-04 recording and is no longer the demo's state.**
+> EVIDENCE_ROLES_AND_SEMANTIC_FACTS S7 re-recorded the store on 2026-08-05 against the moved
+> package and prompts, and the re-recorded pair is **`rejected`** — one blocking finding,
+> `comparative_not_supported_by_text`, because the writer declared `compare_levels` for a
+> sentence stating a size with no direction. No check moved between the two: three `--live` runs
+> at S7 produced identical prose and split 2 accepted / 1 rejected on the declared `operation`
+> alone. See that plan's §4 S7.
+
 **The hole the obvious fix would have opened.** Recomputing a comparative's *declaration* proves
 nothing about its *sentence*: `left < right` over `(gaap, adjusted)` recomputes perfectly
 (−12.6 < 3.3) while the text says *"the Adjusted Gross Margin was 15.9 percentage points lower

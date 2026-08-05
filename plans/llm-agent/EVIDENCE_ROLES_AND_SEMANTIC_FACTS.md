@@ -139,6 +139,11 @@ step (S7), it needs the live model server, and it must happen **once**, after ev
 has landed — not per stage. Until S7, the replay demo is expected to fail with
 `MissingGenerationError`, and that is a known intermediate state rather than a regression.
 
+**Done at S7 (2026-08-05), in one live run.** The store now holds planner `10a417c704ed…` and
+writer `37cb65bf6dc7…` against package `…:6a858ae5c031`, digest `5c420f8c5071…`. The thirty
+strict xfails are removed. What this section did not predict is that the re-recorded pair would
+be **rejected** — see §4 S7.
+
 ---
 
 ## 4. Stages
@@ -646,12 +651,112 @@ commit message — and what `tests/story/test_demo_ui_app.py` asserts is the sou
 each demonstration rests on. Layout, contrast, focus order and whether the `<details>` controls
 are usable with a keyboard are **unverified**; they need a browser and a person.
 
-### S7 — Regression, re-record, adversarial review
+### S7 — Regression and re-record — **landed 2026-08-05**
 
-Re-run the inventory candidate end to end; re-record the generation store once (§3); confirm the
-D4 demo still accepts; then an adversarial review aimed specifically at **false corroboration**
-(two things merged that are not the same fact) and **missed contradiction** (something real
-downgraded to a warning). Both are the failure modes this plan creates.
+Re-run the inventory candidate end to end; re-record the generation store once (§3); ~~confirm
+the D4 demo still accepts~~ — **it does not, and the refusal is the finding.** The adversarial
+review this stage also named is **not done** and is carried forward; see the end of this section.
+
+**One live re-record, and it produced a rejection.** `python -m story demo --live` against
+`http://127.0.0.1:8080` (Qwen3.5-9B-Q4_K_M) on package `…:6a858ae5c031`, digest
+`5c420f8c5071…`. Two rows, both `finish_reason: stop`, nothing hand-edited — planner request
+`10a417c704ed…`, writer `37cb65bf6dc7…`. `story-v1-290a1a01e59c`, disposition **`rejected`**,
+one blocking finding across twelve checks:
+
+```
+language_safety: comparative_not_supported_by_text (sentence 2, remedy DROP_SENTENCE)
+  expected  a comparative construction, which is what compare_levels declares
+  observed  no comparative in 'The difference between the two margins is 15.9 percentage points.'
+```
+
+**Nothing was weakened to produce it and nothing was retried to avoid it.** The writer declared
+`compare_levels` over `(gaap, adjusted)` with `left < right` — which recomputes, and the
+calculation ledger holds `15.9 percentage points` — and then wrote the result as a **size with no
+direction**. Refusing exactly that shape is a rule `claims._comparison_text_findings` states in
+its own docstring: *"that sentence states a size and no direction, so it is a `difference` or a
+`delta_pp`, not a comparison."* The model mis-declared the operation. `story/` is unchanged by
+this stage: `git diff` over the package is empty.
+
+**Three `--live` runs, and the disposition turns on one enum field.** All three produced
+**byte-identical prose** — same title, same three sentences, the third of them the sentence above
+— and differed only in `calculation.operation`:
+
+| run | operation | disposition |
+| --- | --- | --- |
+| 1 (**recorded**) | `compare_levels` | rejected — `comparative_not_supported_by_text` |
+| 2 | `difference` | accepted |
+| 3 | `difference` | accepted |
+
+The first is what is committed. Recording the second or the third instead would have been
+choosing the store by its verdict, which is the one thing a recording may not be chosen by. The
+split reproduces the earlier measurement (three runs, two accepted, one refused) and is the
+nondeterminism `story/providers/generation_store.py` names: byte-identical *replay* is
+achievable, byte-identical *generation* is not.
+
+**Replay is exact.** The recorded run and a replay of it agree on all seven artifacts as bytes,
+and two independent replays agree on all seven and on `demo_manifest.json` with `created_at`
+removed — `candidate.json`, `draft.json`, `editorial_plan.json`, `evidence_package.json`,
+`generations.jsonl`, `rejected.json`, `verification_report.json`, one `story_run_id`.
+
+**The thirty strict xfails are gone and twenty passed untouched.** Ten did not, and every one of
+the ten asserted the *disposition* rather than a mechanism. Seven were repaired by stating the
+recording's real verdict; three needed a store that reaches the accepted branch, because the
+genuine pair no longer does.
+
+**A third fixture, and it is named for what it is.**
+`tests/story/fixtures/story_demo/generations_accepted_synthetic.jsonl` is the genuine pair with
+sentence 2's prose replaced by *"The GAAP Gross Margin was 15.9 percentage points lower than the
+Adjusted Gross Margin."* — true, and verbatim what the 2026-08-04 recording produced — with the
+declaration untouched. It exists so `post.md` written / no `rejected.json` / exit 0 still has
+something to drive, and §13 runs in full over it and returns no finding.
+`generations_rejected_synthetic.jsonl` was regenerated against the new keys with the same single
+reversal it always carried, and was **kept rather than dropped as redundant** because it fails
+§13.14 a different way from the genuine pair: the genuine draft carries no comparative at all,
+this one carries a comparative naming the sides in the wrong order (*"adjusted_gross_margin
+before and gaap_gross_margin after"*). Neither file is a recording and no test presents either
+as one.
+
+**The inventory candidate, end to end and live, and §1's defect is gone.** Package
+`pkg:metric-move-housing-inventory-homes-opendoor-2022-12-31-2023-03-31:9310a2a54528`, digest
+`9c979d7038815916…`, prompt slice 4,885 tokens — the number §4 S4's table predicted.
+
+* `counter_evidence[]` is **empty** and `diagnostic_passages[]` is **empty**: both of §1's
+  passages are carried in `primary_passages` as `primary_support` with `AMBIGUOUS_ALIAS` in
+  `diagnostic_codes`, which is S2's fourth point taking its no-duplication branch.
+* Two facts, both `observed`, `12,788 homes` at 2022-12-31 and `6,261 homes` at 2023-03-31, with
+  **5 corroborating observations across 4 documents** and **5 across 5**. The `facts` ledger row
+  reads `available=12 carried=2 dropped=10`, reason `concordant_readings_collapsed`.
+* Model-visible: 12 fact rows — 2 observed, 0 derived, **5 semantic, 4 identity (one
+  unavailable), 1 comparability**. The comparability fact names all ten rules in evaluation
+  order; the identity row that is unavailable is the company description, rendered as an
+  instruction not to supply one.
+* Seven warnings: 3 `capability_limitation`, 3 `retrieval_warning`, 1 `package_composition`
+  (`concordant_readings_collapsed`, `build_provenance` — S6a's reclassification, on the wire).
+  **No `substantive_counter_evidence` and no `fact_quality_warning`.**
+* **§11 accepted the plan.** Three key points, **zero counterpoints**, **zero
+  `required_warnings`** — so neither `counter_evidence_unaccounted` nor
+  `required_warning_has_no_declared_qualifier` fires. That is §1.1's paragraph closed: the
+  planner is no longer asked to write a counterpoint about an extraction diagnostic.
+* **§13 rejected the draft**, on six blocking findings in three checks, and every one is about
+  the draft's own prose rather than about its evidence: `period_surface_absent_from_text` and
+  `period_unresolvable` (sentence 2 says *"this period"*), `calculation_does_not_recompute`
+  (`difference` declared `left > right` and rendered `6,527` where the movement is `−6,527`), and
+  `unbound_numeral` ×4 on the title *"Opendoor housing inventory 2022Q4 2023Q1"* — the package's
+  facts carry `2022-12-31` and `2023-03-31`, so `2022Q4` and `2023Q1` are numerals the title has
+  no fact for.
+
+**The guards, executed rather than asserted.** `counter_evidence_unaccounted` still fires on a
+package carrying a qualifying counterpoint the plan walks past
+(`test_a_qualifying_counterpoint_the_plan_ignores_still_fires_counter_evidence_unaccounted`), and
+its rule in `planner.py` is byte-unchanged. The ten malicious drafts in
+`test_story_deterministic_verifier.py` still refuse, all ten, unchanged.
+
+**Not done, and carried forward.** The adversarial review this stage names — **false
+corroboration** and **missed contradiction** — was not performed. Its two open questions are
+still open: S3a's *"should the counter-evidence scan follow corroborating documents as well"* and
+S6's *"may one passage hold both `primary_support` and `counter_evidence` at once"*. What exists
+today is the executable half — `test_story_evidence_package.py`'s non-equivalence and collapse
+tests, and the `counter_evidence_unaccounted` guard above — not the review.
 
 ---
 
