@@ -1,17 +1,26 @@
 """S5 — the bounded evidence package. §10, and the wall the model cannot see past.
 
-Eight modules, split by concern rather than for symmetry. The counts are statements rather than
-lines of file, because that is what says whether a split earned itself; each of the first six
+Nine modules, split by concern rather than for symmetry. The counts are statements rather than
+lines of file, because that is what says whether a split earned itself; each of the first seven
 holds a rule at least two of the others read.
 
-    warning_codes.py       118  the §10.1 vocabulary and the severity §13.17's gate acts on
+    warning_codes.py       120  the §10.1 vocabulary and the severity §13.17's gate acts on
     section_bounds.py      102  §10.2's ceilings, §10.2.1's token arithmetic, the drop rules
     query_terms.py          81  §11's correction — terms derived, never authored
     passage_excerpts.py     49  §10.2.1's ±400 window, and the passages that may never have one
     passage_quality.py      36  whether a passage's content can carry evidence at all (§4 S2)
+    ontology_facts.py      148  the ontology's declarations as facts the model reads (§4 S4)
     counter_evidence.py    185  which associations qualify as counter-evidence, and on what basis
     package_assembly.py    250  the caps, the trim, `documents[]`, the id and the digest
-    evidence_package.py    821  which evidence goes in — the only module that reads the graph
+    evidence_package.py    854  which evidence goes in — the only module that reads the graph
+
+`ontology_facts.py` is a file rather than a section of `evidence_package.py` on the same test
+that earns the others one: it answers a different question about a different thing. *"What does
+`housing_inventory_homes` mean?"* is the ontology's answer and is true of every package that
+references the metric, whichever story is being written and whichever graph run it came from —
+so it is a pure function of the registry and of a comparability answer, with no retriever, no
+graph and no selection anywhere in it. Keeping it beside the selection rules would have let a
+graph read drift into a place C4 says the graph is not the authority.
 
 `passage_quality.py` is a file rather than four lines inside `counter_evidence.py` because it
 answers a different question about a different thing: *"is there a proposition in this text?"* is
@@ -60,6 +69,19 @@ from story.stages.packaging.evidence_package import (
     SLOT_SEPARATOR,
     BoundedEvidencePackageBuilder,
     PackagingError,
+    collapses_into,
+)
+from story.stages.packaging.ontology_facts import (
+    IDENTITY_ATTRIBUTES,
+    NO_DESCRIPTION_STATEMENT,
+    RULE_MUTUALLY_DISTINCT,
+    RULE_PERCENTAGE_POINTS,
+    SEMANTIC_ATTRIBUTES,
+    comparison_fact,
+    identity_facts,
+    ontology_source,
+    semantic_facts,
+    standing_facts,
 )
 from story.stages.packaging.package_assembly import (
     TRACE_ELAPSED_MS_NOT_CARRIED,
@@ -120,19 +142,24 @@ __all__ = [
     "CEILINGS",
     "CHARS_PER_TOKEN",
     "EXCERPT_RADIUS_CHARS",
+    "IDENTITY_ATTRIBUTES",
     "KIND_OF",
     "KIND_OF_CATEGORY",
     "MATCH_BASIS_SAME_DOCUMENT",
     "MATCH_BASIS_SAME_PASSAGE",
     "MAX_TERMS",
+    "MAX_TOTAL_TOKENS_CEILING",
     "MIN_CONTENT_CHARS",
     "MIN_WORD_TOKENS",
-    "MAX_TOTAL_TOKENS_CEILING",
+    "NO_DESCRIPTION_STATEMENT",
     "PACKAGING_TOOLS",
     "PROMPT_EXCLUDED_SECTIONS",
     "PROTECTED_SECTIONS",
     "QUALIFYING_BASES",
     "QUALIFYING_ISSUE_CODES",
+    "RULE_MUTUALLY_DISTINCT",
+    "RULE_PERCENTAGE_POINTS",
+    "SEMANTIC_ATTRIBUTES",
     "SEVERITY_OF",
     "SLOT_SEPARATOR",
     "TRACE_ELAPSED_MS_NOT_CARRIED",
@@ -161,13 +188,19 @@ __all__ = [
     "check_budget",
     "claim_qualifying",
     "classify_issue",
+    "collapses_into",
+    "comparison_fact",
     "derive_terms",
     "estimate_tokens",
+    "identity_facts",
     "match_basis",
     "match_basis_of",
+    "ontology_source",
     "packaged_warning",
     "prompt_slice",
     "refuse_excerpting_bound_passage",
+    "semantic_facts",
+    "standing_facts",
     "whole",
     "window",
 ]

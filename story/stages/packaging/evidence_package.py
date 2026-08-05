@@ -92,6 +92,7 @@ from story.core.series import (
     comparable,
 )
 import story.stages.packaging.counter_evidence as counter
+import story.stages.packaging.ontology_facts as ontology_facts
 import story.stages.packaging.package_assembly as assembly
 import story.stages.packaging.passage_excerpts as passage_excerpts
 import story.stages.packaging.passage_quality as passage_quality
@@ -252,6 +253,11 @@ class BoundedEvidencePackageBuilder:
         self._add_run_level_warnings(sections, candidate)
         sections.retrieval_trace = list(self._retriever.trace()[trace_from:])
         sections.subject = self._subject(candidate, sections.facts)
+        # Last, and after `subject`, because §4 S4's identity facts are about it. Nothing here
+        # reads the graph — `ontology_facts` is a pure function of the ontology and of the
+        # comparability answers `_add_compatibility` already computed — so the retrieval trace
+        # is closed before it runs and the section adds no tool call to the package.
+        self._add_ontology_facts(sections, candidate, request)
 
         # Selection ends here. Everything from the caps to the digest belongs to
         # `package_assembly.PackageAssembler`, which reads no graph and selects nothing — and
@@ -1176,6 +1182,13 @@ class BoundedEvidencePackageBuilder:
             sections.metrics.append(PackagedMetric(
                 metric_id=metric_id,
                 label=definition.label,
+                # §4 S4's `PackagedMetric.description`, and C4's answer to where it comes from.
+                # The `:Metric` node carries a property of the same name with the same text on
+                # this run *(checked live 2026-08-05)* and is still not the source: the same node
+                # carries no `percentage_min`, no `distinct_from` and no `population`, so reading
+                # semantics off the graph reads half a definition from a place that does not own
+                # it. `None` and not `""` for an undeclared one — C2's rule, one state.
+                description=definition.description or None,
                 unit=definition.unit,
                 allowed_units=tuple(definition.allowed_units),
                 period_type=getattr(definition.period_type, "value", definition.period_type),
@@ -1363,6 +1376,11 @@ class BoundedEvidencePackageBuilder:
             series = self._series.get(left.metric_id) if claim in (
                 ClaimKind.MOVEMENT, ClaimKind.ACCELERATION) else None
             answer = comparable(left, right, claim=claim, authority=authority, series=series)
+            # §4 S4's per-comparison fact is rendered from **this** answer rather than from a
+            # second `comparable` call: two calls are two chances to disagree, and the fact and
+            # the decision would then be able to say different things about one pair.
+            sections.comparability_facts.append(ontology_facts.comparison_fact(
+                claim, left, right, answer, source=self._ontology_source()))
             left_id = SLOT_SEPARATOR.join(left.slot_key)
             right_id = SLOT_SEPARATOR.join(right.slot_key)
             if isinstance(answer, Refuse):
@@ -1382,6 +1400,50 @@ class BoundedEvidencePackageBuilder:
                     codes.COMPARISON_WARNED, subject_ids=(left_id, right_id), detail=reason))
         if len(pairs) > cap:
             sections.caps_hit.add("compatibility")
+
+    def _add_ontology_facts(
+        self,
+        sections: assembly.PackageSections,
+        candidate: StoryCandidate,
+        request: EvidenceRequest,
+    ) -> None:
+        """§4 S4 — the ontology's declarations, as facts rather than as metadata.
+
+        Three sections, one call, and **no graph read of any kind**: `ontology_facts` is a pure
+        function of the registry, the comparability authority and the sections already chosen.
+        That is what makes it safe to run after `retrieval_trace` has been closed, and it is why
+        §4 S4's *"a bounded `get_subject_context` tool may be added only if genuinely needed"*
+        was answered **no** — see `ontology_facts.identity_facts` for the measurement.
+
+        The per-comparison rows are **not** built here. `_add_compatibility` builds them from the
+        `comparable()` answer it already has, because a second call for a second rendering is a
+        second chance to disagree; this adds only the standing rules, which range over the
+        package's metrics rather than over a pair.
+        """
+        source = self._ontology_source()
+        registry = self._resolved_registry()
+        anchor_dates = sorted({
+            record.period.anchor_date
+            for record in self._records_for(request, candidate)
+            if record.period.anchor_date})
+        sections.semantic_facts.extend(ontology_facts.semantic_facts(
+            sections.metrics, registry, source=source, anchor_dates=anchor_dates))
+        if sections.subject is not None:
+            sections.identity_facts.extend(
+                ontology_facts.identity_facts(sections.subject, registry, source=source))
+        sections.comparability_facts.extend(ontology_facts.standing_facts(
+            sections.metrics, self._resolved_authority(), source=source))
+
+    def _ontology_source(self) -> str:
+        """`ontology:<id>@<version>`, from the graph run's own identity block.
+
+        Read off `GraphIdentity` and not off the loaded ontology: the two must agree, the
+        freshness gate is what checks that they do (§7's `ontology_definition_hash` check), and
+        a package that named the ontology it *loaded* rather than the one the graph was
+        *projected from* would hide exactly the drift that gate exists to catch.
+        """
+        return ontology_facts.ontology_source(
+            self._identity.ontology_id, self._identity.ontology_version)
 
     def _add_run_level_warnings(
         self, sections: assembly.PackageSections, candidate: StoryCandidate

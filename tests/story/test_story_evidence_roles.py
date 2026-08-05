@@ -47,6 +47,7 @@ from story.core.models import (
 )
 from story.stages.generation.prompts import planner_prompt, planner_schema, writer_prompt
 from story.stages.packaging import counter_evidence as counter
+from story.stages.packaging import ontology_facts
 from story.stages.packaging import package_assembly as assembly
 from story.stages.packaging import section_bounds
 
@@ -301,12 +302,16 @@ def test_a_packaged_metric_carries_no_definition_until_S4_supplies_one():
     assert metric.description is None
 
 
-def test_the_committed_package_carries_no_metric_description_read_off_the_graph():
+def test_the_committed_packages_metric_description_is_the_ontologys_and_not_the_nodes():
     """C4, as a property of the artifact rather than of a docstring.
 
-    The `:Metric` node has a `description` property and it is **not** the source of truth. S1
-    adds the field and S4 populates it *from the ontology*; a packager that had reached for the
-    node in the meantime would show up here as a description on a package nothing populated.
+    The `:Metric` node has a `description` property carrying, on this run, the *same text*
+    *(checked live 2026-08-05: `adjusted_gross_margin` reads `'Adjusted Gross Profit as a
+    percentage of revenue.'` in both)*. Equal text is not the same source, which is why this
+    test cannot be *"the description matches the node"* and is instead *"the description matches
+    the ontology"*: the same node carries no `percentage_min`, no `distinct_from` and no
+    `population`, so a packager that reached for it would fill four fields from a place that
+    owns one.
     """
     import json
     from pathlib import Path
@@ -317,8 +322,13 @@ def test_the_committed_package_carries_no_metric_description_read_off_the_graph(
     package = StoryEvidencePackage.model_validate(
         json.loads(fixture.read_text(encoding="utf-8")))
 
+    from ontology import load_ontology
+
+    registry = load_ontology(package.ontology_id).registry
     assert package.metrics != ()
-    assert [metric.description for metric in package.metrics] == [None] * len(package.metrics)
+    assert all(metric.description for metric in package.metrics)
+    assert [metric.description for metric in package.metrics] == [
+        registry.metric(metric.metric_id).description for metric in package.metrics]
 
 
 # ---------------------------------------------------------------------------------------
@@ -463,8 +473,10 @@ def test_the_committed_package_has_been_assessed_corroborated_and_not_yet_given_
     At S1 this test asserted the opposite of half of the below — quality `unassessed`, no
     corroboration — because S1 added shape and changed no behaviour. S2 and S3 are what change
     it: every passage has been through `passage_quality.assess`, and every fact names the
-    concordant sources §6.1 collapsed. What is still at rest is S4's: `fact_kind` is `observed`
-    on every row and the three ontology-fact sections are empty.
+    concordant sources §6.1 collapsed. **S4 has landed too**, so the three ontology-fact
+    sections are populated rather than empty and the test asserts what is in them; `fact_kind`
+    is still `observed` on every row in `facts[]`, because a derived quantity is the writer's
+    `Calculation` and not a packaged fact.
 
     The fixture is the D4 candidate, rebuilt live on 2026-08-05: the package moved from
     `…8e0cb0cf6655` to `…91fd3fe66619`, 5 facts and 3 primaries to 4 and 2, and its facts now
@@ -494,12 +506,26 @@ def test_the_committed_package_has_been_assessed_corroborated_and_not_yet_given_
     for fact in package.facts:
         assert fact.fact_kind is FactKind.OBSERVED
         assert fact.observation_id not in fact.corroborating_observation_ids
-    assert (package.semantic_facts, package.identity_facts, package.comparability_facts) == (
-        (), (), ())
+    assert [f.attribute for f in package.identity_facts] == list(
+        ontology_facts.IDENTITY_ATTRIBUTES)
+    assert {f.metric_id for f in package.semantic_facts} == {
+        m.metric_id for m in package.metrics}
+    assert all(f.authoritative and not f.editable for f in package.semantic_facts)
+    # The one identity attribute the corpus cannot answer, on the committed artifact.
+    description = next(f for f in package.identity_facts if f.attribute == "description")
+    assert (description.available, description.value) == (False, "")
+    assert description.statement == ontology_facts.NO_DESCRIPTION_STATEMENT
 
 
-def test_no_new_field_reaches_the_planner_or_the_writer_prompt_at_S1():
-    """S4 renders the ontology facts and S6 renders the roles; neither is this step.
+def test_the_semantic_fact_reaches_both_prompts_at_S4_and_the_row_fields_still_do_not():
+    """**Inverted at S4, and the inversion is the deliverable.** At S1 this asserted that the
+    definition reached neither prompt, because nothing populated it; §4 S4's whole claim is that
+    it now reaches both.
+
+    What is still asserted is the other half, unchanged: the *row* fields S1 added — a passage's
+    `quality_status`, a fact's `corroborating_*` lists — remain out of both prompts. They are for
+    §4 S6's evidence panel, and a planner shown `corroborating_observation_ids` would be a
+    planner invited to name an id §11 rule 1 rejects.
 
     Asserted over the rendered prompt because that is the only thing the model sees — the same
     reason §5 requires the serialised provider request to be inspected rather than the package
@@ -512,12 +538,17 @@ def test_no_new_field_reaches_the_planner_or_the_writer_prompt_at_S1():
 
     plan = EditorialPlan(candidate_id=package.candidate_id, package_id=package.package_id,
                          thesis="t", why_it_matters="w")
-    rendered = planner_prompt(package) + writer_prompt(
-        package, plan, package.primary_passages, length_target=4)
+    planner = planner_prompt(package)
+    writer = writer_prompt(package, plan, package.primary_passages, length_target=4)
 
-    assert "Gross profit as a percentage of revenue." not in rendered
-    assert "quality_status" not in rendered
-    assert "corroborating" not in rendered
+    assert "Gross profit as a percentage of revenue." in planner
+    assert "Gross profit as a percentage of revenue." in writer
+    # The `fact_id` stays on the package for the panel and never enters a prompt: §11 rule 1
+    # admits only ids beginning `obs:` in `required_fact_ids`, so a rendered `sem:` id is an
+    # invitation to a rejection.
+    assert semantic().fact_id not in planner + writer
+    assert "quality_status" not in planner + writer
+    assert "corroborating" not in planner + writer
 
 
 def test_a_package_built_by_the_assembler_carries_no_ontology_facts_and_still_digests():

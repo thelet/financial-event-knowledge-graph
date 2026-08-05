@@ -108,7 +108,13 @@ from story.core.models import (
 #: Bumped whenever the wording below or the rendering changes. It is a digest input to every
 #: stored generation, so answers produced under an older wording become unreachable rather
 #: than silently re-used — the single failure a replay cache cannot show you.
-PLANNER_PROMPT_VERSION = "1.0.0"
+#:
+#: **1.1.0**: §4 S4. Three sections were added to the rendering — COMPANY IDENTITY, METRIC
+#: SEMANTICS and COMPARISON RULES — and rule 8 with them. The planner now receives what each
+#: figure *means*, which of them may be set against which, and an explicit statement that no
+#: description of the company exists. Every generation recorded under 1.0.0 answered a prompt
+#: that carried none of it.
+PLANNER_PROMPT_VERSION = "1.1.0"
 
 #: Reaches the wire and the store. `extraction`'s provider hard-codes one schema name for every
 #: call; three story personas against one package would be indistinguishable in a capture.
@@ -180,6 +186,10 @@ figure derived from two of them, and `explanatory` for a claim resting on a pass
 than a number.
 7. `prohibited_claims` are claims the writer must not make even though the evidence is nearby \
 - name them plainly.
+8. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
+each figure means and which figures may be set against which. They are definitions: they carry \
+no figure and no id you may name. Where a line says NOT AVAILABLE, the corpus does not hold \
+that answer and neither do you - plan no claim that needs it.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
@@ -276,11 +286,17 @@ def planner_prompt(package: StoryEvidencePackage) -> str:
         "PACKAGE    " + package.package_id,
         "SUBJECT    " + _subject(package),
         "",
-        "FACTS",
+        IDENTITY_HEADING,
     ]
+    lines.extend(_identity_lines(package))
+    lines += ["", "FACTS"]
     lines.extend(_fact_lines(package.facts))
     lines += ["", "METRICS"]
     lines.extend(_metric_lines(package))
+    lines += ["", SEMANTICS_HEADING]
+    lines.extend(_semantic_lines(package))
+    lines += ["", COMPARISON_HEADING]
+    lines.extend(_comparability_lines(package))
     lines += ["", "EVENTS"]
     lines.extend(_event_lines(package))
     lines += ["", "WARNINGS"]
@@ -332,6 +348,70 @@ def _fact_lines(facts: Sequence[PackagedFact]) -> list[str]:
         elif fact.evidence_source_id:
             lines.append(f"      evidenced by {fact.evidence_source_id} (no filed passage)")
     return lines
+
+
+# ---------------------------------------------------------------------------------------
+# §4 S4 — the ontology's declarations, rendered as facts in *both* prompts
+#
+# **One rendering, two personas, and that is the point.** A definition is not a planner-shaped
+# thing or a writer-shaped thing: `housing_inventory_homes` is a count at a moment in both
+# prompts or the two models are working from different meanings. The slices differ in evidence
+# (§10.2.1 point 3) and must not differ in semantics.
+#
+# **No `fact_id` is printed, deliberately.** §11 rule 1 restricts `required_fact_ids` to ids
+# beginning `obs:`, so a rendered `sem:…` id is an id the planner would be rejected for using;
+# printing one would be an invitation to a refusal. The ids exist on the package for §4 S6's
+# evidence panel, which is where a reader needs them.
+#
+# **The unavailable rows are printed too, and that is the whole of §4 S4's *"no company
+# description may be invented"*.** A model shown nothing about what Opendoor does will supply
+# the answer from its weights; a model shown `NOT AVAILABLE` followed by the reason has been
+# told not to. `IdentityFact.available` is the field that carries it and this is what renders it.
+# ---------------------------------------------------------------------------------------
+
+IDENTITY_HEADING = (
+    "COMPANY IDENTITY (everything known about the subject; a line marked NOT AVAILABLE is not "
+    "yours to fill in)")
+SEMANTICS_HEADING = (
+    "METRIC SEMANTICS (what each figure means - declared by the ontology, which is the "
+    "authority on it; these are definitions, not figures)")
+COMPARISON_HEADING = (
+    "COMPARISON RULES (which figures may be set against which, and on what terms)")
+
+
+def _identity_lines(package: StoryEvidencePackage) -> list[str]:
+    if not package.identity_facts:
+        return ["  (none)"]
+    return [
+        "  " + ("" if fact.available else "NOT AVAILABLE - ") + fact.statement
+        for fact in package.identity_facts
+    ]
+
+
+def _semantic_lines(package: StoryEvidencePackage) -> list[str]:
+    """Grouped by metric, statements only.
+
+    Grouped because a flat list of eleven sentences about two metrics reads as eleven unrelated
+    assertions, and the question a reader (and a 9B model) is answering is *"what does this
+    figure mean"*, one metric at a time. The `attribute` is not printed: the statement already
+    says which declaration it is, and the label would be a second copy of it.
+    """
+    if not package.semantic_facts:
+        return ["  (none)"]
+    lines: list[str] = []
+    current = ""
+    for fact in package.semantic_facts:
+        if fact.metric_id != current:
+            current = fact.metric_id
+            lines.append(f"  {current}")
+        lines.append("      - " + fact.statement)
+    return lines
+
+
+def _comparability_lines(package: StoryEvidencePackage) -> list[str]:
+    if not package.comparability_facts:
+        return ["  (none)"]
+    return ["  - " + fact.statement for fact in package.comparability_facts]
 
 
 def _metric_lines(package: StoryEvidencePackage) -> list[str]:
@@ -428,7 +508,11 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: rules 5, 11, 12 and 17 changed with them. Every generation recorded under 1.0.0 answers a
 #: different question and is unreachable by construction — the schema is in `request_identity`
 #: — and the bump is what makes that visible in the row rather than only in the digest.
-WRITER_PROMPT_VERSION = "1.1.0"
+#:
+#: **1.2.0**: §4 S4, the same three sections the planner gained, plus rule 18. The two prompts
+#: render them from **one** pair of functions: a definition that differed between the persona
+#: that plans a claim and the persona that writes it would be two meanings for one number.
+WRITER_PROMPT_VERSION = "1.2.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -599,6 +683,12 @@ industry", no "peers".
 It may name the period the post is about, written in the compact form the candidate id uses \
 (2022Q3). That compact form belongs in the title only - inside a sentence, a period is written \
 with the period surface the FACTS section gives you.
+18. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
+each figure means and which figures may be set against which. They are definitions, not \
+evidence: they carry no figure you may write and no passage you may cite, and a sentence that \
+states one of them still needs its own citation like any other. Where a line says NOT \
+AVAILABLE, the corpus does not hold that answer and neither do you - write nothing that needs \
+it. In particular, write nothing about what the company does, sells, or competes in.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
@@ -823,13 +913,19 @@ def writer_prompt(
         "PACKAGE    " + package.package_id,
         "SUBJECT    " + _subject(package),
         "",
-        "PLAN",
+        IDENTITY_HEADING,
     ]
+    lines.extend(_identity_lines(package))
+    lines += ["", "PLAN"]
     lines.extend(_plan_lines(plan))
     lines += ["", "REQUIRED WARNINGS"]
     lines.extend(_required_warning_lines(plan, package))
     lines += ["", "FACTS"]
     lines.extend(_writer_fact_lines(package))
+    lines += ["", SEMANTICS_HEADING]
+    lines.extend(_semantic_lines(package))
+    lines += ["", COMPARISON_HEADING]
+    lines.extend(_comparability_lines(package))
     lines += ["", "FORMULA WINDOWS (the only version ids a calculation may name)"]
     lines.extend(_formula_window_lines(package))
     count = len(passages)

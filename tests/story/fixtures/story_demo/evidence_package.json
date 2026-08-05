@@ -1,7 +1,10 @@
 {
   "budget": {
-    "artifact_token_estimate": 5436,
-    "caps_hit": [],
+    "artifact_token_estimate": 6539,
+    "caps_hit": [
+      "context_passages",
+      "token_budget"
+    ],
     "parameters": {
       "excerpt_radius_chars": 400,
       "max_compatibility": 12,
@@ -21,12 +24,12 @@
       "max_total_tokens": 5000,
       "max_warnings": 20
     },
-    "prompt_token_estimate": 3904,
+    "prompt_token_estimate": 4993,
     "section_counts": {
-      "comparability_facts": 0,
+      "comparability_facts": 3,
       "compatibility": 1,
       "conflicts": 0,
-      "context_passages": 2,
+      "context_passages": 0,
       "counter_evidence": 0,
       "diagnostic_passages": 0,
       "documents": 1,
@@ -35,18 +38,18 @@
       "explanatory_passages": 0,
       "facts": 2,
       "formula_windows": 2,
-      "identity_facts": 0,
+      "identity_facts": 4,
       "metrics": 2,
       "primary_passages": 1,
       "relationships": 0,
       "retrieval_trace": 15,
-      "semantic_facts": 0,
-      "warnings": 4
+      "semantic_facts": 10,
+      "warnings": 5
     },
     "section_ledger": [
       {
-        "available": 0,
-        "carried": 0,
+        "available": 3,
+        "carried": 3,
         "dropped": 0,
         "protected": true,
         "reasons": [],
@@ -73,10 +76,12 @@
       },
       {
         "available": 2,
-        "carried": 2,
-        "dropped": 0,
+        "carried": 0,
+        "dropped": 2,
         "protected": false,
-        "reasons": [],
+        "reasons": [
+          "token_budget_trimmed"
+        ],
         "required_dropped": false,
         "section": "context_passages"
       },
@@ -155,8 +160,8 @@
         "section": "formula_windows"
       },
       {
-        "available": 0,
-        "carried": 0,
+        "available": 4,
+        "carried": 4,
         "dropped": 0,
         "protected": true,
         "reasons": [],
@@ -200,8 +205,8 @@
         "section": "retrieval_trace"
       },
       {
-        "available": 0,
-        "carried": 0,
+        "available": 10,
+        "carried": 10,
         "dropped": 0,
         "protected": true,
         "reasons": [],
@@ -209,8 +214,8 @@
         "section": "semantic_facts"
       },
       {
-        "available": 4,
-        "carried": 4,
+        "available": 5,
+        "carried": 5,
         "dropped": 0,
         "protected": false,
         "reasons": [],
@@ -220,7 +225,53 @@
     ]
   },
   "candidate_id": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
-  "comparability_facts": [],
+  "comparability_facts": [
+    {
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "cmp:divergence:adjusted_gross_margin@2022Q3:gaap_gross_margin@2022Q3",
+      "fact_kind": "comparability",
+      "metric_ids": [
+        "adjusted_gross_margin",
+        "gaap_gross_margin"
+      ],
+      "rule_id": "§6.9/divergence",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "adjusted_gross_margin 2022Q3 and gaap_gross_margin 2022Q3 may be compared as a divergence claim: every comparability rule the ontology applies to this pair passed. Rules evaluated, in order: R1, R2, R3, R4, R5, R6, R7, R8, R10, R9.",
+      "warning_codes": []
+    },
+    {
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "cmp:distinct:margin_measures",
+      "fact_kind": "comparability",
+      "metric_ids": [
+        "adjusted_gross_margin",
+        "gaap_gross_margin"
+      ],
+      "rule_id": "R2/mutually_distinct",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "The ontology declares adjusted_gross_margin, gaap_gross_margin mutually distinct (group 'margin_measures'). They may be set against each other as a divergence, and they may never be merged, added, averaged, or called by one another's name.",
+      "warning_codes": []
+    },
+    {
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "cmp:percentage-points:adjusted_gross_margin+gaap_gross_margin",
+      "fact_kind": "comparability",
+      "metric_ids": [
+        "adjusted_gross_margin",
+        "gaap_gross_margin"
+      ],
+      "rule_id": "§13.3/percentage_points",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "A difference between two figures reported in percent is measured in percentage points, never in percent. adjusted_gross_margin, gaap_gross_margin are all reported in percent, so any gap between two of them is a number of percentage points.",
+      "warning_codes": []
+    }
+  ],
   "compatibility": [
     {
       "comparable": true,
@@ -231,56 +282,7 @@
     }
   ],
   "conflicts": [],
-  "context_passages": [
-    {
-      "char_count": 255,
-      "char_end": 255,
-      "char_start": 0,
-      "diagnostic_codes": [],
-      "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
-      "excerpted": false,
-      "heading_path": [
-        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
-        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
-        "Contribution (Loss) Profit / Margin After Interest"
-      ],
-      "match_basis": "",
-      "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p138",
-      "passage_kind": "narrative",
-      "quality_status": "usable",
-      "query_terms": [],
-      "role": "context",
-      "score": null,
-      "section_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#s107",
-      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
-      "text": "The following table presents a reconciliation of our Adjusted Gross Profit, Contribution (Loss) Profit and Contribution (Loss) Profit After Interest to our gross (loss) profit, which is the most directly comparable GAAP measure, for the periods indicated:",
-      "unusable_reason": null
-    },
-    {
-      "char_count": 1690,
-      "char_end": 1690,
-      "char_start": 0,
-      "diagnostic_codes": [],
-      "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
-      "excerpted": false,
-      "heading_path": [
-        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
-        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
-        "Contribution (Loss) Profit / Margin After Interest"
-      ],
-      "match_basis": "",
-      "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p140",
-      "passage_kind": "narrative",
-      "quality_status": "usable",
-      "query_terms": [],
-      "role": "context",
-      "score": null,
-      "section_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#s107",
-      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
-      "text": "(1)Inventory valuation adjustment includes adjustments to record real estate inventory at the lower of its carrying amount or its net realizable value. See “—Critical Accounting Policies and Estimates — Real Estate Inventory.” (2)Inventory valuation adjustment — Current Period is the inventory valuation adjustments recorded during the period presented associated with homes that remain in inventory at period end. (3)Inventory valuation adjustment — Prior Periods is the inventory valuation adjustments recorded in prior periods associated with homes that sold in the period presented. (4)Represents selling costs incurred related to homes sold in the relevant period. This primarily includes broker commissions, external title and escrow-related fees and transfer taxes. (5)Holding costs include mainly property taxes, insurance, utilities, homeowners association dues, cleaning and maintenance costs. Holding costs are included in Sales, marketing, and operations on the Condensed Consolidated Statements of Operations. (6)Represents holding costs incurred in the period presented on homes sold in the period presented. (7)Represents holding costs incurred in prior periods on homes sold in the period presented. (8)This does not include interest on mezzanine term debt facilities or other indebtedness. See “— Liquidity and Capital Resources — Debt and Financing Arrangements.” (9)Represents the interest expense under our asset-backed senior debt facilities incurred during the period presented on homes sold in the period presented. (10)Represents the interest expense under our asset-backed senior debt facilities incurred during prior periods on homes sold in the period presented.",
-      "unusable_reason": null
-    }
-  ],
+  "context_passages": [],
   "counter_evidence": [],
   "detector_id": "detector:cross_metric_divergence",
   "detector_version": "1.0.0",
@@ -427,7 +429,64 @@
   ],
   "graph_projection_version": "1.2.0",
   "graph_run_id": "graph-v1-0483dc6b4b10",
-  "identity_facts": [],
+  "identity_facts": [
+    {
+      "attribute": "legal_name",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:legal_name",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "The subject of this post is Opendoor Technologies Inc..",
+      "value": "Opendoor Technologies Inc.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "ticker",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:ticker",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Opendoor Technologies Inc. trades on Nasdaq under the ticker OPEN. It also has the tickers OPENL, OPENW, OPENZ.",
+      "value": "OPEN",
+      "warning_codes": []
+    },
+    {
+      "attribute": "entity_type",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:entity_type",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Opendoor Technologies Inc. is a public_company - A company whose shares are traded and held publicly. Its SEC filer identifier (CIK) is 0001801169.",
+      "value": "public_company",
+      "warning_codes": []
+    },
+    {
+      "attribute": "description",
+      "authoritative": false,
+      "available": false,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:description",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "No description of this company exists in the corpus or the ontology, so none is given. Do not describe what the company does, what it sells, or what market it operates in.",
+      "value": "",
+      "warning_codes": []
+    }
+  ],
   "metrics": [
     {
       "aliases": [
@@ -435,7 +494,7 @@
       ],
       "allowed_units": [],
       "ambiguities": [],
-      "description": null,
+      "description": "Adjusted Gross Profit as a percentage of revenue.",
       "distinct_from": [
         "gaap_gross_margin",
         "contribution_margin",
@@ -458,7 +517,7 @@
       ],
       "allowed_units": [],
       "ambiguities": [],
-      "description": null,
+      "description": "GAAP gross profit as a percentage of revenue.",
       "distinct_from": [
         "adjusted_gross_margin",
         "contribution_margin"
@@ -478,7 +537,7 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "a4cbd740b86f72dd31def43f3ba561762db0ee7a50366fd41ff4f645fdf8bfed",
+  "package_content_digest": "a661dc38b0f177a0a3bd0def7e06618b26e00d7ee6b2f5247d1113fc2ac78c75",
   "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6a858ae5c031",
   "package_version": "1.2.0",
   "policy_version": "canon-policy:1.0.0",
@@ -668,7 +727,138 @@
     }
   ],
   "run_complete_sha256": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e",
-  "semantic_facts": [],
+  "semantic_facts": [
+    {
+      "attribute": "display_name",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_margin:display_name",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "adjusted_gross_margin is written 'Adjusted Gross Margin'.",
+      "value": "Adjusted Gross Margin",
+      "warning_codes": []
+    },
+    {
+      "attribute": "definition",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_margin:definition",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Margin means: Adjusted Gross Profit as a percentage of revenue. It is a non-GAAP measure the company defines itself.",
+      "value": "Adjusted Gross Profit as a percentage of revenue.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "unit",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_margin:unit",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Margin is reported in percent.",
+      "value": "percent",
+      "warning_codes": []
+    },
+    {
+      "attribute": "period_semantics",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_margin:period_semantics",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Margin is measured over a period - it is an amount accumulated between two dates, and a figure for one quarter is not a figure for the year.",
+      "value": "duration",
+      "warning_codes": []
+    },
+    {
+      "attribute": "formula_version",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_margin:formula_version",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Margin is defined as adjusted_gross_profit / revenue, under formula version adjusted_gross_margin_v1, in force from 2020-01-01 to the present.",
+      "value": "adjusted_gross_margin_v1",
+      "warning_codes": []
+    },
+    {
+      "attribute": "display_name",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:gaap_gross_margin:display_name",
+      "fact_kind": "semantic",
+      "metric_id": "gaap_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "gaap_gross_margin is written 'Gross Margin'.",
+      "value": "Gross Margin",
+      "warning_codes": []
+    },
+    {
+      "attribute": "definition",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:gaap_gross_margin:definition",
+      "fact_kind": "semantic",
+      "metric_id": "gaap_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Gross Margin means: GAAP gross profit as a percentage of revenue. It is a GAAP measure.",
+      "value": "GAAP gross profit as a percentage of revenue.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "unit",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:gaap_gross_margin:unit",
+      "fact_kind": "semantic",
+      "metric_id": "gaap_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Gross Margin is reported in percent.",
+      "value": "percent",
+      "warning_codes": []
+    },
+    {
+      "attribute": "period_semantics",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:gaap_gross_margin:period_semantics",
+      "fact_kind": "semantic",
+      "metric_id": "gaap_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Gross Margin is measured over a period - it is an amount accumulated between two dates, and a figure for one quarter is not a figure for the year.",
+      "value": "duration",
+      "warning_codes": []
+    },
+    {
+      "attribute": "formula_version",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:gaap_gross_margin:formula_version",
+      "fact_kind": "semantic",
+      "metric_id": "gaap_gross_margin",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Gross Margin is defined as gaap_gross_profit / revenue, under formula version gaap_gross_margin_v1, in force from 2020-01-01 to the present.",
+      "value": "gaap_gross_margin_v1",
+      "warning_codes": []
+    }
+  ],
   "subject": {
     "entity_id": "opendoor",
     "entity_text": "opendoor",
@@ -676,6 +866,15 @@
     "resolved": true
   },
   "warnings": [
+    {
+      "code": "token_budget_trimmed",
+      "detail": "§10.2's 5000-token budget bound the model-visible slice; rows were dropped in the order explanatory_passages, context_passages, primary_passages, diagnostic_passages, counter_evidence, each section to its floor before the next was touched, and no drop may strand a slot the candidate anchored on",
+      "kind": "build_provenance",
+      "severity": "WARN",
+      "subject_ids": [
+        "token_budget"
+      ]
+    },
     {
       "code": "concordant_readings_collapsed",
       "detail": "9 further reading(s) of 2 packaged slot(s) state the same subject, metric, period, unit, currency, formula version and value as a fact already carried, and were collapsed into it rather than minted as second facts: two filings reporting one number are two sources, not two facts. Each is named on that fact's `corroborating_observation_ids`, and equivalence is `observation_equivalence.same_reading` — the single-pair tolerance test §6.1 step 2 clusters with. obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805 -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539 -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",

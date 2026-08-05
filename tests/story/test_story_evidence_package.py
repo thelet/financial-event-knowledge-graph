@@ -1902,17 +1902,57 @@ def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget
 
     The band is asserted rather than the six numbers: a change that moves a package by sixty
     tokens is not a regression and one that halves it is.
+
+    **Re-measured at S4 (2026-08-05), and one package no longer fits.** The ontology's
+    declarations are `PROTECTED_SECTIONS` and cost 662–1,844 prompt tokens each:
+
+    | spike | prompt | artifact | semantic | identity | comparability | context | trimmed |
+    |-------|-------:|---------:|---------:|---------:|--------------:|--------:|:--------|
+    | F1    |  5,010 |    6,715 |      662 |      409 |           147 |       0 | yes     |
+    | F2    |  4,986 |    6,686 |      636 |      409 |           147 |       0 | yes     |
+    | F3    |  4,993 |    6,539 |    1,012 |      409 |           423 |       0 | yes     |
+
+    **F1 finishes 10 tokens over §10.2's 5,000-token total, with every trimmable class at its
+    floor.** That is the state §4 S5 designed for and it is reported rather than dodged: a
+    semantic fact is untrimmable, so the trim ran out of rows it was allowed to take and stopped
+    above the target. It is well under `MAX_TOTAL_TOKENS_CEILING`, so `required_fact_does_not_fit`
+    does **not** fire on any live candidate — the refusal exists and this corpus does not reach
+    it. What the package says about itself is asserted below: `token_budget` in `caps_hit`, a
+    `token_budget_trimmed` warning, and `prompt_token_estimate` beside `max_total_tokens` in the
+    same block, so the overshoot is a number a reader can see rather than one nothing records.
+
+    **Context passages are back to zero on all three**, which S3a had just made non-zero for the
+    first time. The trade is stated plainly: a neighbouring paragraph of a table, against the
+    definition of the number in the table. §4 S5 ranks them in that order and this is what the
+    ranking costs.
     """
     packages = live_packages["packages"]
     prompt = {name: packages[name].budget.prompt_token_estimate for name in SPIKE_IDS}
     artifact = {name: packages[name].budget.artifact_token_estimate for name in SPIKE_IDS}
     trimmed = {name: "token_budget" in packages[name].budget.caps_hit for name in SPIKE_IDS}
+    over = {name: estimate for name, estimate in prompt.items() if estimate > 5000}
 
-    assert all(estimate <= 5000 for estimate in prompt.values()), prompt
+    assert all(estimate <= MAX_TOTAL_TOKENS_CEILING for estimate in prompt.values()), prompt
     assert all(estimate > 3000 for estimate in prompt.values()), prompt
     assert all(artifact[name] - prompt[name] > 1000 for name in SPIKE_IDS), (artifact, prompt)
-    assert trimmed == {"F1": True, "F2": True, "F3": False}, {
+    assert trimmed == {"F1": True, "F2": True, "F3": True}, {
         name: sorted(packages[name].budget.caps_hit) for name in SPIKE_IDS}
+    # A package over §10.2's total says so in its own budget block, and none of them is over the
+    # ceiling that would make it a refusal. Both halves matter: the first is the disclosure, the
+    # second is why `required_fact_does_not_fit` is still a branch this corpus does not reach.
+    for name in over:
+        budget = packages[name].budget
+        assert budget.prompt_token_estimate > budget.parameters.max_total_tokens
+        assert "token_budget" in budget.caps_hit
+        assert any(w.code == codes.TOKEN_BUDGET_TRIMMED for w in packages[name].warnings), name
+        assert not any(w.code == codes.REQUIRED_FACT_DOES_NOT_FIT
+                       for w in packages[name].warnings), name
+    # Every protected section survived on every package — that is what "untrimmable" means, and
+    # it is the reason the overshoot above exists rather than being absorbed.
+    for name in SPIKE_IDS:
+        assert packages[name].semantic_facts, name
+        assert packages[name].identity_facts, name
+        assert packages[name].comparability_facts, name
     # F3 reads both its facts from one table, so one primary passage carries the whole story.
     assert all(len(packages[name].primary_passages) >= 1 for name in SPIKE_IDS), {
         name: len(packages[name].primary_passages) for name in SPIKE_IDS}
@@ -2004,6 +2044,14 @@ def test_live_not_one_of_the_run_s_issues_qualifies_as_counter_evidence(live_pac
     `sections.corroboration` now, and `open-20220630.htm#p133` and `open-20220930.htm#p139` are
     what it finds.
 
+    **Re-measured again at S4 (2026-08-05): the two diagnostic rows are now trimmed away.** The
+    ontology's declarations added 345 prompt tokens to this package and are untrimmable, so
+    `DIAGNOSTIC_TRIM_STEP` — fourth in `TRIM_PLAN`, floor 0 — gave up both rows to pay for them.
+    Nothing was hidden by it: the ledger reads `available 2, carried 0, dropped 2, reason
+    token_budget_trimmed`, which is exactly what §4 S5's *"available / carried / dropped /
+    reason"* exists to say, and the census below is asserted from the ledger rather than from
+    the rows for that reason.
+
     **This test is the one that would notice a real contradiction going missing**, so it asserts
     the census rather than the emptiness: the rows exist, they are accounted for, and every one
     of them is reachable.
@@ -2015,10 +2063,11 @@ def test_live_not_one_of_the_run_s_issues_qualifies_as_counter_evidence(live_pac
     assert match_basis_of(package) == {}
     # Nothing was silently dropped: every association is either a diagnostic row, a code stamped
     # on a passage the package already carries, or a ledger entry saying it did not fit.
-    assert ledger["diagnostic_passages"].available == 2
+    diagnostics = ledger["diagnostic_passages"]
+    assert (diagnostics.available, diagnostics.carried, diagnostics.dropped) == (2, 0, 2)
+    assert diagnostics.reasons == (codes.TOKEN_BUDGET_TRIMMED,)
+    assert diagnostics.required_dropped is False
     assert sum(1 for p in package.primary_passages if p.diagnostic_codes) == 1
-    assert [p.role for p in package.diagnostic_passages] == (
-        [EvidenceRole.CORROBORATING_SUPPORT] * 2)
     for passage in package.diagnostic_passages:
         assert passage.role in (EvidenceRole.WARNING_ONLY, EvidenceRole.UNUSABLE,
                                 EvidenceRole.CORROBORATING_SUPPORT)

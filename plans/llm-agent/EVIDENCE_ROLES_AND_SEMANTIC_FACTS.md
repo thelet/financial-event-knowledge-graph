@@ -120,6 +120,13 @@ package is `pkg:…-opendoor-2022q3:6a858ae5c031`, digest
 `package_id` moved anyway, because it digests the sorted fact and passage ids — so the store key
 moved with it and the thirty strict xfails are still xfailing. Same one fixture.
 
+**And again at S4 (2026-08-05), through the digest rather than the id.** The D4 package is still
+`pkg:…-opendoor-2022q3:6a858ae5c031` — the ontology facts change no `fact_id` and no `passage_id`
+— and its digest is now
+`a661dc38b0f177a0a3bd0def7e06618b26e00d7ee6b2f5247d1113fc2ac78c75`. The store key moved for a
+different reason: `PLANNER_PROMPT_VERSION` and `WRITER_PROMPT_VERSION` are both
+`request_identity` inputs and both bumped. Same one fixture, still xfailing thirty.
+
 This is not a reason to avoid the change; it is a reason to sequence it. The re-record is one
 step (S7), it needs the live model server, and it must happen **once**, after every schema change
 has landed — not per stage. Until S7, the replay demo is expected to fail with
@@ -365,7 +372,7 @@ does. `same_reading` is therefore the whole test. A cohort difference reaches it
    `len(plans)` with the collapse named as its reason. `PACKAGE_VERSION` did **not** move: no
    field and no section changed, only which rows are selected.
 
-### S4 — Ontology as semantic facts
+### S4 — Ontology as semantic facts — **landed 2026-08-05**
 
 Populate `semantic`, `identity` and `comparability` facts from the ontology — authoritative,
 `editable: false` — and render them in the planner and writer prompts as *facts*, not metadata.
@@ -380,6 +387,69 @@ exists, carry structured identity only and mark the description unavailable. A b
 `get_subject_context` tool may be added only with an explicit `LIMIT`, explicit timeout, exact
 entity id, read-only Cypher and no variable-length path — and **no outward traversal from the
 2,704-edge Opendoor hub**. Broad relationship discovery is out of scope.
+
+**What landed**: `story/stages/packaging/ontology_facts.py`, a pure function of the registry and
+of the comparability answers `_add_compatibility` already computed. No retriever, no graph, no
+clock. `PackagedMetric.description` is filled from the ontology, and the two prompts render three
+new sections from **one** pair of functions.
+
+**No `get_subject_context` tool was added, and the reason is that it would return nothing new.**
+The ontology's `ConceptInstance` for `opendoor` declares the legal name, `cik`, `tickers` and
+`exchange`; the `:Entity` node carries **byte-identical values** *(checked live 2026-08-05)*, so
+reading the ontology is not weaker than the graph read `subject_identity_not_read_from_graph`
+says is unavailable — and `:Entity` is off `cypher.py`'s allowlist anyway. A tool that duplicates
+a declaration is a second authority, which C4 forbids.
+
+**No company description exists, anywhere.** The `opendoor` instance carries three properties and
+none is a description; the `:Entity` node carries twenty and none is a description; **no
+`:Entity` node in the graph has a `description` property key at all**. So the row is emitted with
+`available: false` and a statement that forbids supplying one, and both prompts render it as
+`NOT AVAILABLE - …`. A model shown nothing supplies an answer from its weights; a model shown the
+absence has been told not to.
+
+**Citation handles are empty on every semantic fact, measured.** Two of 26 metrics carry
+`source_evidence`, and both entries hold an accession, a form, a filing date and a quote with
+**no `passage_id`, no `document_id` and no span**. `PassageCitation` requires all three, and
+`EvidenceSourceCitation` would name an `:EvidenceSource` this corpus does not have. The filed
+sentence travels in the fact's `statement` and its filing in `source`; the handle stays empty
+rather than naming a location nothing can check.
+
+**Coverage over all 26 metrics.** `label`, `description`, `unit`, `period_type`, `value_type` and
+`gaap_status`: 26 of 26. `aliases`: 24, of which **ten are the label spelled again** and produce
+no row — *"Gross Margin also appears in filings as 'Gross Margin'"* is 85 tokens of nothing. A
+formula version: 8 metrics. `population` / `numerator_description` / `denominator_description`:
+**one** — `pct_homes_on_market_gt_120_days`. `ambiguities`: 4. So *"scope rules where
+source-backed"* produces **nothing** on any package built so far, and that is the finding.
+
+**Token cost, measured live on `graph-v1-0483dc6b4b10`.**
+
+| package | prompt slice | semantic | identity | comparability | S4 total | context lost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| F1 | 5,010 | 417 | 409 | 131 | **957** | 1 |
+| F2 | 4,986 | 488 | 409 | 133 | **1,030** | 2 |
+| F3 / D4 | 4,993 | 1,012 | 409 | 423 | **1,844** | 2 |
+| contribution_margin | 5,137 | 609 | 409 | 136 | **1,154** | 0 (2 diagnostics) |
+| inventory | 4,885 | 506 | 409 | 145 | **1,060** | 0 (3 diagnostics) |
+
+**Two packages finish over §10.2's 5,000-token total with every trimmable class at its floor** —
+F1 at 5,010 and `contribution_margin` at 5,137 — and that is the state §4 S5 designed for rather
+than a failure to hide. A semantic fact is untrimmable, so the trim ran out of rows it was
+allowed to take and stopped above the target; both are far under
+`MAX_TOTAL_TOKENS_CEILING`, so **`required_fact_does_not_fit` does not fire on any live
+candidate**. The refusal exists and this corpus does not reach it. What it cost is stated in the
+last column: context passages are back to zero on all five, and the two `corroborating_support`
+diagnostics S3a had just made real are trimmed away with their ledger row recording it.
+
+**The prompt-slice estimate is a conservative proxy and the real request is a third of it.** The
+planner prompt this produces measures **6,740–7,281 characters, ~1,685–1,820 tokens** against the
+server's 8,192 context, up from ~1,137–1,416 before S4. The 5,000-token bound is over the
+package's *canonical JSON* minus two sections, which is the largest slice a model could be shown
+and not the slice it is shown.
+
+`PLANNER_PROMPT_VERSION` moved to **1.1.0** and `WRITER_PROMPT_VERSION` to **1.2.0**, with one new
+rule each (planner 8, writer 18) saying that these sections are definitions, carry no citable id,
+and that a `NOT AVAILABLE` line is not the model's to fill in. `PACKAGE_VERSION` did **not** move:
+S1 added the three sections and this fills them.
 
 ### S5 — Warning taxonomy, trimming priority, and one new refusal — **landed 2026-08-05**
 

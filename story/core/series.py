@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from ontology import load_ontology
 from ontology.contracts import ConceptRegistry, OntologyDefinitions
@@ -473,21 +473,28 @@ def comparable(
     rule by forgetting an argument. It is refused rather than skipped.
     """
     resolved = default_authority() if authority is None else authority
-    for rule in (
-        _r1_subject,
-        _r2_metric,
-        _r3_shape,
-        _r4_unit,
-        _r5_currency,
-        _r6_formula,
-        _r7_canonical,
-        _r8_tolerance,
-        _r10_adjacency,
-    ):
+    for _rule_id, rule in RULE_ORDER:
         refusal = rule(left, right, claim, resolved, series)
         if refusal is not None:
             return refusal
     return Ok(warnings=_r9_basis(left, right, claim, resolved))
+
+
+def rules_evaluated(answer: Comparability) -> tuple[str, ...]:
+    """Which of §6.9's rules actually ran to produce this answer, in order.
+
+    A comparison that refuses at R3 never reaches R4, so *"R1–R10 were applied"* is false about
+    every refusal and true about every `Ok`. §4 S4's comparability facts have to state which
+    rules were **evaluated**, and the only honest source for that is the order `comparable`
+    applies them in — so it is read off `RULE_ORDER` here rather than restated by the caller.
+
+    `R9` is last on an `Ok` because it is not a gate: it produces the warnings `Ok` carries.
+    """
+    if isinstance(answer, Refuse):
+        rule_ids = [rule_id for rule_id, _rule in RULE_ORDER]
+        stop = rule_ids.index(answer.rule) if answer.rule in rule_ids else len(rule_ids) - 1
+        return tuple(rule_ids[: stop + 1])
+    return tuple(rule_id for rule_id, _rule in RULE_ORDER) + ("R9",)
 
 
 # -- the ten rules ------------------------------------------------------------------------
@@ -873,6 +880,27 @@ def _r10_adjacency(
     return None
 
 
+#: §6.9's gates, in the order `comparable` applies them, paired with the ids the plan numbers
+#: them by. **One table, two consumers**, for `PERCENT_TOLERANCE`'s reason: `comparable` iterates
+#: it and `rules_evaluated` reads which rules a given answer reached. A second list of rule ids
+#: written beside this one could say R4 ran on a comparison R3 refused, and §4 S4's comparability
+#: facts state exactly that to the model.
+#:
+#: **R9 is deliberately absent.** It is not a gate — it produces the warnings an `Ok` carries —
+#: so it appears at the end of `rules_evaluated`'s answer and never in this loop.
+RULE_ORDER: tuple[tuple[str, Any], ...] = (
+    ("R1", _r1_subject),
+    ("R2", _r2_metric),
+    ("R3", _r3_shape),
+    ("R4", _r4_unit),
+    ("R5", _r5_currency),
+    ("R6", _r6_formula),
+    ("R7", _r7_canonical),
+    ("R8", _r8_tolerance),
+    ("R10", _r10_adjacency),
+)
+
+
 def observation_period(row: Mapping[str, object]) -> StoryPeriod:
     """`story_period` over the three date fields of a retrieval row, as strings or `None`.
 
@@ -909,6 +937,7 @@ __all__ = [
     "DELTA_PRECISION",
     "NARRATIVE_LANES",
     "PERCENT_TOLERANCE",
+    "RULE_ORDER",
     "SCALE_PRECISION",
     "SCALE_TOLERANCE",
     "UNKNOWN_SCALE_PRECISION",
@@ -929,5 +958,6 @@ __all__ = [
     "default_authority",
     "observation_period",
     "presentation_tolerance",
+    "rules_evaluated",
     "within_tolerance",
 ]
