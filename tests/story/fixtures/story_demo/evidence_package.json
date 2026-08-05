@@ -537,7 +537,7 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "a661dc38b0f177a0a3bd0def7e06618b26e00d7ee6b2f5247d1113fc2ac78c75",
+  "package_content_digest": "5c420f8c50717b731656e1bec1c744b26f378669a9c00d25395f0ac4c51e6ad3",
   "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6a858ae5c031",
   "package_version": "1.2.0",
   "policy_version": "canon-policy:1.0.0",
@@ -878,7 +878,7 @@
     {
       "code": "concordant_readings_collapsed",
       "detail": "9 further reading(s) of 2 packaged slot(s) state the same subject, metric, period, unit, currency, formula version and value as a fact already carried, and were collapsed into it rather than minted as second facts: two filings reporting one number are two sources, not two facts. Each is named on that fact's `corroborating_observation_ids`, and equivalence is `observation_equivalence.same_reading` — the single-pair tolerance test §6.1 step 2 clusters with. obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805 -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539 -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
-      "kind": "claim_qualifying",
+      "kind": "build_provenance",
       "severity": "ANNOTATE",
       "subject_ids": [
         "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",

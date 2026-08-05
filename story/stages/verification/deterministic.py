@@ -130,6 +130,33 @@ OPERATION_INPUTS: Mapping[str, tuple[int, int]] = {
 #: A code absent from this table is `required_warning_has_no_declared_qualifier` — a **refusal**
 #: rather than a pass, so a new package warning cannot enter the pipeline and be satisfied by
 #: silence.
+#:
+#: **Three of the four original keys name codes no package can carry, measured 2026-08-05.**
+#: `plan_violations` refuses a `required_warning` that is not on `package.warnings`
+#: (`unknown_warning_code`), and `warning_codes.SEVERITY_OF` is the closed set of codes a package
+#: may carry: `filing_date_unknown` is a *canonicalisation* warning on an observation
+#: (`detection/canonicalization.py`), and `conflicting_values` and `warned_observation` are
+#: plan-era spellings that never became package codes. Only `counter_evidence_same_document` was
+#: ever reachable through the real pipeline. The three are kept — they are constructible on a
+#: hand-built package and several tests build one — and the two whose *prose* survived the rename
+#: are re-keyed onto the codes that actually fire, below.
+#:
+#: **S6 added three entries, and each is a repair rather than new policy.**
+#:
+#: * `fact_conflict_disclosed` is what `conflicting_values` was renamed to. Its live detail reads
+#:   *"2 distinct readings, 1 cluster(s), classified presentation_rounding"* and the phrase list
+#:   already said *"two readings"*. Fires on 58 of 262 packages.
+#: * `unpreferred_source_lane` is what `warned_observation` was renamed to — `warning_codes`
+#:   defines it as *"a used fact whose `validation_state` is `warned`"*, its live detail reads
+#:   `validation_state=warned on adjusted_ebitda 2022Q2 (lane normalized_narrative)`, and §13's
+#:   own neighbouring check is still called `warned_observation_used`. Fires on 16 of 262.
+#: * `single_source` is the one entry written here rather than moved, and it is written because
+#:   the code's whole meaning is in the code — *"one document reports this slot"*, with nothing in
+#:   `detail` a sentence would need. It fires on 47 of 262 and it now carries the entire
+#:   source-count disclosure by itself, since its former mirror `concordant_readings_collapsed`
+#:   became build provenance at S6.
+#:
+#: Nothing else was given a phrase list, and `QUALIFIER_NOT_DECLARED` below says why for each.
 REQUIRED_WARNING_QUALIFIERS: Mapping[str, tuple[str, ...]] = {
     "filing_date_unknown": ("filing date", "date it was filed", "as-filed date",
                             "when it was filed"),
@@ -137,6 +164,73 @@ REQUIRED_WARNING_QUALIFIERS: Mapping[str, tuple[str, ...]] = {
                                        "another table in the same"),
     "conflicting_values": ("conflict", "two values", "two readings", "also reported"),
     "warned_observation": ("flagged", "carries a warning", "data-quality"),
+    "fact_conflict_disclosed": ("conflict", "two values", "two readings", "also reported"),
+    "unpreferred_source_lane": ("flagged", "carries a warning", "data-quality"),
+    "single_source": ("one filing", "one document", "a single filing", "a single document",
+                      "single source"),
+}
+
+#: The claim-qualifying codes that declare **no** phrase, with the reason each was left that way.
+#:
+#: A code in here still refuses: a plan that names it gets
+#: `required_warning_has_no_declared_qualifier` from `_check_disclosures`, exactly as before. The
+#: table changes nothing at runtime and exists so the choice is *made* rather than defaulted into.
+#: `tests/story/test_story_warning_taxonomy.py` requires this and `REQUIRED_WARNING_QUALIFIERS`
+#: together to cover every `CLAIM_QUALIFYING` code in `warning_codes.KIND_OF`, so the seventeenth
+#: claim qualifier cannot arrive latent the way the sixteenth did (S6's Task 1 finding: sixteen
+#: claim-qualifying codes, one reachable declared qualifier, and the newest of the sixteen live on
+#: the demo package).
+#:
+#: Three reasons recur and each is stated per code below:
+#:
+#: * **container** — the code is a envelope and its meaning is in `detail`. One phrase list would
+#:   be either vacuous or wrong: it would accept a sentence about a different contained warning.
+#: * **refuses first** — the code is `Severity.REFUSE`, so §13.17's gate stops any draft built on
+#:   a package carrying it. A qualifier could never be checked against an accepted post.
+#: * **never observed** — zero of the 262 candidates this graph run can package carry it
+#:   (measured 2026-08-05). A phrase list would be written from imagination rather than from a
+#:   draft, and §4 S7 is the stage that produces drafts.
+QUALIFIER_NOT_DECLARED: Mapping[str, str] = {
+    "metric_ambiguity_declared": (
+        "container: the ambiguity is in `detail` — `pct_120_days_denominator` is three "
+        "denominator wordings, `homes_sold_recognition_point` is a recognition point — and the "
+        "sentence each needs is different. §13.15's `lost_qualifier` model check is the rule "
+        "aimed at this, and a phrase list here would let a post satisfy one ambiguity by "
+        "writing about another. Fires on 30 of 262 packages"),
+    "candidate_warning": (
+        "container: `detail` carries the detector's own code — `relative_change_across_zero`, "
+        "`cohort_vs_period_basis`, `divergence_population_excludes_periods` — and they demand "
+        "different sentences. Fires on 54 of 262 packages"),
+    "canonical_point_warning": (
+        "container: `detail` carries the canonicalisation layer's own code (`lane_defect`, "
+        "`minority_reading_present`, `slot_unit_disagreement`). Never observed: 0 of 262"),
+    "comparison_warned": (
+        "container: the disclosure is the comparability rule's own sentence and there is one "
+        "per rule — the only live example is `cohort_vs_period_basis`'s 300-character "
+        "explanation of why a cohort measure and a period measure do not subtract. Fires on 2 "
+        "of 262 packages"),
+    "counter_evidence_same_passage": (
+        "the obligation is already structural and stronger: §11 requires a grounded "
+        "`counterpoint` for every `counter_evidence[]` row, and `counter_evidence_unaccounted` "
+        "refuses a plan that leaves one unused and undeclared. A phrase on top of that would "
+        "make the post name the *grain* the row was matched at, which is build detail. Its "
+        "weaker sibling `counter_evidence_same_document` keeps its phrases because that grain "
+        "is what a reader has to be told. Fires on 3 of 262 packages"),
+    "population_definition_differs": (
+        "never observed: 0 of 262. The prose is obvious — a denominator changed — and writing "
+        "it before a package has ever carried the code would be a policy nobody measured"),
+    "formula_window_boundary_crossed": "never observed: 0 of 262",
+    "event_date_absent": (
+        "never observed: 0 of 262, because `events[]` is empty on every package this corpus "
+        "builds"),
+    "event_review_flag": "never observed: 0 of 262, for `event_date_absent`'s reason",
+    "slot_unresolved": (
+        "never observed: 0 of 262 — and a slot whose canonical status is `conflict` emits no "
+        "value, so there is no packaged fact for a sentence to qualify"),
+    "entity_unresolved": (
+        "refuses first: `Severity.REFUSE`, and §13.11 separately refuses a draft that renders "
+        "an unresolved entity as a name"),
+    "comparison_refused": "refuses first: `Severity.REFUSE`",
 }
 
 _CHANGE_VERB = re.compile(

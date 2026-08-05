@@ -127,6 +127,13 @@ moved with it and the thirty strict xfails are still xfailing. Same one fixture.
 different reason: `PLANNER_PROMPT_VERSION` and `WRITER_PROMPT_VERSION` are both
 `request_identity` inputs and both bumped. Same one fixture, still xfailing thirty.
 
+**And again at S6a (2026-08-05), through the digest again.** `package_id` is still
+`pkg:…-opendoor-2022q3:6a858ae5c031` — no fact and no passage id moved — and the digest is now
+`5c420f8c50717b731656e1bec1c744b26f378669a9c00d25395f0ac4c51e6ad3`, because
+`concordant_readings_collapsed`'s `kind` is a field on `PackagedWarning` and it changed from
+`claim_qualifying` to `build_provenance`. Exactly two lines of the fixture moved. The store key
+moved again anyway: `WRITER_PROMPT_VERSION` is `1.3.0`. Thirty strict xfails, still xfailing.
+
 This is not a reason to avoid the change; it is a reason to sequence it. The re-record is one
 step (S7), it needs the live model server, and it must happen **once**, after every schema change
 has landed — not per stage. Until S7, the replay demo is expected to fail with
@@ -367,10 +374,25 @@ does. `same_reading` is therefore the whole test. A cohort difference reaches it
    now a corroborating document rather than a cited one. Every row it removed is an
    `AMBIGUOUS_ALIAS` refusal that did not qualify before either. Whether the scan should follow
    corroborating documents as well is **S7's *"missed contradiction"* question**, left open here.
-4. `concordant_readings_collapsed` is the disclosure — `ANNOTATE`, `FACT_QUALITY_WARNING`, the
-   mirror of `single_source` — and the `facts` ledger row now reports `available` from
+4. `concordant_readings_collapsed` is the disclosure — `ANNOTATE`, ~~`FACT_QUALITY_WARNING`, the
+   mirror of `single_source`~~ — and the `facts` ledger row now reports `available` from
    `len(plans)` with the collapse named as its reason. `PACKAGE_VERSION` did **not** move: no
    field and no section changed, only which rows are selected.
+
+   **Corrected at S6 (2026-08-05): the mirror argument was wrong, and it was a live refusal.**
+   `FACT_QUALITY_WARNING` induces `CLAIM_QUALIFYING`, and a claim-qualifying code with no entry in
+   `deterministic.REQUIRED_WARNING_QUALIFIERS` is answered by §13 with
+   `required_warning_has_no_declared_qualifier` — a refusal — the moment a planner names it.
+   Measured across **every candidate this graph run can package: 258 of 262 carry this code**,
+   including the live D4 demo package, which is the one S7 re-records. `single_source` says *one
+   filing saw this* and a reader needs it; this says *several filings agreed and the builder
+   folded them into one row*, which is a statement about the assembly and is the opposite of a
+   caveat. It is now `PACKAGE_COMPOSITION` → `BUILD_PROVENANCE`, a **sixth** category, because
+   neither existing provenance category fits: nothing came out smaller than the corpus, so it is
+   not a `RETRIEVAL_WARNING` (S3a's own argument, still correct), and V1 does this rather than
+   failing to, so it is not a `CAPABILITY_LIMITATION`. `PACKAGE_VERSION` still does not move — no
+   field and no section changed — but `PackagedWarning.kind` is on the wire, so the D4 digest
+   moved to `5c420f8c5071…` with `package_id` unchanged at `…:6a858ae5c031`.
 
 ### S4 — Ontology as semantic facts — **landed 2026-08-05**
 
@@ -506,6 +528,29 @@ Three points where the implementation is narrower than the words above, each del
 * **"Non-required relationships" is vacuous in V1.** `relationships[]` is empty on every package
   (`relationships_unavailable_in_v1`), so no step was written for a section `PackageSections`
   does not have.
+
+**And the classification the five categories left undecided — S6a, 2026-08-05.** S5's claim that
+*"no code's kind moved"* was the right safety property and it hid a second one nobody had stated:
+a `CLAIM_QUALIFYING` code with no declared prose qualifier is a **trap**, because §13 answers
+`required_warning_has_no_declared_qualifier` — a refusal — for any code the planner names and the
+qualifier table does not carry. Measured 2026-08-05: **four codes declared a qualifier, of which
+one is a code a package can carry, against sixteen claim-qualifying codes**. Three of the four —
+`filing_date_unknown`, `conflicting_values`, `warned_observation` — are not in
+`warning_codes.SEVERITY_OF` at all, so `plan_violations` refuses them as `unknown_warning_code`
+before §13 ever looks them up.
+
+The rule is untouched. Three qualifiers were added and each is a repair rather than a policy:
+`fact_conflict_disclosed` and `unpreferred_source_lane` are the codes `conflicting_values` and
+`warned_observation` were renamed to, and take their existing phrases unchanged; `single_source`
+is the one code whose meaning is wholly in the code (*"one document reports this slot"*) and it
+now carries the whole source-count disclosure alone. The remaining twelve are named in
+`deterministic.QUALIFIER_NOT_DECLARED` with a reason each — *container* (the meaning is in
+`detail`: `metric_ambiguity_declared`, `candidate_warning`, `canonical_point_warning`,
+`comparison_warned`), *refuses first* (`entity_unresolved`, `comparison_refused`), *never
+observed* on any of the 262 packages, or, for `counter_evidence_same_passage`, that §11's
+counterpoint obligation is already stronger than a phrase. `test_story_warning_taxonomy.py`
+requires the two tables together to be total over `CLAIM_QUALIFYING`, so a seventeenth cannot
+arrive latent.
 
 **A required semantic or anchor fact that will not fit is a package refusal, not a warning.**
 This is the one new blocking behaviour in the plan; it is the only honest answer, since a post

@@ -50,6 +50,22 @@ and `KIND_OF` is *derived* from it through `KIND_OF_CATEGORY`, which is total ov
 `tests/story/test_story_warning_taxonomy.py` pins all twenty-nine — so the planner's
 `claim_qualifying_warnings` filter and §13's disclosure check behave exactly as they did.
 
+**S6 adds a sixth category and moves exactly one code across the line, which is the first time
+that has happened here.** `concordant_readings_collapsed` was filed at S3a as the mirror of
+`single_source` and is now `PACKAGE_COMPOSITION`, therefore `BUILD_PROVENANCE`. The measurement
+that forced it is at its row in `CATEGORY_OF`: it fires on 258 of the 262 candidates this graph
+run can package, and until S6 it was a `CLAIM_QUALIFYING` code with no declared prose qualifier —
+so the moment a planner named it, §13 answered `required_warning_has_no_declared_qualifier` and
+refused the draft. That is R7's defect exactly, and the classification is what was wrong.
+
+**Every remaining claim-qualifying code is now decided one way or the other, in one place.**
+`deterministic.REQUIRED_WARNING_QUALIFIERS` says what prose satisfies a code and
+`deterministic.QUALIFIER_NOT_DECLARED` names, with a reason each, the codes knowingly left
+unsatisfiable; `tests/story/test_story_warning_taxonomy.py` requires the two together to be total
+over `CLAIM_QUALIFYING`. A seventeenth claim qualifier cannot be added without somebody choosing
+which of the two it belongs in — which is the property that was missing when the sixteenth
+arrived.
+
 The three reclassifications §4 S5 requires are reclassifications *within* provenance, which is
 why the kinds could stay put: `subject_identity_not_read_from_graph`,
 `relationships_unavailable_in_v1` and `evidence_sources_absent_in_v1` were already
@@ -110,6 +126,10 @@ FACT_CONFLICT_DISCLOSED = "fact_conflict_disclosed"
 #: named on that row's `corroborating_observation_ids`, so nothing is lost — but `facts: 12
 #: selected, 2 carried` needs a reason a reader can resolve, and *"the section was truncated"*
 #: would be the wrong one: a concordant second reading is not a row the budget took away.
+#:
+#: **`PACKAGE_COMPOSITION` since S6, not `FACT_QUALITY_WARNING`** — it records what the builder
+#: did, not how the number reads, and demanding a sentence about it refused 258 of 262 packages'
+#: worth of drafts in principle. The reasoning is at its row in `CATEGORY_OF`.
 CONCORDANT_READINGS_COLLAPSED = "concordant_readings_collapsed"
 
 #: A used slot's canonical status is `conflict` — it exists and emits no value.
@@ -281,16 +301,31 @@ CATEGORY_OF: Mapping[str, WarningCategory] = {
     FORMULA_WINDOW_BOUNDARY_CROSSED: WarningCategory.FACT_QUALITY_WARNING,
     SINGLE_SOURCE: WarningCategory.FACT_QUALITY_WARNING,
     FACT_CONFLICT_DISCLOSED: WarningCategory.FACT_QUALITY_WARNING,
-    # A statement about the *standing* of a fact that came out intact, which is what this
-    # category is, and the exact mirror of `single_source` beside it: one says the number rests
-    # on one filing, the other that it rests on several which agree. It is deliberately **not**
-    # a `RETRIEVAL_WARNING` — nothing came out smaller than the corpus. Every reading is in the
-    # package; five of six travel as ids on the row that carries the sixth, which §4 S3 argues
-    # is more evidence than five duplicate rows, not less.
-    CONCORDANT_READINGS_COLLAPSED: WarningCategory.FACT_QUALITY_WARNING,
     COMPARISON_REFUSED: WarningCategory.FACT_QUALITY_WARNING,
     COMPARISON_WARNED: WarningCategory.FACT_QUALITY_WARNING,
     CANDIDATE_WARNING: WarningCategory.FACT_QUALITY_WARNING,
+    # -- S6's correction, and it reverses S3a's own filing --------------------------------------
+    #
+    # S3a filed this beside `single_source` as its mirror. Measured on 2026-08-05 across **every
+    # candidate this graph run can package — 258 of 262** — it is the most widespread
+    # claim-qualifying code in the vocabulary, and every one of those 258 was a trap: a
+    # `CLAIM_QUALIFYING` code with no entry in `deterministic.REQUIRED_WARNING_QUALIFIERS`, which
+    # §13 answers with `required_warning_has_no_declared_qualifier` — a **refusal** — the moment a
+    # planner names it. It is on the live D4 demo package today.
+    #
+    # The mirror argument is what was wrong, not the arithmetic. `single_source` says *"one filing
+    # saw this"*, which a reader needs in order to weigh the number. This says *"several filings
+    # said the same thing and the builder folded them into one row"*: it is good news, and it is a
+    # statement about how the package was assembled rather than about how the figure reads. A post
+    # obliged to write *"the builder collapsed four concordant readings"* is R7's defect one layer
+    # down — build plumbing demanded as prose.
+    #
+    # `RETRIEVAL_WARNING` was the obvious existing home and is refused for the reason S3a gave:
+    # nothing came out smaller than the corpus, every folded reading travels as an id on the row
+    # that survived. `CAPABILITY_LIMITATION` is worse — this is a thing V1 does, not one it cannot
+    # do. So the category is new, which costs one enum member and one `KIND_OF_CATEGORY` row,
+    # both of which S5's design already requires to be total.
+    CONCORDANT_READINGS_COLLAPSED: WarningCategory.PACKAGE_COMPOSITION,
     ENTITY_UNRESOLVED: WarningCategory.EXTRACTION_ISSUE,
     EVENT_DATE_ABSENT: WarningCategory.EXTRACTION_ISSUE,
     EVENT_REVIEW_FLAG: WarningCategory.EXTRACTION_ISSUE,
@@ -347,6 +382,7 @@ KIND_OF_CATEGORY: Mapping[WarningCategory, WarningKind] = {
     WarningCategory.EXTRACTION_ISSUE: WarningKind.CLAIM_QUALIFYING,
     WarningCategory.RETRIEVAL_WARNING: WarningKind.BUILD_PROVENANCE,
     WarningCategory.CAPABILITY_LIMITATION: WarningKind.BUILD_PROVENANCE,
+    WarningCategory.PACKAGE_COMPOSITION: WarningKind.BUILD_PROVENANCE,
 }
 
 if set(CATEGORY_OF) != set(SEVERITY_OF):  # pragma: no cover - a source edit, not a state

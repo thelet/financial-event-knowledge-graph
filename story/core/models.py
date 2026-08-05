@@ -284,6 +284,14 @@ class WarningCategory(str, Enum):
       and not a defect in the evidence**, so it must not read as one and must not reduce a
       post's verification status. It is still carried, still ordered by severity and still
       rendered — relabelled, never hidden.
+    * `PACKAGE_COMPOSITION` — how the builder assembled *this* package out of the rows the graph
+      gave it: which concordant readings it folded into one fact, which reading it kept as the
+      representative. **Sixth, added at S6, and it exists because the five above had no honest
+      home for `concordant_readings_collapsed`** — see `warning_codes.CATEGORY_OF` for the
+      measurement that forced it. Nothing came out smaller than the corpus, so it is not a
+      `RETRIEVAL_WARNING`; V1 can do this and did, so it is not a `CAPABILITY_LIMITATION`; and
+      it qualifies no claim, because *"six filings agreed"* is the reason to trust a number
+      rather than a caveat about reading it.
     """
 
     SUBSTANTIVE_COUNTER_EVIDENCE = "substantive_counter_evidence"
@@ -291,6 +299,7 @@ class WarningCategory(str, Enum):
     EXTRACTION_ISSUE = "extraction_issue"
     RETRIEVAL_WARNING = "retrieval_warning"
     CAPABILITY_LIMITATION = "capability_limitation"
+    PACKAGE_COMPOSITION = "package_composition"
 
 
 class Remedy(str, Enum):

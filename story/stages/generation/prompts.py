@@ -512,7 +512,12 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: **1.2.0**: §4 S4, the same three sections the planner gained, plus rule 18. The two prompts
 #: render them from **one** pair of functions: a definition that differed between the persona
 #: that plans a claim and the persona that writes it would be two meanings for one number.
-WRITER_PROMPT_VERSION = "1.2.0"
+#:
+#: **1.3.0**: three codes gained accepted phrases (see `WARNING_QUALIFIER_PHRASES`), so a plan
+#: that requires one of them now renders *"say it with one of: …"* where it rendered *"this code
+#: declares no accepted phrase and cannot be satisfied"*. That is a change in what the writer is
+#: told it may do, which is what this constant tracks; no wording of any rule moved.
+WRITER_PROMPT_VERSION = "1.3.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -540,6 +545,12 @@ WRITER_OPERATIONS: tuple[str, ...] = (
 #: `REQUIRED_WARNING_QUALIFIERS`, and `test_the_writer_is_shown_the_same_warning_phrases_the_verifier_requires`
 #: asserts the two are identical.** A stage may not import another stage, and the alternative to
 #: a checked copy is a writer refused for silence nobody told it how to break.
+#:
+#: The three S6 rows and the reason each is a repair rather than a new rule are documented at the
+#: table this copies; the codes without a phrase are named, with a reason each, in that module's
+#: `QUALIFIER_NOT_DECLARED`. Nothing about them is copied here: the writer is only ever shown the
+#: phrases for the codes its own plan requires, and *"this code declares no accepted phrase"* is
+#: already what `_writer_warning_lines` prints for the rest.
 WARNING_QUALIFIER_PHRASES: Mapping[str, tuple[str, ...]] = {
     "filing_date_unknown": ("filing date", "date it was filed", "as-filed date",
                             "when it was filed"),
@@ -547,6 +558,10 @@ WARNING_QUALIFIER_PHRASES: Mapping[str, tuple[str, ...]] = {
                                        "another table in the same"),
     "conflicting_values": ("conflict", "two values", "two readings", "also reported"),
     "warned_observation": ("flagged", "carries a warning", "data-quality"),
+    "fact_conflict_disclosed": ("conflict", "two values", "two readings", "also reported"),
+    "unpreferred_source_lane": ("flagged", "carries a warning", "data-quality"),
+    "single_source": ("one filing", "one document", "a single filing", "a single document",
+                      "single source"),
 }
 
 

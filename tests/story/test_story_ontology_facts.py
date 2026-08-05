@@ -455,7 +455,10 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.statement in prompt, fact.fact_id
-    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "1.2.0"
+    # 1.3.0 since S6 gave three warning codes accepted phrases. S4's own bump was 1.2.0; the
+    # literal is kept beside the constant so a version that stops moving is as loud as one that
+    # moves for the wrong reason.
+    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "1.3.0"
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])

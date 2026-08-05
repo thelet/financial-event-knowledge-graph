@@ -37,6 +37,7 @@ from story.core.models import (
     WarningKind,
 )
 from story.stages.generation.planner import claim_qualifying_warnings
+from story.stages.verification import deterministic
 from story.stages.packaging import package_assembly as assembly
 from story.stages.packaging import section_bounds
 from story.stages.packaging import warning_codes as codes
@@ -143,11 +144,119 @@ def test_only_two_codes_were_added_after_s5_and_each_is_named_with_the_stage_tha
     """
     added = set(codes.SEVERITY_OF) - set(KIND_BEFORE_S5)
     assert added == {codes.REQUIRED_FACT_DOES_NOT_FIT, codes.CONCORDANT_READINGS_COLLAPSED}
-    # S3a's code is a statement about a fact's standing, so it qualifies a claim — the mirror of
-    # `single_source`, which is the code beside it in `CATEGORY_OF`.
+
+
+def test_the_collapse_disclosure_records_the_build_and_does_not_qualify_the_number():
+    """S6's one reclassification, and it reverses what the test above used to assert.
+
+    S3a filed `concordant_readings_collapsed` as the mirror of `single_source`, so it inherited
+    `FACT_QUALITY_WARNING` and with it `CLAIM_QUALIFYING`. Measured on 2026-08-05 it fires on
+    **258 of the 262 candidates this graph run can package**, including the live D4 demo package,
+    and it had no entry in `REQUIRED_WARNING_QUALIFIERS` — so a planner that named it got
+    `required_warning_has_no_declared_qualifier`, a refusal, from §13.
+
+    The mirror argument is what was wrong. `single_source` says one filing saw this and a reader
+    needs that; this says several filings agreed and the builder folded them into one row, which
+    is a statement about the assembly and is good news besides. `PACKAGE_COMPOSITION` is a sixth
+    category rather than a reuse of `RETRIEVAL_WARNING`: nothing came out smaller than the corpus,
+    every folded reading travels as an id on the surviving row.
+    """
     assert codes.CATEGORY_OF[codes.CONCORDANT_READINGS_COLLAPSED] is (
-        codes.CATEGORY_OF[codes.SINGLE_SOURCE])
-    assert codes.KIND_OF[codes.CONCORDANT_READINGS_COLLAPSED] is WarningKind.CLAIM_QUALIFYING
+        WarningCategory.PACKAGE_COMPOSITION)
+    assert codes.KIND_OF[codes.CONCORDANT_READINGS_COLLAPSED] is WarningKind.BUILD_PROVENANCE
+    assert codes.CATEGORY_OF[codes.SINGLE_SOURCE] is WarningCategory.FACT_QUALITY_WARNING
+    # Relabelled, never hidden — the same standard the three capability limitations are held to.
+    warning = codes.packaged_warning(codes.CONCORDANT_READINGS_COLLAPSED, subject_ids=("obs:a",))
+    package = make_package(warnings=(warning,))
+    assert package.warnings == (warning,)
+    assert codes.claim_qualifying(package.warnings) == ()
+    assert codes.blocking(package.warnings) == ()
+    assert warning.severity is Severity.ANNOTATE
+
+
+# ---------------------------------------------------------------------------------------
+# S6a — every claim qualifier is decided, and the decision is somewhere a reader can find
+# ---------------------------------------------------------------------------------------
+
+
+#: The keys of `REQUIRED_WARNING_QUALIFIERS` that are **not** package warning codes, measured
+#: 2026-08-05. `plan_violations` refuses a `required_warning` the package does not carry, and
+#: `SEVERITY_OF` is the closed set a package may carry, so none of these three is reachable
+#: through the real pipeline — they are constructible only on a hand-built `PackagedWarning`,
+#: which several tests build. Pinned as an exhaustive set so a *fourth* stray key fails here.
+NOT_PACKAGE_CODES = {"filing_date_unknown", "conflicting_values", "warned_observation"}
+
+
+def claim_qualifying_codes() -> set[str]:
+    return {code for code, kind in codes.KIND_OF.items()
+            if kind is WarningKind.CLAIM_QUALIFYING}
+
+
+def test_every_claim_qualifying_code_either_declares_its_prose_or_says_why_it_does_not():
+    """**The guard S6 exists to add, and the trap it closes was live.**
+
+    Measured 2026-08-05 before this test was written: four codes carried a declared prose
+    qualifier, of which one was a package code; sixteen codes were `CLAIM_QUALIFYING` with no
+    qualifier at all. Every one of the sixteen is a trap — the planner may put it in
+    `required_warnings`, and §13's disclosure check then demands prose that does not exist and
+    refuses the draft with `required_warning_has_no_declared_qualifier`. That is the seam R7
+    repaired for build provenance, reappearing inside the claim-qualifying family.
+
+    The rule is untouched. What this asserts is that the *classification* is complete: a code
+    either declares what prose satisfies it, or is named in `QUALIFIER_NOT_DECLARED` with the
+    reason it cannot. A seventeenth cannot be added without somebody choosing which.
+    """
+    declared = set(deterministic.REQUIRED_WARNING_QUALIFIERS)
+    allowlisted = set(deterministic.QUALIFIER_NOT_DECLARED)
+    undecided = claim_qualifying_codes() - declared - allowlisted
+
+    assert undecided == set(), (
+        "these claim-qualifying codes declare no qualifier and are not on the allowlist, so a "
+        f"plan naming one refuses the draft with no way to satisfy it: {sorted(undecided)}")
+
+
+def test_no_code_is_on_both_sides_of_that_decision():
+    """A code with phrases *and* an entry saying it has none is two answers to one question."""
+    both = set(deterministic.REQUIRED_WARNING_QUALIFIERS) & set(
+        deterministic.QUALIFIER_NOT_DECLARED)
+    assert both == set(), f"{sorted(both)} both declares a qualifier and declares it has none"
+
+
+def test_neither_table_names_something_that_is_not_a_claim_qualifier():
+    """The other direction, so the tables cannot drift into fiction.
+
+    `REQUIRED_WARNING_QUALIFIERS` keeps three plan-era keys that no package can carry; they are
+    pinned by name above rather than tolerated by a rule, so a fourth would fail here.
+    """
+    qualifying = claim_qualifying_codes()
+    stray = set(deterministic.REQUIRED_WARNING_QUALIFIERS) - qualifying - NOT_PACKAGE_CODES
+    assert stray == set(), f"{sorted(stray)} declares a qualifier and is not a claim qualifier"
+    assert set(deterministic.QUALIFIER_NOT_DECLARED) <= qualifying, sorted(
+        set(deterministic.QUALIFIER_NOT_DECLARED) - qualifying)
+    for code in NOT_PACKAGE_CODES:
+        assert code not in codes.SEVERITY_OF, (
+            f"{code} is now a package warning code; it should be decided like one")
+
+
+def test_every_allowlisted_code_states_a_reason_and_not_a_placeholder():
+    """An allowlist whose entries said nothing would be a set with extra punctuation."""
+    for code, reason in deterministic.QUALIFIER_NOT_DECLARED.items():
+        assert len(reason) > 20, f"{code} gives no reason"
+        assert reason.startswith(("container", "refuses first", "never observed", "the "))
+
+
+def test_the_three_repaired_qualifiers_are_the_codes_that_actually_fire():
+    """S6 added three entries and each names a code a live package carries. Measured across the
+    262 candidates this graph run can package: `fact_conflict_disclosed` 58, `single_source` 47,
+    `unpreferred_source_lane` 16. Two of the three re-key prose that was already in the table
+    under the name the code had before it was renamed."""
+    added = set(deterministic.REQUIRED_WARNING_QUALIFIERS) - NOT_PACKAGE_CODES
+    assert added == {"counter_evidence_same_document", "fact_conflict_disclosed",
+                     "single_source", "unpreferred_source_lane"}
+    assert (deterministic.REQUIRED_WARNING_QUALIFIERS["fact_conflict_disclosed"]
+            == deterministic.REQUIRED_WARNING_QUALIFIERS["conflicting_values"])
+    assert (deterministic.REQUIRED_WARNING_QUALIFIERS["unpreferred_source_lane"]
+            == deterministic.REQUIRED_WARNING_QUALIFIERS["warned_observation"])
 
 
 def test_a_claim_qualifying_code_still_demands_its_qualifier_in_prose():
