@@ -113,6 +113,13 @@ rebuilt live against `graph-v1-0483dc6b4b10` and is the only fixture that moved.
 strict xfails are **still xfailing**, which is what says the store key moved the way S1 measured
 rather than some other way.
 
+**Moved again at S3a (2026-08-05), and this time with no version bump.** The committed D4
+package is `pkg:…-opendoor-2022q3:6a858ae5c031`, digest
+`a4cbd740b86f72dd31def43f3ba561762db0ee7a50366fd41ff4f645fdf8bfed`, and `PACKAGE_VERSION` is
+**still `1.2.0`**: no field and no section changed, only which rows the collapse selects.
+`package_id` moved anyway, because it digests the sorted fact and passage ids — so the store key
+moved with it and the thirty strict xfails are still xfailing. Same one fixture.
+
 This is not a reason to avoid the change; it is a reason to sequence it. The re-record is one
 step (S7), it needs the live model server, and it must happen **once**, after every schema change
 has landed — not per stage. Until S7, the replay demo is expected to fail with
@@ -303,6 +310,60 @@ own note says (*"three id lists on the fact rather than five more rows in `facts
 the token budget allows: a second copy of a number the package already states is the least
 defensible row it could ship. `TRIM_PLAN`'s `corroborating_passages` step is therefore inert
 today and is correct for the day S6 renders them.
+
+### S3a — One canonical fact, and the scope test that was measured away — **landed 2026-08-05**
+
+S3 restored corroboration and **did not collapse**, so the package carried the same reading
+twice. Measured on the inventory candidate, `facts[]` held `housing_inventory_homes 2022-12-31 =
+12,788 homes` from `open-20221231.htm#p98` **and** from `open-20231231.htm#p105` — the 2023 10-K
+restating the prior year. Same metric, period, value, unit, scale, row label, column label and
+source lane. The cause is `_select_facts`'s round-robin: once every slot holds one reading the
+deal comes back round and gives a slot a second one. Two identical `observed` rows let §12's
+writer bind two sentences to one number as though it were two independent facts.
+
+`_add_facts` now folds a reading into the first carried fact `observation_equivalence.
+same_reading` calls equivalent. There is no new ordering: `plans` arrives sorted by
+`section_bounds.fact_sort_key`, so the survivor is §6.1 step 5's representative and every later
+reading becomes corroboration through the machinery S3 already built.
+
+**The scope test the plan asked for was written, measured, and removed — the correction is the
+finding.** §4 S3 says *"unless the observations genuinely differ in scope"*, and the obvious
+reading of scope is `row_label` / `column_label`. A veto on those two fields was implemented
+first. Against the 400 `(metric, period)` slots holding more than one reading of one value it
+refuses **253, and is wrong on all 253**:
+
+| slots | the "scope difference" | what it actually is |
+| ---: | --- | --- |
+| 211 | `'2022'` vs `'September 30, 2022'` | two spellings of the period E3 already compared. All 32 distinct column labels in the corpus are period headers |
+| 25 | `direct selling costs(1)` vs `direct selling costs(4)` | a footnote marker moved |
+| 17 | `contribution profit` vs `contribution profit (loss)` | a filing added `(loss)` when the value went negative |
+| 1 | `Gross Margin` vs `Gross margin` | a capital letter, in one 10-Q, two tables apart |
+
+A row label names the metric and a column label names the period, and **both are already decided
+against structured fields** by E2 and E3 — so deferring to the printed header is letting
+presentation overrule the graph, which is the one thing `observation_equivalence` says it never
+does. `same_reading` is therefore the whole test. A cohort difference reaches it as a different
+`metric_id`, because §6.9 R9 derives the cohort basis from the metric's own formula.
+
+**Four consequences, each measured rather than predicted.**
+
+1. **`corroborating_support` was a dead branch and now fires.** §1.1's own sentence — a passage
+   that sources a concordant observation and was re-introduced as a contradiction — was
+   implemented at S3 against `fact.corroborating_passage_ids`, which is `()` on every row until
+   `derive_corroboration` runs at assembly. It reads `sections.corroboration` now, and both of
+   the `contribution_margin` package's diagnostics take it.
+2. **F3 no longer needs the token trim at all** (3,904 prompt tokens, `caps_hit` empty), and
+   context passages are non-zero on all three spikes for the first time. F3's two facts are read
+   from one table, so the package holds one primary passage and has room for both neighbours.
+3. **The counter-evidence scan narrowed by one filing on two candidates**, because
+   `counter.narrow` filters to the documents `facts[]` cite and a collapsed reading's filing is
+   now a corroborating document rather than a cited one. Every row it removed is an
+   `AMBIGUOUS_ALIAS` refusal that did not qualify before either. Whether the scan should follow
+   corroborating documents as well is **S7's *"missed contradiction"* question**, left open here.
+4. `concordant_readings_collapsed` is the disclosure — `ANNOTATE`, `FACT_QUALITY_WARNING`, the
+   mirror of `single_source` — and the `facts` ledger row now reports `available` from
+   `len(plans)` with the collapse named as its reason. `PACKAGE_VERSION` did **not** move: no
+   field and no section changed, only which rows are selected.
 
 ### S4 — Ontology as semantic facts
 

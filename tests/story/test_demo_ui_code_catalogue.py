@@ -43,11 +43,13 @@ PACKAGE = pathlib.Path(code_catalogue.__file__).resolve().parents[2]
 #: What the five families held when this catalogue was written, measured 2026-08-04. Pinned so a
 #: family that *shrinks* — a code deleted upstream — is as loud as one that grows.
 #:
-#: `package_warning` went 28 → 29 at S5 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS:
-#: `required_fact_does_not_fit`, the plan's one new blocking behaviour.
+#: `package_warning` went 28 → 29 at S5 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS
+#: (`required_fact_does_not_fit`, the plan's one new blocking behaviour) and 29 → 30 at S3a
+#: (`concordant_readings_collapsed`, the disclosure that `facts[]` carries one row where several
+#: filings state one number identically).
 EXPECTED_SIZES = {
     FAMILY_VERIFICATION: 85,
-    FAMILY_PACKAGE_WARNING: 29,
+    FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
     FAMILY_PLANNER: 11,
     FAMILY_WRITER: 11,

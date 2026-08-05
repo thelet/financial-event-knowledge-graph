@@ -17,7 +17,7 @@ have made every §10.2.1 excerpt rule vacuous.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, Sequence
 
 import pytest
@@ -1263,22 +1263,96 @@ def test_a_concordant_second_filing_is_recorded_as_a_source_and_never_as_a_contr
     assert package.diagnostic_passages == ()
 
 
-def test_a_source_the_package_still_carries_as_a_fact_is_not_also_claimed_as_corroboration(
+def test_room_in_the_budget_for_both_readings_still_does_not_buy_two_facts_for_one_reading(
         registry):
-    """The subtraction `derive_corroboration` makes, and why it is derived after the trim.
+    """§4 S3a, direction one: **concordant readings collapse**, cap or no cap.
 
-    With room for both readings, `facts[]` carries both — each with its own passage, which is
-    strictly more than an id. Listing each as the other's corroborator would have two rows claim
-    one another as their own second source and would let a reader counting documents count one
-    twice.
+    S3 restored corroboration and stopped there, so with room for both readings `facts[]`
+    carried both — and that is the defect S3a fixes rather than a property to preserve.
+    Measured on the live inventory candidate *(2026-08-05)*, `facts[]` held
+    `housing_inventory_homes 2022-12-31 = 12,788 homes` **twice**, from `open-20221231.htm#p98`
+    and from `open-20231231.htm#p105`, because `_select_facts` deals round-robin and comes back
+    round to a slot once every slot has one reading. Two identical `observed` rows let §12's
+    writer bind two sentences to one number as though it were two independent facts.
+
+    The surviving row is the one §6.1 step 5 chose, and the reading that folded into it is named
+    on its `corroborating_*` lists — one canonical fact, every source recorded.
     """
     package = build_package(
         registry, two_document_retriever(), records=two_document_records(),
         budget=BudgetParameters(max_facts=12, max_total_tokens=6000))
 
-    assert {fact.observation_id for fact in package.facts} >= {
-        "obs:ggm:2022Q3:a", "obs:ggm:2022Q3:b"}
-    assert all(fact.corroborating_observation_ids == () for fact in package.facts)
+    carried = {fact.observation_id: fact for fact in package.facts}
+    assert set(carried) == {"obs:ggm:2022Q3:a", "obs:ggm:2022Q2:a"}
+    q3 = carried["obs:ggm:2022Q3:a"]
+    assert q3.corroborating_observation_ids == ("obs:ggm:2022Q3:b",)
+    assert q3.corroborating_passage_ids == (OTHER_PASSAGE,)
+    assert q3.corroborating_document_ids == (OTHER_DOCUMENT,)
+    # Never its own corroborator, and never a passage the package also ships as a second row.
+    assert all(fact.observation_id not in fact.corroborating_observation_ids
+               for fact in package.facts)
+    assert OTHER_PASSAGE not in {p.passage_id for p in package.primary_passages}
+    disclosure = [w for w in package.warnings
+                  if w.code == codes.CONCORDANT_READINGS_COLLAPSED]
+    assert [w.subject_ids for w in disclosure] == [("obs:ggm:2022Q3:a",)]
+    assert "obs:ggm:2022Q3:b -> obs:ggm:2022Q3:a" in disclosure[0].detail
+
+
+@pytest.mark.parametrize("overrides,why", [
+    ({"other_value": 40.0}, "a value outside presentation tolerance"),
+    ({"other_value": 12.6}, "the opposite sign"),
+    ({"unit": "percentage_points"}, "percent against percentage points (§13.3)"),
+    ({"unit": "USD"}, "a different unit"),
+    ({"currency": "EUR"}, "a different currency"),
+    ({"subject_entity_id": "offerpad"}, "a different subject"),
+])
+def test_two_readings_the_predicate_calls_divergent_stay_two_facts(registry, overrides, why):
+    """§4 S3a, direction two: **a reading that genuinely differs never collapses**.
+
+    Every case here is one `observation_equivalence.same_reading` answers `Divergent`, which is
+    the only test the collapse consults — a row-and-column-label scope veto was written on top
+    of it and removed, because on `graph-v1-0483dc6b4b10` it refused 253 of the 400 same-value
+    multi-reading slots and was a false positive on all 253 (`'2022'` against
+    `'September 30, 2022'`, `contribution profit` against `contribution profit (loss)`,
+    `Gross Margin` against `Gross margin`). What remains has to hold, or S7's
+    false-corroboration review has something to find. `why` names each case in the test id.
+
+    **The seventh divergence — the same number on a different metric — is not driven here**, and
+    the reason is that it cannot reach this code path: `_candidate_records` selects only the
+    metrics the request names, so a second metric's reading is never a candidate for `facts[]`
+    at all. E2 is exercised directly in
+    `tests/story/test_story_evidence_qualification.py`.
+    """
+    package = build_package(
+        registry, two_document_retriever(), records=two_document_records(**overrides),
+        budget=BudgetParameters(max_facts=12, max_total_tokens=6000))
+
+    carried = {fact.observation_id for fact in package.facts}
+    assert {"obs:ggm:2022Q3:a", "obs:ggm:2022Q3:b"} <= carried
+    assert not any(fact.corroborating_observation_ids for fact in package.facts)
+    assert not any(w.code == codes.CONCORDANT_READINGS_COLLAPSED for w in package.warnings)
+
+
+def test_a_quarantined_reading_is_neither_collapsed_away_nor_claimed_as_a_source(registry):
+    """The symmetry `collapses_into` and `_corroboration` have to share, or a row vanishes.
+
+    §6.1 step 1 quarantines a narrative-lane read of a flattened table because the read is
+    *defective*, and `_comparable_peers` drops it, so it is never listed as a corroborating
+    source. If the collapse folded it away anyway it would leave `facts[]` **and** be named
+    nowhere — an observation the package silently forgot. It stays its own fact instead.
+    """
+    records = two_document_records()
+    points = tuple(
+        replace(point, quarantined_observation_ids=("obs:ggm:2022Q3:b",))
+        if point.slot_key == ("gaap_gross_margin", "2022Q3") else point
+        for point in canonicalize(records))
+    package = build_package(
+        registry, two_document_retriever(), records=records, points=points,
+        budget=BudgetParameters(max_facts=12, max_total_tokens=6000))
+
+    assert {"obs:ggm:2022Q3:a", "obs:ggm:2022Q3:b"} <= {
+        fact.observation_id for fact in package.facts}
+    assert not any(fact.corroborating_observation_ids for fact in package.facts)
 
 
 def test_a_second_filing_that_disagrees_about_the_number_is_counter_evidence(registry):
@@ -1791,6 +1865,28 @@ def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget
     measures against. `derive_corroboration` is what stops the package paying twice: a reading
     that is still in `facts[]` is not listed as corroboration for another.
 
+    **Re-measured at S3a (2026-08-05), and the third row is a finding this docstring predicted.**
+    S3a stopped `facts[]` carrying the *same* reading twice, which F2 and F3 were both doing:
+
+    | spike | prompt | artifact | primaries | context | facts | corroborating | trimmed |
+    |-------|-------:|---------:|----------:|--------:|------:|--------------:|:--------|
+    | F1    |  4,749 |    6,453 |         2 |       1 |     2 |          6, 5 | yes     |
+    | F2    |  4,818 |    6,518 |         2 |       2 |     2 |          5, 6 | yes     |
+    | F3    |  3,904 |    5,436 |         1 |       2 |     2 |          3, 6 | **no**  |
+
+    **F3 no longer needs the trim at all**, which the paragraph below says would mean this
+    docstring is stale — so it is corrected rather than left standing. Two things did it. The
+    duplicate readings F3 carried (`adjusted_gross_margin 2022Q3 = 3.3%` and `gaap_gross_margin
+    2022Q3 = −12.6%`, each stated twice by two filings) are gone, and the two facts that remain
+    are read from **one** table — `open-20220930.htm#p139` evidences both — so the package holds
+    one primary passage rather than two and has room for both its neighbours. Context passages
+    are no longer zero anywhere, which is the first time §10.2.1's *"3 primaries + ±1 context"*
+    shape has been reachable at all.
+
+    `token_budget` is therefore asserted per package rather than over all three: F1 and F2 still
+    trim, F3 does not, and a change that makes F1 or F2 stop trimming is the same kind of
+    finding this one was.
+
     Before the split all three shipped **two** primaries and 2–4 facts at 4,206–4,544 artifact
     tokens, because `retrieval_trace` (1,042–1,084) and `budget` (190) were charged to a budget
     no model spends them on. F2's artifact is now *over* the 6,000 ceiling and that is correct:
@@ -1805,22 +1901,33 @@ def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget
     section at all.
 
     The band is asserted rather than the six numbers: a change that moves a package by sixty
-    tokens is not a regression and one that halves it is. `caps_hit` is what pins the finding —
-    if a package ever stops needing the trim, §10.2's total and §10.2.1's table have been
-    reconciled and this docstring is stale.
+    tokens is not a regression and one that halves it is.
     """
     packages = live_packages["packages"]
     prompt = {name: packages[name].budget.prompt_token_estimate for name in SPIKE_IDS}
     artifact = {name: packages[name].budget.artifact_token_estimate for name in SPIKE_IDS}
+    trimmed = {name: "token_budget" in packages[name].budget.caps_hit for name in SPIKE_IDS}
 
     assert all(estimate <= 5000 for estimate in prompt.values()), prompt
     assert all(estimate > 3000 for estimate in prompt.values()), prompt
     assert all(artifact[name] - prompt[name] > 1000 for name in SPIKE_IDS), (artifact, prompt)
-    assert all("token_budget" in packages[name].budget.caps_hit for name in SPIKE_IDS)
-    assert all(len(packages[name].primary_passages) >= 2 for name in SPIKE_IDS), {
+    assert trimmed == {"F1": True, "F2": True, "F3": False}, {
+        name: sorted(packages[name].budget.caps_hit) for name in SPIKE_IDS}
+    # F3 reads both its facts from one table, so one primary passage carries the whole story.
+    assert all(len(packages[name].primary_passages) >= 1 for name in SPIKE_IDS), {
         name: len(packages[name].primary_passages) for name in SPIKE_IDS}
     assert all(len(packages[name].facts) >= 2 for name in SPIKE_IDS), {
         name: len(packages[name].facts) for name in SPIKE_IDS}
+    # Every carried fact cites a passage the package carries, however few passages that is —
+    # §13.7's Rule A, and the floor a primary count of one is allowed to sit on.
+    for name in SPIKE_IDS:
+        carried = {p.passage_id for p in packages[name].primary_passages}
+        assert all(fact.passage_id in carried for fact in packages[name].facts), name
+    # Neither §4 S3a's collapse nor the trim may leave the same reading in `facts[]` twice.
+    for name in SPIKE_IDS:
+        readings = [(f.metric_id, f.period_key, f.value, f.unit, f.scale)
+                    for f in packages[name].facts]
+        assert len(set(readings)) == len(readings), (name, readings)
     # Every anchor slot still has a fact — that floor is what the passage count is allowed to
     # move under, and it is the thing the band above would otherwise stop protecting.
     for name, candidate_id in SPIKE_IDS.items():
@@ -1879,6 +1986,24 @@ def test_live_not_one_of_the_run_s_issues_qualifies_as_counter_evidence(live_pac
     conclusion turned into the package's own answer, and the rows are all still there: three are
     carried as diagnostics and two are stamped onto the primary passages they sit in.
 
+    **Re-measured at S3a (2026-08-05), and two numbers moved for one reason.** The census is now
+    **two** diagnostics and **one** stamped code. `counter.narrow` filters to the documents the
+    package's *facts* were read from, and S3a collapses the concordant readings that used to
+    give `contribution_margin 2022Q2/2022Q3` a third cited filing — so that filing's rows are no
+    longer in the scan. It is a real narrowing and it is recorded rather than absorbed: every
+    row it removed is an `AMBIGUOUS_ALIAS` refusal that did not qualify before either, the
+    filing itself is still in the package as a corroborating document on the fact it sources,
+    and whether the scan should follow corroborating documents as well is S7's *"missed
+    contradiction"* question rather than this stage's.
+
+    **Both surviving diagnostics are `corroborating_support`, and that branch was dead until
+    S3a.** §1.1's own sentence — a passage that is a source of a concordant observation and was
+    re-introduced as a contradiction — was implemented at S3 against
+    `fact.corroborating_passage_ids`, which is `()` on every row until
+    `derive_corroboration` runs at assembly, so the branch could never fire. It reads
+    `sections.corroboration` now, and `open-20220630.htm#p133` and `open-20220930.htm#p139` are
+    what it finds.
+
     **This test is the one that would notice a real contradiction going missing**, so it asserts
     the census rather than the emptiness: the rows exist, they are accounted for, and every one
     of them is reachable.
@@ -1890,8 +2015,10 @@ def test_live_not_one_of_the_run_s_issues_qualifies_as_counter_evidence(live_pac
     assert match_basis_of(package) == {}
     # Nothing was silently dropped: every association is either a diagnostic row, a code stamped
     # on a passage the package already carries, or a ledger entry saying it did not fit.
-    assert ledger["diagnostic_passages"].available == 3
-    assert sum(1 for p in package.primary_passages if p.diagnostic_codes) == 2
+    assert ledger["diagnostic_passages"].available == 2
+    assert sum(1 for p in package.primary_passages if p.diagnostic_codes) == 1
+    assert [p.role for p in package.diagnostic_passages] == (
+        [EvidenceRole.CORROBORATING_SUPPORT] * 2)
     for passage in package.diagnostic_passages:
         assert passage.role in (EvidenceRole.WARNING_ONLY, EvidenceRole.UNUSABLE,
                                 EvidenceRole.CORROBORATING_SUPPORT)

@@ -134,9 +134,20 @@ def test_no_codes_disclosure_obligation_moved_when_the_categories_arrived(code, 
     assert codes.KIND_OF[code].value == kind
 
 
-def test_the_new_refusal_is_the_only_code_the_taxonomy_added():
+def test_only_two_codes_were_added_after_s5_and_each_is_named_with_the_stage_that_added_it():
+    """S5 added `required_fact_does_not_fit`; S3a added `concordant_readings_collapsed`.
+
+    Written as an exhaustive difference rather than two membership checks, because the failure
+    this guards is a code arriving with no decision recorded anywhere — and that failure is
+    silent in every other test.
+    """
     added = set(codes.SEVERITY_OF) - set(KIND_BEFORE_S5)
-    assert added == {codes.REQUIRED_FACT_DOES_NOT_FIT}
+    assert added == {codes.REQUIRED_FACT_DOES_NOT_FIT, codes.CONCORDANT_READINGS_COLLAPSED}
+    # S3a's code is a statement about a fact's standing, so it qualifies a claim — the mirror of
+    # `single_source`, which is the code beside it in `CATEGORY_OF`.
+    assert codes.CATEGORY_OF[codes.CONCORDANT_READINGS_COLLAPSED] is (
+        codes.CATEGORY_OF[codes.SINGLE_SOURCE])
+    assert codes.KIND_OF[codes.CONCORDANT_READINGS_COLLAPSED] is WarningKind.CLAIM_QUALIFYING
 
 
 def test_a_claim_qualifying_code_still_demands_its_qualifier_in_prose():

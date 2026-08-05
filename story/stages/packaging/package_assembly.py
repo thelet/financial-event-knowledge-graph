@@ -561,13 +561,17 @@ def derive_corroboration(sections: PackageSections) -> tuple[PackagedFact, ...]:
     `sections.corroboration`; this subtracts the ones `facts[]` is still carrying and turns the
     rest into the three id lists.
 
-    **The subtraction is why this is derived rather than stamped.** §10.2's round-robin can deal
-    a second concordant reading of one slot into `facts[]`, and that reading is then in the
-    package with its own passage — strictly more than an id. Listing it as corroboration as well
-    would spend the budget twice on one source and would have each of two rows claim the other
-    as its own second source. Which readings survive is not known until the token trim has
-    finished, and the trim rebuilds the package once per dropped row, so the answer is
-    recomputed each time — the same reason `derive_documents` rebuilds rather than filters.
+    **The subtraction is why this is derived rather than stamped.** §10.2's round-robin used to
+    deal a second *concordant* reading of one slot into `facts[]`, and that reading was then in
+    the package with its own passage — strictly more than an id — so listing it as corroboration
+    as well would have spent the budget twice on one source and had each of two rows claim the
+    other as its own second source. §4 S3a collapses concordant readings in the selection stage
+    instead, so on this corpus the subtraction now removes **nothing** *(re-measured
+    2026-08-05)*. It stays: a reading the collapse declines to fold, and any reading the trim
+    later removes, both have to be re-answered, and which readings survive is not known until
+    the token trim has finished — the trim rebuilds the package once per dropped row, so the
+    answer is recomputed each time, the same reason `derive_documents` rebuilds rather than
+    filters.
 
     **Measured, because the obvious placement is wrong in both directions.** Stamped once in the
     selection stage before the cap, every list on the three §6.3 spikes came out *empty*:

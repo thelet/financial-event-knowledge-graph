@@ -105,6 +105,13 @@ SINGLE_SOURCE = "single_source"
 #: A used slot held more than one reading, with the classification §6.1 gave it.
 FACT_CONFLICT_DISCLOSED = "fact_conflict_disclosed"
 
+#: `SINGLE_SOURCE` from the other side: two or more filings state this slot identically, and
+#: `facts[]` carries **one** canonical row for them (§4 S3). The readings that were folded in are
+#: named on that row's `corroborating_observation_ids`, so nothing is lost — but `facts: 12
+#: selected, 2 carried` needs a reason a reader can resolve, and *"the section was truncated"*
+#: would be the wrong one: a concordant second reading is not a row the budget took away.
+CONCORDANT_READINGS_COLLAPSED = "concordant_readings_collapsed"
+
 #: A used slot's canonical status is `conflict` — it exists and emits no value.
 SLOT_UNRESOLVED = "slot_unresolved"
 
@@ -225,6 +232,7 @@ SEVERITY_OF: Mapping[str, Severity] = {
     FORMULA_WINDOW_BOUNDARY_CROSSED: Severity.WARN,
     SINGLE_SOURCE: Severity.ANNOTATE,
     FACT_CONFLICT_DISCLOSED: Severity.WARN,
+    CONCORDANT_READINGS_COLLAPSED: Severity.ANNOTATE,
     SLOT_UNRESOLVED: Severity.WARN,
     CANONICAL_POINT_WARNING: Severity.ANNOTATE,
     OBSERVATION_LOAD_INCOMPLETE: Severity.REFUSE,
@@ -273,6 +281,13 @@ CATEGORY_OF: Mapping[str, WarningCategory] = {
     FORMULA_WINDOW_BOUNDARY_CROSSED: WarningCategory.FACT_QUALITY_WARNING,
     SINGLE_SOURCE: WarningCategory.FACT_QUALITY_WARNING,
     FACT_CONFLICT_DISCLOSED: WarningCategory.FACT_QUALITY_WARNING,
+    # A statement about the *standing* of a fact that came out intact, which is what this
+    # category is, and the exact mirror of `single_source` beside it: one says the number rests
+    # on one filing, the other that it rests on several which agree. It is deliberately **not**
+    # a `RETRIEVAL_WARNING` — nothing came out smaller than the corpus. Every reading is in the
+    # package; five of six travel as ids on the row that carries the sixth, which §4 S3 argues
+    # is more evidence than five duplicate rows, not less.
+    CONCORDANT_READINGS_COLLAPSED: WarningCategory.FACT_QUALITY_WARNING,
     COMPARISON_REFUSED: WarningCategory.FACT_QUALITY_WARNING,
     COMPARISON_WARNED: WarningCategory.FACT_QUALITY_WARNING,
     CANDIDATE_WARNING: WarningCategory.FACT_QUALITY_WARNING,

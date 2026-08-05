@@ -53,7 +53,7 @@ section a reader would read as a fact about Opendoor:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Container, Iterable, Mapping, Sequence
 
 from ontology.contracts import ConceptRegistry
 from ontology.core.models import MetricDefinition, MetricFormulaVersion
@@ -195,6 +195,13 @@ class BoundedEvidencePackageBuilder:
             self._by_slot.setdefault(record.slot_key, []).append(record)
         self._point_of = {point.slot_key: point for point in self._points}
         self._series = build_series(self._points) if self._points else {}
+        # §6.1 step 1's quarantine, flattened. An observation id belongs to exactly one slot, so
+        # a single set answers the same question `_comparable_peers` asks per slot — and the two
+        # must agree, because a reading `collapses_into` folds away and `_corroboration` then
+        # refuses to list would have left the package entirely.
+        self._quarantined = {
+            observation_id for point in self._points
+            for observation_id in point.quarantined_observation_ids}
 
     # -- the protocol ---------------------------------------------------------------------
 
@@ -374,7 +381,7 @@ class BoundedEvidencePackageBuilder:
     def _add_facts(
         self, sections: assembly.PackageSections, plans: Sequence[_FactPlan]
     ) -> None:
-        """Resolve every selected observation's citation chain, then cap.
+        """Resolve every selected observation's citation chain, collapse concordant readings, cap.
 
         A fact whose chain does not close is **dropped and named**, not shipped: §13.7's whole
         subject is what a citation supports, and a `PackagedFact` with no passage and no
@@ -382,10 +389,33 @@ class BoundedEvidencePackageBuilder:
         such rows exist in this run — all 2,714 evidence edges land on a `:Passage` — so the
         branch is a guard, and it is the guard that will matter the day the XBRL lane emits a
         leaf with no `PART_OF` edge.
+
+        **The collapse is §4 S3's *"one canonical fact"*, and it had to happen here.** S3
+        restored corroboration and did not collapse: `_select_facts` deals round-robin, so once
+        every slot holds one reading the deal comes back round and gives a slot a *second*
+        reading of the same number. Measured on the inventory candidate *(2026-08-05)*,
+        `facts[]` carried `housing_inventory_homes 2022-12-31 = 12,788 homes` **twice** — once
+        from `open-20221231.htm#p98` and once from `open-20231231.htm#p105`, the 2023 10-K
+        restating the prior year — same value, unit, scale, row label and column label. Two
+        identical `observed` facts let §12's writer bind two sentences to one number as though
+        it were two independent facts, and make §4 S6's evidence panel print it twice.
+
+        The equivalence is `observation_equivalence.same_reading` and **there is no second
+        one**: the same predicate S3 reads to build `corroboration` and S2 reads to build
+        `_divergent_reading_rows`. A row-and-column-label scope veto was written on top of it,
+        measured, and removed — `collapses_into` carries the census that decided it.
+
+        The primary is chosen by nothing new either. `plans` arrives already ordered by
+        `section_bounds.fact_sort_key`, whose `role_rank` is §6.1 step 5's representative-first
+        ordering, so the first member of a concordant group to be carried is the one that
+        ordering picked and every later one folds into it.
         """
         cap = section_bounds.cap_for(self._budget, "facts")
+        authority = self._resolved_authority()
         kept: list[PackagedFact] = []
+        kept_records: list[ObservationRecord] = []
         unciteable: list[str] = []
+        collapsed: list[tuple[str, str]] = []
 
         for plan in plans[:cap]:
             evidence = self._call("get_fact_evidence", {"observation_id": plan.observation_id})
@@ -400,9 +430,33 @@ class BoundedEvidencePackageBuilder:
                            "so it is evidenced by more passages than the package carries; the "
                            "first by (passage_id, edge_key) is the one cited"))
             row = evidence.rows[0]
+            canonical = collapses_into(
+                plan.record, kept_records, authority, quarantined=self._quarantined)
+            if canonical is not None:
+                # Not remembered as a document and not counted as a fact: this reading is the
+                # *same* reading, and `derive_corroboration` will name it on the row that
+                # carries it because it is a concordant peer that `facts[]` no longer holds.
+                collapsed.append((plan.observation_id, canonical))
+                continue
             assembly.remember_document(sections, row)
             kept.append(self._packaged_fact(plan, row))
+            kept_records.append(plan.record)
 
+        if collapsed:
+            sections.warnings.append(codes.packaged_warning(
+                codes.CONCORDANT_READINGS_COLLAPSED,
+                subject_ids=tuple({canonical for _reading, canonical in collapsed}),
+                detail=f"{len(collapsed)} further reading(s) of "
+                       f"{len({canonical for _r, canonical in collapsed})} packaged slot(s) "
+                       "state the same subject, metric, period, unit, currency, formula version "
+                       "and value as a fact already carried, and were collapsed into it rather "
+                       "than minted as second facts: two filings reporting one number are two "
+                       "sources, not two facts. Each is named on that fact's "
+                       "`corroborating_observation_ids`, and equivalence is "
+                       "`observation_equivalence.same_reading` — the single-pair tolerance test "
+                       "§6.1 step 2 clusters with. "
+                       + ", ".join(f"{reading} -> {canonical}"
+                                   for reading, canonical in sorted(collapsed)[:6])))
         if unciteable:
             sections.warnings.append(codes.packaged_warning(
                 codes.EVIDENCE_CHAIN_INCOMPLETE,
@@ -415,9 +469,22 @@ class BoundedEvidencePackageBuilder:
             sections.warnings.append(codes.packaged_warning(
                 codes.SECTION_TRUNCATED,
                 subject_ids=("facts",),
-                detail=f"facts: {len(plans)} selected, {cap} carried. Dealt round-robin across "
-                       f"{len({plan.slot for plan in plans})} slots so every slot is represented "
-                       "before any slot is represented twice; the drop took the tail"))
+                detail=f"facts: {len(plans)} selected, {cap} read, {len(kept)} carried. Dealt "
+                       f"round-robin across {len({plan.slot for plan in plans})} slots so every "
+                       "slot is represented before any slot is represented twice; the drop took "
+                       "the tail"))
+            assembly.note_drop(sections, "facts", codes.SECTION_TRUNCATED,
+                               count=len(plans) - cap)
+        # §4 S5's ledger, for the one section that could not report it before: what the round
+        # robin selected, and why the section carries fewer rows than that. Stated here because
+        # this is the only code that knows — `package_assembly` is handed the survivors.
+        assembly.note_available(sections, "facts", len(plans))
+        if collapsed:
+            assembly.note_drop(sections, "facts", codes.CONCORDANT_READINGS_COLLAPSED,
+                               count=len(collapsed))
+        if unciteable:
+            assembly.note_drop(sections, "facts", codes.EVIDENCE_CHAIN_INCOMPLETE,
+                               count=len(unciteable))
         sections.facts = kept
         # The concordant sources of every carried fact, in full. Which of them are *discarded*
         # — and so which belong on the fact's corroboration lists — depends on what survives the
@@ -514,13 +581,16 @@ class BoundedEvidencePackageBuilder:
         §6.1 put in the same cluster. Quarantined readings are excluded (`_comparable_peers`):
         a flattened-table read is not a second source, it is a defective one.
 
-        **This returns every concordant peer, and the subtraction happens later.** §10.2's
-        round-robin can legitimately deal a second concordant reading of one slot into `facts[]`
-        once every slot is represented, and that observation was not discarded — it is in the
-        package with its own passage, which is strictly more than an id. Listing it here as well
-        would have each of two rows claim the other as its own second source and would spend
-        §10.2's budget twice on one thing. Which peers survive is only known after the trim, so
-        `package_assembly.derive_corroboration` does the subtraction on every rebuild.
+        **This returns every concordant peer, and the subtraction happens later.** Before S3a
+        the subtraction carried real weight: §10.2's round-robin dealt a second *concordant*
+        reading of one slot into `facts[]` once every slot was represented, and listing it here
+        as well would have had each of two rows claim the other as its own second source. S3a
+        collapses those before they are carried, so no concordant, non-quarantined peer can be
+        in `facts[]` any more and the subtraction is a **no-op on this corpus** *(re-measured
+        2026-08-05)*. It stays because it is what keeps the two halves consistent: a reading
+        `collapses_into` declines to fold — a quarantined one — is carried as its own fact and
+        must not also be listed as a source for another, and which readings survive the trim is
+        still only known after it.
         """
         authority = self._resolved_authority()
         return tuple(sorted(
@@ -752,8 +822,16 @@ class BoundedEvidencePackageBuilder:
         cited_documents = sorted({fact.document_id for fact in sections.facts if fact.document_id})
         cited_passages = sorted({fact.passage_id for fact in sections.facts if fact.passage_id})
         fact_by_passage = {fact.passage_id: fact for fact in sections.facts if fact.passage_id}
-        corroborating = {passage_id for fact in sections.facts
-                         for passage_id in fact.corroborating_passage_ids}
+        # Read off `sections.corroboration` and **not** off `fact.corroborating_passage_ids`,
+        # which is `()` on every row at this point in the build: those three lists are derived
+        # by `package_assembly.derive_corroboration` after the trim, so the version of this line
+        # that read them made §1.1's own case — the shareholder letter that is a concordant
+        # source and was re-introduced as a contradiction — into a branch that could never fire.
+        # Found and fixed at S3a; the selection stage's own record is the right source, and it
+        # is populated by `_add_facts` before this method runs.
+        corroborating = {passage_id
+                         for sources in sections.corroboration.values()
+                         for _observation, passage_id, _document in sources if passage_id}
         metrics = tuple(request.metric_ids or candidate.metric_ids)
         periods = tuple(request.period_keys or candidate.anchor_period_keys)
 
@@ -1488,6 +1566,71 @@ class BoundedEvidencePackageBuilder:
 # -- module-level helpers -------------------------------------------------------------------
 
 
+def collapses_into(
+    record: ObservationRecord,
+    kept: Sequence[ObservationRecord],
+    authority: ComparabilityAuthority,
+    *,
+    quarantined: Container[str] = frozenset(),
+) -> str | None:
+    """The observation id this reading folds into, or `None` if it is a reading of its own.
+
+    **`same_reading` is the whole test, and a second one was written, measured and removed.**
+    §4 S3's rule is *"do not mint duplicate facts unless the observations genuinely differ in
+    scope"*, and the obvious reading of *scope* is the table cell a number was printed in —
+    `row_label` and `column_label`, which `ObservationRecord` does not carry and which arrive
+    with `get_fact_evidence`. A veto on those two fields was implemented first. Measured against
+    `graph-v1-0483dc6b4b10` *(2026-08-05)* over the 400 `(metric, period)` slots that hold more
+    than one reading of one value, it refuses **253 of them and is wrong on every single one**:
+
+        211 slots  the two readings' column labels are `'2022'` and `'September 30, 2022'` —
+                   two spellings of the period E3 has already compared against `StoryPeriod`.
+                   All 32 distinct column labels in the corpus are period headers; not one
+                   names a segment, a cohort or a population.
+         25 slots  a footnote marker moved: `direct selling costs(1)` against
+                   `direct selling costs(4)`.
+         17 slots  a filing added `(loss)` because the value went negative: `contribution
+                   profit` against `contribution profit (loss)`.
+          1 slot   a capital letter: `gaap_gross_margin` 2022Q2 is `Gross Margin` at
+                   `open-20220630.htm#p133` and `Gross margin` at `#p115`, both 11.6 percent.
+
+    Nothing in that list is a scope. A row label names the metric and a column label names the
+    period, and **both are already decided, authoritatively and against structured fields**, by
+    E2 and E3 — so deferring to the printed header is letting presentation overrule the graph,
+    which is the one thing `observation_equivalence` says it never does (*"comparison is on
+    canonical values, never on raw strings"*). A veto that fires 253 times and is a false
+    positive 253 times is a veto that preserves duplicates and prevents nothing.
+
+    So scope is `same_reading`'s answer and no other: subject, metric, period, unit, currency,
+    formula version, value within presentation tolerance, sign. A cohort difference reaches it
+    as a different `metric_id` — §6.9's R9 derives the cohort basis from the metric's own
+    formula, which is why `contribution_profit` and `contribution_profit_after_interest` are two
+    metrics and not one metric with two scopes. The day this corpus can express a second scope
+    under one metric id, the fix belongs in the ontology and in `same_reading`, where every
+    other consumer would see it, and not in a string comparison here that only `facts[]` reads.
+
+    **A quarantined reading never collapses, in either direction**, and that is a symmetry
+    requirement rather than a preference. `_corroboration` builds its lists from
+    `_comparable_peers`, which drops what §6.1 step 1 quarantined — a narrative-lane read of a
+    flattened table, i.e. a *defective* read. If this folded such a reading into a good one, the
+    fold would remove it from `facts[]` and the corroboration list would then refuse to name it,
+    and the observation would have left the package with nothing recording that it existed. The
+    two rules have to draw the same line or a row falls through the gap between them.
+
+    Scanned in carried order so the winner is the one `section_bounds.fact_sort_key` ranked
+    first — §6.1 step 5's representative, `min(scale_precision, filing_date, observation_id)` —
+    rather than whichever peer this happens to be compared against first.
+    """
+    if record.observation_id in quarantined:
+        return None
+    for canonical in kept:
+        if canonical.observation_id in quarantined:
+            continue
+        if same_reading(canonical, record, authority=authority):
+            return canonical.observation_id
+    return None
+
+
 def _classify(point: CanonicalPoint) -> tuple[str, str]:
     """§6.1's own vocabulary for what happened to a multi-valued slot, and the rule that did it."""
     if point.status is CanonicalStatus.CONFLICT:
@@ -1563,4 +1706,5 @@ __all__ = [
     "SLOT_SEPARATOR",
     "BoundedEvidencePackageBuilder",
     "PackagingError",
+    "collapses_into",
 ]

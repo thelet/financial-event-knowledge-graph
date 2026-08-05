@@ -1,11 +1,7 @@
 {
   "budget": {
-    "artifact_token_estimate": 6119,
-    "caps_hit": [
-      "context_passages",
-      "primary_passages",
-      "token_budget"
-    ],
+    "artifact_token_estimate": 5436,
+    "caps_hit": [],
     "parameters": {
       "excerpt_radius_chars": 400,
       "max_compatibility": 12,
@@ -25,27 +21,27 @@
       "max_total_tokens": 5000,
       "max_warnings": 20
     },
-    "prompt_token_estimate": 4250,
+    "prompt_token_estimate": 3904,
     "section_counts": {
       "comparability_facts": 0,
       "compatibility": 1,
       "conflicts": 0,
-      "context_passages": 0,
+      "context_passages": 2,
       "counter_evidence": 0,
       "diagnostic_passages": 0,
-      "documents": 2,
+      "documents": 1,
       "events": 0,
       "evidence_sources": 0,
       "explanatory_passages": 0,
-      "facts": 4,
+      "facts": 2,
       "formula_windows": 2,
       "identity_facts": 0,
       "metrics": 2,
-      "primary_passages": 2,
+      "primary_passages": 1,
       "relationships": 0,
-      "retrieval_trace": 21,
+      "retrieval_trace": 15,
       "semantic_facts": 0,
-      "warnings": 5
+      "warnings": 4
     },
     "section_ledger": [
       {
@@ -76,13 +72,11 @@
         "section": "conflicts"
       },
       {
-        "available": 8,
-        "carried": 0,
-        "dropped": 8,
+        "available": 2,
+        "carried": 2,
+        "dropped": 0,
         "protected": false,
-        "reasons": [
-          "token_budget_trimmed"
-        ],
+        "reasons": [],
         "required_dropped": false,
         "section": "context_passages"
       },
@@ -105,8 +99,8 @@
         "section": "diagnostic_passages"
       },
       {
-        "available": 2,
-        "carried": 2,
+        "available": 1,
+        "carried": 1,
         "dropped": 0,
         "protected": false,
         "reasons": [],
@@ -141,11 +135,13 @@
         "section": "explanatory_passages"
       },
       {
-        "available": 4,
-        "carried": 4,
-        "dropped": 0,
+        "available": 11,
+        "carried": 2,
+        "dropped": 9,
         "protected": true,
-        "reasons": [],
+        "reasons": [
+          "concordant_readings_collapsed"
+        ],
         "required_dropped": false,
         "section": "facts"
       },
@@ -177,14 +173,11 @@
         "section": "metrics"
       },
       {
-        "available": null,
-        "carried": 2,
-        "dropped": 2,
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
         "protected": false,
-        "reasons": [
-          "section_truncated",
-          "token_budget_trimmed"
-        ],
+        "reasons": [],
         "required_dropped": false,
         "section": "primary_passages"
       },
@@ -198,8 +191,8 @@
         "section": "relationships"
       },
       {
-        "available": 21,
-        "carried": 21,
+        "available": 15,
+        "carried": 15,
         "dropped": 0,
         "protected": false,
         "reasons": [],
@@ -216,8 +209,8 @@
         "section": "semantic_facts"
       },
       {
-        "available": 5,
-        "carried": 5,
+        "available": 4,
+        "carried": 4,
         "dropped": 0,
         "protected": false,
         "reasons": [],
@@ -234,11 +227,60 @@
       "left_id": "adjusted_gross_margin@2022Q3",
       "reason": "",
       "right_id": "gaap_gross_margin@2022Q3",
-      "rule_id": "\u00a76.9/divergence"
+      "rule_id": "§6.9/divergence"
     }
   ],
   "conflicts": [],
-  "context_passages": [],
+  "context_passages": [
+    {
+      "char_count": 255,
+      "char_end": 255,
+      "char_start": 0,
+      "diagnostic_codes": [],
+      "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
+      "excerpted": false,
+      "heading_path": [
+        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
+        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
+        "Contribution (Loss) Profit / Margin After Interest"
+      ],
+      "match_basis": "",
+      "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p138",
+      "passage_kind": "narrative",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "context",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#s107",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
+      "text": "The following table presents a reconciliation of our Adjusted Gross Profit, Contribution (Loss) Profit and Contribution (Loss) Profit After Interest to our gross (loss) profit, which is the most directly comparable GAAP measure, for the periods indicated:",
+      "unusable_reason": null
+    },
+    {
+      "char_count": 1690,
+      "char_end": 1690,
+      "char_start": 0,
+      "diagnostic_codes": [],
+      "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
+      "excerpted": false,
+      "heading_path": [
+        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
+        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
+        "Contribution (Loss) Profit / Margin After Interest"
+      ],
+      "match_basis": "",
+      "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p140",
+      "passage_kind": "narrative",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "context",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#s107",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
+      "text": "(1)Inventory valuation adjustment includes adjustments to record real estate inventory at the lower of its carrying amount or its net realizable value. See “—Critical Accounting Policies and Estimates — Real Estate Inventory.” (2)Inventory valuation adjustment — Current Period is the inventory valuation adjustments recorded during the period presented associated with homes that remain in inventory at period end. (3)Inventory valuation adjustment — Prior Periods is the inventory valuation adjustments recorded in prior periods associated with homes that sold in the period presented. (4)Represents selling costs incurred related to homes sold in the relevant period. This primarily includes broker commissions, external title and escrow-related fees and transfer taxes. (5)Holding costs include mainly property taxes, insurance, utilities, homeowners association dues, cleaning and maintenance costs. Holding costs are included in Sales, marketing, and operations on the Condensed Consolidated Statements of Operations. (6)Represents holding costs incurred in the period presented on homes sold in the period presented. (7)Represents holding costs incurred in prior periods on homes sold in the period presented. (8)This does not include interest on mezzanine term debt facilities or other indebtedness. See “— Liquidity and Capital Resources — Debt and Financing Arrangements.” (9)Represents the interest expense under our asset-backed senior debt facilities incurred during the period presented on homes sold in the period presented. (10)Represents the interest expense under our asset-backed senior debt facilities incurred during prior periods on homes sold in the period presented.",
+      "unusable_reason": null
+    }
+  ],
   "counter_evidence": [],
   "detector_id": "detector:cross_metric_divergence",
   "detector_version": "1.0.0",
@@ -254,17 +296,6 @@
       "report_date": "2022-09-30",
       "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
       "title": null
-    },
-    {
-      "accession": "0001801169-23-000138",
-      "content_sha256": null,
-      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
-      "document_type": "narrative_primary",
-      "filing_date": "2023-11-02",
-      "form": "10-Q",
-      "report_date": "2023-09-30",
-      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
-      "title": null
     }
   ],
   "events": [],
@@ -277,15 +308,18 @@
       "column_label": "2022",
       "corroborating_document_ids": [
         "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm"
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm"
       ],
       "corroborating_observation_ids": [
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db",
         "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd",
         "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d"
       ],
       "corroborating_passage_ids": [
         "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24"
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24",
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125"
       ],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
@@ -323,6 +357,7 @@
       ],
       "corroborating_observation_ids": [
         "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805",
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539",
         "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b",
         "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:cfa61af17de1",
         "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:d31a729d1d52",
@@ -333,7 +368,8 @@
         "norm:0001801169:0001801169-22-000108:open-20220930.htm#p120",
         "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12",
         "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24",
-        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108",
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125"
       ],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
@@ -355,94 +391,6 @@
       "shape": "quarter",
       "source_lane": "normalized_table",
       "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
-      "unit": "percent",
-      "validation_state": "clean",
-      "value": -12.6,
-      "warning_codes": []
-    },
-    {
-      "ambiguity_codes": [],
-      "column_label": "2022",
-      "corroborating_document_ids": [
-        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm"
-      ],
-      "corroborating_observation_ids": [
-        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd",
-        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d"
-      ],
-      "corroborating_passage_ids": [
-        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24"
-      ],
-      "currency": null,
-      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
-      "evidence_source_id": null,
-      "fact_kind": "observed",
-      "instant_date": null,
-      "metric_id": "adjusted_gross_margin",
-      "metric_label": "Adjusted Gross Margin",
-      "observation_id": "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db",
-      "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125",
-      "period_end": "2022-09-30",
-      "period_key": "2022Q3",
-      "period_start": "2022-07-01",
-      "printed_form": null,
-      "quoted_text": "3.3",
-      "row_label": "Adjusted Gross Margin",
-      "scale": "units",
-      "scale_location": null,
-      "shape": "quarter",
-      "source_lane": "normalized_table",
-      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
-      "unit": "percent",
-      "validation_state": "clean",
-      "value": 3.3,
-      "warning_codes": []
-    },
-    {
-      "ambiguity_codes": [],
-      "column_label": "2022",
-      "corroborating_document_ids": [
-        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
-        "norm:0001801169:0001801169-22-000108:open-20220930.htm",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
-        "norm:0001801169:0001801169-23-000138:open-20230930.htm"
-      ],
-      "corroborating_observation_ids": [
-        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805",
-        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b",
-        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:cfa61af17de1",
-        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:d31a729d1d52",
-        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:f819670c12f3"
-      ],
-      "corroborating_passage_ids": [
-        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23",
-        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p120",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12",
-        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24",
-        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
-      ],
-      "currency": null,
-      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
-      "evidence_source_id": null,
-      "fact_kind": "observed",
-      "instant_date": null,
-      "metric_id": "gaap_gross_margin",
-      "metric_label": "Gross Margin",
-      "observation_id": "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539",
-      "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125",
-      "period_end": "2022-09-30",
-      "period_key": "2022Q3",
-      "period_start": "2022-07-01",
-      "printed_form": null,
-      "quoted_text": "(12.6)",
-      "row_label": "Gross Margin",
-      "scale": "units",
-      "scale_location": null,
-      "shape": "quarter",
-      "source_lane": "normalized_table",
-      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
       "unit": "percent",
       "validation_state": "clean",
       "value": -12.6,
@@ -530,8 +478,8 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "cca51303822e67c06df51825bc10d210c6d9ff4f657814ac94d17818217498ed",
-  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:91fd3fe66619",
+  "package_content_digest": "a4cbd740b86f72dd31def43f3ba561762db0ee7a50366fd41ff4f645fdf8bfed",
+  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6a858ae5c031",
   "package_version": "1.2.0",
   "policy_version": "canon-policy:1.0.0",
   "primary_passages": [
@@ -544,7 +492,7 @@
       "excerpted": false,
       "heading_path": [
         "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
-        "Item 2. Management\u2019s Discussion and Analysis of Financial Condition and Results of Operations.",
+        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
         "Contribution (Loss) Profit / Margin After Interest"
       ],
       "match_basis": "",
@@ -556,31 +504,7 @@
       "score": null,
       "section_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#s107",
       "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000108/open-20220930.htm",
-      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2022 |  | 2021 |  | 2022 |  | 2021 |  |  |  |  |  |  |  |  |\n| Gross (loss) profit (GAAP) |  | $ | (425) |  |  | $ | 202 |  |  | $ | 596 |  |  | $ | 458 |  |\n| Gross Margin |  | (12.6) | % |  | 8.9 | % |  | 4.7 | % |  | 10.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment \u2013 Current Period(1)(2) |  | 573 |  |  | 31 |  |  | 620 |  |  | 32 |  |  |  |  |  |\n| Inventory valuation adjustment \u2013 Prior Periods(1)(3) |  | (38) |  |  | \u2014 |  |  | (38) |  |  | \u2014 |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit |  | $ | 110 |  |  | $ | 233 |  |  | $ | 1,178 |  |  | $ | 490 |  |\n| Adjusted Gross Margin |  | 3.3 | % |  | 10.3 | % |  | 9.3 | % |  | 11.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (100) |  |  | (52) |  |  | (336) |  |  | (96) |  |  |  |  |  |\n| Holding costs on sales \u2013 Current Period(5)(6) |  | (14) |  |  | (7) |  |  | (73) |  |  | (19) |  |  |  |  |  |\n| Holding costs on sales \u2013 Prior Periods(5)(7) |  | (18) |  |  | (5) |  |  | (37) |  |  | (2) |  |  |  |  |  |\n| Contribution (Loss) Profit |  | $ | (22) |  |  | $ | 169 |  |  | $ | 732 |  |  | $ | 373 |  |\n| Contribution Margin |  | (0.7) | % |  | 7.5 | % |  | 5.8 | % |  | 8.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Interest on homes sold \u2013 Current Period(8)(9) |  | (16) |  |  | (6) |  |  | (74) |  |  | (17) |  |  |  |  |  |\n| Interest on homes sold \u2013 Prior Periods(8)(10) |  | (18) |  |  | (4) |  |  | (35) |  |  | (1) |  |  |  |  |  |\n| Contribution (Loss) Profit After Interest |  | $ | (56) |  |  | $ | 159 |  |  | $ | 623 |  |  | $ | 355 |  |\n| Contribution Margin After Interest |  | (1.7) | % |  | 7.0 | % |  | 4.9 | % |  | 8.5 | % |  |  |  |  |",
-      "unusable_reason": null
-    },
-    {
-      "char_count": 1675,
-      "char_end": 1675,
-      "char_start": 0,
-      "diagnostic_codes": [],
-      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
-      "excerpted": false,
-      "heading_path": [
-        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
-        "Item 2. Management\u2019s Discussion and Analysis of Financial Condition and Results of Operations.",
-        "Contribution Profit (Loss) / Margin"
-      ],
-      "match_basis": "",
-      "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125",
-      "passage_kind": "table",
-      "quality_status": "usable",
-      "query_terms": [],
-      "role": "primary_support",
-      "score": null,
-      "section_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#s95",
-      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
-      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2023 |  | 2022 |  | 2023 |  | 2022 |  |  |  |  |  |  |  |  |\n| Gross profit (loss) (GAAP) |  | $ | 96 |  |  | $ | (425) |  |  | $ | 415 |  |  | $ | 596 |  |\n| Gross Margin |  | 9.8 | % |  | (12.6) | % |  | 6.8 | % |  | 4.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment \u2013 Current Period(1)(2) |  | 17 |  |  | 573 |  |  | 24 |  |  | 620 |  |  |  |  |  |\n| Inventory valuation adjustment \u2013 Prior Periods(1)(3) |  | (29) |  |  | (38) |  |  | (450) |  |  | (38) |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit (Loss) |  | $ | 84 |  |  | $ | 110 |  |  | $ | (11) |  |  | $ | 1,178 |  |\n| Adjusted Gross Margin |  | 8.6 | % |  | 3.3 | % |  | (0.2) | % |  | 9.3 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (28) |  |  | (100) |  |  | (171) |  |  | (336) |  |  |  |  |  |\n| Holding costs on sales \u2013 Current Period(5)(6) |  | (4) |  |  | (14) |  |  | (41) |  |  | (73) |  |  |  |  |  |\n| Holding costs on sales \u2013 Prior Periods(5)(7) |  | (9) |  |  | (18) |  |  | (65) |  |  | (37) |  |  |  |  |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (22) |  |  | $ | (288) |  |  | $ | 732 |  |\n| Contribution Margin |  | 4.4 | % |  | (0.7) | % |  | (4.7) | % |  | 5.8 | % |  |  |  |  |",
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2022 |  | 2021 |  | 2022 |  | 2021 |  |  |  |  |  |  |  |  |\n| Gross (loss) profit (GAAP) |  | $ | (425) |  |  | $ | 202 |  |  | $ | 596 |  |  | $ | 458 |  |\n| Gross Margin |  | (12.6) | % |  | 8.9 | % |  | 4.7 | % |  | 10.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 573 |  |  | 31 |  |  | 620 |  |  | 32 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (38) |  |  | — |  |  | (38) |  |  | — |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit |  | $ | 110 |  |  | $ | 233 |  |  | $ | 1,178 |  |  | $ | 490 |  |\n| Adjusted Gross Margin |  | 3.3 | % |  | 10.3 | % |  | 9.3 | % |  | 11.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (100) |  |  | (52) |  |  | (336) |  |  | (96) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (14) |  |  | (7) |  |  | (73) |  |  | (19) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (18) |  |  | (5) |  |  | (37) |  |  | (2) |  |  |  |  |  |\n| Contribution (Loss) Profit |  | $ | (22) |  |  | $ | 169 |  |  | $ | 732 |  |  | $ | 373 |  |\n| Contribution Margin |  | (0.7) | % |  | 7.5 | % |  | 5.8 | % |  | 8.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Interest on homes sold – Current Period(8)(9) |  | (16) |  |  | (6) |  |  | (74) |  |  | (17) |  |  |  |  |  |\n| Interest on homes sold – Prior Periods(8)(10) |  | (18) |  |  | (4) |  |  | (35) |  |  | (1) |  |  |  |  |  |\n| Contribution (Loss) Profit After Interest |  | $ | (56) |  |  | $ | 159 |  |  | $ | 623 |  |  | $ | 355 |  |\n| Contribution Margin After Interest |  | (1.7) | % |  | 7.0 | % |  | 4.9 | % |  | 8.5 | % |  |  |  |  |",
       "unusable_reason": null
     }
   ],
@@ -712,81 +636,9 @@
       "elapsed_ms": 0.0,
       "outcome": "OK",
       "parameters": {
-        "after": 0,
-        "before": 0,
-        "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125"
-      },
-      "row_count": 1,
-      "tool": "get_passage_context",
-      "truncated": false
-    },
-    {
-      "elapsed_ms": 0.0,
-      "outcome": "OK",
-      "parameters": {
-        "after": 0,
-        "before": 0,
-        "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
-      },
-      "row_count": 1,
-      "tool": "get_passage_context",
-      "truncated": false
-    },
-    {
-      "elapsed_ms": 0.0,
-      "outcome": "OK",
-      "parameters": {
-        "after": 0,
-        "before": 0,
-        "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24"
-      },
-      "row_count": 1,
-      "tool": "get_passage_context",
-      "truncated": false
-    },
-    {
-      "elapsed_ms": 0.0,
-      "outcome": "OK",
-      "parameters": {
         "after": 1,
         "before": 1,
         "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
-      },
-      "row_count": 3,
-      "tool": "get_passage_context",
-      "truncated": false
-    },
-    {
-      "elapsed_ms": 0.0,
-      "outcome": "OK",
-      "parameters": {
-        "after": 1,
-        "before": 1,
-        "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125"
-      },
-      "row_count": 3,
-      "tool": "get_passage_context",
-      "truncated": false
-    },
-    {
-      "elapsed_ms": 0.0,
-      "outcome": "OK",
-      "parameters": {
-        "after": 1,
-        "before": 1,
-        "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
-      },
-      "row_count": 3,
-      "tool": "get_passage_context",
-      "truncated": false
-    },
-    {
-      "elapsed_ms": 0.0,
-      "outcome": "OK",
-      "parameters": {
-        "after": 1,
-        "before": 1,
-        "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24"
       },
       "row_count": 3,
       "tool": "get_passage_context",
@@ -825,26 +677,18 @@
   },
   "warnings": [
     {
-      "code": "token_budget_trimmed",
-      "detail": "\u00a710.2's 5000-token budget bound the model-visible slice; rows were dropped in the order explanatory_passages, context_passages, primary_passages, diagnostic_passages, counter_evidence, each section to its floor before the next was touched, and no drop may strand a slot the candidate anchored on",
-      "kind": "build_provenance",
-      "severity": "WARN",
-      "subject_ids": [
-        "token_budget"
-      ]
-    },
-    {
-      "code": "section_truncated",
-      "detail": "primary_passages: 7 cited, 4 carried; the passage cited by the highest-ranked surviving fact stays and the tail goes, and the facts bound to a dropped passage go with it (\u00a713.7 Rule A)",
-      "kind": "build_provenance",
+      "code": "concordant_readings_collapsed",
+      "detail": "9 further reading(s) of 2 packaged slot(s) state the same subject, metric, period, unit, currency, formula version and value as a fact already carried, and were collapsed into it rather than minted as second facts: two filings reporting one number are two sources, not two facts. Each is named on that fact's `corroborating_observation_ids`, and equivalence is `observation_equivalence.same_reading` — the single-pair tolerance test §6.1 step 2 clusters with. obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:848622be07cd -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:a9b3fa99773d -> obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:0e6ed60e2805 -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:7604e53de539 -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc, obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:816abeff1a7b -> obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
+      "kind": "claim_qualifying",
       "severity": "ANNOTATE",
       "subject_ids": [
-        "primary_passages"
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc"
       ]
     },
     {
       "code": "subject_identity_not_read_from_graph",
-      "detail": "no \u00a79 tool reads `:Entity` \u2014 `opendoor` carries 2,704 `OBSERVATION_OF_SUBJECT` edges and one hop outward is the whole graph \u2014 so `entity_text` and `labels` are the caller's and `resolved` is inferred from the observations' own `subject_entity_id`",
+      "detail": "no §9 tool reads `:Entity` — `opendoor` carries 2,704 `OBSERVATION_OF_SUBJECT` edges and one hop outward is the whole graph — so `entity_text` and `labels` are the caller's and `resolved` is inferred from the observations' own `subject_entity_id`",
       "kind": "build_provenance",
       "severity": "ANNOTATE",
       "subject_ids": [
@@ -853,14 +697,14 @@
     },
     {
       "code": "evidence_sources_absent_in_v1",
-      "detail": "`evidence_sources[]` is empty because zero `:EvidenceSource` nodes exist \u2014 all evidence edges land on a `:Passage` (\u00a713.7.2). Rule C is Unavailable, not silently satisfied",
+      "detail": "`evidence_sources[]` is empty because zero `:EvidenceSource` nodes exist — all evidence edges land on a `:Passage` (§13.7.2). Rule C is Unavailable, not silently satisfied",
       "kind": "build_provenance",
       "severity": "ADVISORY",
       "subject_ids": []
     },
     {
       "code": "relationships_unavailable_in_v1",
-      "detail": "`relationships[]` is empty because no \u00a79 tool implemented at S1 returns a relationship; `find_related_entities` is in \u00a79's table and is not one of the nine. An empty section here is a gap in the retrieval layer",
+      "detail": "`relationships[]` is empty because no §9 tool implemented at S1 returns a relationship; `find_related_entities` is in §9's table and is not one of the nine. An empty section here is a gap in the retrieval layer",
       "kind": "build_provenance",
       "severity": "ADVISORY",
       "subject_ids": []

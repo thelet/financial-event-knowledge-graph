@@ -6,7 +6,7 @@ anything — it renders. The gate still refuses, the packager still discloses, t
 still blocks; this module only says, in English, what happened.
 
 **Why this exists at all.** `story/stages/verification/codes.py:GateEntry` carries
-`{code, severity, remedy, section}` and **no description**, and the 28 packaging codes carry
+`{code, severity, remedy, section}` and **no description**, and the 30 packaging codes carry
 theirs as `#:` comments, which are not data. So a UI holding a `VerificationFinding` can render
 `metric_named_in_text_contradicts_binding`, `REFUSE` and `13.5` and still not tell a reader what
 went wrong. The missing column is the whole reason for this file.
@@ -400,7 +400,7 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
 }
 
 
-# -- §10.1's package warnings, 28 codes ---------------------------------------------------------
+# -- §10.1's package warnings, 30 codes ---------------------------------------------------------
 #
 # Derived from each code's `#:` comment in `story/stages/packaging/warning_codes.py`, which is
 # where the measurement behind it is recorded. The comments are documentation; these are data.
@@ -427,6 +427,10 @@ PACKAGE_WARNING_DESCRIPTIONS: Mapping[str, str] = {
         "definitions are being compared.",
     "single_source":
         "This figure is corroborated by exactly one filing.",
+    "concordant_readings_collapsed":
+        "Several filings report this figure identically. The package carries one row for it and "
+        "names the other readings as corroborating sources on that row, rather than repeating "
+        "the same number as though it were several facts.",
     "fact_conflict_disclosed":
         "Filings report more than one value for this slot, and the classification of that "
         "conflict travels with it.",
