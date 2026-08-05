@@ -155,10 +155,11 @@ def test_a_passage_may_carry_a_reason_once_the_finding_is_stated():
 # ---------------------------------------------------------------------------------------
 
 
-def counter_passage(basis: str) -> PackagedPassage:
+def counter_passage(basis: str,
+                    role: EvidenceRole = EvidenceRole.COUNTER_EVIDENCE) -> PackagedPassage:
     return PackagedPassage(
         passage_id="psg:counter", document_id="doc:1", text="Gross Margin (12.6)%",
-        char_count=20, role=EvidenceRole.COUNTER_EVIDENCE, match_basis=basis)
+        char_count=20, role=role, match_basis=basis)
 
 
 def test_match_basis_of_reads_the_field_and_not_the_disclosure_warnings():
@@ -191,13 +192,34 @@ def test_a_row_whose_passage_disagrees_with_it_about_the_basis_cannot_be_built()
 
     with pytest.raises(ValueError) as raised:
         counter.CounterEvidenceRow(
-            passage=counter_passage(counter.MATCH_BASIS_SAME_DOCUMENT),
-            match_basis=counter.MATCH_BASIS_SAME_PASSAGE,
+            passage=counter_passage(counter.MATCH_BASIS_VALUE_OUTSIDE_TOLERANCE),
+            match_basis=counter.MATCH_BASIS_OPPOSITE_DIRECTION,
+            grain=counter.MATCH_BASIS_SAME_DOCUMENT, role=EvidenceRole.COUNTER_EVIDENCE,
             issue_id="issue:1", code="AMBIGUOUS_ALIAS", severity="refusal", severity_rank=1,
             metric_id="gaap_gross_margin", period_key="2022Q3", row_label="Gross Margin",
             excerpt=whole("Gross Margin (12.6)%"))
 
     assert "match_basis" in str(raised.value)
+
+
+def test_a_row_calling_itself_counter_evidence_on_a_bare_association_cannot_be_built():
+    """§4 S2's rule, made unconstructible rather than merely unproduced.
+
+    *"Same-document proximity is not enough. A shared keyword is not enough."* A row whose only
+    basis is where it was found is precisely what §1 measured twenty of, and the type refuses it.
+    """
+    from story.stages.packaging.passage_excerpts import whole
+
+    with pytest.raises(ValueError) as raised:
+        counter.CounterEvidenceRow(
+            passage=counter_passage(counter.MATCH_BASIS_SAME_DOCUMENT),
+            match_basis=counter.MATCH_BASIS_SAME_DOCUMENT,
+            grain=counter.MATCH_BASIS_SAME_DOCUMENT, role=EvidenceRole.COUNTER_EVIDENCE,
+            issue_id="issue:1", code="AMBIGUOUS_ALIAS", severity="refusal", severity_rank=1,
+            metric_id="gaap_gross_margin", period_key="2022Q3", row_label="Gross Margin",
+            excerpt=whole("Gross Margin (12.6)%"))
+
+    assert "counter-evidence exactly when" in str(raised.value)
 
 
 def test_the_disclosure_warning_still_carries_the_basis_for_the_evidence_panel():
@@ -206,13 +228,15 @@ def test_the_disclosure_warning_still_carries_the_basis_for_the_evidence_panel()
     from story.stages.packaging.passage_excerpts import whole
 
     row = counter.CounterEvidenceRow(
-        passage=counter_passage(counter.MATCH_BASIS_SAME_DOCUMENT),
-        match_basis=counter.MATCH_BASIS_SAME_DOCUMENT,
-        issue_id="issue:1", code="AMBIGUOUS_ALIAS", severity="refusal", severity_rank=1,
-        metric_id="gaap_gross_margin", period_key="2022Q3", row_label="Gross Margin",
-        excerpt=whole("Gross Margin (12.6)%"))
+        passage=counter_passage(counter.MATCH_BASIS_ISSUE_CHANGES_READING),
+        match_basis=counter.MATCH_BASIS_ISSUE_CHANGES_READING,
+        grain=counter.MATCH_BASIS_SAME_DOCUMENT, role=EvidenceRole.COUNTER_EVIDENCE,
+        issue_id="issue:1", code="QUOTED_SPAN_NOT_IN_PASSAGE", severity="rejection",
+        severity_rank=0, metric_id="gaap_gross_margin", period_key="2022Q3",
+        row_label="Gross Margin", excerpt=whole("Gross Margin (12.6)%"))
 
-    assert "match_basis=same_document" in row.disclosure().detail
+    assert "match_basis=issue_changes_reading" in row.disclosure().detail
+    assert row.disclosure().code == "counter_evidence_same_document"
 
 
 # ---------------------------------------------------------------------------------------
@@ -419,23 +443,32 @@ def test_the_new_sections_are_inside_the_slice_the_token_budget_bounds():
 
 
 def test_the_package_version_moved_because_the_shape_did():
-    """`PACKAGE_VERSION` exists so two shapes can never share a `package_id`. Three sections
-    were added and four row types re-shaped; not bumping it would have kept the replay demo
-    green by breaking the one guarantee the constant makes."""
-    assert PACKAGE_VERSION == "1.1.0"
+    """`PACKAGE_VERSION` exists so two shapes can never share a `package_id`.
+
+    `1.1.0` at S1: three sections added and four row types re-shaped. `1.2.0` at S2: one more
+    section (`diagnostic_passages`) and one more field (`PackagedPassage.diagnostic_codes`). Not
+    bumping it would have kept the replay demo green by breaking the one guarantee the constant
+    makes."""
+    assert PACKAGE_VERSION == "1.2.0"
 
 
 # ---------------------------------------------------------------------------------------
-# Inertness — S1 adds shape and changes no behaviour
+# What the committed artifact says now that S2 and S3 have run
 # ---------------------------------------------------------------------------------------
 
 
-def test_the_committed_package_is_the_same_evidence_it_was_with_every_new_field_at_rest():
-    """The whole claim of this step, read off the artifact a live rebuild produced.
+def test_the_committed_package_has_been_assessed_corroborated_and_not_yet_given_ontology_facts():
+    """Read off the artifact a live rebuild produced, and it is the S1/S2/S3 boundary.
 
-    Roles are the sections' own truth, quality is unassessed because nothing assesses it yet,
-    facts are observations with no corroboration recorded, and the three ontology-fact sections
-    are empty. Any of these arriving populated would mean S1 performed S2, S3 or S4's work.
+    At S1 this test asserted the opposite of half of the below — quality `unassessed`, no
+    corroboration — because S1 added shape and changed no behaviour. S2 and S3 are what change
+    it: every passage has been through `passage_quality.assess`, and every fact names the
+    concordant sources §6.1 collapsed. What is still at rest is S4's: `fact_kind` is `observed`
+    on every row and the three ontology-fact sections are empty.
+
+    The fixture is the D4 candidate, rebuilt live on 2026-08-05: the package moved from
+    `…8e0cb0cf6655` to `…91fd3fe66619`, 5 facts and 3 primaries to 4 and 2, and its facts now
+    name corroborating sources where they named none.
     """
     import json
     from pathlib import Path
@@ -449,13 +482,18 @@ def test_the_committed_package_is_the_same_evidence_it_was_with_every_new_field_
     assert [p.role for p in package.primary_passages] == (
         [EvidenceRole.PRIMARY_SUPPORT] * len(package.primary_passages))
     for passage in (*package.primary_passages, *package.context_passages,
-                    *package.explanatory_passages, *package.counter_evidence):
-        assert passage.quality_status is PassageQuality.UNASSESSED
+                    *package.explanatory_passages, *package.counter_evidence,
+                    *package.diagnostic_passages):
+        # A passage a fact was read from is never `unassessed` any more, and none of the 150
+        # passages this corpus evidences an observation from assesses as unusable.
+        assert passage.quality_status is PassageQuality.USABLE
         assert passage.unusable_reason is None
+    assert any(fact.corroborating_observation_ids for fact in package.facts), (
+        "§1.1 counted six concordant sources per slot; a package naming none of them is the "
+        "defect S3 exists to fix")
     for fact in package.facts:
         assert fact.fact_kind is FactKind.OBSERVED
-        assert (fact.corroborating_observation_ids, fact.corroborating_passage_ids,
-                fact.corroborating_document_ids) == ((), (), ())
+        assert fact.observation_id not in fact.corroborating_observation_ids
     assert (package.semantic_facts, package.identity_facts, package.comparability_facts) == (
         (), (), ())
 
@@ -511,6 +549,6 @@ def test_a_package_built_by_the_assembler_carries_no_ontology_facts_and_still_di
     assembler = assembly.PackageAssembler(identity=identity, budget=BudgetParameters())
     package = assembler.finalize(sections, make_candidate())
 
-    assert package.package_version == "1.1.0"
+    assert package.package_version == "1.2.0"
     assert package.budget.section_counts["semantic_facts"] == 0
     assert package.package_content_digest == package_content_digest(package.digestible_payload())

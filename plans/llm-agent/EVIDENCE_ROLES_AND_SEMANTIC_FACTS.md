@@ -31,10 +31,19 @@ the planner was required to write counterpoints about carry **20 issues between 
 | `DEFERRED_REQUIRED_SOURCE_LANE` | capability limit | *"revenue requires a source lane this corpus does not contain"* |
 | `DERIVED_COMPARISON` | extraction policy | *"The 53% decrease is a period-over-period change, not a reported level"* |
 | `MISSING_PERIOD` | extraction diagnostic | *"This percentage appears in a table row without a specific period label"* |
-| `UNIT_CONTRADICTS_ONTOLOGY` | ontology guard, **other concept** | *"housing_inventory_homes is reported in homes, not 'percent'"* |
+| `UNIT_CONTRADICTS_ONTOLOGY` | ontology guard, ~~other concept~~ — **this concept** | *"housing_inventory_homes is reported in homes, not 'percent'"* |
 
 **Not one of them challenges "inventory fell from 12,788 homes to 6,261 homes."** Every one is a
-diagnostic about a *different* concept that happens to sit in the same filing.
+diagnostic about a claim the run **refused to emit**, recorded in a filing the package cites.
+
+**Corrected at S2 (2026-08-05).** The last row is not about a different concept: it carries
+`concept_ids = ['housing_inventory_homes']`, so it is about *this* metric. It still does not
+qualify, and the reason is better than the one this table gave — an `:Issue` records what the
+graph does **not** contain. This one says a `percent` reading was rejected because the ontology
+declares `homes`, and the packaged fact is in `homes`: the guard agrees with the fact it was
+filed against. `counter_evidence.classify_issue` therefore compares the *packaged fact's* unit
+with the ontology's declared unit rather than parsing the issue's prose, and the same code
+**does** qualify when the carried fact is in a unit the ontology does not declare.
 
 ### 1.1 The other half, and it is worse
 
@@ -42,8 +51,11 @@ The same query run over the observations:
 
 ```
 housing_inventory_homes 2023-03-31 → 6 observations, all 6261.0 homes, 6 different documents
-housing_inventory_homes 2022-12-31 → 6 observations, all 12788.0 homes, 6 different documents
+housing_inventory_homes 2022-12-31 → 6 observations, all 12788.0 homes, 5 different documents
 ```
+
+*(2022-12-31's document count corrected from six to **five** at S3, re-measured 2026-08-05: one
+filing contributes two of its six rows. The 2023-03-31 slot is 6 and 6 as stated.)*
 
 **Twelve concordant sources, zero disagreement.** Canonicalisation collapses each slot to one
 fact and the package carries **one** passage; the other five are discarded. One of the discarded
@@ -91,6 +103,15 @@ is rendered into both the planner and the writer prompt, which is what the gener
 keyed on. **A digest change alone would not have missed the store** — it would have fired
 §13.13's `package_content_digest_mismatch` instead, which is a rejection rather than a miss.
 Thirty tests are `xfail(strict=True)` naming S7.
+
+**Moved again at S2/S3 (2026-08-05).** The committed D4 package is now
+`pkg:…-opendoor-2022q3:91fd3fe66619`, digest
+`cca51303822e67c06df51825bc10d210c6d9ff4f657814ac94d17818217498ed`, and `PACKAGE_VERSION` is
+`1.2.0` — one more section (`diagnostic_passages`) and one more field
+(`PackagedPassage.diagnostic_codes`). `tests/story/fixtures/story_demo/evidence_package.json` was
+rebuilt live against `graph-v1-0483dc6b4b10` and is the only fixture that moved. The thirty
+strict xfails are **still xfailing**, which is what says the store key moved the way S1 measured
+rather than some other way.
 
 This is not a reason to avoid the change; it is a reason to sequence it. The re-record is one
 step (S7), it needs the live model server, and it must happen **once**, after every schema change
@@ -168,7 +189,7 @@ changed; both they and the field are written from one value at one call site, an
 `section_counts` and `prompt_slice` cover them from day one, because a section the digest does
 not cover is a section two runs can differ on silently.
 
-### S2 — Counter-evidence qualification
+### S2 — Counter-evidence qualification — **landed 2026-08-05**
 
 A passage may be `counter_evidence` **only** on deterministic evidence that it challenges *this
 story*. Same-document proximity is not enough; a shared keyword is not enough; a repeated value
@@ -194,13 +215,94 @@ accepted presentation tolerance. `6,261` / `6261` / `6.261 thousand` are equival
 `3.3%` / `3.30 percent` are equivalent; **`15.9%` and `15.9 percentage points` are not, and must
 never merge** — §13.3 exists for exactly that confusion.
 
-### S3 — Corroboration preservation
+**What landed, and the four places it is narrower or wider than the words above.**
+
+The six bases are named constants in `counter_evidence.py` beside the two that were already
+there, and the two vocabularies now mean different things: `same_passage` / `same_document` are
+the **grain** — where a row was found — and the six are the **basis** — what qualified it.
+`CounterEvidenceRow` refuses a row that calls itself counter-evidence on a bare grain, so §1's
+defect is unconstructible rather than merely unproduced.
+
+1. **Value-based bases come from the observations, not from an `:Issue`.** An issue is a record
+   of a claim the run **refused to emit**, so it carries no value that could disagree with one.
+   `value_outside_tolerance` and `opposite_direction` are produced by putting the other
+   observations of a packaged slot through `observation_equivalence.same_reading` — the same
+   function S3 uses, read the other way. Measured: **zero rows** on this run, because all 36
+   multi-valued slots collapse to one cluster under presentation tolerance (§6.1 step 2). That is
+   the corpus's answer, not a missing feature, and the tests exercise it synthetically.
+2. **An issue qualifies only at passage grain**, and only on a code that impugns the citation
+   chain of the very cell a fact was read from — the quoted span is absent, the value disagrees
+   with its quote, the period is not grounded, the passage defines rather than reports, the
+   subject is another company, or the fact's own unit is one the ontology does not declare.
+   A refusal recorded in a neighbouring table cannot contradict the cited cell, because it is
+   not about that cell and the graph holds no observation from it.
+3. **`AMBIGUOUS_ALIAS`'s exception is unreachable and the branch was not written.** `narrow` has
+   already dropped every row whose `concept_ids` share nothing with the candidate's metrics, so
+   every surviving row names this metric among its candidates — which is a declared ambiguity,
+   not a proof of incompatibility. A branch nobody can trigger is a check that is claimed and
+   not made.
+4. **The demoted rows needed somewhere to go, so §10 gained a twentieth section.**
+   `diagnostic_passages[]` holds every row `find_counter_evidence` produced that did not qualify,
+   each carrying the role it actually plays. Leaving them in `counter_evidence[]` would have kept
+   §11's planner obliged to write a counterpoint about an `AMBIGUOUS_ALIAS` refusal, which is the
+   defect; dropping them would have made the reclassification unreviewable. A row whose passage
+   the package **already carries** is not duplicated — its issue codes are stamped onto the row
+   that is there, through the new `PackagedPassage.diagnostic_codes`. On the inventory candidate
+   both of §1's two passages take that branch, so the reclassification costs the package nothing.
+   `PACKAGE_VERSION` moved to `1.2.0`; S7's single re-record covers both bumps.
+
+**No warning is emitted for a demoted row**, and that is deliberate: both `counter_evidence_*`
+codes are `CLAIM_QUALIFYING`, and `deterministic.REQUIRED_WARNING_QUALIFIERS` turns
+`counter_evidence_same_document` into a sentence the post must write. Demanding *"as reported
+elsewhere in the filing"* about an extraction diagnostic is §1's defect one layer down. The
+diagnostic travels on the row — role, `match_basis`, `diagnostic_codes` — and in
+`budget.section_ledger`, which records what the section had and what it carried.
+
+**The quality filter is `passage_quality.assess`, and its floor is a measurement.** 20 content
+characters and 3 word tokens, against a corpus whose smallest observation-evidencing passage
+carries **82 characters and 12 word tokens** (n = 150). It refuses 417 of 8,776 passages — 39
+structural, 78 short, 300 filing boilerplate — and **none of the 150 that evidence a fact**.
+Every packaged passage is now assessed, not only the counter-evidence candidates.
+
+### S3 — Corroboration preservation — **landed 2026-08-05**
 
 The five discarded sources come back. For a canonical fact with multiple concordant
 observations: keep **one canonical fact**, designate one source `primary_support` by the existing
 deterministic source-lane priority, and carry the rest as `corroborating_support` with their
 observation, passage and document ids. **Do not mint duplicate facts** unless the observations
 genuinely differ in scope.
+
+**The primary source is the one §6.1 step 5 already chose**, reached through
+`section_bounds.fact_sort_key`'s `role_rank`: representative before supporting before minority,
+and the representative is `min(scale_precision, filing_date, observation_id)`. No second lane
+priority was written, because a second one is a second authority.
+
+**Corroboration is `derive_corroboration`, and it is derived on every rebuild like
+`documents[]`.** The selection stage records every concordant source of every carried
+observation; assembly subtracts whatever `facts[]` is still carrying and turns the rest into the
+three id lists. Both halves of that were measured wrong first and are recorded rather than
+quietly fixed:
+
+* stamped **once, before the cap**, every corroboration list on the three §6.3 spikes came out
+  empty — at that point `facts[]` still held every reading the cap would later drop;
+* stamped with **no subtraction at all**, the id lists cost 487–876 prompt tokens per package and
+  pushed F1 and F3 from three primary passages to two — paying a whole 780-token table of filed
+  text to repeat, as an id, a reading the package was already carrying in full.
+
+**Measured after both fixes (2026-08-05).** The inventory candidate carries 3 facts and 3
+primaries where it carried 2 and 2, its anchors name **5 corroborating observations across 5
+documents** and **4 across 3**, and its `counter_evidence[]` is empty. F1 and F3 still give up one
+primary passage each — the row they lose is a *concordant second reading of a slot they already
+carry*, and what replaces it is the complete source list for every fact they keep.
+
+**`corroborating_support` as a passage role is used in one place**: a demoted counter-evidence row
+whose passage is also a source of a concordant observation. That is §1.1's sentence exactly — the
+shareholder letter is a corroborating source the package re-introduced as a contradiction.
+Corroborating passages are otherwise carried by id and not as passage rows, which is what §10's
+own note says (*"three id lists on the fact rather than five more rows in `facts[]`"*) and what
+the token budget allows: a second copy of a number the package already states is the least
+defensible row it could ship. `TRIM_PLAN`'s `corroborating_passages` step is therefore inert
+today and is correct for the day S6 renders them.
 
 ### S4 — Ontology as semantic facts
 
@@ -218,15 +320,36 @@ exists, carry structured identity only and mark the description unavailable. A b
 entity id, read-only Cypher and no variable-length path — and **no outward traversal from the
 2,704-edge Opendoor hub**. Broad relationship discovery is out of scope.
 
-### S5 — Warning taxonomy, trimming priority, and one new refusal
+### S5 — Warning taxonomy, trimming priority, and one new refusal — **landed 2026-08-05**
 
 Split the warning vocabulary so a diagnostic cannot read as a contradiction:
 `substantive_counter_evidence`, `fact_quality_warning`, `extraction_issue`, `retrieval_warning`,
 `capability_limitation`.
 
+**A refinement of `WarningKind`, not a third axis, and the choice is load-bearing.** `KIND_OF` is
+now *derived* from `CATEGORY_OF` through `KIND_OF_CATEGORY`, which pins each category to one
+kind. Two independent tables over one code set can disagree silently — a code filed as
+`capability_limitation` and `CLAIM_QUALIFYING` would demand a sentence about a tool V1 does not
+have — and one table that induces the other cannot. **No code's kind moved**: the same sixteen
+qualify a claim and the same thirteen record the build, asserted code by code in
+`tests/story/test_story_warning_taxonomy.py`, so the planner's `claim_qualifying_warnings` filter
+and §13's disclosure check behave exactly as they did and their tests are untouched.
+
+**The category is a table lookup, not a field on `PackagedWarning`, and that is a measurement.**
+`kind` is on the row because the *planner* reads it and a stage may not import another stage.
+Nothing has that relationship to the category — the code catalogue and the evidence panel both
+import `warning_codes` already. Carrying it anyway cost **170 prompt tokens on a full twenty-row
+`warnings[]`** *(measured 2026-08-05)*, inside the slice §10.2's budget binds, where §10.2.1's
+median passage is 536 tokens. A label the UI can look up is not worth a third of a passage.
+
 Reclassify: `subject_identity_not_read_from_graph`, `evidence_sources_absent_in_v1` and
 `relationships_unavailable_in_v1` are **capability limitations** and must not reduce the
-verification status of a post.
+verification status of a post. All three were already `BUILD_PROVENANCE`, so the reclassification
+is *within* provenance and changes no obligation: each fires on **every** package — `:Entity` is
+off `cypher.py`'s allowlist, no §9 tool returns a relationship, the corpus holds **zero**
+`:EvidenceSource` nodes — and a permanent structural absence read as a caveat about *this*
+evidence is a reader told to distrust evidence that is fine. Relabelled, never hidden: still
+constructible, still carried, still severity-ordered, still described in the catalogue.
 
 **Trimming priority.** Protected and untrimmable: candidate-anchor observed facts, required
 derived facts, metric semantic facts, subject identity facts, comparability facts, primary
@@ -234,9 +357,43 @@ supporting passages. Trimmable, in order: explanatory passages, optional context
 corroborating passages, lower-severity diagnostics, non-required relationships. Every section
 records available / carried / dropped / reason.
 
+**Implemented as `TRIM_PLAN`, a list of row *classes*, with `TRIM_ORDER` derived from it.** Two
+of the five trimmable classes are rows *inside* a section — corroborating passages inside
+`primary_passages`, and (until S2 gave them a section) diagnostics inside `counter_evidence` — so
+a list of section names could not express the order. `TrimStep` carries a role filter; the
+section list is a projection of the plan and never the other way round.
+
+Three points where the implementation is narrower than the words above, each deliberate:
+
+* **"Primary supporting passages" is enforced at row grain**, by the existing
+  `may_drop_primary` floor: a primary backing a slot the candidate anchored on is untouchable, a
+  primary backing nothing required is trimmable last. Making the whole section untrimmable would
+  have stopped `token_budget_trimmed` firing in cases where it fires today, which is exactly the
+  weakening this plan forbids.
+* **"Required derived facts" needs no second marker.** A derived fact on a required slot is
+  required by the slot rule; one on any other slot is not required at all.
+* **"Non-required relationships" is vacuous in V1.** `relationships[]` is empty on every package
+  (`relationships_unavailable_in_v1`), so no step was written for a section `PackageSections`
+  does not have.
+
 **A required semantic or anchor fact that will not fit is a package refusal, not a warning.**
 This is the one new blocking behaviour in the plan; it is the only honest answer, since a post
 written without its metric's definition is a post whose numbers have no declared meaning.
+
+Landed as `required_fact_does_not_fit`, **`REFUSE`**, raised through `packaged_warning` beside
+`package_exceeds_token_ceiling` rather than through a second refusal channel — `blocking()`
+already collects it and §13.17's gate already acts on it. It fires only from the irreducible
+state (over §10.2's 6,000-token ceiling with every trimmable class at its floor) and only when
+protected facts are present, and its `subject_ids` name them, so the rejection is dispatchable.
+
+`budget.section_ledger` is the available / carried / dropped / reason record, one row per
+section, plus `protected` and `required_dropped` — the latter **measured** from the surviving
+facts, so §4 S6's *"no required fact was dropped"* is a reading rather than a claim. `available`
+is `None` where an earlier §10.2 cap dropped rows and reported no count: *"4 of 4 available"*
+about a section that had nine is a false statement. `package_assembly.note_available` is the hook
+that makes it exact, and the **selection stage is the only place that can call it** — three call
+sites in `evidence_package.py` (`len(plans)`, `len(order)`, `len(built)`), left for S4/S6 because
+that file was being edited concurrently by S2/S3.
 
 ### S6 — Canonical role serialisation and UI
 

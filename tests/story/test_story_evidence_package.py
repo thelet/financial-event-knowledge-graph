@@ -31,6 +31,8 @@ from story.core.models import (
     PackagedFact,
     PackagedPassage,
     PackagedSubject,
+    PassageQuality,
+    PassageUnusableReason,
     RetrievalOutcome,
     RetrievalResult,
     RetrievalTraceEntry,
@@ -529,9 +531,14 @@ def test_the_trim_order_touches_only_evidence_and_never_the_provenance_the_revie
     """`retrieval_trace[]` and `warnings[]` are bounded by their own caps and are deliberately
     absent from the token trimmer: §11's third consequence requires the trace to record the
     exact terms and the truncated flag *"so a reviewer can see what the bound cut"*, and a
-    trimmer that removed that row would delete the record of its own deletion."""
-    assert TRIM_ORDER == ("explanatory_passages", "context_passages",
-                          "primary_passages", "counter_evidence")
+    trimmer that removed that row would delete the record of its own deletion.
+
+    `diagnostic_passages` joined the order at S5 with S2's section, between the corroborating
+    rows and the supporting ones — a demoted row explains a fact and evidences none, so it goes
+    before either. The three sections named below are still absent, which is the property this
+    test is actually about."""
+    assert TRIM_ORDER == ("explanatory_passages", "context_passages", "primary_passages",
+                          "diagnostic_passages", "counter_evidence")
     assert set(TRIM_ORDER) == set(TRIM_FLOOR)
     assert TRIM_FLOOR["primary_passages"] == 1
     assert TRIM_FLOOR["counter_evidence"] == 1
@@ -711,6 +718,20 @@ def issue_row(issue_id: str, passage_id: str, **overrides: Any) -> dict[str, Any
     return row
 
 
+def qualifying_issue_row(issue_id: str, passage_id: str, **overrides: Any) -> dict[str, Any]:
+    """An issue that **does** qualify as counter-evidence under §4 S2, at passage grain.
+
+    `QUOTED_SPAN_NOT_IN_PASSAGE` is one of `counter.QUALIFYING_ISSUE_CODES`: it says the span a
+    claim was read from does not occur in the passage, which changes how *any* fact bound to
+    that passage may be read whatever claim it was recorded against. `AMBIGUOUS_ALIAS` — what
+    `issue_row` produces and what §1 measured nineteen of — does not.
+    """
+    row = issue_row(issue_id, passage_id, code="QUOTED_SPAN_NOT_IN_PASSAGE",
+                    severity="rejection", severity_rank=0)
+    row.update(overrides)
+    return row
+
+
 def test_a_refusal_from_a_filing_the_package_cites_nothing_from_is_dropped_and_named():
     rows = (issue_row("issue:a", Q3_PASSAGE),
             issue_row("issue:b", "norm:0001801169:other:x.htm#p1"))
@@ -761,27 +782,39 @@ def test_two_refusals_in_one_passage_ship_as_one_row_of_evidence():
     assert dropped == ("issue:f",)
 
 
-def counter_row(basis: str, rank: int, issue_id: str,
-                passage_id: str = Q3_PASSAGE) -> counter.CounterEvidenceRow:
+def counter_row(grain: str, rank: int, issue_id: str,
+                passage_id: str = Q3_PASSAGE,
+                *,
+                basis: str = counter.MATCH_BASIS_ISSUE_CHANGES_READING,
+                role: EvidenceRole = EvidenceRole.COUNTER_EVIDENCE,
+                ) -> counter.CounterEvidenceRow:
+    """One classified row. `grain` says where it was found, `basis` says what qualified it.
+
+    Two arguments since S2, because they are two facts: before it, `match_basis` held the grain
+    and the section a row landed in was the whole of the claim about it.
+    """
     excerpt = passage_excerpts.window(TABLE_TEXT, needles=("Gross Margin",))
     return counter.CounterEvidenceRow(
-        passage=_packaged(passage_id, excerpt, basis), match_basis=basis, issue_id=issue_id,
-        code="AMBIGUOUS_ALIAS", severity="refusal", severity_rank=rank,
+        passage=_packaged(passage_id, excerpt, basis, role), match_basis=basis, grain=grain,
+        role=role, issue_id=issue_id,
+        code="QUOTED_SPAN_NOT_IN_PASSAGE", severity="refusal", severity_rank=rank,
         metric_id="gaap_gross_margin", period_key="2022Q3", row_label="Gross Margin",
         excerpt=excerpt)
 
 
 def _packaged(passage_id: str, excerpt: passage_excerpts.Excerpt,
-              match_basis: str = "") -> PackagedPassage:
-    """The passage a `CounterEvidenceRow` wraps, carrying the same basis the row does.
+              match_basis: str = "",
+              role: EvidenceRole = EvidenceRole.COUNTER_EVIDENCE) -> PackagedPassage:
+    """The passage a `CounterEvidenceRow` wraps, carrying the same basis and role the row does.
 
-    `CounterEvidenceRow.__post_init__` refuses a row whose passage disagrees with it, so the
-    basis has to be threaded here rather than defaulted — which is the point of the guard.
+    `CounterEvidenceRow.__post_init__` refuses a row whose passage disagrees with it about
+    either, so both have to be threaded here rather than defaulted — which is the point of the
+    guard.
     """
     return PackagedPassage(
         passage_id=passage_id, document_id=passage_id.rsplit("#p", 1)[0], text=excerpt.text,
         char_count=len(TABLE_TEXT), char_start=excerpt.char_start, char_end=excerpt.char_end,
-        excerpted=excerpt.excerpted, role=EvidenceRole.COUNTER_EVIDENCE,
+        excerpted=excerpt.excerpted, role=role,
         match_basis=match_basis)
 
 
@@ -795,16 +828,36 @@ def test_counter_evidence_is_ordered_passage_grain_first_then_most_severe():
         "issue:refusal-here", "issue:rejection-elsewhere"]
 
 
+def test_a_reading_that_disagrees_about_the_number_outranks_every_issue():
+    """S2's first qualifying basis leads the section, because it is the only counter-evidence in
+    this package that rests on a value rather than on a record of a claim nobody emitted."""
+    excerpt = passage_excerpts.window(TABLE_TEXT, needles=("Gross Margin",))
+    value_row = counter.CounterEvidenceRow(
+        passage=_packaged(Q3_PASSAGE, excerpt, counter.MATCH_BASIS_VALUE_OUTSIDE_TOLERANCE),
+        match_basis=counter.MATCH_BASIS_VALUE_OUTSIDE_TOLERANCE,
+        grain=counter.MATCH_BASIS_SAME_DOCUMENT, role=EvidenceRole.COUNTER_EVIDENCE,
+        metric_id="gaap_gross_margin", period_key="2022Q3", excerpt=excerpt)
+    ordered = sorted(
+        (counter_row(counter.MATCH_BASIS_SAME_PASSAGE, 0, "issue:a"), value_row),
+        key=lambda item: item.sort_key)
+
+    assert ordered[0] is value_row
+    assert "a second reading of this slot" in value_row.disclosure().detail
+
+
 def test_a_document_grain_association_is_never_presented_as_a_direct_contradiction():
     """§13.14 is waiting for a draft that reads a neighbouring table's refusal as a
     contradiction of the cited cell. The disclosure says which it is, in the ANNOTATE row the
     evidence panel renders beside the claim."""
     disclosure = counter_row(
-        counter.MATCH_BASIS_SAME_DOCUMENT, 1, "issue:g").disclosure()
+        counter.MATCH_BASIS_SAME_DOCUMENT, 1, "issue:g",
+        basis=counter.MATCH_BASIS_VALUE_OUTSIDE_TOLERANCE).disclosure()
 
     assert disclosure.code == codes.COUNTER_EVIDENCE_SAME_DOCUMENT
     assert disclosure.severity is Severity.ANNOTATE
-    assert "match_basis=same_document" in disclosure.detail
+    # The code and the "which grain" sentence come from the grain; `match_basis=` now names what
+    # qualified the row, which since S2 is a different fact from where it was found.
+    assert "match_basis=value_outside_tolerance" in disclosure.detail
     assert "not a contradiction of the cited cell" in disclosure.detail
 
 
@@ -1076,19 +1129,47 @@ def test_an_explanatory_passage_is_excerpted_and_carries_the_terms_that_found_it
 # -- ruling 4: counter-evidence match basis --------------------------------------------------
 
 
-def test_every_counter_evidence_row_in_a_package_carries_a_readable_match_basis(registry):
+def test_a_neighbouring_tables_refusal_is_a_diagnostic_and_not_a_counterpoint(registry):
+    """§4 S2, end to end: *"same-document proximity is not enough."*
+
+    Before S2 this row was `counter_evidence[]` and §11's planner was obliged to write a
+    counterpoint about it. It is an `AMBIGUOUS_ALIAS` refusal in a table the package cites
+    nothing from, which is §1's measured case; it keeps its text, its issue code and its grain,
+    and it is labelled for what it is.
+    """
     other_passage = f"{Q3_DOCUMENT}#p120"
     retriever = make_retriever(
         counter_rows={("gaap_gross_margin", "2022Q3"): (issue_row("issue:h", other_passage),)})
     retriever.passages = {**retriever.passages,
-                          other_passage: passage_row(other_passage, text="L" * 3000)}
+                          other_passage: passage_row(other_passage, text=TABLE_TEXT)}
+    package = build_package(registry, retriever,
+                            budget=BudgetParameters(max_total_tokens=6000))
+
+    assert package.counter_evidence == ()
+    assert match_basis_of(package) == {}
+    [diagnostic] = package.diagnostic_passages
+    assert diagnostic.passage_id == other_passage
+    assert diagnostic.role is EvidenceRole.WARNING_ONLY
+    assert diagnostic.match_basis == counter.MATCH_BASIS_SAME_DOCUMENT
+    assert diagnostic.diagnostic_codes == ("AMBIGUOUS_ALIAS",)
+    assert diagnostic.excerpted is True
+    # And it demands no sentence of the post: both `counter_evidence_*` codes are
+    # CLAIM_QUALIFYING, so a disclosure here would put §13's disclosure rule behind a diagnostic.
+    assert not [w for w in package.warnings if w.code in counter.CODE_BASIS]
+
+
+def test_every_counter_evidence_row_in_a_package_carries_a_readable_match_basis(registry):
+    """A row that *does* qualify still reaches the planner, and still says how it was matched."""
+    retriever = make_retriever(
+        counter_rows={("gaap_gross_margin", "2022Q3"):
+                      (qualifying_issue_row("issue:h", Q3_PASSAGE),)})
     package = build_package(registry, retriever,
                             budget=BudgetParameters(max_total_tokens=6000))
 
     assert len(package.counter_evidence) == 1
-    basis = match_basis_of(package)
-    assert basis == {other_passage: counter.MATCH_BASIS_SAME_DOCUMENT}
-    assert package.counter_evidence[0].excerpted is True
+    assert match_basis_of(package) == {
+        Q3_PASSAGE: counter.MATCH_BASIS_ISSUE_CHANGES_READING}
+    assert package.counter_evidence[0].role is EvidenceRole.COUNTER_EVIDENCE
 
 
 def test_a_refusal_in_a_passage_a_fact_cites_is_carried_whole_so_rule_a_cannot_read_a_fragment(
@@ -1097,11 +1178,13 @@ def test_a_refusal_in_a_passage_a_fact_cites_is_carried_whole_so_rule_a_cannot_r
     consumer indexing by id run §13.7's column check against an excerpt. Carried whole, the two
     rows are byte-identical and the ambiguity does not exist."""
     retriever = make_retriever(
-        counter_rows={("gaap_gross_margin", "2022Q3"): (issue_row("issue:i", Q3_PASSAGE),)})
+        counter_rows={("gaap_gross_margin", "2022Q3"):
+                      (qualifying_issue_row("issue:i", Q3_PASSAGE),)})
     package = build_package(registry, retriever,
                             budget=BudgetParameters(max_total_tokens=6000))
 
-    assert match_basis_of(package) == {Q3_PASSAGE: counter.MATCH_BASIS_SAME_PASSAGE}
+    assert match_basis_of(package) == {
+        Q3_PASSAGE: counter.MATCH_BASIS_ISSUE_CHANGES_READING}
     primary = next(p for p in package.primary_passages if p.passage_id == Q3_PASSAGE)
     assert package.counter_evidence[0].text == primary.text
     assert package.counter_evidence[0].excerpted is False
@@ -1111,18 +1194,149 @@ def test_a_disclosure_for_a_counter_evidence_row_the_trim_removed_is_removed_wit
     """A warning naming a `passage_id` the package no longer carries is worse than no warning:
     it spends one of the twenty slots on an id nobody can resolve."""
     rows = tuple(
-        issue_row(f"issue:{n}", f"{Q3_DOCUMENT}#p{400 + n}", severity_rank=n)
-        for n in range(3))
+        qualifying_issue_row(f"issue:{n}", passage_id)
+        for n, passage_id in enumerate((Q3_PASSAGE, Q2_PASSAGE, f"{Q2_DOCUMENT}#p134")))
     retriever = make_retriever(counter_rows={("gaap_gross_margin", "2022Q3"): rows})
-    retriever.passages = {
-        **retriever.passages,
-        **{row["passage_id"]: passage_row(row["passage_id"], text="M" * 4000) for row in rows},
-    }
     package = build_package(registry, retriever, budget=BudgetParameters(max_total_tokens=1))
 
     assert len(package.counter_evidence) == TRIM_FLOOR["counter_evidence"]
     assert set(match_basis_of(package)) == {
         passage.passage_id for passage in package.counter_evidence}
+
+
+# -- §4 S2 and S3, end to end through the builder ---------------------------------------------
+
+#: A second filing reporting the same 2022Q3 margin. §1.1's measurement is that this is the
+#: ordinary case and the package used to throw it away: `housing_inventory_homes` 2023-03-31 has
+#: six such sources and §10 carried one.
+OTHER_DOCUMENT = "norm:0001801169:0001801169-22-000109:q32022formxex991earningsre.htm"
+OTHER_PASSAGE = f"{OTHER_DOCUMENT}#p20"
+
+
+def two_document_records(other_value: float = -12.6, **overrides: Any
+                         ) -> tuple[ObservationRecord, ...]:
+    """One 2022Q3 slot reported by two filings, printed differently, plus the 2022Q2 anchor."""
+    return (
+        observation("obs:ggm:2022Q3:a", "2022Q3", -12.6, Q3_PASSAGE, quoted_text="(12.6)%"),
+        observation("obs:ggm:2022Q3:b", "2022Q3", other_value, OTHER_PASSAGE,
+                    scale=None, quoted_text="(12.60) percent", **overrides),
+        observation("obs:ggm:2022Q2:a", "2022Q2", 11.6, Q2_PASSAGE),
+    )
+
+
+def two_document_retriever() -> ScriptedRetriever:
+    retriever = make_retriever()
+    retriever.passages = {**retriever.passages, OTHER_PASSAGE: passage_row(OTHER_PASSAGE)}
+    retriever.evidence = {
+        **retriever.evidence,
+        "obs:ggm:2022Q3:b": evidence_row("obs:ggm:2022Q3:b", OTHER_PASSAGE, "(12.60)"),
+    }
+    return retriever
+
+
+def test_a_concordant_second_filing_is_recorded_as_a_source_and_never_as_a_contradiction(
+        registry):
+    """§4 S3, and §1.1's defect in the smallest package that can hold it.
+
+    Two filings report `(12.6)%` for 2022Q3, one printing `(12.6)%` at `units` scale and the
+    other `(12.60) percent` with no scale at all. The cap carries one; before S3 the other was
+    simply gone, and the same passage could then re-enter the package as counter-evidence
+    because an issue happened to sit in its filing. It is now a corroborating source, recorded
+    by observation, passage and document id on the fact it corroborates.
+    """
+    package = build_package(
+        registry, two_document_retriever(), records=two_document_records(),
+        budget=BudgetParameters(max_facts=2, max_total_tokens=6000))
+
+    carried = {fact.observation_id: fact for fact in package.facts}
+    assert set(carried) == {"obs:ggm:2022Q3:a", "obs:ggm:2022Q2:a"}
+    q3 = carried["obs:ggm:2022Q3:a"]
+    assert q3.corroborating_observation_ids == ("obs:ggm:2022Q3:b",)
+    assert q3.corroborating_passage_ids == (OTHER_PASSAGE,)
+    assert q3.corroborating_document_ids == (OTHER_DOCUMENT,)
+    # One primary source, and the second source is not a second fact, not a duplicate passage
+    # and not a counterpoint.
+    assert [p.role for p in package.primary_passages] == (
+        [EvidenceRole.PRIMARY_SUPPORT] * len(package.primary_passages))
+    assert OTHER_PASSAGE not in {p.passage_id for p in package.primary_passages}
+    assert package.counter_evidence == ()
+    assert package.diagnostic_passages == ()
+
+
+def test_a_source_the_package_still_carries_as_a_fact_is_not_also_claimed_as_corroboration(
+        registry):
+    """The subtraction `derive_corroboration` makes, and why it is derived after the trim.
+
+    With room for both readings, `facts[]` carries both — each with its own passage, which is
+    strictly more than an id. Listing each as the other's corroborator would have two rows claim
+    one another as their own second source and would let a reader counting documents count one
+    twice.
+    """
+    package = build_package(
+        registry, two_document_retriever(), records=two_document_records(),
+        budget=BudgetParameters(max_facts=12, max_total_tokens=6000))
+
+    assert {fact.observation_id for fact in package.facts} >= {
+        "obs:ggm:2022Q3:a", "obs:ggm:2022Q3:b"}
+    assert all(fact.corroborating_observation_ids == () for fact in package.facts)
+
+
+def test_a_second_filing_that_disagrees_about_the_number_is_counter_evidence(registry):
+    """S2's first qualifying basis, and the only counter-evidence in this package that rests on
+    a value. Measured on `graph-v1-0483dc6b4b10` it fires on **nothing** — all 36 multi-valued
+    slots collapse to one cluster under presentation tolerance — so it is exercised here."""
+    package = build_package(
+        registry, two_document_retriever(), records=two_document_records(other_value=40.0),
+        budget=BudgetParameters(max_facts=2, max_total_tokens=6000))
+
+    [row] = package.counter_evidence
+    assert row.passage_id == OTHER_PASSAGE
+    assert row.role is EvidenceRole.COUNTER_EVIDENCE
+    assert row.match_basis == counter.MATCH_BASIS_OPPOSITE_DIRECTION
+    assert match_basis_of(package) == {OTHER_PASSAGE: counter.MATCH_BASIS_OPPOSITE_DIRECTION}
+    assert not any(fact.corroborating_observation_ids for fact in package.facts)
+
+
+def test_a_reading_in_a_different_unit_is_never_merged_into_the_fact_it_sits_beside(registry):
+    """False corroboration, from the builder rather than from the predicate: `percentage_points`
+    and `percent` are numerically equal and are different quantities (§13.3)."""
+    package = build_package(
+        registry, two_document_retriever(),
+        records=two_document_records(unit="percentage_points"),
+        budget=BudgetParameters(max_facts=2, max_total_tokens=6000))
+
+    assert not any(fact.corroborating_observation_ids for fact in package.facts)
+    assert [row.match_basis for row in package.counter_evidence] == [
+        counter.MATCH_BASIS_INCOMPATIBLE_SEMANTICS]
+
+
+@pytest.mark.parametrize("text,reason", [
+    ("|  |  |  |\n| --- | --- | --- |", PassageUnusableReason.EMPTY_OR_STRUCTURAL_ONLY),
+    ("   \n\n  \t ", PassageUnusableReason.EMPTY_OR_STRUCTURAL_ONLY),
+    ("____________________", PassageUnusableReason.EMPTY_OR_STRUCTURAL_ONLY),
+    ("(In millions)\n\n(Unaudited)", PassageUnusableReason.NO_RELEVANT_PROPOSITION),
+])
+def test_a_passage_with_nothing_in_it_never_becomes_a_counterpoint_and_carries_a_typed_reason(
+        registry, text, reason):
+    """§4 S2's quality filter, before any role is assigned. A pipe-only table promoted to
+    `counter_evidence[]` obliges §11's planner to write a counterpoint about nothing — the
+    vacuous counterpoint §11's own correction exists to stop — and gives the writer nothing to
+    write. It is kept, with the finding that says why."""
+    empty_passage = f"{Q3_DOCUMENT}#p500"
+    retriever = make_retriever(
+        counter_rows={("gaap_gross_margin", "2022Q3"): (
+            qualifying_issue_row("issue:empty", empty_passage),)})
+    retriever.passages = {**retriever.passages,
+                          empty_passage: passage_row(empty_passage, text=text)}
+    package = build_package(registry, retriever,
+                            budget=BudgetParameters(max_total_tokens=6000))
+
+    assert package.counter_evidence == ()
+    [diagnostic] = package.diagnostic_passages
+    assert diagnostic.passage_id == empty_passage
+    assert diagnostic.role is EvidenceRole.UNUSABLE
+    assert diagnostic.quality_status is PassageQuality.UNUSABLE
+    assert diagnostic.unusable_reason is reason
 
 
 def test_counter_evidence_that_had_nowhere_to_look_is_unavailable_and_not_an_empty_ok(registry):
@@ -1558,6 +1772,25 @@ def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget
     | F2    |  4,873 |    6,159 |         4 |       0 |     4 |
     | F3    |  4,265 |    5,511 |         3 |       0 |     5 |
 
+    **Re-measured at S2/S3 (2026-08-05), and two of the three moved.** §4 S3's corroboration
+    lists cost 200–290 tokens per fact, and F1 and F3 paid for them with a primary passage:
+
+    | spike | prompt | artifact | primaries | facts | corroborating observations |
+    |-------|-------:|---------:|----------:|------:|---------------------------:|
+    | F1    |  3,732 |    5,650 |         2 |     2 |                       6, 5 |
+    | F2    |  4,730 |    6,644 |         3 |     3 |                    4, 6, 4 |
+    | F3    |  4,250 |    6,119 |         2 |     4 |                 2, 5, 2, 5 |
+
+    **The trade is a duplicate passage for a complete source list, and it is the right way
+    round.** The `facts[]` rows F1 and F3 gave up were *concordant second readings of a slot
+    they already carried* — the same number, from another filing, costing a whole 780-token
+    table to say it a second time. What replaced them is the full set of concordant sources for
+    every carried fact, by id: F1's two anchors now name **eleven** corroborating observations
+    across seven documents where before the package named none, and §1.1's *"the
+    best-corroborated fact in the candidate is presented as thinly sourced"* is what that
+    measures against. `derive_corroboration` is what stops the package paying twice: a reading
+    that is still in `facts[]` is not listed as corroboration for another.
+
     Before the split all three shipped **two** primaries and 2–4 facts at 4,206–4,544 artifact
     tokens, because `retrieval_trace` (1,042–1,084) and `budget` (190) were charged to a budget
     no model spends them on. F2's artifact is now *over* the 6,000 ceiling and that is correct:
@@ -1584,10 +1817,20 @@ def test_live_the_three_spike_packages_are_inside_the_five_thousand_token_budget
     assert all(estimate > 3000 for estimate in prompt.values()), prompt
     assert all(artifact[name] - prompt[name] > 1000 for name in SPIKE_IDS), (artifact, prompt)
     assert all("token_budget" in packages[name].budget.caps_hit for name in SPIKE_IDS)
-    assert all(len(packages[name].primary_passages) >= 3 for name in SPIKE_IDS), {
+    assert all(len(packages[name].primary_passages) >= 2 for name in SPIKE_IDS), {
         name: len(packages[name].primary_passages) for name in SPIKE_IDS}
-    assert all(len(packages[name].facts) >= 3 for name in SPIKE_IDS), {
+    assert all(len(packages[name].facts) >= 2 for name in SPIKE_IDS), {
         name: len(packages[name].facts) for name in SPIKE_IDS}
+    # Every anchor slot still has a fact — that floor is what the passage count is allowed to
+    # move under, and it is the thing the band above would otherwise stop protecting.
+    for name, candidate_id in SPIKE_IDS.items():
+        candidate = live_packages["candidates"][candidate_id]
+        slots = {(fact.metric_id, fact.period_key) for fact in packages[name].facts}
+        assert set(candidate.metric_ids) <= {metric for metric, _period in slots}, name
+    assert all(sum(len(fact.corroborating_observation_ids)
+                   for fact in packages[name].facts) >= 4 for name in SPIKE_IDS), {
+        name: [len(f.corroborating_observation_ids) for f in packages[name].facts]
+        for name in SPIKE_IDS}
     assert packages["counter"].budget.prompt_token_estimate <= MAX_TOTAL_TOKENS_CEILING
 
 
@@ -1622,21 +1865,38 @@ def test_live_rebuilding_a_spike_package_reproduces_its_digest(live_packages):  
 
 
 @pytest.mark.neo4j
-def test_live_counter_evidence_carries_a_match_basis_on_every_row(live_packages):  # type: ignore[no-untyped-def]
-    """Measured live 2026-08-04: passage-grain joins return **zero** rows for `adjusted_ebitda`,
-    `gaap_gross_margin` and `adjusted_gross_margin` at 2022Q3 — the refusals sit in neighbouring
-    tables of the same filing — and `contribution_margin` 2022Q3 returns 9 at document grain."""
-    package = live_packages["packages"]["counter"]
+def test_live_not_one_of_the_run_s_issues_qualifies_as_counter_evidence(live_packages):  # type: ignore[no-untyped-def]
+    """§4 S2's answer for this corpus, measured rather than asserted.
 
-    assert package.counter_evidence
-    basis = match_basis_of(package)
-    assert set(basis) == {row.passage_id for row in package.counter_evidence}
-    assert set(basis.values()) <= {counter.MATCH_BASIS_SAME_DOCUMENT,
-                                   counter.MATCH_BASIS_SAME_PASSAGE}
-    for passage_id, value in basis.items():
-        disclosure = next(w for w in package.warnings
-                          if passage_id in w.subject_ids and w.code in counter.CODE_BASIS)
-        assert f"match_basis={value}" in disclosure.detail
+    Measured live 2026-08-04: passage-grain joins return **zero** rows for `adjusted_ebitda`,
+    `gaap_gross_margin` and `adjusted_gross_margin` at 2022Q3 — the refusals sit in neighbouring
+    tables of the same filing — and `contribution_margin` 2022Q3 returns 9 at document grain.
+
+    Re-measured at S2 (2026-08-05): **none of the nine qualifies.** Every one is an
+    `AMBIGUOUS_ALIAS` or `DEFERRED_REQUIRED_SOURCE_LANE` refusal — a record of a claim the run
+    declined to emit — and §4 S2's six bases all ask whether the passage challenges *this*
+    story. `counter_evidence[]` is therefore empty on all four packages, which is §1's
+    conclusion turned into the package's own answer, and the rows are all still there: three are
+    carried as diagnostics and two are stamped onto the primary passages they sit in.
+
+    **This test is the one that would notice a real contradiction going missing**, so it asserts
+    the census rather than the emptiness: the rows exist, they are accounted for, and every one
+    of them is reachable.
+    """
+    package = live_packages["packages"]["counter"]
+    ledger = {entry.section: entry for entry in package.budget.section_ledger}
+
+    assert package.counter_evidence == ()
+    assert match_basis_of(package) == {}
+    # Nothing was silently dropped: every association is either a diagnostic row, a code stamped
+    # on a passage the package already carries, or a ledger entry saying it did not fit.
+    assert ledger["diagnostic_passages"].available == 3
+    assert sum(1 for p in package.primary_passages if p.diagnostic_codes) == 2
+    for passage in package.diagnostic_passages:
+        assert passage.role in (EvidenceRole.WARNING_ONLY, EvidenceRole.UNUSABLE,
+                                EvidenceRole.CORROBORATING_SUPPORT)
+        assert passage.diagnostic_codes
+        assert passage.match_basis in counter.ASSOCIATION_BASES
 
     for name in SPIKE_IDS:
         assert live_packages["packages"][name].counter_evidence == ()

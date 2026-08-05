@@ -40,10 +40,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from story.core.models import Severity, WarningKind
+from story.core.models import Severity, WarningCategory, WarningKind
 from story.stages.freshness.freshness_report import RefusalCode
 from story.stages.generation import planner, writer
-from story.stages.packaging.warning_codes import KIND_OF, SEVERITY_OF
+from story.stages.packaging.warning_codes import CATEGORY_OF, KIND_OF, SEVERITY_OF
 from story.stages.verification.codes import GATE
 
 #: The five vocabularies a demo reader can meet, named for the stage that raises them. The
@@ -93,10 +93,16 @@ FAMILY_DESCRIPTIONS: Mapping[str, str] = {
 class CodeExplanation:
     """One code, ready to render: what it means, and everything the real tables say about it.
 
-    `severity`, `remedy`, `section`, `warning_kind` and `blocking` are read from the declaring
-    stage and never restated here, so the only thing this module owns is `description`. A field
-    the family does not declare is the empty string rather than a plausible default: the planner
-    and the writer declare no severity, and printing one would invent a gate they do not have.
+    `severity`, `remedy`, `section`, `warning_kind`, `warning_category` and `blocking` are read
+    from the declaring stage and never restated here, so the only thing this module owns is
+    `description`. A field the family does not declare is the empty string rather than a
+    plausible default: the planner and the writer declare no severity, and printing one would
+    invent a gate they do not have.
+
+    `warning_category` is §4 S5's finer split and is what lets a panel say *"a limit of this
+    version"* rather than *"a warning"* about the three codes that fire on every package because
+    V1 has no tool for them. Read from `CATEGORY_OF` for the same reason as the rest — a second
+    copy of a classification is a classification that can disagree with itself.
     """
 
     code: str
@@ -106,6 +112,7 @@ class CodeExplanation:
     remedy: str = ""
     section: str = ""
     warning_kind: str = ""
+    warning_category: str = ""
     blocking: bool = False
 
     def as_dict(self) -> dict[str, object]:
@@ -118,6 +125,7 @@ class CodeExplanation:
             "remedy": self.remedy,
             "section": self.section,
             "warning_kind": self.warning_kind,
+            "warning_category": self.warning_category,
             "blocking": self.blocking,
         }
 
@@ -476,6 +484,10 @@ PACKAGE_WARNING_DESCRIPTIONS: Mapping[str, str] = {
     "candidate_warning":
         "The detector that found this story recorded a caveat about it, carried through so the "
         "planner sees what the detector already knew.",
+    "required_fact_does_not_fit":
+        "A fact the package may never drop — one of the story's anchor readings, or one of the "
+        "ontology's definitions of what its numbers mean — does not fit in the model's context, "
+        "so the package refuses rather than sending numbers with their meaning trimmed away.",
 }
 
 
@@ -630,9 +642,11 @@ def _explanation(family: str, code: str, description: str) -> CodeExplanation:
     if family == FAMILY_PACKAGE_WARNING:
         severity: Severity = SEVERITY_OF[code]
         kind: WarningKind = KIND_OF[code]
+        category: WarningCategory = CATEGORY_OF[code]
         return CodeExplanation(
             code=code, family=family, description=description, severity=severity.value,
-            section="10.1", warning_kind=kind.value, blocking=severity is Severity.REFUSE)
+            section="10.1", warning_kind=kind.value, warning_category=category.value,
+            blocking=severity is Severity.REFUSE)
     if family == FAMILY_FRESHNESS:
         # Every freshness code is a refusal by construction — `FreshnessReport.passed` is false
         # if any check carries one — so `blocking` is true and there is no severity table to

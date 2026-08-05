@@ -74,11 +74,13 @@ from story.core.models import (
     PackagedMetric,
     PackagedPassage,
     PackagedSubject,
+    PassageQuality,
     RetrievalOutcome,
     RetrievalResult,
     StoryCandidate,
     StoryEvidencePackage,
 )
+from story.core.observation_equivalence import same_reading
 from story.core.series import (
     CanonicalPoint,
     CanonicalStatus,
@@ -92,6 +94,7 @@ from story.core.series import (
 import story.stages.packaging.counter_evidence as counter
 import story.stages.packaging.package_assembly as assembly
 import story.stages.packaging.passage_excerpts as passage_excerpts
+import story.stages.packaging.passage_quality as passage_quality
 import story.stages.packaging.query_terms as query_terms
 import story.stages.packaging.section_bounds as section_bounds
 import story.stages.packaging.warning_codes as codes
@@ -416,6 +419,13 @@ class BoundedEvidencePackageBuilder:
                        f"{len({plan.slot for plan in plans})} slots so every slot is represented "
                        "before any slot is represented twice; the drop took the tail"))
         sections.facts = kept
+        # The concordant sources of every carried fact, in full. Which of them are *discarded*
+        # — and so which belong on the fact's corroboration lists — depends on what survives the
+        # trim, so the subtraction is `package_assembly.derive_corroboration`'s and is redone on
+        # every rebuild, exactly as `documents[]` is.
+        for fact in kept:
+            sections.corroboration[fact.observation_id] = self._corroboration(
+                self._by_observation[fact.observation_id])
 
     def _packaged_fact(self, plan: _FactPlan, evidence: Mapping[str, Any]) -> PackagedFact:
         """One observation, merged from the caller's record and its `EVIDENCED_BY` edge.
@@ -437,6 +447,9 @@ class BoundedEvidencePackageBuilder:
         `homes_sold_recognition_point` *(counted live)*, and those are the only two metrics in
         the ontology whose observations were stamped at all.
         """
+        # The three `corroborating_*` lists are left empty here and filled by `_add_facts` once
+        # the cap has run: corroboration names what the package discarded, and until `facts[]`
+        # is final nothing knows what that is.
         record = plan.record
         return PackagedFact(
             observation_id=record.observation_id,
@@ -474,6 +487,54 @@ class BoundedEvidencePackageBuilder:
     def _ambiguity_codes(self, record: ObservationRecord) -> tuple[str, ...]:
         declared = tuple(a.code for a in self._ambiguities(record.metric_id))
         return tuple(sorted(set(record.ambiguity_codes) | set(declared)))
+
+    def _corroboration(
+        self, record: ObservationRecord
+    ) -> tuple[tuple[str, str, str], ...]:
+        """§4 S3 — the concordant sources canonicalisation collapsed, recorded rather than lost.
+
+        **The measurement this exists for.** `housing_inventory_homes` 2023-03-31 holds six
+        observations, all `6261.0 homes`, in six different documents; 2022-12-31 holds six, all
+        `12788.0`, in **five** *(re-measured 2026-08-05; §1.1 says six documents for both slots
+        and the second slot's count is five — one filing contributes two rows)*. §6.1 keeps one
+        and §10 carried one passage, so the best-corroborated fact in the candidate arrived
+        looking thinly sourced.
+
+        **One canonical fact, and the primary source is the one §6.1 step 5 already chose.**
+        There is no second source-lane priority here: `_select_facts` ranks by
+        `section_bounds.fact_sort_key`, whose `role_rank` puts the slot's *representative* ahead
+        of its supporting and minority readings, and the representative is
+        `min(scale_precision, filing_date, observation_id)` — the most precisely printed reading
+        of the earliest filing. Whatever that ordering carries is `primary_support`; every other
+        concordant reading is recorded here by id. Minting a second `facts[]` row instead would
+        give §13 two things to verify where the corpus has one.
+
+        Concordance is `observation_equivalence.same_reading`, which is the same single-pair
+        tolerance test `canonicalization._cluster` uses, so a source recorded here is a source
+        §6.1 put in the same cluster. Quarantined readings are excluded (`_comparable_peers`):
+        a flattened-table read is not a second source, it is a defective one.
+
+        **This returns every concordant peer, and the subtraction happens later.** §10.2's
+        round-robin can legitimately deal a second concordant reading of one slot into `facts[]`
+        once every slot is represented, and that observation was not discarded — it is in the
+        package with its own passage, which is strictly more than an id. Listing it here as well
+        would have each of two rows claim the other as its own second source and would spend
+        §10.2's budget twice on one thing. Which peers survive is only known after the trim, so
+        `package_assembly.derive_corroboration` does the subtraction on every rebuild.
+        """
+        authority = self._resolved_authority()
+        return tuple(sorted(
+            (peer.observation_id, peer.passage_id or "", peer.document_id or "")
+            for peer in self._comparable_peers(record)
+            if same_reading(record, peer, authority=authority)))
+
+    def _declared_unit(self, metric_id: str) -> str | None:
+        """The ontology's unit for a metric, which is what makes `UNIT_CONTRADICTS_ONTOLOGY`
+        decidable without parsing the issue's prose. C4: the unit is the ontology's, never the
+        `:Metric` node's."""
+        definition = self._resolved_registry().find(metric_id)
+        unit = getattr(definition, "unit", None)
+        return str(unit) if unit else None
 
     # -- passages -------------------------------------------------------------------------
 
@@ -663,16 +724,46 @@ class BoundedEvidencePackageBuilder:
         candidate: StoryCandidate,
         request: EvidenceRequest,
     ) -> None:
-        """§10's `counter_evidence[]`, at document grain, with the grain on every row.
+        """§10's `counter_evidence[]` — **and only what qualifies as counter-evidence** (§4 S2).
 
         One `find_counter_evidence` call per `(metric, period)` the candidate anchored on —
         which is the period narrowing, since the rows carry no period of their own — then
-        `counter.narrow`, then a ±400 window centred on the refused row label.
+        `counter.narrow`, then a ±400 window centred on the refused row label. Everything up to
+        here is unchanged.
+
+        **What S2 changed is what the rows are then allowed to be called.** The join is still at
+        document grain and every row still says so, but the grain is now the row's *provenance*
+        rather than its *claim*: `counter.classify_issue` decides the role, and only a row that
+        qualifies on one of the six named bases reaches `counter_evidence[]`. The rest go to
+        `diagnostic_passages[]` with their text, their issue codes and the role they actually
+        play, so the reclassification is reviewable and nothing is silently discarded.
+
+        Two things happen before any classification:
+
+        1. **`_divergent_reading_rows` runs first.** A second reading of a slot the package
+           anchors on is the only counter-evidence here that rests on a *value*, and it is what
+           `EvidenceRole.COUNTER_EVIDENCE` is for. Measured on this run it produces nothing —
+           all 36 multi-valued slots collapse to one cluster under presentation tolerance (§6.1
+           step 2) — which is the correct answer and not a missing feature.
+        2. **The quality filter.** §4 S2: *"Near-empty passages never become counter-evidence."*
+           A pipe-only table promoted to a counterpoint obliges §11's planner to write about
+           nothing.
         """
         cited_documents = sorted({fact.document_id for fact in sections.facts if fact.document_id})
         cited_passages = sorted({fact.passage_id for fact in sections.facts if fact.passage_id})
+        fact_by_passage = {fact.passage_id: fact for fact in sections.facts if fact.passage_id}
+        corroborating = {passage_id for fact in sections.facts
+                         for passage_id in fact.corroborating_passage_ids}
         metrics = tuple(request.metric_ids or candidate.metric_ids)
         periods = tuple(request.period_keys or candidate.anchor_period_keys)
+
+        def classify(row: Mapping[str, Any]) -> counter.Classification:
+            passage_id = str(row.get("passage_id") or "")
+            return counter.classify_issue(
+                row,
+                grain=counter.match_basis(passage_id, cited_passages),
+                bound_fact=fact_by_passage.get(passage_id),
+                declared_unit=self._declared_unit(str(row.get("metric_id") or "")))
 
         rows: list[tuple[str, Mapping[str, Any]]] = []
         dropped: list[str] = []
@@ -695,24 +786,40 @@ class BoundedEvidencePackageBuilder:
                         subject_ids=("find_counter_evidence", metric_id, period_key),
                         detail=result.reason or "the 25-row bound bit"))
                 kept, lost = counter.narrow(
-                    result.rows, metric_ids=metrics, cited_document_ids=cited_documents)
+                    result.rows, metric_ids=metrics, cited_document_ids=cited_documents,
+                    # Severity is not qualification: a passage carrying both an `AMBIGUOUS_ALIAS`
+                    # rejection and a `QUOTED_SPAN_NOT_IN_PASSAGE` one must be represented by the
+                    # second, and both are severity rank 0.
+                    prefers=lambda row: classify(row).qualifies)
                 rows.extend((period_key, row) for row in kept)
                 dropped.extend(lost)
 
-        built: list[counter.CounterEvidenceRow] = []
-        seen: set[str] = set()
+        built: list[counter.CounterEvidenceRow] = self._divergent_reading_rows(sections)
+        seen: set[str] = {item.passage.passage_id for item in built}
         for period_key, row in rows:
             passage_id = str(row.get("passage_id") or "")
             if passage_id in seen:
                 continue
             seen.add(passage_id)
+            if not classify(row).qualifies and self._stamp_diagnostic(
+                    sections, passage_id, str(row.get("code") or "")):
+                # **A demoted row whose passage the package already carries is stamped, not
+                # duplicated.** The passage is in `primary_passages` in full; a second
+                # byte-identical row costs ~780 tokens to say nothing the first does not, and it
+                # is what pushed §10.2's budget past a supporting passage. What the demotion
+                # actually adds is the issue code, so the issue code is what is added — to the
+                # row already there. Measured on the inventory candidate: both of §1's two
+                # counter-evidence passages take this branch, so the reclassification costs the
+                # package nothing at all.
+                continue
             full = self._passage_row(passage_id)
             if full is None:
                 dropped.append(str(row.get("issue_id") or ""))
                 continue
             assembly.remember_document(sections, full)
             text = str(full.get("text") or "")
-            if passage_id in set(cited_passages):
+            grain = counter.match_basis(passage_id, cited_passages)
+            if grain == counter.MATCH_BASIS_SAME_PASSAGE:
                 # §13.7's Rule A again, from the other side. A refusal that sits in a passage a
                 # fact is bound to is the strongest counter-evidence there is — but shipping an
                 # *excerpt* of it would put two `PackagedPassage` rows in the package under one
@@ -726,19 +833,36 @@ class BoundedEvidencePackageBuilder:
                 excerpt = passage_excerpts.window(
                     text, needles=counter.needles_for(row),
                     radius=self._budget.excerpt_radius_chars)
-            # **The role that is true today, not the one S2 will compute.** Every row in this
-            # section is presented to the planner as counter-evidence right now, and §1 measured
-            # that most of them are extraction diagnostics about a different concept in the same
-            # filing. Labelling them `WARNING_ONLY` here would be S1 quietly performing S2's
-            # reclassification with none of S2's evidence; labelling them `COUNTER_EVIDENCE`
-            # states what the package currently claims, which is what a later stage has to be
-            # able to see in order to correct it.
-            basis = counter.match_basis(passage_id, cited_passages)
+
+            passage = self._packaged_passage(
+                full, excerpt=excerpt, role=EvidenceRole.COUNTER_EVIDENCE,
+                diagnostic_codes=(str(row.get("code") or ""),))
+            found = classify(row)
+            role, basis, why = found.role, found.match_basis, found.why
+            if role is EvidenceRole.WARNING_ONLY and passage_id in corroborating:
+                # §1.1 in one row. `q12023formxex992sharehol.htm#p8` is a source of a
+                # *concordant* observation of `housing_inventory_homes` 2023-03-31 — one of the
+                # six that all read 6,261 homes — and the package re-introduced it as a
+                # contradiction because it carries an `AMBIGUOUS_ALIAS` about the word
+                # "inventory". Having decided the issue is a diagnostic, the honest role for the
+                # passage is the one the observations already establish: it corroborates.
+                role = EvidenceRole.CORROBORATING_SUPPORT
+                why = (f"{why} This passage is also a source of a concordant observation of "
+                       "this slot, so it corroborates the fact it was collected against.")
+            if passage.quality_status is PassageQuality.UNUSABLE:
+                # The quality filter overrides the classification in one direction only. A
+                # passage with no proposition in it cannot be a counterpoint whatever the issue
+                # attached to it says, and `unusable` is a stronger statement than
+                # `warning_only`: there is nothing here to warn *about*.
+                role, basis = EvidenceRole.UNUSABLE, grain
+                why = passage_quality.describe(
+                    passage_quality.Assessment(
+                        passage.quality_status, passage.unusable_reason), passage_id)
             built.append(counter.CounterEvidenceRow(
-                passage=self._packaged_passage(
-                    full, excerpt=excerpt, role=EvidenceRole.COUNTER_EVIDENCE,
-                    match_basis=basis),
+                passage=passage.model_copy(update={"role": role, "match_basis": basis}),
                 match_basis=basis,
+                grain=grain,
+                role=role,
                 issue_id=str(row.get("issue_id") or ""),
                 code=str(row.get("code") or ""),
                 severity=str(row.get("severity") or ""),
@@ -747,21 +871,153 @@ class BoundedEvidencePackageBuilder:
                 period_key=period_key,
                 row_label=assembly.text_or_none(row, "row_label"),
                 excerpt=excerpt,
+                why=why,
             ))
 
-        built.sort(key=lambda item: item.sort_key)
+        self._place_associations(sections, built, dropped)
+
+    def _stamp_diagnostic(
+        self, sections: assembly.PackageSections, passage_id: str, code: str
+    ) -> bool:
+        """Record an issue code on a passage the package already carries. `True` when it did.
+
+        The three passage sections are searched in the order §10 lists them, and only one row
+        can match — a passage is in exactly one section by construction (`_add_context_passages`
+        and `_add_explanatory_passages` both exclude what is already carried).
+        """
+        if not code:
+            return False
+        for section in ("primary_passages", "context_passages", "explanatory_passages"):
+            rows: list[PackagedPassage] = getattr(sections, section)
+            for index, passage in enumerate(rows):
+                if passage.passage_id != passage_id:
+                    continue
+                rows[index] = passage.model_copy(update={
+                    "diagnostic_codes": tuple(sorted(set(passage.diagnostic_codes) | {code}))})
+                return True
+        return False
+
+    def _place_associations(
+        self,
+        sections: assembly.PackageSections,
+        built: Sequence[counter.CounterEvidenceRow],
+        dropped: Sequence[str],
+    ) -> None:
+        """Split the classified rows into the two sections, cap each, and disclose each.
+
+        Both sections share `max_counter_evidence`: the diagnostics are the rows the same
+        retrieval produced, they are bounded by the same argument about how much of one filing's
+        bookkeeping a model should read, and giving them a cap of their own would be a budget
+        parameter added for a section that did not exist yesterday.
+
+        **Only counter-evidence rows emit a disclosure warning.** Both `counter_evidence_*`
+        codes are `CLAIM_QUALIFYING`, so a warning on a demoted row would oblige the post to
+        write a sentence about an extraction diagnostic — §1's defect, one layer down. The
+        demoted row's diagnostic travels on the row: its role, its `match_basis` and its
+        `diagnostic_codes`.
+        """
         cap = section_bounds.cap_for(self._budget, "counter_evidence")
-        if len(built) > cap:
+        qualifying = sorted((row for row in built if row.role is EvidenceRole.COUNTER_EVIDENCE),
+                            key=lambda item: item.sort_key)
+        # Corroborating rows last, because §4 S5 ranks *"extra corroborating passages"* ahead of
+        # *"lower-severity diagnostics"* in the trim and the tail is what a trim takes: a second
+        # copy of a number the package already states is the cheapest row here to lose.
+        demoted = sorted((row for row in built if row.role is not EvidenceRole.COUNTER_EVIDENCE),
+                         key=lambda item: (
+                             1 if item.role is EvidenceRole.CORROBORATING_SUPPORT else 0,
+                             item.sort_key))
+
+        if len(qualifying) > cap:
             sections.caps_hit.add("counter_evidence")
             sections.warnings.append(codes.packaged_warning(
                 codes.SECTION_TRUNCATED,
                 subject_ids=("counter_evidence",),
-                detail=f"counter_evidence: {len(built)} associated, {cap} carried, ordered "
-                       "passage-grain first then most severe first; nothing dropped outranks "
-                       f"anything carried. Dropped issue ids: {sorted(set(dropped))[:8]}"))
-        for item in built[:cap]:
+                detail=f"counter_evidence: {len(qualifying)} qualified, {cap} carried, ordered "
+                       "value evidence first, then passage-grain, then most severe; nothing "
+                       f"dropped outranks anything carried. Dropped issue ids: "
+                       f"{sorted(set(dropped))[:8]}"))
+        assembly.note_available(sections, "counter_evidence", len(qualifying))
+        assembly.note_available(sections, "diagnostic_passages", len(demoted))
+        if len(demoted) > cap:
+            assembly.note_drop(sections, "diagnostic_passages", codes.SECTION_TRUNCATED,
+                               count=len(demoted) - cap)
+            sections.caps_hit.add("diagnostic_passages")
+
+        for item in qualifying[:cap]:
             sections.counter_evidence.append(item.passage)
             sections.warnings.append(item.disclosure())
+        for item in demoted[:cap]:
+            sections.diagnostic_passages.append(item.passage)
+
+    def _divergent_reading_rows(
+        self, sections: assembly.PackageSections
+    ) -> list[counter.CounterEvidenceRow]:
+        """Counter-evidence that rests on a **value**: a second reading of a packaged slot.
+
+        This is S2's first qualifying basis and S3's mirror image. For every packaged fact, the
+        other observations of its slot are put through
+        `observation_equivalence.same_reading`; the ones it calls equivalent become that fact's
+        corroboration (`_corroboration`), and the ones it calls divergent become rows here, with
+        `counter.basis_for_divergence` turning the divergence reason into the match basis. One
+        arithmetic, two answers — which is why S2 and S3 are one change.
+
+        **Quarantined observations are excluded.** §6.1 step 1 quarantines a narrative-lane read
+        of a flattened table because the read is defective, and `canonical_point_warning` already
+        discloses it; promoting one to counter-evidence would let a known-bad row contradict a
+        good one.
+
+        Measured on `graph-v1-0483dc6b4b10`: **zero rows**. 36 of 537 slots hold more than one
+        distinct value and every one of them collapses to a single cluster under presentation
+        tolerance, so nothing in this corpus disagrees about a number. That is the finding, and
+        the code is what will notice the day it stops being true.
+        """
+        authority = self._resolved_authority()
+        rows: list[counter.CounterEvidenceRow] = []
+        seen: set[str] = set()
+        for fact in sections.facts:
+            record = self._by_observation.get(fact.observation_id)
+            if record is None:
+                continue
+            for peer in self._comparable_peers(record):
+                answer = same_reading(record, peer, authority=authority)
+                if answer or peer.passage_id is None or peer.passage_id in seen:
+                    continue
+                full = self._passage_row(peer.passage_id)
+                if full is None:
+                    continue
+                seen.add(peer.passage_id)
+                assembly.remember_document(sections, full)
+                text = str(full.get("text") or "")
+                grain = counter.match_basis(peer.passage_id, [fact.passage_id or ""])
+                if grain == counter.MATCH_BASIS_SAME_PASSAGE:
+                    excerpt = passage_excerpts.whole(text)
+                else:
+                    excerpt = passage_excerpts.window(
+                        text, needles=(str(peer.value), record.metric_id),
+                        radius=self._budget.excerpt_radius_chars)
+                basis = counter.basis_for_divergence(answer.reason)
+                rows.append(counter.CounterEvidenceRow(
+                    passage=self._packaged_passage(
+                        full, excerpt=excerpt, role=EvidenceRole.COUNTER_EVIDENCE,
+                        match_basis=basis),
+                    match_basis=basis,
+                    grain=grain,
+                    role=EvidenceRole.COUNTER_EVIDENCE,
+                    metric_id=record.metric_id,
+                    period_key=record.period.key,
+                    excerpt=excerpt,
+                    why=answer.detail,
+                ))
+        return rows
+
+    def _comparable_peers(self, record: ObservationRecord) -> tuple[ObservationRecord, ...]:
+        """The other observations of this record's slot, minus the ones §6.1 quarantined."""
+        point = self._point_of.get(record.slot_key)
+        quarantined = set(point.quarantined_observation_ids) if point else set()
+        return tuple(
+            peer for peer in self._by_slot.get(record.slot_key, ())
+            if peer.observation_id != record.observation_id
+            and peer.observation_id not in quarantined)
 
     # -- events, metrics, formulas, conflicts, comparability -------------------------------
 
@@ -1127,18 +1383,31 @@ class BoundedEvidencePackageBuilder:
         match_basis: str = "",
         query_terms: Sequence[str] = (),
         score: float | None = None,
+        diagnostic_codes: Sequence[str] = (),
     ) -> PackagedPassage:
         """`char_count` is the **full** passage's length even on an excerpt, so a fragment is
         visibly a fragment: `char_end - char_start < char_count` is the check, and a row that
         reported the window's own length would make every excerpt look whole.
 
         `role` is a required argument for the reason `PackagedPassage.role` is a required field:
-        every one of the four call sites below knows which section it is filling, and a default
-        here would be this helper answering for the one that does not.
+        every one of the call sites below knows which section it is filling, and a default here
+        would be this helper answering for the one that does not.
 
-        `quality_status` is left at `UNASSESSED` on every row. Nothing in this stage assesses a
-        passage's content yet — S2 is the stage that does — and stamping `USABLE` would be a
-        clean bill of health issued by a check that has not been written."""
+        **`quality_status` is computed here, over the passage's own full text and never over the
+        window.** S1 left it `UNASSESSED` because nothing assessed it; S2 assesses every row the
+        packager builds, from one call site, so no section can be the one that forgot. The text
+        assessed is `row["text"]` — what `get_passage_context` returned — rather than
+        `excerpt.text`, because a ±400-character window of a long table can look like a fragment
+        while the passage it came from is 2,262 characters of KPI rows, and *"is there a
+        proposition here"* is a question about the passage.
+
+        A `PRIMARY_SUPPORT` row assessed `UNUSABLE` keeps its role: a fact is bound to it and
+        §13.7's Rule A needs it whatever its content, so the finding is recorded and the row
+        stays. Measured over `graph-v1-0483dc6b4b10`: **all 150 passages that evidence an
+        observation assess `usable`**, so the branch is a guard rather than a live case.
+        """
+        assessment = passage_quality.assess(
+            str(row.get("text") or "") or excerpt.text)
         return PackagedPassage(
             passage_id=str(row.get("passage_id") or ""),
             document_id=str(row.get("document_id") or ""),
@@ -1155,6 +1424,9 @@ class BoundedEvidencePackageBuilder:
             score=score,
             role=role,
             match_basis=match_basis,
+            quality_status=assessment.quality,
+            unusable_reason=assessment.reason,
+            diagnostic_codes=tuple(sorted(set(diagnostic_codes))),
         )
 
     def _records_for(

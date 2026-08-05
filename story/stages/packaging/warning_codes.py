@@ -40,13 +40,33 @@ correctly?"*, not *"is it important?"*. `retrieval_truncated` and `search_pool_c
 important and are provenance: they say the read was partial, which is a fact about the package
 rather than about Opendoor, and §13.14 already refuses outright the claims — absence, uniqueness
 — that a partial read is what would make false.
+
+**§4 S5 adds five categories, and they are a *refinement* of that split rather than a third
+axis.** Two independent tables over one code set can disagree, and the disagreement would be
+silent: a code filed as `capability_limitation` and `CLAIM_QUALIFYING` would demand a sentence
+about a tool the retrieval layer does not have. So `CATEGORY_OF` is the only per-code decision
+and `KIND_OF` is *derived* from it through `KIND_OF_CATEGORY`, which is total over
+`WarningCategory` and pins each category to one kind. The refinement changes no code's kind —
+`tests/story/test_story_warning_taxonomy.py` pins all twenty-nine — so the planner's
+`claim_qualifying_warnings` filter and §13's disclosure check behave exactly as they did.
+
+The three reclassifications §4 S5 requires are reclassifications *within* provenance, which is
+why the kinds could stay put: `subject_identity_not_read_from_graph`,
+`relationships_unavailable_in_v1` and `evidence_sources_absent_in_v1` were already
+`BUILD_PROVENANCE`, and were already indistinguishable from a section the budget trimmed. They
+are not partial reads. Each is a thing V1 cannot do at all, and each fires on **every** package:
+`:Entity` is off `cypher.py`'s allowlist because `opendoor` has degree ≥ 2,704, no §9 tool
+returns a relationship, and the corpus contains **zero** `:EvidenceSource` nodes (measured
+2026-08-03, §13.7.2). A permanent, universal, structural absence rendered as a warning about
+*this* package is a reader's cue to distrust *this* evidence, and there is nothing here to
+distrust. Relabelled, and still carried, still severity-ordered, still rendered.
 """
 
 from __future__ import annotations
 
 from typing import Mapping, Sequence
 
-from story.core.models import PackagedWarning, Severity, WarningKind
+from story.core.models import PackagedWarning, Severity, WarningCategory, WarningKind
 
 # -- §10.1's own list ---------------------------------------------------------------------
 
@@ -141,6 +161,26 @@ TOKEN_BUDGET_TRIMMED = "token_budget_trimmed"
 #: prompt, so the draft built on it would be written from a truncated universe.
 PACKAGE_EXCEEDS_TOKEN_CEILING = "package_exceeds_token_ceiling"
 
+#: A fact §4 S5 protects — a candidate anchor observation, a required derived fact, or one of
+#: the ontology's semantic, identity and comparability declarations — is in a package that
+#: cannot be brought under the ceiling with every trimmable section at its floor. **REFUSE**,
+#: and it is §4 S5's one new blocking behaviour: *"a required semantic or anchor fact that will
+#: not fit is a package refusal, not a warning"*.
+#:
+#: The alternative was a warning and a smaller package, and it is not honest. A post written
+#: without its metric's definition is a post whose numbers have no declared meaning: the reader
+#: sees `adjusted_gross_margin −12.6%` and the model was never told what the ontology says that
+#: measures, over which population, under which formula version. Trimming the definition costs
+#: the post nothing visible and costs the claim everything, which is precisely the failure mode
+#: a warning cannot repair. `subject_ids` names the protected facts, so a refusal is
+#: dispatchable rather than a search.
+#:
+#: Raised through `packaged_warning` at `REFUSE`, following `package_exceeds_token_ceiling`
+#: rather than inventing a second refusal channel: §13.17's gate already stops a draft built on
+#: a package carrying any `REFUSE`, `blocking()` already collects them, and an exception here
+#: would be a refusal no evidence panel could render and no manifest could record.
+REQUIRED_FACT_DOES_NOT_FIT = "required_fact_does_not_fit"
+
 #: No §9 tool reads `:Entity` — `cypher.py` excludes it because `opendoor` has degree ≥ 2,704 —
 #: so `entity_text`, `labels` and `resolved` are the caller's or are inferred from the
 #: observations' own `subject_entity_id`. Stated rather than assumed benign.
@@ -197,6 +237,7 @@ SEVERITY_OF: Mapping[str, Severity] = {
     SECTION_TRUNCATED: Severity.ANNOTATE,
     TOKEN_BUDGET_TRIMMED: Severity.WARN,
     PACKAGE_EXCEEDS_TOKEN_CEILING: Severity.REFUSE,
+    REQUIRED_FACT_DOES_NOT_FIT: Severity.REFUSE,
     SUBJECT_IDENTITY_NOT_READ_FROM_GRAPH: Severity.ANNOTATE,
     EVIDENCE_CHAIN_INCOMPLETE: Severity.REFUSE,
     RELATIONSHIPS_UNAVAILABLE_IN_V1: Severity.ADVISORY,
@@ -206,51 +247,111 @@ SEVERITY_OF: Mapping[str, Severity] = {
     CANDIDATE_WARNING: Severity.WARN,
 }
 
-#: Which audience each code is for. **Total over `SEVERITY_OF` and checked below**, so a code
+#: What each code is *about* (§4 S5). **Total over `SEVERITY_OF` and checked below**, so a code
 #: added without a decision is a construction error rather than a silent default — the default
 #: on `PackagedWarning` protects a hand-built warning, not this table.
 #:
-#: The provenance side is short and every member names a property of the *build*: an incomplete
-#: or capped read, a section or a budget that trimmed, a lane that emits nothing in V1, an
-#: identity the §9 tools do not read. Everything else qualifies a claim, including the four
-#: `counter_evidence_*` codes — where a contradicting row sits relative to the cited cell is
-#: something a reader needs in order to read the sentence — and `candidate_warning`, which
-#: carries the detector's own caveats about the comparison the post is built on.
-KIND_OF: Mapping[str, WarningKind] = {
-    UNPREFERRED_SOURCE_LANE: WarningKind.CLAIM_QUALIFYING,
-    METRIC_AMBIGUITY_DECLARED: WarningKind.CLAIM_QUALIFYING,
-    ENTITY_UNRESOLVED: WarningKind.CLAIM_QUALIFYING,
-    EVENT_DATE_ABSENT: WarningKind.CLAIM_QUALIFYING,
-    EVENT_REVIEW_FLAG: WarningKind.CLAIM_QUALIFYING,
-    POPULATION_DEFINITION_DIFFERS: WarningKind.CLAIM_QUALIFYING,
-    FORMULA_WINDOW_BOUNDARY_CROSSED: WarningKind.CLAIM_QUALIFYING,
-    SINGLE_SOURCE: WarningKind.CLAIM_QUALIFYING,
-    FACT_CONFLICT_DISCLOSED: WarningKind.CLAIM_QUALIFYING,
-    SLOT_UNRESOLVED: WarningKind.CLAIM_QUALIFYING,
-    CANONICAL_POINT_WARNING: WarningKind.CLAIM_QUALIFYING,
-    COUNTER_EVIDENCE_SAME_DOCUMENT: WarningKind.CLAIM_QUALIFYING,
-    COUNTER_EVIDENCE_SAME_PASSAGE: WarningKind.CLAIM_QUALIFYING,
-    COMPARISON_REFUSED: WarningKind.CLAIM_QUALIFYING,
-    COMPARISON_WARNED: WarningKind.CLAIM_QUALIFYING,
-    CANDIDATE_WARNING: WarningKind.CLAIM_QUALIFYING,
-    OBSERVATION_LOAD_INCOMPLETE: WarningKind.BUILD_PROVENANCE,
-    RETRIEVAL_TRUNCATED: WarningKind.BUILD_PROVENANCE,
-    SEARCH_POOL_CAPPED: WarningKind.BUILD_PROVENANCE,
-    SEARCH_POOL_STARVED: WarningKind.BUILD_PROVENANCE,
-    COUNTER_EVIDENCE_UNAVAILABLE: WarningKind.BUILD_PROVENANCE,
-    SECTION_TRUNCATED: WarningKind.BUILD_PROVENANCE,
-    TOKEN_BUDGET_TRIMMED: WarningKind.BUILD_PROVENANCE,
-    PACKAGE_EXCEEDS_TOKEN_CEILING: WarningKind.BUILD_PROVENANCE,
-    SUBJECT_IDENTITY_NOT_READ_FROM_GRAPH: WarningKind.BUILD_PROVENANCE,
-    EVIDENCE_CHAIN_INCOMPLETE: WarningKind.BUILD_PROVENANCE,
-    RELATIONSHIPS_UNAVAILABLE_IN_V1: WarningKind.BUILD_PROVENANCE,
-    EVIDENCE_SOURCES_ABSENT_IN_V1: WarningKind.BUILD_PROVENANCE,
+#: The line between the first three is *where the problem is*, and it is drawn deliberately.
+#: `FACT_QUALITY_WARNING` is a fact that came out intact and whose standing is qualified — one
+#: document behind it, an unpreferred lane, a declared ambiguity, a population wording, a
+#: comparability rule the candidate crossed. `EXTRACTION_ISSUE` is a fact the pipeline could not
+#: finish: an entity it could not resolve, an event with no date, a slot that holds no value, a
+#: canonicalisation warning. `SUBSTANTIVE_COUNTER_EVIDENCE` holds the two codes that ride on a
+#: `counter_evidence[]` row and state the basis it was matched on — the family §4 S2 narrows,
+#: and `counter_evidence_same_document` is the weaker basis *within* it rather than a different
+#: kind of thing.
+#:
+#: `RETRIEVAL_WARNING` is every way the model's universe came out smaller than the corpus: a
+#: query bound, a capped pool, a section cap, a token budget, an evidence chain that would not
+#: close, a counter-evidence lookup with nowhere to look. `CAPABILITY_LIMITATION` is the three
+#: §4 S5 names plus nothing else — see the module docstring for why a permanent structural
+#: absence is not a short read.
+CATEGORY_OF: Mapping[str, WarningCategory] = {
+    UNPREFERRED_SOURCE_LANE: WarningCategory.FACT_QUALITY_WARNING,
+    METRIC_AMBIGUITY_DECLARED: WarningCategory.FACT_QUALITY_WARNING,
+    POPULATION_DEFINITION_DIFFERS: WarningCategory.FACT_QUALITY_WARNING,
+    FORMULA_WINDOW_BOUNDARY_CROSSED: WarningCategory.FACT_QUALITY_WARNING,
+    SINGLE_SOURCE: WarningCategory.FACT_QUALITY_WARNING,
+    FACT_CONFLICT_DISCLOSED: WarningCategory.FACT_QUALITY_WARNING,
+    COMPARISON_REFUSED: WarningCategory.FACT_QUALITY_WARNING,
+    COMPARISON_WARNED: WarningCategory.FACT_QUALITY_WARNING,
+    CANDIDATE_WARNING: WarningCategory.FACT_QUALITY_WARNING,
+    ENTITY_UNRESOLVED: WarningCategory.EXTRACTION_ISSUE,
+    EVENT_DATE_ABSENT: WarningCategory.EXTRACTION_ISSUE,
+    EVENT_REVIEW_FLAG: WarningCategory.EXTRACTION_ISSUE,
+    SLOT_UNRESOLVED: WarningCategory.EXTRACTION_ISSUE,
+    CANONICAL_POINT_WARNING: WarningCategory.EXTRACTION_ISSUE,
+    COUNTER_EVIDENCE_SAME_DOCUMENT: WarningCategory.SUBSTANTIVE_COUNTER_EVIDENCE,
+    COUNTER_EVIDENCE_SAME_PASSAGE: WarningCategory.SUBSTANTIVE_COUNTER_EVIDENCE,
+    OBSERVATION_LOAD_INCOMPLETE: WarningCategory.RETRIEVAL_WARNING,
+    RETRIEVAL_TRUNCATED: WarningCategory.RETRIEVAL_WARNING,
+    SEARCH_POOL_CAPPED: WarningCategory.RETRIEVAL_WARNING,
+    SEARCH_POOL_STARVED: WarningCategory.RETRIEVAL_WARNING,
+    COUNTER_EVIDENCE_UNAVAILABLE: WarningCategory.RETRIEVAL_WARNING,
+    EVIDENCE_CHAIN_INCOMPLETE: WarningCategory.RETRIEVAL_WARNING,
+    SECTION_TRUNCATED: WarningCategory.RETRIEVAL_WARNING,
+    TOKEN_BUDGET_TRIMMED: WarningCategory.RETRIEVAL_WARNING,
+    PACKAGE_EXCEEDS_TOKEN_CEILING: WarningCategory.RETRIEVAL_WARNING,
+    REQUIRED_FACT_DOES_NOT_FIT: WarningCategory.RETRIEVAL_WARNING,
+    # -- the three §4 S5 reclassifications, each with its measurement ------------------------
+    #
+    # No §9 tool reads `:Entity` (`cypher.py`'s allowlist excludes it because `opendoor` has
+    # degree ≥ 2,704) and `OBSERVATION_OF_SUBJECT` is banned from traversal, so this fires on
+    # every package ever built. A warning that is always true of every package is not a property
+    # of *this* evidence; it is the shape of the V1 retrieval layer, and reading it as a
+    # data-quality caveat about the subject is the misreading the category prevents.
+    SUBJECT_IDENTITY_NOT_READ_FROM_GRAPH: WarningCategory.CAPABILITY_LIMITATION,
+    # Zero `:EvidenceSource` nodes exist in the corpus (§13.7.2, measured 2026-08-03: all 2,714
+    # evidence rows are `normalized_passage` or `normalized_table`). Passage and Document *are*
+    # the V1 source model, so an empty section here is not a missing source — it is a lane that
+    # emits nothing yet, and rendering it as an alarming empty section would tell a reader the
+    # package failed to find sources it does carry.
+    EVIDENCE_SOURCES_ABSENT_IN_V1: WarningCategory.CAPABILITY_LIMITATION,
+    # No bounded relationship retrieval tool exists in V1 — `find_related_entities` is in §9's
+    # table and is not one of the nine implemented, and §4 S4 forbids adding an unbounded one.
+    # **It must not reduce the factual verification status of a post**: nothing the post says is
+    # less true because a tool nobody wrote returned nothing, and §13's gate never sees it
+    # because a `BUILD_PROVENANCE` code cannot become a `required_warning`.
+    RELATIONSHIPS_UNAVAILABLE_IN_V1: WarningCategory.CAPABILITY_LIMITATION,
 }
 
-if set(KIND_OF) != set(SEVERITY_OF):  # pragma: no cover - a source edit, not a state
+#: Which audience each category is for. **Total over `WarningCategory`**, and the reason the
+#: five categories are a refinement rather than a third axis: `KIND_OF` is derived through this
+#: table, so a code cannot be a capability limitation that also demands a sentence.
+#:
+#: The three claim-qualifying categories are the ones a reader needs in order to read the
+#: sentence correctly — where a contradicting row sits relative to the cited cell, what the
+#: fact's standing is, what the extractor could not finish. The two provenance categories are
+#: properties of the build: how much of the corpus reached the package, and what V1 cannot do at
+#: all. §13.14 already refuses outright the absence and uniqueness claims a partial read would
+#: make false, so demanding prose for either would be demanding build plumbing from an investor
+#: post — the defect `KIND_OF` was drawn to end.
+KIND_OF_CATEGORY: Mapping[WarningCategory, WarningKind] = {
+    WarningCategory.SUBSTANTIVE_COUNTER_EVIDENCE: WarningKind.CLAIM_QUALIFYING,
+    WarningCategory.FACT_QUALITY_WARNING: WarningKind.CLAIM_QUALIFYING,
+    WarningCategory.EXTRACTION_ISSUE: WarningKind.CLAIM_QUALIFYING,
+    WarningCategory.RETRIEVAL_WARNING: WarningKind.BUILD_PROVENANCE,
+    WarningCategory.CAPABILITY_LIMITATION: WarningKind.BUILD_PROVENANCE,
+}
+
+if set(CATEGORY_OF) != set(SEVERITY_OF):  # pragma: no cover - a source edit, not a state
     raise ValueError(
-        "every declared warning code must declare a kind: "
-        f"{sorted(set(SEVERITY_OF) ^ set(KIND_OF))} differ between SEVERITY_OF and KIND_OF")
+        "every declared warning code must declare a category: "
+        f"{sorted(set(SEVERITY_OF) ^ set(CATEGORY_OF))} differ between SEVERITY_OF and "
+        "CATEGORY_OF")
+
+if set(KIND_OF_CATEGORY) != set(WarningCategory):  # pragma: no cover - a source edit
+    raise ValueError(
+        "every category must state the audience it is for: "
+        f"{sorted(c.value for c in set(WarningCategory) ^ set(KIND_OF_CATEGORY))} is undecided")
+
+#: Which audience each *code* is for — **derived**, never declared twice. The planner's
+#: `claim_qualifying_warnings` and §13's disclosure check read this split (through
+#: `PackagedWarning.kind`, since a stage may not import another stage), and it is unchanged by
+#: §4 S5: the same sixteen codes qualify a claim and the same thirteen record the build.
+KIND_OF: Mapping[str, WarningKind] = {
+    code: KIND_OF_CATEGORY[category] for code, category in CATEGORY_OF.items()
+}
 
 #: Most severe first. `warnings[]` is capped at 20 (§10.2) and this is the order a drop obeys,
 #: so the rule D6 established for counter-evidence — *"nothing dropped can outrank anything
@@ -304,6 +405,41 @@ def claim_qualifying(warnings: Sequence[PackagedWarning]) -> tuple[PackagedWarni
     return tuple(w for w in warnings if w.kind is WarningKind.CLAIM_QUALIFYING)
 
 
+def category_of(warning: PackagedWarning) -> WarningCategory:
+    """One warning's §4 S5 category, looked up by code.
+
+    A function rather than a field on `PackagedWarning`, and the reason is a measurement: the
+    row is inside the slice the model reads, and a twenty-row `warnings[]` carrying its category
+    costs 170 prompt tokens — a third of a passage at §10.2.1's 536-token median. Nothing that
+    cannot import this module needs the answer, unlike `kind`, which the planner reads off the
+    row because a stage may not import another stage.
+
+    Falls back to the kind's own category for a code this table does not declare, so a package
+    read back from an older artifact renders as something rather than raising: `claim_qualifying`
+    becomes a fact-quality warning and `build_provenance` a retrieval warning, which is what each
+    meant before the categories existed.
+    """
+    declared = CATEGORY_OF.get(warning.code)
+    if declared is not None:
+        return declared
+    return (WarningCategory.FACT_QUALITY_WARNING
+            if warning.kind is WarningKind.CLAIM_QUALIFYING
+            else WarningCategory.RETRIEVAL_WARNING)
+
+
+def capability_limitations(warnings: Sequence[PackagedWarning]) -> tuple[PackagedWarning, ...]:
+    """The warnings that say *"V1 cannot do this"* rather than anything about the evidence.
+
+    A helper for the same reason `claim_qualifying` and `blocking` are: the evidence panel and
+    §4 S6's *"Facts sent to the model"* section render this family differently — as a stated
+    limit of the retrieval layer, beside the empty section it explains — and *"which warnings
+    are limits"* is a property of the vocabulary above. It filters nothing out of `warnings[]`:
+    every row it returns is still in the package, still severity-ordered, still counted.
+    """
+    return tuple(w for w in warnings
+                 if category_of(w) is WarningCategory.CAPABILITY_LIMITATION)
+
+
 def warning_sort_key(warning: PackagedWarning) -> tuple[int, str, str]:
     """Most severe first, then by code, then by subject. Total, so a cap is deterministic."""
     return (SEVERITY_RANK[warning.severity], warning.code, ",".join(warning.subject_ids))
@@ -321,6 +457,7 @@ def blocking(warnings: Sequence[PackagedWarning]) -> tuple[PackagedWarning, ...]
 __all__ = [
     "CANDIDATE_WARNING",
     "CANONICAL_POINT_WARNING",
+    "CATEGORY_OF",
     "COMPARISON_REFUSED",
     "COMPARISON_WARNED",
     "COUNTER_EVIDENCE_SAME_DOCUMENT",
@@ -334,11 +471,13 @@ __all__ = [
     "FACT_CONFLICT_DISCLOSED",
     "FORMULA_WINDOW_BOUNDARY_CROSSED",
     "KIND_OF",
+    "KIND_OF_CATEGORY",
     "METRIC_AMBIGUITY_DECLARED",
     "OBSERVATION_LOAD_INCOMPLETE",
     "PACKAGE_EXCEEDS_TOKEN_CEILING",
     "POPULATION_DEFINITION_DIFFERS",
     "RELATIONSHIPS_UNAVAILABLE_IN_V1",
+    "REQUIRED_FACT_DOES_NOT_FIT",
     "RETRIEVAL_TRUNCATED",
     "SEARCH_POOL_CAPPED",
     "SEARCH_POOL_STARVED",
@@ -352,6 +491,8 @@ __all__ = [
     "UNPREFERRED_SOURCE_LANE",
     "UnknownWarningCode",
     "blocking",
+    "capability_limitations",
+    "category_of",
     "claim_qualifying",
     "packaged_warning",
     "warning_sort_key",

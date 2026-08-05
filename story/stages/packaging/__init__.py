@@ -1,16 +1,24 @@
 """S5 — the bounded evidence package. §10, and the wall the model cannot see past.
 
-Seven modules, split by concern rather than for symmetry. The counts are statements rather than
-lines of file, because that is what says whether a split earned itself; each of the first five
+Eight modules, split by concern rather than for symmetry. The counts are statements rather than
+lines of file, because that is what says whether a split earned itself; each of the first six
 holds a rule at least two of the others read.
 
     warning_codes.py       118  the §10.1 vocabulary and the severity §13.17's gate acts on
     section_bounds.py      102  §10.2's ceilings, §10.2.1's token arithmetic, the drop rules
     query_terms.py          81  §11's correction — terms derived, never authored
     passage_excerpts.py     49  §10.2.1's ±400 window, and the passages that may never have one
-    counter_evidence.py    105  document-grain association, narrowed, disclosed on every row
+    passage_quality.py      36  whether a passage's content can carry evidence at all (§4 S2)
+    counter_evidence.py    185  which associations qualify as counter-evidence, and on what basis
     package_assembly.py    250  the caps, the trim, `documents[]`, the id and the digest
     evidence_package.py    821  which evidence goes in — the only module that reads the graph
+
+`passage_quality.py` is a file rather than four lines inside `counter_evidence.py` because it
+answers a different question about a different thing: *"is there a proposition in this text?"* is
+true or false whichever story is being written, and every packaged passage is now put through it,
+not only the counter-evidence candidates. Keeping it beside the qualification rule would have let
+a relevance judgement drift into it, which is how a quality filter starts deleting inconvenient
+evidence.
 
 The split between the last two is the one worth stating, because it is the only one that could
 have gone either way. They fail differently: a selection bug ships the wrong evidence, an
@@ -35,9 +43,15 @@ package and no argument through which a string a model produced reaches a select
 from __future__ import annotations
 
 from story.stages.packaging.counter_evidence import (
+    ASSOCIATION_BASES,
     MATCH_BASIS_SAME_DOCUMENT,
     MATCH_BASIS_SAME_PASSAGE,
+    QUALIFYING_BASES,
+    QUALIFYING_ISSUE_CODES,
+    Classification,
     CounterEvidenceRow,
+    basis_for_divergence,
+    classify_issue,
     match_basis,
     match_basis_of,
 )
@@ -60,6 +74,12 @@ from story.stages.packaging.passage_excerpts import (
     whole,
     window,
 )
+from story.stages.packaging.passage_quality import (
+    MIN_CONTENT_CHARS,
+    MIN_WORD_TOKENS,
+    Assessment,
+    assess,
+)
 from story.stages.packaging.query_terms import (
     MAX_TERMS,
     DerivedTerms,
@@ -71,41 +91,59 @@ from story.stages.packaging.section_bounds import (
     CHARS_PER_TOKEN,
     MAX_TOTAL_TOKENS_CEILING,
     PROMPT_EXCLUDED_SECTIONS,
+    PROTECTED_SECTIONS,
     TRIM_FLOOR,
     TRIM_ORDER,
+    TRIM_PLAN,
     BudgetExceedsCeiling,
+    TrimStep,
     check_budget,
     estimate_tokens,
     prompt_slice,
 )
 from story.stages.packaging.warning_codes import (
+    CATEGORY_OF,
     KIND_OF,
+    KIND_OF_CATEGORY,
     SEVERITY_OF,
     UnknownWarningCode,
     blocking,
+    capability_limitations,
+    category_of,
     claim_qualifying,
     packaged_warning,
 )
 
 __all__ = [
+    "ASSOCIATION_BASES",
+    "CATEGORY_OF",
     "CEILINGS",
     "CHARS_PER_TOKEN",
     "EXCERPT_RADIUS_CHARS",
     "KIND_OF",
+    "KIND_OF_CATEGORY",
     "MATCH_BASIS_SAME_DOCUMENT",
     "MATCH_BASIS_SAME_PASSAGE",
     "MAX_TERMS",
+    "MIN_CONTENT_CHARS",
+    "MIN_WORD_TOKENS",
     "MAX_TOTAL_TOKENS_CEILING",
     "PACKAGING_TOOLS",
     "PROMPT_EXCLUDED_SECTIONS",
+    "PROTECTED_SECTIONS",
+    "QUALIFYING_BASES",
+    "QUALIFYING_ISSUE_CODES",
     "SEVERITY_OF",
     "SLOT_SEPARATOR",
     "TRACE_ELAPSED_MS_NOT_CARRIED",
     "TRIM_FLOOR",
     "TRIM_ORDER",
+    "TRIM_PLAN",
+    "Assessment",
     "BoundPassageExcerpted",
     "BoundedEvidencePackageBuilder",
     "BudgetExceedsCeiling",
+    "Classification",
     "CounterEvidenceRow",
     "DerivedTerms",
     "Excerpt",
@@ -113,10 +151,16 @@ __all__ = [
     "PackageAssembler",
     "PackageSections",
     "PackagingError",
+    "TrimStep",
     "UnknownWarningCode",
+    "assess",
+    "basis_for_divergence",
     "blocking",
+    "capability_limitations",
+    "category_of",
     "check_budget",
     "claim_qualifying",
+    "classify_issue",
     "derive_terms",
     "estimate_tokens",
     "match_basis",

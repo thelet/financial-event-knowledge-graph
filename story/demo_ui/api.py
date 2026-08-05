@@ -965,7 +965,7 @@ def _explanations(codes: Sequence[str], family: str | None = None) -> list[dict[
         rows.append(found.as_dict() if found is not None
                     else {"code": code, "family": family or "", "description": "",
                           "severity": "", "remedy": "", "section": "", "warning_kind": "",
-                          "blocking": False})
+                          "warning_category": "", "blocking": False})
     return rows
 
 
@@ -1114,6 +1114,7 @@ def _package_payload(inputs: Any, previous: Mapping[str, Any] | None) -> dict[st
                 "context_passages": len(package.context_passages),
                 "explanatory_passages": len(package.explanatory_passages),
                 "counter_evidence": len(package.counter_evidence),
+                "diagnostic_passages": len(package.diagnostic_passages),
                 "documents": len(package.documents),
                 "warnings": len(package.warnings),
                 "conflicts": len(package.conflicts),
@@ -1135,6 +1136,9 @@ def _package_payload(inputs: Any, previous: Mapping[str, Any] | None) -> dict[st
         "primary_passages": [p.model_dump(mode="json") for p in package.primary_passages],
         "context_passages": [p.model_dump(mode="json") for p in package.context_passages],
         "counter_evidence": [p.model_dump(mode="json") for p in package.counter_evidence],
+        # §4 S2's demoted rows, carried beside `counter_evidence` and never inside it: the panel
+        # must be able to show what the run pointed at *and* that it does not dispute the story.
+        "diagnostic_passages": [p.model_dump(mode="json") for p in package.diagnostic_passages],
         "documents": [d.model_dump(mode="json") for d in package.documents],
         "freshness": _scrub_paths(inputs.freshness.model_dump(mode="json")),
         "honest_labels": list(HONEST_LABELS),
@@ -1616,12 +1620,24 @@ PASSAGE_ROLES: Mapping[str, str] = {
     "counter_evidence": ("evidence that cuts against the thesis. §10 retrieves it deliberately "
                          "and §11's planner must weigh it; it is not support and must never be "
                          "rendered as support"),
+    "diagnostic": ("a passage `find_counter_evidence` pointed at that did **not** qualify as "
+                   "counter-evidence (§4 S2) — an extraction or data-quality diagnostic, or "
+                   "content that carries no proposition at all. Each row's own `role` says "
+                   "which; none of them disputes the thesis"),
 }
 
-#: The four roles, in the order the panel should read them. A tuple so `counts.by_role` can hold
-#: a `0` for a section that was considered and empty — which is a different fact from a section
-#: that was never fetched, and the two were indistinguishable when a falsy count was dropped.
-PASSAGE_ROLE_ORDER: tuple[str, ...] = ("primary", "context", "explanatory", "counter_evidence")
+#: The five sections, in the order the panel should read them. A tuple so `counts.by_role` can
+#: hold a `0` for a section that was considered and empty — which is a different fact from a
+#: section that was never fetched, and the two were indistinguishable when a falsy count was
+#: dropped.
+#:
+#: **`diagnostic` is a section name, not an `EvidenceRole`.** S2 splits the two: the section
+#: says why a row was collected and `PackagedPassage.role` says what it turned out to be, so a
+#: `diagnostic` row can be `warning_only`, `unusable` or `corroborating_support`. S6 owns the
+#: one canonical mapper that renders both; this keeps the rows visible in the meantime, which is
+#: what they were before S2 moved them out of `counter_evidence`.
+PASSAGE_ROLE_ORDER: tuple[str, ...] = (
+    "primary", "context", "explanatory", "counter_evidence", "diagnostic")
 
 
 def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
@@ -1648,12 +1664,14 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
         "context": package.context_passages,
         "explanatory": package.explanatory_passages,
         "counter_evidence": package.counter_evidence,
+        "diagnostic": package.diagnostic_passages,
     }
     role_of = {passage.passage_id: role
                for role in PASSAGE_ROLE_ORDER for passage in by_role[role]}
     passages = {p.passage_id: p for p in (
         package.primary_passages + package.context_passages
-        + package.explanatory_passages + package.counter_evidence)}
+        + package.explanatory_passages + package.counter_evidence
+        + package.diagnostic_passages)}
     documents = {d.document_id: d for d in package.documents}
     facts_by_passage: dict[str, list[dict[str, Any]]] = {}
     citations_by_passage: dict[str, list[dict[str, Any]]] = {}

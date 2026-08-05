@@ -50,6 +50,7 @@ from story.core.models import (
     PackagedSubject,
     PackagedWarning,
     RetrievalTraceEntry,
+    SectionLedgerEntry,
     SemanticFact,
     StoryCandidate,
     StoryEvidencePackage,
@@ -114,6 +115,11 @@ class PackageSections:
     context_passages: list[PackagedPassage] = field(default_factory=list)
     explanatory_passages: list[PackagedPassage] = field(default_factory=list)
     counter_evidence: list[PackagedPassage] = field(default_factory=list)
+    #: §4 S2's demoted rows: what `find_counter_evidence` produced that did not qualify as
+    #: counter-evidence, each carrying the role it actually plays. Selected by
+    #: `evidence_package._add_counter_evidence`, trimmed by `section_bounds.TRIM_PLAN`'s
+    #: `DIAGNOSTIC_TRIM_STEP` — fourth, ahead of any supporting passage.
+    diagnostic_passages: list[PackagedPassage] = field(default_factory=list)
     warnings: list[PackagedWarning] = field(default_factory=list)
     conflicts: list[Conflict] = field(default_factory=list)
     compatibility: list[CompatibilityDecision] = field(default_factory=list)
@@ -130,6 +136,28 @@ class PackageSections:
     #: half the story is about. Measured before this floor existed: the token budget trimmed
     #: `contribution_margin 2022Q2 → 2022Q3` down to the 2022Q2 reading alone.
     required_slots: set[tuple[str, str]] = field(default_factory=set)
+    #: Every concordant source of each carried observation, as `(observation_id, passage_id,
+    #: document_id)` triples (§4 S3). Written by the selection stage, which is the only thing
+    #: that can compare two observations; turned into the facts' three `corroborating_*` lists by
+    #: `derive_corroboration`, which subtracts whatever `facts[]` still carries after the trim.
+    corroboration: dict[str, tuple[tuple[str, str, str], ...]] = field(default_factory=dict)
+    #: What each section held **before** anything bound it, where the stage that bound it said
+    #: so. Written by `note_available` and read by the ledger; a section absent from here was
+    #: either never bound or was bound by a stage that did not report the count.
+    available_counts: dict[str, int] = field(default_factory=dict)
+    #: Rows this assembler dropped, by section. Separate from `available_counts` because the two
+    #: are known at different times and by different code.
+    dropped_counts: dict[str, int] = field(default_factory=dict)
+    #: The warning codes that explain each section's drops, so the ledger's *"reason"* resolves
+    #: through the same catalogue the panel renders warnings from.
+    drop_reasons: dict[str, set[str]] = field(default_factory=dict)
+    #: Sections a §10.2 cap already bound **before** assembly began, snapshotted from `caps_hit`
+    #: so the ledger can tell them apart from the sections this assembler trims. Each gets
+    #: `section_truncated` as its reason; one that also reported no count through
+    #: `note_available` gets `available: None` rather than `carried` — *"4 of 4 available"* about
+    #: a section that had nine is a false statement, and the `section_truncated` warning those
+    #: stages raise carries the real numbers in its detail.
+    upstream_caps: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +186,17 @@ class PackageAssembler:
         the block it is stored in is not in the slice it measures. The two budget warnings are
         added *before* the final measurement rather than after, so a trimmed package still
         reports the size it actually is.
+
+        **§4 S5's refusal is raised here, and only when the package is irreducible.** A
+        protected fact is never trimmed, so the only way one *"will not fit"* is that the
+        package still exceeds §10.2's ceiling with every trimmable section at its floor. That is
+        the state the ceiling branch below is already in, and the refusal names the facts rather
+        than the section: a rejection a reviewer can dispatch, not one they have to search for.
         """
+        # Snapshotted before the first trim, because `caps_hit` gains this assembler's own
+        # sections as it goes and the ledger has to say *which* bound took which rows.
+        sections.upstream_caps = {name for name in sections.caps_hit
+                                  if name in section_counts(sections)}
         self.cap_derived_sections(sections)
         estimates = self.estimate(sections, candidate)
         announced = False
@@ -188,6 +226,24 @@ class PackageAssembler:
                        f"{section_bounds.MAX_TOTAL_TOKENS_CEILING} tokens with every section at "
                        "its floor; the local runtime is `-c 8192` and this leaves no room for "
                        "the system prompt"))
+            stranded = protected_fact_ids(sections)
+            if stranded:
+                # A second code rather than a longer detail on the first, because the two say
+                # different things to different readers. `package_exceeds_token_ceiling` is
+                # *"this package is too large"*, which a smaller budget or a shorter passage can
+                # answer. This one is *"no package that carries this story's required facts fits
+                # at all"* — §4 S5's one new blocking behaviour — and the ids are what makes it
+                # dispatchable. Both are `REFUSE`, so §13.17's gate needs no new mechanism.
+                sections.warnings.append(codes.packaged_warning(
+                    codes.REQUIRED_FACT_DOES_NOT_FIT,
+                    subject_ids=stranded,
+                    detail=f"{len(stranded)} fact(s) §4 S5 protects are in a package that is "
+                           f"{estimates.prompt} tokens against a ceiling of "
+                           f"{section_bounds.MAX_TOTAL_TOKENS_CEILING} with every trimmable "
+                           "section at its floor. A protected fact is never trimmed — an anchor "
+                           "observation carries the story and a semantic fact carries what its "
+                           "numbers mean — so this refuses rather than shipping a post whose "
+                           f"numbers have no declared meaning: {', '.join(stranded[:8])}"))
             self.cap_derived_sections(sections)
             estimates = self.estimate(sections, candidate)
 
@@ -207,31 +263,39 @@ class PackageAssembler:
     # -- the trim ---------------------------------------------------------------------------
 
     def trim_one(self, sections: PackageSections) -> bool:
-        """Drop exactly one row, in `TRIM_ORDER`, honouring each section's floor.
+        """Drop exactly one row, in `TRIM_PLAN`'s order, honouring each section's floor.
 
         Returns whether anything moved, so the caller's loop terminates on a package that cannot
-        get any smaller rather than spinning. Dropping the *last* row of a section is dropping
-        the least defensible one, because every section here is already sorted into its own
-        stated drop order.
+        get any smaller rather than spinning. Dropping the *last* matching row of a step is
+        dropping the least defensible one, because every section here is already sorted into its
+        own stated drop order.
 
-        **A primary passage is put back when its removal would strand an anchor slot.** That is
-        the second floor, above `TRIM_FLOOR`'s "at least one": dropping a primary drops the facts
-        bound to it (§13.7's Rule A), and dropping the last fact of a slot the candidate anchored
-        on produces a package that describes half a comparison. The trimmer then moves to the
-        next section rather than giving up, so `counter_evidence` can still yield.
+        **A primary passage is put back when its removal would strand a required slot.** That is
+        the second floor, above `TRIM_FLOOR`'s "at least one", and it is where §4 S5's *"primary
+        supporting passages are protected"* is enforced: dropping a primary drops the facts bound
+        to it (§13.7's Rule A), and dropping the last fact of a slot the candidate anchored on
+        produces a package that describes half a comparison. The trimmer then moves to the next
+        step rather than giving up, so `counter_evidence` can still yield.
+
+        Nothing in `PROTECTED_SECTIONS` is reachable from here at all — the ontology's semantic,
+        identity and comparability facts are not in `TRIM_PLAN`, and a package that cannot fit
+        without them refuses in `finalize` instead.
         """
-        for name in section_bounds.TRIM_ORDER:
-            rows = getattr(sections, name)
-            if len(rows) <= section_bounds.TRIM_FLOOR[name]:
+        for step in section_bounds.TRIM_PLAN:
+            rows = getattr(sections, step.section)
+            index = section_bounds.droppable_index(rows, step)
+            if index is None:
                 continue
-            if name == "primary_passages":
-                if not may_drop_last_primary(sections):
+            if step.section == "primary_passages":
+                if not may_drop_primary(sections, index):
                     continue
-                rows.pop()
+                rows.pop(index)
                 drop_orphaned_facts(sections)
             else:
-                rows.pop()
-            sections.caps_hit.add(name)
+                rows.pop(index)
+            note_drop(sections, step.section, codes.TOKEN_BUDGET_TRIMMED)
+            sections.caps_hit.add(step.name)
+            sections.caps_hit.add(step.section)
             sections.caps_hit.add("token_budget")
             return True
         return False
@@ -252,11 +316,13 @@ class PackageAssembler:
             key=codes.warning_sort_key)
         if dropped:
             sections.caps_hit.add("warnings")
+            note_drop(sections, "warnings", codes.SECTION_TRUNCATED, count=dropped)
         sections.warnings = list(warnings)
         trace, dropped_trace = section_bounds.truncate(
             sections.retrieval_trace, section_bounds.cap_for(self.budget, "retrieval_trace"))
         if dropped_trace:
             sections.caps_hit.add("retrieval_trace")
+            note_drop(sections, "retrieval_trace", codes.SECTION_TRUNCATED, count=dropped_trace)
         sections.retrieval_trace = list(trace)
 
     def derive_documents(self, sections: PackageSections) -> list[PackagedDocument]:
@@ -270,13 +336,21 @@ class PackageAssembler:
         """
         cited: list[str] = []
         for passage in (*sections.primary_passages, *sections.context_passages,
-                        *sections.explanatory_passages, *sections.counter_evidence):
+                        *sections.explanatory_passages, *sections.counter_evidence,
+                        *sections.diagnostic_passages):
             if passage.document_id and passage.document_id not in cited:
                 cited.append(passage.document_id)
         for fact in sections.facts:
             if fact.document_id and fact.document_id not in cited:
                 cited.append(fact.document_id)
         cap = section_bounds.cap_for(self.budget, "documents")
+        if len(cited) > cap:
+            sections.caps_hit.add("documents")
+            # Assigned rather than accumulated: `documents[]` is derived and rebuilt from the
+            # surviving passages on every trim, so what the previous rebuild dropped is not a
+            # drop this one made.
+            sections.dropped_counts["documents"] = len(cited) - cap
+            sections.drop_reasons.setdefault("documents", set()).add(codes.SECTION_TRUNCATED)
         rows: list[PackagedDocument] = []
         for document_id in cited[:cap]:
             row = sections.document_rows.get(document_id) or {}
@@ -301,7 +375,7 @@ class PackageAssembler:
     def assemble(
         self, sections: PackageSections, candidate: StoryCandidate, *, estimates: TokenEstimates
     ) -> StoryEvidencePackage:
-        facts = tuple(sections.facts)
+        facts = derive_corroboration(sections)
         passages = tuple(sections.primary_passages)
         if sections.subject is None:
             raise ValueError(
@@ -343,6 +417,7 @@ class PackageAssembler:
             context_passages=tuple(sections.context_passages),
             explanatory_passages=tuple(sections.explanatory_passages),
             counter_evidence=tuple(sections.counter_evidence),
+            diagnostic_passages=tuple(sections.diagnostic_passages),
             warnings=tuple(sections.warnings),
             conflicts=tuple(sections.conflicts),
             compatibility=tuple(sections.compatibility),
@@ -354,6 +429,7 @@ class PackageAssembler:
                 artifact_token_estimate=estimates.artifact,
                 prompt_token_estimate=estimates.prompt,
                 section_counts=section_counts(sections),
+                section_ledger=section_ledger(sections),
                 parameters=self.budget,
                 caps_hit=tuple(sorted(sections.caps_hit)),
             ),
@@ -363,15 +439,156 @@ class PackageAssembler:
 # -- the invariants a trim has to preserve ---------------------------------------------------
 
 
-def may_drop_last_primary(sections: PackageSections) -> bool:
-    """Would the package still carry a fact for every slot the candidate anchored on?"""
-    surviving = {passage.passage_id for passage in sections.primary_passages[:-1]}
+def may_drop_primary(sections: PackageSections, index: int) -> bool:
+    """Would the package still carry a fact for every slot the candidate anchored on?
+
+    Takes the index rather than assuming the tail, because §4 S5's trim plan can reach past a
+    corroborating row to the supporting one behind it. *"Which primary is protected"* is a
+    property of the facts bound to it and of nothing else, so the answer must be asked about the
+    row that is actually going.
+    """
+    surviving = {passage.passage_id
+                 for position, passage in enumerate(sections.primary_passages)
+                 if position != index}
     covered = {
         (fact.metric_id, fact.period_key)
         for fact in sections.facts
         if fact.passage_id and fact.passage_id in surviving
     }
     return sections.required_slots <= covered
+
+
+def may_drop_last_primary(sections: PackageSections) -> bool:
+    """`may_drop_primary` about the tail — the question every caller asked before §4 S5."""
+    return may_drop_primary(sections, len(sections.primary_passages) - 1)
+
+
+def protected_fact_ids(sections: PackageSections) -> tuple[str, ...]:
+    """Every fact §4 S5 protects, by id, sorted — what a refusal names.
+
+    Two families, and both are required for the same reason. A fact on one of the candidate's
+    anchor slots *is* the story: §6.11 digests `anchor_observation_ids` into the `candidate_id`,
+    so a package without one claims evidence it does not carry. A semantic, identity or
+    comparability fact is what the story's numbers **mean**: the ontology declares the metric's
+    definition, unit, scale and comparison rules, and a post written without them states a number
+    whose declared meaning never reached the model.
+
+    Derived facts need no separate marker: a derived fact for a required slot is required by the
+    slot rule, and one for any other slot is not required at all.
+    """
+    anchored = {
+        fact.observation_id for fact in sections.facts
+        if (fact.metric_id, fact.period_key) in sections.required_slots
+    }
+    ontology = {fact.fact_id for fact in (*sections.semantic_facts, *sections.identity_facts,
+                                          *sections.comparability_facts)}
+    return tuple(sorted(anchored | ontology))
+
+
+def note_available(sections: PackageSections, section: str, available: int) -> None:
+    """Record what a section held before the stage that bound it took rows away.
+
+    The selection stage applies §10.2's caps before the assembler ever sees the sections, and
+    only it knows what it had — `facts` is capped against `len(plans)`, `primary_passages`
+    against `len(order)`, `counter_evidence` against `len(built)`. Without this the ledger can
+    only report *"4 carried"* and must report `available` as unknown, because *"4 of 4"* about a
+    section that had nine is a false statement and §4 S6 renders that number to a reader.
+    """
+    sections.available_counts[section] = max(
+        available, sections.available_counts.get(section, 0))
+
+
+def note_drop(sections: PackageSections, section: str, reason: str, *, count: int = 1) -> None:
+    """One section gave up `count` rows, for a reason named by a warning code."""
+    sections.dropped_counts[section] = sections.dropped_counts.get(section, 0) + count
+    sections.drop_reasons.setdefault(section, set()).add(reason)
+
+
+def section_ledger(sections: PackageSections) -> tuple[SectionLedgerEntry, ...]:
+    """§4 S5's available / carried / dropped / reason, one row per section.
+
+    Built from `section_counts` rather than from a second list of section names, so a section
+    added to §10 cannot appear in one and not the other.
+
+    `required_dropped` is **measured, not asserted**: `facts` reports whether any slot the
+    candidate anchored on has no surviving fact, and a protected section reports whether it lost
+    a row at all. Both are false on every package the assembler can produce — that is what the
+    protection and the refusal are for — and the point of measuring is that the panel's *"no
+    required fact was dropped"* is then a reading rather than a claim.
+    """
+    counts = section_counts(sections)
+    rows: list[SectionLedgerEntry] = []
+    for name in sorted(counts):
+        carried = counts[name]
+        dropped = sections.dropped_counts.get(name, 0)
+        noted = sections.available_counts.get(name)
+        if noted is not None:
+            available: int | None = max(noted, carried + dropped)
+        elif name in sections.upstream_caps:
+            available = None
+        else:
+            available = carried + dropped
+        reasons = set(sections.drop_reasons.get(name, ()))
+        if name in sections.upstream_caps:
+            reasons.add(codes.SECTION_TRUNCATED)
+        rows.append(SectionLedgerEntry(
+            section=name,
+            available=available,
+            carried=carried,
+            dropped=dropped,
+            reasons=tuple(sorted(reasons)),
+            protected=name in section_bounds.PROTECTED_SECTIONS,
+            required_dropped=required_dropped(sections, name, dropped=dropped),
+        ))
+    return tuple(rows)
+
+
+def required_dropped(sections: PackageSections, name: str, *, dropped: int) -> bool:
+    """Did this section lose something §4 S5 protects?"""
+    if name == "facts":
+        covered = {(fact.metric_id, fact.period_key) for fact in sections.facts}
+        return bool(sections.required_slots - covered)
+    return dropped > 0 and name in section_bounds.PROTECTED_SECTIONS
+
+
+def derive_corroboration(sections: PackageSections) -> tuple[PackagedFact, ...]:
+    """§4 S3's three `corroborating_*` lists — **derived, like `documents[]`, on every rebuild.**
+
+    §1.1 measured the defect: `housing_inventory_homes` 2023-03-31 holds six observations, all
+    `6261.0 homes`, in six documents; canonicalisation keeps one and §10 carried one passage, so
+    five concordant sources were discarded and the best-corroborated fact in the candidate
+    arrived looking thinly sourced. The selection stage puts every concordant source on
+    `sections.corroboration`; this subtracts the ones `facts[]` is still carrying and turns the
+    rest into the three id lists.
+
+    **The subtraction is why this is derived rather than stamped.** §10.2's round-robin can deal
+    a second concordant reading of one slot into `facts[]`, and that reading is then in the
+    package with its own passage — strictly more than an id. Listing it as corroboration as well
+    would spend the budget twice on one source and would have each of two rows claim the other
+    as its own second source. Which readings survive is not known until the token trim has
+    finished, and the trim rebuilds the package once per dropped row, so the answer is
+    recomputed each time — the same reason `derive_documents` rebuilds rather than filters.
+
+    **Measured, because the obvious placement is wrong in both directions.** Stamped once in the
+    selection stage before the cap, every list on the three §6.3 spikes came out *empty*:
+    `facts[]` still held every reading the cap would later drop. Stamped with no subtraction at
+    all, the ids cost 487–876 tokens per package and pushed F1 and F3 from three primary
+    passages to two — paying a whole table of filed text to repeat, as an id, a reading the
+    package was already carrying in full.
+    """
+    carried = {fact.observation_id for fact in sections.facts}
+    rows: list[PackagedFact] = []
+    for fact in sections.facts:
+        sources = [
+            source for source in sections.corroboration.get(fact.observation_id, ())
+            if source[0] not in carried
+        ]
+        rows.append(fact.model_copy(update={
+            "corroborating_observation_ids": tuple(sorted({source[0] for source in sources})),
+            "corroborating_passage_ids": tuple(sorted({s[1] for s in sources if s[1]})),
+            "corroborating_document_ids": tuple(sorted({s[2] for s in sources if s[2]})),
+        }))
+    return tuple(rows)
 
 
 def drop_orphaned_facts(sections: PackageSections) -> None:
@@ -443,6 +660,10 @@ def section_counts(sections: PackageSections) -> dict[str, int]:
         "context_passages": len(sections.context_passages),
         "explanatory_passages": len(sections.explanatory_passages),
         "counter_evidence": len(sections.counter_evidence),
+        # Counted from the day the section exists, for the same reason the three ontology-fact
+        # sections are: §4 S2 moves rows *out* of `counter_evidence` and a reader comparing two
+        # runs must be able to see where they went.
+        "diagnostic_passages": len(sections.diagnostic_passages),
         "warnings": len(sections.warnings),
         "conflicts": len(sections.conflicts),
         "compatibility": len(sections.compatibility),
@@ -476,10 +697,17 @@ __all__ = [
     "PackageSections",
     "TokenEstimates",
     "dedupe",
+    "derive_corroboration",
     "drop_orphaned_facts",
     "may_drop_last_primary",
+    "may_drop_primary",
+    "note_available",
+    "note_drop",
+    "protected_fact_ids",
     "remember_document",
+    "required_dropped",
     "section_counts",
+    "section_ledger",
     "text_or_none",
     "without_orphaned_disclosures",
 ]

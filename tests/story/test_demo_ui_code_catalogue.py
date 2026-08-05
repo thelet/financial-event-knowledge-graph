@@ -35,16 +35,19 @@ from story.demo_ui.code_catalogue import (
 )
 from story.core.models import Severity
 from story.stages.freshness.freshness_report import RefusalCode
-from story.stages.packaging.warning_codes import KIND_OF, SEVERITY_OF
+from story.stages.packaging.warning_codes import CATEGORY_OF, KIND_OF, SEVERITY_OF
 from story.stages.verification.codes import GATE, GateEntry
 
 PACKAGE = pathlib.Path(code_catalogue.__file__).resolve().parents[2]
 
 #: What the five families held when this catalogue was written, measured 2026-08-04. Pinned so a
 #: family that *shrinks* — a code deleted upstream — is as loud as one that grows.
+#:
+#: `package_warning` went 28 → 29 at S5 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS:
+#: `required_fact_does_not_fit`, the plan's one new blocking behaviour.
 EXPECTED_SIZES = {
     FAMILY_VERIFICATION: 85,
-    FAMILY_PACKAGE_WARNING: 28,
+    FAMILY_PACKAGE_WARNING: 29,
     FAMILY_FRESHNESS: 8,
     FAMILY_PLANNER: 11,
     FAMILY_WRITER: 11,
@@ -139,7 +142,25 @@ def test_warning_severity_and_kind_are_read_from_the_packaging_tables():
         assert row is not None
         assert row.severity == severity.value
         assert row.warning_kind == KIND_OF[code].value
+        assert row.warning_category == CATEGORY_OF[code].value
         assert row.blocking == (severity is Severity.REFUSE)
+
+
+def test_a_capability_limitation_is_rendered_as_one_and_not_as_a_warning_about_the_evidence():
+    """§4 S5's reclassification, at the surface a reader actually meets.
+
+    The three codes fire on every package ever built — no §9 tool reads `:Entity`, none returns
+    a relationship, and the corpus holds zero `:EvidenceSource` nodes — so a panel that renders
+    them as findings about *this* evidence is telling a reader to distrust evidence that is fine.
+    Each is still in the catalogue, still described, still carrying its severity: relabelled,
+    never hidden."""
+    for code in ("subject_identity_not_read_from_graph", "relationships_unavailable_in_v1",
+                 "evidence_sources_absent_in_v1"):
+        row = explain(code, FAMILY_PACKAGE_WARNING)
+        assert row is not None
+        assert row.warning_category == "capability_limitation"
+        assert row.description
+        assert row.blocking is False
 
 
 def test_the_catalogue_did_not_grow_a_field_on_the_gate_entry():

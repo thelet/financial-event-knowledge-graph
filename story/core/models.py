@@ -55,7 +55,13 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 #: generation store misses and the committed replay demo raises `MissingGenerationError` until
 #: S7 re-records it once. Not bumping it would have kept the demo green by letting two package
 #: shapes share one id, which is the single thing this field forbids.
-PACKAGE_VERSION = "1.1.0"
+#:
+#: **1.2.0 at S2/S3.** One more section — `diagnostic_passages`, where a row that
+#: `find_counter_evidence` produced but that does not qualify as counter-evidence now lives —
+#: and one more field on `PackagedPassage`, `diagnostic_codes`. The same event, the same
+#: consequence: `package_id` moves again, and S7's single re-record covers both bumps because it
+#: happens after every schema change has landed.
+PACKAGE_VERSION = "1.2.0"
 
 #: The canonicalisation policy every candidate and every canonical series is computed under
 #: (§6.1). A digest input to `candidate_id`, so a policy change mints new candidates rather
@@ -247,6 +253,44 @@ class WarningKind(str, Enum):
 
     CLAIM_QUALIFYING = "claim_qualifying"
     BUILD_PROVENANCE = "build_provenance"
+
+
+class WarningCategory(str, Enum):
+    """What *kind of thing* a package warning is about — EVIDENCE_ROLES_AND_SEMANTIC_FACTS §4 S5.
+
+    **A refinement of `WarningKind`, not a third axis beside it.** Each category belongs to
+    exactly one kind (`warning_codes.KIND_OF_CATEGORY`), so `KIND_OF` is *derived* from the
+    category table rather than declared a second time. Two independent tables over one code set
+    can disagree; one table that induces the other cannot. The five names are §4 S5's own, and
+    the split they add is the one the evidence panel needs: `WarningKind` answers *"must the
+    post say this?"* and stops there, so a capability the retrieval layer does not have yet, a
+    read that came back short and a diagnostic the extractor recorded all render as one
+    undifferentiated *"warning"*.
+
+    * `SUBSTANTIVE_COUNTER_EVIDENCE` — the package carries something that disputes this story,
+      and the code says on what basis it was matched. §1's defect is a row in this family that
+      should never have been in it; §4 S2 is what keeps it out, and the category is what lets a
+      reader see the difference from the four below.
+    * `FACT_QUALITY_WARNING` — the fact is intact and its evidential standing is qualified: one
+      corroborating document, an unpreferred lane, a declared ambiguity, a population wording.
+    * `EXTRACTION_ISSUE` — the pipeline that produced the row hit a defect: an unresolved
+      entity, an undated event, a canonicalisation warning, a slot that holds no value.
+    * `RETRIEVAL_WARNING` — what reached the model is smaller than what the corpus holds,
+      whether the bound was a query limit, a capped search pool, a section cap or a token
+      budget. It qualifies no claim and §13.14 already refuses outright the absence and
+      uniqueness claims a partial read would make false.
+    * `CAPABILITY_LIMITATION` — V1 cannot do this at all: no §9 tool reads `:Entity`, no tool
+      returns a relationship, no `:EvidenceSource` node exists. **Not a fact about the subject
+      and not a defect in the evidence**, so it must not read as one and must not reduce a
+      post's verification status. It is still carried, still ordered by severity and still
+      rendered — relabelled, never hidden.
+    """
+
+    SUBSTANTIVE_COUNTER_EVIDENCE = "substantive_counter_evidence"
+    FACT_QUALITY_WARNING = "fact_quality_warning"
+    EXTRACTION_ISSUE = "extraction_issue"
+    RETRIEVAL_WARNING = "retrieval_warning"
+    CAPABILITY_LIMITATION = "capability_limitation"
 
 
 class Remedy(str, Enum):
@@ -491,14 +535,18 @@ class PackagedFact(StoryModel):
     `:Calculated` carry no `document_id` at all *"because nobody filed it"*. Zero such rows
     exist today; the shape exists so the XBRL lane cannot arrive by widening this type.
 
-    **The three `corroborating_*` lists are empty on every package built today, and that is a
-    measurement rather than a shape.** EVIDENCE_ROLES_AND_SEMANTIC_FACTS §1.1 counted
+    **The three `corroborating_*` lists are what S3 filled, and they are three id lists rather
+    than five more `facts[]` rows on purpose.** EVIDENCE_ROLES_AND_SEMANTIC_FACTS §1.1 counted
     `housing_inventory_homes` 2023-03-31 at **6 observations, all 6261.0 homes, 6 different
-    documents**; canonicalisation collapses the slot to one fact and §10 carries one passage, so
-    five concordant sources are discarded and the best-corroborated fact in the candidate is
-    presented as thinly sourced. S3 puts them here — one canonical fact, one `primary_support`
-    source, the rest recorded by id — and **does not mint duplicate facts**, which is why this is
-    three id lists on the fact rather than five more rows in `facts[]`.
+    documents**; canonicalisation collapses the slot to one fact and §10 carried one passage, so
+    five concordant sources were discarded and the best-corroborated fact in the candidate was
+    presented as thinly sourced. S3 records them here — one canonical fact, one `primary_support`
+    source chosen by §6.1 step 5's own ordering, the rest by id — and **mints no duplicate
+    fact**: a second `facts[]` row stating the same number would be a second fact, not a second
+    source, and §13 would then have two things to verify where the corpus has one.
+
+    Membership is decided by `story.core.observation_equivalence.same_reading`, on canonical
+    values and never on printed strings.
     """
 
     observation_id: str
@@ -607,10 +655,26 @@ class PackagedPassage(StoryModel):
     role: EvidenceRole
     #: Why this passage was associated with the candidate's facts, when it was. Empty otherwise.
     match_basis: str = ""
-    #: `UNASSESSED` until S2 runs a quality assessment. A default of `USABLE` would be this
-    #: module asserting a check that has not been written, on every passage in every package.
+    #: What `passage_quality.assess` found in this passage's own text. `UNASSESSED` is still the
+    #: default and still means *"nobody looked"*: S2 assesses every passage the packager builds,
+    #: and a row constructed by hand elsewhere has honestly not been assessed.
     quality_status: PassageQuality = PassageQuality.UNASSESSED
     unusable_reason: PassageUnusableReason | None = None
+    #: The `:Issue` codes that caused this passage to be collected at all — set on
+    #: `counter_evidence[]` and on `diagnostic_passages[]`, empty everywhere else.
+    #:
+    #: **A field rather than a warning, and the reason is §13.** The two `counter_evidence_*`
+    #: warning codes are `CLAIM_QUALIFYING`, so a post that carries one must write a sentence
+    #: about it; demanding *"as reported elsewhere in the filing"* about an `AMBIGUOUS_ALIAS`
+    #: refusal is the §1 defect one layer down. A demoted row therefore emits no warning, and
+    #: this is where the diagnostic it was demoted from survives — visible to a reviewer, silent
+    #: to §13's disclosure rule. Sorted and unique: it reaches `package_content_digest`.
+    diagnostic_codes: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _diagnostic_codes_are_sorted(self) -> "PackagedPassage":
+        _require_sorted_unique(self.diagnostic_codes, "diagnostic_codes")
+        return self
 
     @model_validator(mode="after")
     def _a_reason_needs_a_finding(self) -> "PackagedPassage":
@@ -891,6 +955,15 @@ class PackagedWarning(StoryModel):
     the builtin exception for every consumer that does `from story.core.models import *` or
     reads the module namespace, and the shadow is silent. The `Packaged*` prefix is what the
     other fifteen row types already use.
+
+    **`kind` is a field and `WarningCategory` is not, and the difference is measured.** `kind`
+    has to travel on the row because the *planner* reads it and a stage may not import another
+    stage. The finer category has no such consumer: the only readers that need it — the code
+    catalogue and the evidence panel — are free to import `warning_codes.CATEGORY_OF`, which is
+    where the decision lives. Carrying it anyway costs **170 prompt tokens on a full twenty-row
+    `warnings[]`** *(measured 2026-08-05)*, and `warnings[]` is inside the slice the model reads,
+    where §10.2's budget is tight enough that the three spike packages ship two to four passages.
+    A label the UI can look up is not worth a third of a passage.
     """
 
     code: str
@@ -993,6 +1066,44 @@ class BudgetParameters(StoryModel):
         return tuple(f"{name}={payload[name]}" for name in sorted(payload))
 
 
+class SectionLedgerEntry(StoryModel):
+    """What one §10 section had, what it shipped, and why the difference exists (§4 S5).
+
+    §4 S5: *"Every section records available / carried / dropped / reason."* `section_counts`
+    answers only the middle one, and a count of what shipped cannot distinguish *"the corpus
+    held four"* from *"the corpus held nine and the budget took five"* — which is exactly what
+    §4 S6 requires the panel to render for `token_budget_trimmed` and `section_truncated`
+    (*"4 of 9 primary passages sent to the model"*).
+
+    `reasons` is plural and holds **warning codes**, not sentences: a section can be bound twice
+    — once by its §10.2 cap and again by the token budget — and a code is resolvable through the
+    same catalogue the panel already renders warnings from, while a sentence written here would
+    be a second copy of one written there.
+
+    `required_dropped` is the field the plan's *"and that no required fact was dropped"* claim
+    is read from. It is false on every package the assembler can produce, because a required
+    fact is untrimmable and a package that cannot fit one refuses (`required_fact_does_not_fit`)
+    rather than shipping without it. It exists so the panel states that as a measured fact
+    rather than as a property nobody checked.
+
+    **`available` is `None` when nobody counted it, and never a flattering guess.** It is exact
+    for every section the assembler bound itself and for every section a stage reported through
+    `package_assembly.note_available`. Where an earlier §10.2 cap dropped rows and reported no
+    count it is `None`: *"4 of 4 available"* about a section that had nine is a false statement,
+    and the `section_truncated` code in `reasons` points at the warning whose detail carries the
+    real numbers.
+    """
+
+    section: str
+    available: int | None
+    carried: int
+    dropped: int
+    reasons: tuple[str, ...] = ()
+    #: Whether the trimmer was forbidden to touch this section at all (§4 S5's protected set).
+    protected: bool = False
+    required_dropped: bool = False
+
+
 class PackageBudget(StoryModel):
     """§10's `budget` — what the package actually cost and which caps bound it.
 
@@ -1014,6 +1125,9 @@ class PackageBudget(StoryModel):
     artifact_token_estimate: int
     prompt_token_estimate: int
     section_counts: Mapping[str, int] = {}
+    #: §4 S5's available / carried / dropped / reason, one row per section, sorted by name.
+    #: Empty only on a `PackageBudget` built by hand; the assembler always fills it.
+    section_ledger: tuple[SectionLedgerEntry, ...] = ()
     parameters: BudgetParameters = BudgetParameters()
     caps_hit: tuple[str, ...] = ()
 
@@ -1045,8 +1159,9 @@ class PackageIdentity(StoryModel):
 class StoryEvidencePackage(StoryModel):
     """The model's entire universe (§10), serializable, hashed and reproducible.
 
-    Nineteen bounded sections — sixteen at S0, plus `semantic_facts`, `identity_facts` and
-    `comparability_facts` at S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS. Nothing a model produced
+    Twenty bounded sections — sixteen at S0, plus `semantic_facts`, `identity_facts` and
+    `comparability_facts` at S1 of EVIDENCE_ROLES_AND_SEMANTIC_FACTS, plus
+    `diagnostic_passages` at S2. Nothing a model produced
     may enter one, and nothing outside one may reach a prompt: that is the whole of §2's line —
     the model chooses words, code chooses facts.
 
@@ -1088,6 +1203,17 @@ class StoryEvidencePackage(StoryModel):
     context_passages: tuple[PackagedPassage, ...] = ()
     explanatory_passages: tuple[PackagedPassage, ...] = ()
     counter_evidence: tuple[PackagedPassage, ...] = ()
+    #: Every passage `find_counter_evidence` pointed at that **did not qualify** as
+    #: counter-evidence (§4 S2), carrying the role it actually plays — `warning_only` for an
+    #: extraction or data-quality diagnostic, `unusable` for content that can carry no evidence
+    #: at all.
+    #:
+    #: **A section is a place; a role is a claim.** This one is named for the reason the rows
+    #: were collected, and each row's `role` says what it turned out to be — which is the same
+    #: split `EvidenceRole` exists for, applied to the section list itself. Putting these back in
+    #: `counter_evidence[]` would keep §11's planner obliged to write a counterpoint about an
+    #: `AMBIGUOUS_ALIAS` refusal; dropping them would make the reclassification unreviewable.
+    diagnostic_passages: tuple[PackagedPassage, ...] = ()
     warnings: tuple[PackagedWarning, ...] = ()
     conflicts: tuple[Conflict, ...] = ()
     compatibility: tuple[CompatibilityDecision, ...] = ()
@@ -1615,6 +1741,7 @@ __all__ = [
     "RetrievalTraceEntry",
     "RejectedDraft",
     "RunSelection",
+    "SectionLedgerEntry",
     "SemanticFact",
     "SentenceKind",
     "Severity",
@@ -1626,6 +1753,7 @@ __all__ = [
     "UnusableReason",
     "VerificationFinding",
     "VerifiedDraft",
+    "WarningCategory",
     "WarningKind",
     "canonical_json",
 ]
