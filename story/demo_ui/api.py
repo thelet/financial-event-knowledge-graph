@@ -1559,16 +1559,26 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
                   else code_catalogue.FAMILY_WRITER
                   if outcome.disposition == pipeline.DRAFT_REFUSED
                   else code_catalogue.FAMILY_VERIFICATION)
+        # **A verifier rejection does not carry its codes on `refusal_codes`.** `_codes_of`
+        # reads §11's and §12's exceptions; §13 does not raise, it returns a `VerifiedDraft`
+        # whose codes are on the findings. Reading only `refusal_codes` reported `codes: []`
+        # for a rejection with six named blocking findings, and the absent-code sentence below
+        # then explained it as a transport failure — which was measurably untrue, since
+        # `verifier_ran` was `true` beside it. Found on a live run, 2026-08-09.
+        blocking_codes = tuple(
+            dict.fromkeys(finding.code for finding in outcome.verified.all_findings
+                          if finding.blocking)) if outcome.verified is not None else ()
+        codes = outcome.refusal_codes or blocking_codes
         rejection = {
             "filename": pipeline.REJECTED_FILENAME,
             "stage": {pipeline.PLAN_REFUSED: "editorial_planner",
                       pipeline.DRAFT_REFUSED: "post_writer",
                       pipeline.REJECTED: "deterministic_verifier"}.get(
                           outcome.disposition, outcome.disposition),
-            "codes": _explanations(outcome.refusal_codes, family),
+            "codes": _explanations(codes, family),
             "verifier_ran": outcome.verified is not None,
         }
-        if not outcome.refusal_codes:
+        if not codes:
             # **Measured on three live runs, 2026-08-05: a refusal can carry no code at all.**
             # `_codes_of` reads `codes` off §11/§12's rejections and `violations` off a schema
             # error, and a `StoryProviderError` raised by the transport — a 500, a context
