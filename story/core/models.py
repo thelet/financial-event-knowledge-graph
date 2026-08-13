@@ -490,13 +490,45 @@ class CandidateScore(StoryModel):
 
 
 class PassageCitation(StoryModel):
-    """A citation into filed text: Rules A and B (§13.7) apply and the span must exist."""
+    """A citation into filed text: Rules A and B (§13.7) apply and the span must exist.
+
+    **`evidence_handle` is what the model declares; everything else on this row is what code
+    resolved it to** (TABLE_CELL_CITATIONS §3.2). Until S4 the model declared a `quote` — a
+    retyped run of the passage's own bytes — and `writer.draft_from` located it by searching for
+    it. That contract was unsatisfiable for 19.3% of the corpus: `EVIDENCED_BY.quoted_text` is a
+    bare cell value of median 4 characters and **523 of 2,704** observations quote a string that
+    occurs more than once in their own passage, worst case 32 times *(verified live
+    2026-08-13)*, so §12 refused as ambiguous the very string the prompt told the model to write.
+    The model now declares the fact's `PackagedFact.evidence_handle` and code resolves the span
+    from `PackagedFact.cell` through `story.core.table_cells.resolve_cell`.
+
+    `char_start`/`char_end` are unchanged in meaning and are still absolute into the **full**
+    `:Passage.text` — the evidence panel and §13.7 Rule B both read them, and
+    `PackagedPassage.char_start` is what rebases a resolver's passage-relative answer. They were
+    never the model's to supply and still are not; what changed is which model-supplied token
+    they are derived from.
+
+    **Optional, and `None` is a real answer rather than a missing value.** Every citation
+    `writer.draft_from` builds carries a handle by construction, because it was resolved from
+    one. A citation assembled by hand carries `None`, and that is the truth about it: no package
+    minted a handle for those characters, so there is nothing to state. Required with no default
+    would have made this type sayable only by the writer — and `CitationHandle` is shared
+    vocabulary that a draft sentence, a semantic fact and a comparability fact all use, none of
+    which resolves through a `PackagedFact`. The asymmetry with `PackagedPassage.role`, which is
+    required precisely *because* nothing else on its row answers it, is deliberate: there the
+    caller is the only one who knows, here the caller cannot know better than the resolver.
+    """
 
     kind: Literal["passage"] = "passage"
     passage_id: str
     document_id: str
     char_start: int
     char_end: int
+    #: The `PackagedFact.evidence_handle` this citation was resolved from (§3.1), or `None` for
+    #: a citation no package minted. `story.stages.verification` reads it for §3.4 check 7 —
+    #: *"the handle this package minted for `F`"* — which is the check that makes citing another
+    #: fact's cell detectable at all.
+    evidence_handle: str | None = None
 
     @model_validator(mode="after")
     def _span_is_usable(self) -> "PassageCitation":

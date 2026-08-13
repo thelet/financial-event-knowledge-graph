@@ -553,7 +553,14 @@ PLANNER_DESCRIPTIONS: Mapping[str, str] = {
 }
 
 
-# -- §12's writer refusals, 11 codes ------------------------------------------------------------
+# -- §12's writer refusals, 13 codes ------------------------------------------------------------
+#
+# Eleven until TABLE_CELL_CITATIONS S4, which moved the citation contract from a retyped quote to
+# a deterministic evidence handle and added the two failures that contract has:
+# `unresolvable_evidence_handle` and `evidence_handle_out_of_bounds`. The two quote codes are
+# **kept and re-described**, not deleted: a table-backed fact no longer reaches either, but a
+# narrative one still does, and 14 of the corpus's 2,704 observations are narrative. A code
+# deleted while still reachable leaves a panel printing a bare string nobody wrote a sentence for.
 
 WRITER_DESCRIPTIONS: Mapping[str, str] = {
     "unresolvable_fact_id":
@@ -565,12 +572,18 @@ WRITER_DESCRIPTIONS: Mapping[str, str] = {
     "binding_rendering_ambiguous_in_sentence":
         "The number the draft binds occurs more than once in its own sentence, so there is no "
         "ground for choosing which occurrence is meant.",
+    "unresolvable_evidence_handle":
+        "The draft cites an evidence id this package minted for no fact, so it names a cell "
+        "nothing was read from.",
+    "evidence_handle_out_of_bounds":
+        "The cited fact's own table coordinates fall outside the passage text the package "
+        "carries, so the evidence id locates no cell.",
     "citation_quote_not_in_passage":
-        "The draft quotes text the cited passage does not contain, or a range the package's text "
-        "does not cover.",
+        "The passage no longer contains the package's own quote for a fact read out of prose, "
+        "or the citation's range falls outside the text the package holds.",
     "citation_quote_ambiguous_in_passage":
-        "The quoted text occurs more than once inside the passage, so the citation resolves to "
-        "no single span.",
+        "The package's own quote for a fact read out of prose occurs more than once inside its "
+        "passage, so the citation resolves to no single span.",
     "more_than_one_calculation":
         "A sentence declares more than one calculation; a sentence is allowed one derivation.",
     "thesis_abandoned":
@@ -629,8 +642,9 @@ _PLANNER_CODE_NAMES: tuple[str, ...] = (
 
 _WRITER_CODE_NAMES: tuple[str, ...] = (
     "UNRESOLVABLE_FACT_ID", "UNRESOLVABLE_PASSAGE_ID", "BINDING_RENDERING_NOT_IN_TEXT",
-    "BINDING_RENDERING_AMBIGUOUS", "CITATION_QUOTE_NOT_IN_PASSAGE", "CITATION_QUOTE_AMBIGUOUS",
-    "MORE_THAN_ONE_CALCULATION", "THESIS_ABANDONED", "NO_SENTENCES",
+    "BINDING_RENDERING_AMBIGUOUS", "UNRESOLVABLE_EVIDENCE_HANDLE",
+    "EVIDENCE_HANDLE_OUT_OF_BOUNDS", "CITATION_QUOTE_NOT_IN_PASSAGE",
+    "CITATION_QUOTE_AMBIGUOUS", "MORE_THAN_ONE_CALCULATION", "THESIS_ABANDONED", "NO_SENTENCES",
     "PLAN_NAMES_ANOTHER_PACKAGE", "DRAFT_NOT_CONSTRUCTIBLE",
 )
 

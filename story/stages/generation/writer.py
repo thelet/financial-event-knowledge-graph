@@ -17,14 +17,26 @@ which is that correction stated as a signature rather than as a promise.
 
 **What the model declares and what code computes.** §12 gives every binding and every citation a
 `char_start`/`char_end`. Asking a 9B model to count characters in its own sentence would fail on
-essentially every call, so the schema asks for the **exact substring** — `rendered` for a
-binding, `quote` for a citation — and this module locates it: once, deterministically, refusing a
-substring that occurs twice rather than choosing between the occurrences. The declaration is
-still the model's and the verifier still checks the binding it was handed rather than guessing
-one, which is what §12's argument protects. The consequence is worth stating plainly: a draft
-that leaves this module can never fail §13.1's `binding_span_does_not_match_text` or §13.7's
-`citation_span_not_in_passage`, because a draft that would have is refused here first, with
-`binding_rendering_not_in_text` or `citation_quote_not_in_passage`.
+essentially every call, so neither is ever asked for — but the two halves are no longer answered
+the same way, and that difference is TABLE_CELL_CITATIONS S4.
+
+* A **binding** declares the exact substring `rendered` of the model's *own* `text`, and this
+  module locates it: once, deterministically, refusing a substring that occurs twice rather than
+  choosing between the occurrences. Unchanged, and untouchable — the sentence is the only text
+  the model is the authority on.
+* A **citation** declares one `evidence_id`, the `PackagedFact.evidence_handle` the package
+  minted, and this module resolves the span from `PackagedFact.cell` through
+  `story.core.table_cells.resolve_cell`. It used to declare a retyped `quote`. That contract was
+  **unsatisfiable for a fifth of the corpus**: `EVIDENCED_BY.quoted_text` is a bare cell value
+  of median 4 characters, it occurs more than once in its own passage for **523 of 2,704**
+  observations (worst case 32), the prompt rendered `quoting "7"`, and the gate below refused
+  that exact string as ambiguous *(all verified live 2026-08-13)*. No model output satisfied
+  both. What is removed is a typing test, not a check: the model was never the authority on
+  which bytes support a fact, and §13.7 now has **more** to check, not less (§3.4 checks 3–7).
+
+The consequence is worth stating plainly: a draft that leaves this module can never fail §13.1's
+`binding_span_does_not_match_text` or §13.7's `citation_span_not_in_passage`, because a draft
+that would have is refused here first.
 
 **Six rules are code after the call, not instructions in the prompt** — §15.3 can express none
 of them, since it has no `pattern`, no `minItems` and no way to say "this string must occur in
@@ -32,8 +44,8 @@ that string":
 
 1. every `fact_id`, in a binding or in a calculation's inputs, resolves in the package;
 2. every `rendered` occurs exactly once in its own sentence's `text`;
-3. every citation names a passage **in the writer's own slice**, and its `quote` occurs exactly
-   once in that passage;
+3. every `evidence_id` is a handle **this package minted**, its fact's passage is in the
+   writer's own slice, and its coordinates resolve inside that passage's text;
 4. a sentence carries at most one calculation — the schema's array is how §15.3 spells
    "optional", not a licence to declare two derivations for one sentence;
 5. the draft rests on the plan: it binds at least one fact the plan's key points named. A draft
@@ -70,11 +82,13 @@ from story.core.models import (
     EditorialPlan,
     FactBinding,
     GenerationResult,
+    PackagedFact,
     PackagedPassage,
     PassageCitation,
     SentenceKind,
     StoryEvidencePackage,
 )
+from story.core.table_cells import CellOutOfBounds, resolve_cell
 from story.providers.portable_schema import schema_violations, validate_portable_schema
 from story.providers.public import PINNED_TEMPERATURE, StoryProviderSchemaError
 from story.stages.generation.prompts import (
@@ -98,6 +112,20 @@ UNRESOLVABLE_FACT_ID = "unresolvable_fact_id"
 UNRESOLVABLE_PASSAGE_ID = "unresolvable_passage_id"
 BINDING_RENDERING_NOT_IN_TEXT = "binding_rendering_not_in_text"
 BINDING_RENDERING_AMBIGUOUS = "binding_rendering_ambiguous_in_sentence"
+#: §3.4 check 1, at §12's grain: the `evidence_id` the model wrote is not a handle this package
+#: minted. Every fabrication lands here — a handle for a cell no fact occupies, a handle naming
+#: another passage, a handle for a fact of another package — because `evidence_handle` is
+#: derived from coordinates a `PackagedFact` already carries and nothing else mints one. The
+#: name is §3.4's, deliberately, so §12's refusal and §13.7's read the same in a panel.
+UNRESOLVABLE_EVIDENCE_HANDLE = "unresolvable_evidence_handle"
+#: §3.4 check 2: the handle is the package's own and its coordinates name no cell in the
+#: passage's grid — `table_cells.CellOutOfBounds`. **This is not a model failure and cannot be
+#: one**, since the coordinates come off the `PackagedFact`, not off the answer. It fires when a
+#: package and the passage text it carries disagree: a stored package replayed against a
+#: re-extracted corpus, or an excerpted passage a fact was read outside of. Given a name rather
+#: than allowed to escape as an `IndexError` because a citation that resolves to nothing is a
+#: refusal, and a traceback is not one.
+EVIDENCE_HANDLE_OUT_OF_BOUNDS = "evidence_handle_out_of_bounds"
 CITATION_QUOTE_NOT_IN_PASSAGE = "citation_quote_not_in_passage"
 CITATION_QUOTE_AMBIGUOUS = "citation_quote_ambiguous_in_passage"
 MORE_THAN_ONE_CALCULATION = "more_than_one_calculation"
@@ -262,14 +290,32 @@ def _citation_violations(
     slice_ids: set[str],
     package: StoryEvidencePackage,
 ) -> list[DraftViolation]:
+    """Every §12 refusal a *finished* citation can carry, whoever built it.
+
+    This judges a `PassageCitation` that already has a span, so it is the path a hand-written or
+    a replayed draft takes; `_citations_from` is the path the model's answer takes, and the two
+    do not overlap by construction — a citation `_citations_from` built is inside its passage
+    because a resolver put it there.
+
+    The handle is checked **only when the citation carries one**. `PassageCitation.evidence_handle`
+    is optional because a citation nothing minted has no handle to state, so `None` is *"no
+    package named this evidence"* rather than a missing value, and refusing it here would refuse
+    every hand-built citation in the repository for a field that was introduced today.
+    """
     found: list[DraftViolation] = []
     texts = {passage.passage_id: passage
              for section in (package.primary_passages, package.context_passages,
                              package.explanatory_passages, package.counter_evidence)
              for passage in section}
+    handles = package.facts_by_evidence_handle()
     for citation in sentence.citations:
         if not isinstance(citation, PassageCitation):
             continue  # §13.7.2 Rule C is the verifier's refusal, not this stage's
+        if citation.evidence_handle is not None and citation.evidence_handle not in handles:
+            found.append(DraftViolation(
+                UNRESOLVABLE_EVIDENCE_HANDLE,
+                f"{where} cites evidence {citation.evidence_handle!r}, which this package minted "
+                "for no fact"))
         if citation.passage_id not in slice_ids:
             found.append(DraftViolation(
                 UNRESOLVABLE_PASSAGE_ID,
@@ -334,10 +380,14 @@ def draft_from(
     make every §13 finding unaddressable.
     """
     shown = tuple(writer_passages(package) if passages is None else passages)
+    # Built once for the whole answer rather than per citation: `facts_by_evidence_handle` is
+    # O(facts) and a five-sentence draft cites six or seven times, which is the reason §3.3 made
+    # it a method a caller holds rather than a property that rebuilds.
+    handles = package.facts_by_evidence_handle()
     violations: list[DraftViolation] = []
     sentences: list[DraftSentence] = []
     for index, row in enumerate(content.get("sentences") or ()):
-        sentence, found = _sentence_from(index, row, shown)
+        sentence, found = _sentence_from(index, row, shown, handles)
         violations.extend(found)
         if sentence is not None:
             sentences.append(sentence)
@@ -373,6 +423,7 @@ def _sentence_from(
     index: int,
     row: Mapping[str, Any],
     passages: Sequence[PackagedPassage],
+    handles: Mapping[str, PackagedFact],
 ) -> tuple[DraftSentence | None, list[DraftViolation]]:
     """One schema row as a `DraftSentence`, with every span located rather than trusted."""
     where = f"sentences[{index}]"
@@ -395,30 +446,9 @@ def _sentence_from(
             period_surface=str(declared.get("period_surface") or ""),
         ))
 
-    citations: list[PassageCitation] = []
-    by_id = {passage.passage_id: passage for passage in passages}
-    for declared in row.get("citations") or ():
-        passage_id = str(declared.get("passage_id") or "")
-        passage = by_id.get(passage_id)
-        if passage is None:
-            violations.append(DraftViolation(
-                UNRESOLVABLE_PASSAGE_ID,
-                f"{where} cites {passage_id!r}, which is not a passage the writer was shown"))
-            continue
-        quote = str(declared.get("quote") or "")
-        occurrences = _occurrences(passage.text, quote)
-        if len(occurrences) != 1:
-            violations.append(_quote_violation(where, passage_id, quote, occurrences))
-            continue
-        # Rebased to the full `:Passage.text` (§10.2.1 point 2): `PackagedPassage.char_start` is
-        # the offset of `text[0]`, and a citation the evidence panel can resolve is an absolute
-        # one. Zero for a passage carried whole, which every passage in this slice is.
-        citations.append(PassageCitation(
-            passage_id=passage_id,
-            document_id=passage.document_id,
-            char_start=passage.char_start + occurrences[0],
-            char_end=passage.char_start + occurrences[0] + len(quote),
-        ))
+    citations, found = _citations_from(
+        where, row.get("citations") or (), passages, handles)
+    violations.extend(found)
 
     declared_calculations = list(row.get("calculation") or ())
     calculation: Calculation | None = None
@@ -468,18 +498,145 @@ def _calculation_from(declared: Mapping[str, Any]) -> Calculation:
     )
 
 
+def _citations_from(
+    where: str,
+    declared_citations: Sequence[Mapping[str, Any]],
+    passages: Sequence[PackagedPassage],
+    handles: Mapping[str, PackagedFact],
+) -> tuple[list[PassageCitation], list[DraftViolation]]:
+    """The model's `evidence_id`s, resolved to spans the evidence panel can highlight.
+
+    **The model supplies one token per citation and code supplies everything else.** The handle
+    names a `PackagedFact`; the fact names its passage and — for the 99.5% of the corpus read out
+    of a table — the grid coordinates of the cell its value sits in. `resolve_cell` turns those
+    into a span, verified at 2,690 / 2,690 against the live graph. Nothing here searches the
+    passage for a string the model wrote, which is the entire difference from the contract this
+    replaced.
+
+    **Table and narrative are two paths and only one of them searches.** A fact with a `cell` is
+    resolved by coordinate. A fact without one was read out of prose, and its `quoted_text` is a
+    whole sentence: all **14 / 14** narrative quotes occur exactly once in their passage
+    *(verified live 2026-08-13)*, so the uniqueness requirement is kept for them rather than
+    dropped as a formality. If it ever fails it is a defect in the package — the passage the
+    package carries no longer holds the sentence the edge quoted — and a defect must refuse.
+    """
+    citations: list[PassageCitation] = []
+    violations: list[DraftViolation] = []
+    by_id = {passage.passage_id: passage for passage in passages}
+    for declared in declared_citations:
+        handle = str(declared.get("evidence_id") or "")
+        fact = handles.get(handle)
+        if fact is None:
+            violations.append(DraftViolation(
+                UNRESOLVABLE_EVIDENCE_HANDLE,
+                f"{where} cites evidence {handle!r}; this package mints a handle for every fact "
+                "it holds and none of them is that one. §3.1 — a handle is derived from the "
+                "coordinates a fact already carries, so an id nothing minted names no evidence"))
+            continue
+        passage = by_id.get(fact.passage_id or "")
+        if passage is None:
+            # Reachable without the model doing anything wrong: `writer_passages` intersects the
+            # facts' passages with the package's four passage sections, so a fact whose passage
+            # no section carries is citable-looking and outside the slice. §10.2.1 point 3 —
+            # the writer may cite only what it was shown.
+            violations.append(DraftViolation(
+                UNRESOLVABLE_PASSAGE_ID,
+                f"{where} cites evidence {handle!r}, which was read from "
+                f"{fact.passage_id!r} — not a passage the writer was shown"))
+            continue
+        located = _span_for(where, handle, fact, passage)
+        if isinstance(located, DraftViolation):
+            violations.append(located)
+            continue
+        start, end = located
+        # Rebased to the full `:Passage.text` (§10.2.1 point 2): `PackagedPassage.char_start` is
+        # the offset of `text[0]`, and a citation the evidence panel can resolve is an absolute
+        # one. Zero for a passage carried whole, which every passage in this slice is.
+        citations.append(PassageCitation(
+            passage_id=passage.passage_id,
+            document_id=passage.document_id,
+            char_start=passage.char_start + start,
+            char_end=passage.char_start + end,
+            evidence_handle=handle,
+        ))
+    return citations, violations
+
+
+def _span_for(
+    where: str, handle: str, fact: PackagedFact, passage: PackagedPassage
+) -> tuple[int, int] | DraftViolation:
+    """Where in `passage.text` the evidence behind `fact` sits — by coordinate, or by search.
+
+    Passage-relative; `_citations_from` rebases. One value out, and it is either the span or the
+    reason there is none — a pair of optionals would have made "neither" and "both" constructible
+    for a question that has exactly one answer.
+    """
+    if fact.cell is not None:
+        try:
+            cell = resolve_cell(passage.text,
+                                row_index=fact.cell.row_index,
+                                column_index=fact.cell.value_column_index)
+        except CellOutOfBounds as off_grid:
+            return DraftViolation(
+                EVIDENCE_HANDLE_OUT_OF_BOUNDS,
+                f"{where} cites evidence {handle!r} and {off_grid}. The coordinates are the "
+                "package's own, not the model's, so this is the package and the passage text it "
+                "carries disagreeing about the table")
+        if cell.char_end <= cell.char_start:
+            # A well-formed coordinate holding nothing — a spacer column, of which these tables
+            # have many. `quoted_text` is non-empty on 2,704 / 2,704 evidence edges, so a fact
+            # resolving to an empty cell means its coordinates do not name the value it was read
+            # from. Refused under the same code as an off-grid one, because the outcome is
+            # identical: the handle locates no span, and `PassageCitation` requires
+            # `char_end > char_start`.
+            return DraftViolation(
+                EVIDENCE_HANDLE_OUT_OF_BOUNDS,
+                f"{where} cites evidence {handle!r}, whose cell "
+                f"({fact.cell.row_index}, {fact.cell.value_column_index}) of "
+                f"{passage.passage_id} is empty; there is no span to cite")
+        return cell.char_start, cell.char_end
+
+    quote = fact.quoted_text or ""
+    occurrences = _occurrences(passage.text, quote)
+    if len(occurrences) != 1:
+        return _quote_violation(where, passage.passage_id, quote, occurrences)
+    return occurrences[0], occurrences[0] + len(quote)
+
+
 def _quote_violation(
     where: str, passage_id: str, quote: str, occurrences: Sequence[int]
 ) -> DraftViolation:
+    """The two refusals that survive the move off retyped quotes, narrowed to narrative evidence.
+
+    **Both stay registered and both stay reachable, and neither can any longer be caused by
+    anything the model wrote.** `quote` here is the *package's* own `EVIDENCED_BY.quoted_text`
+    for a fact with no `cell` — the 14 narrative observations, 0.5% of the corpus — located in
+    the passage the package carries beside it.
+
+    * `citation_quote_not_in_passage` — zero occurrences. Also raised from
+      `_citation_violations` for a finished citation whose span falls outside the passage text
+      the package holds, which is the path a hand-written or replayed draft takes.
+    * `citation_quote_ambiguous_in_passage` — more than one. All **14 / 14** narrative quotes
+      are whole sentences occurring exactly once *(verified live 2026-08-13)*, so this does not
+      fire on today's corpus. It is kept rather than deleted because it is no longer a statement
+      about a model's typing: it now says *"the package's own quote no longer identifies one
+      place in the package's own passage"*, which is a defect in the evidence and must refuse.
+      Deleting a reachable code is worse than keeping one that has not fired.
+
+    What is gone is the branch that made the old contract unsatisfiable: a **table** fact never
+    reaches this function, so no citation is ever refused for the ambiguity of a four-character
+    cell value. That was 523 of 2,704 observations, and it is now zero.
+    """
     if not occurrences:
         return DraftViolation(
             CITATION_QUOTE_NOT_IN_PASSAGE,
-            f"{where} quotes {quote!r} from {passage_id}, which does not contain it")
+            f"{where} cites narrative evidence from {passage_id}, whose text no longer contains "
+            f"the package's own quote {quote!r}")
     return DraftViolation(
         CITATION_QUOTE_AMBIGUOUS,
-        f"{where} quotes {quote!r} from {passage_id}, where it occurs {len(occurrences)} "
-        "times; §13.7 measured 523 quoted_text strings occurring more than once inside their "
-        "own passage, and a citation that cannot say which occurrence resolves to no span")
+        f"{where} cites narrative evidence from {passage_id}, where the package's own quote "
+        f"{quote!r} occurs {len(occurrences)} times; a citation that cannot say which occurrence "
+        "resolves to no span, and this fact carries no cell coordinate to resolve it by")
 
 
 # -- the rendered post, and it comes from the draft ---------------------------------------------
@@ -518,9 +675,14 @@ def render_markdown(draft: Draft) -> str:
     if citations:
         lines.append("## Sources")
         for citation, sentence in citations:
+            # The handle is printed beside the span, not instead of it. A reader resolves the
+            # span; a *rejection* names the handle (§3.4's codes all carry one), and a panel that
+            # printed only offsets would leave nothing in the post to match a refusal against.
+            # `""` for a citation nothing minted a handle for — see `PassageCitation`.
+            handle = f" [{citation.evidence_handle}]" if citation.evidence_handle else ""
             lines.append(f"- sentence {sentence.index}: {citation.passage_id} "
                          f"({citation.document_id}) characters "
-                         f"{citation.char_start}-{citation.char_end}")
+                         f"{citation.char_start}-{citation.char_end}{handle}")
         lines.append("")
 
     derivations = [(sentence.index, sentence.calculation) for sentence in draft.sentences
@@ -609,10 +771,12 @@ __all__ = [
     "CITATION_QUOTE_AMBIGUOUS",
     "CITATION_QUOTE_NOT_IN_PASSAGE",
     "DRAFT_NOT_CONSTRUCTIBLE",
+    "EVIDENCE_HANDLE_OUT_OF_BOUNDS",
     "MORE_THAN_ONE_CALCULATION",
     "NO_SENTENCES",
     "PLAN_NAMES_ANOTHER_PACKAGE",
     "THESIS_ABANDONED",
+    "UNRESOLVABLE_EVIDENCE_HANDLE",
     "UNRESOLVABLE_FACT_ID",
     "UNRESOLVABLE_PASSAGE_ID",
     "DraftRejected",

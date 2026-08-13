@@ -517,7 +517,19 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: that requires one of them now renders *"say it with one of: …"* where it rendered *"this code
 #: declares no accepted phrase and cannot be satisfied"*. That is a change in what the writer is
 #: told it may do, which is what this constant tracks; no wording of any rule moved.
-WRITER_PROMPT_VERSION = "1.3.0"
+#:
+#: **1.4.0**: TABLE_CELL_CITATIONS S4 — the citation contract stopped being a retyped byte string
+#: and became a deterministic evidence handle. `writer_schema`'s `citations[]` item is now
+#: `{"evidence_id"}` where it was `{"passage_id", "quote"}`; `_writer_fact_lines` renders
+#: `evidence id "ev:…"` where it rendered `quoting "7"`; rules 8 and 9 are rewritten, and the
+#: PASSAGES heading no longer tells the writer it is choosing a passage. **The old wording and
+#: the old gate contradicted each other**, so this is a bump that removes an impossible
+#: instruction rather than one that adds a capability: `quoted_text` occurs more than once in
+#: its own passage for 523 of 2,704 observations, and `writer.py`'s `len(occurrences) != 1`
+#: refused exactly the string the prompt asked for. No generation recorded under 1.3.0 answers
+#: this question, and every one of them is unreachable by construction — the system message, the
+#: prompt and the schema are all digest inputs to `request_identity`.
+WRITER_PROMPT_VERSION = "1.4.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -603,12 +615,24 @@ PLAIN_INVESTOR_STYLE = StyleProfile(
 #: *"a difference between two percentages is measured in percentage points, never in percent"*
 #: has been told what the check is.
 #:
-#: Rules 3 and 8 are what make the draft checkable at all, and both are stated as *substring*
-#: rules rather than as offsets. §12 specifies `char_start`/`char_end` on every binding and
-#: citation; asking a 9B model to count characters would fail on every call, so the model
-#: declares the exact substring and `writer.draft_from` locates it — deterministically, refusing
-#: a substring that occurs twice rather than choosing between the occurrences. The declaration is
-#: still the model's and the verifier still never guesses one, which is what §12 is protecting.
+#: Rules 3 and 8 are what make the draft checkable at all, and they are no longer the same kind
+#: of rule. §12 specifies `char_start`/`char_end` on every binding and citation, and asking a 9B
+#: model to count characters would fail on every call, so neither asks for an offset.
+#:
+#: * **Rule 3 is a substring rule and stays one.** `rendered` is a run of the model's *own*
+#:   sentence, `writer.draft_from` locates it there, and a rendering occurring twice is refused
+#:   rather than chosen between. The declaration is the model's and the verifier never guesses
+#:   one, which is what §12 protects. Table flattening does not touch it.
+#: * **Rule 8 was a substring rule and it was unsatisfiable** (TABLE_CELL_CITATIONS §1.2). It
+#:   asked for a `quote` occurring in the cited passage *exactly once*, and the string the prompt
+#:   handed the model was `EVIDENCED_BY.quoted_text` — a bare cell value of median 4 characters,
+#:   occurring more than once in its own passage for **523 of 2,704** observations and 27 times
+#:   in the worst case a demo candidate actually hits *(verified live 2026-08-13)*. §12 then
+#:   refused that exact string as `citation_quote_ambiguous_in_passage`, so for a fifth of the
+#:   corpus **no model output satisfied both the instruction and the gate**. It is now a
+#:   *token* rule: the model copies back a `PackagedFact.evidence_handle`, and code resolves the
+#:   coordinates behind it through `story.core.table_cells`. The model is never asked to
+#:   reproduce source text, which is the whole of the repair.
 #:
 #: **Rules 5, 6, 7 and 9 were added after a live run, and each closes a defect that run made
 #: rather than one this text predicted** *(measured 2026-08-04, Qwen3.5-9B-Q4_K_M, this package,
@@ -669,11 +693,13 @@ second figure stands 15.9 points above the first, list the lower one first.
 metric. An arithmetic difference between two figures has no formula version, and inventing one \
 is refused.
 8. A `reported` or `explanatory` sentence carries no calculation and at least one citation. A \
-citation names a passage id from PASSAGES and a `quote` that occurs in that passage exactly \
-once, character for character. Quote the table row the figure was read from.
-9. Cite a span only in a sentence that binds a figure read from it. Do not carry a citation \
-another sentence already used into a sentence that binds nothing - a citation repeated to \
-decorate a second claim is provenance the passage does not supply.
+citation is one field, `evidence_id`, and it is the `evidence id` string printed under a fact \
+in FACTS, copied character for character. Never write a passage id, a character position, or \
+any run of text taken out of a passage: the evidence id already names the exact cell the figure \
+was read from, and code turns it into a span. An evidence id no fact above prints is refused.
+9. Give a sentence the evidence id of a fact it binds. Do not carry an evidence id another \
+sentence already used into a sentence that binds nothing - a citation repeated to decorate a \
+second claim is provenance the evidence does not supply.
 10. A difference between two percentages is measured in **percentage points**, never in \
 percent: write "15.9 percentage points", never "15.9%". A `%` figure beside a word like rose, \
 fell, up or down is refused as unresolvable.
@@ -743,8 +769,17 @@ def writer_schema() -> dict[str, Any]:
     and may be `""`: §15.3 requires every property, and a derivation whose sentence names no
     period declares none, which §13.1 then refuses if a period word is in the text after all.
 
-    Character offsets are absent by design: the model declares `rendered` and `quote`, and code
-    locates them (see `WRITER_SYSTEM`, rules 3 and 6).
+    **A citation is one string, `evidence_id`, and the passage id and the quote are gone**
+    (TABLE_CELL_CITATIONS §3.2). Character offsets are still absent by design — a 9B model
+    cannot count characters — but the substring the model *does* declare is now only ever a run
+    of **its own text**: `fact_bindings[].rendered`, located by `writer.draft_from` in the
+    sentence that wrote it (`WRITER_SYSTEM` rule 3). Nothing here asks the model to reproduce a
+    byte of the source. It was asked to until 1.3.0, and for 523 of 2,704 observations no answer
+    satisfied both the instruction and the gate: `quoted_text` is a bare cell value occurring up
+    to 32 times in its own passage, and rule 8's *"a quote that occurs in that passage exactly
+    once"* named a string that does not exist. The handle is a pure function of coordinates the
+    package already carries, so code resolves the span and the model copies a token back
+    (`WRITER_SYSTEM` rules 8 and 9).
     """
     return {
         "type": "object",
@@ -806,10 +841,9 @@ def writer_schema() -> dict[str, Any]:
                             "items": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "required": ["passage_id", "quote"],
+                                "required": ["evidence_id"],
                                 "properties": {
-                                    "passage_id": {"type": "string"},
-                                    "quote": {"type": "string"},
+                                    "evidence_id": {"type": "string"},
                                 },
                             },
                         },
@@ -944,8 +978,14 @@ def writer_prompt(
     lines += ["", "FORMULA WINDOWS (the only version ids a calculation may name)"]
     lines.extend(_formula_window_lines(package))
     count = len(passages)
+    # The heading no longer says "a citation may name no other", because a citation no longer
+    # names a passage at all — it names an evidence id, and code resolves which passage that is
+    # (§3.2). The section stays because an `explanatory` sentence rests on what the filing says
+    # rather than on a figure, and because §13.7's paraphrase checks read the passage the writer
+    # was shown.
     lines += ["", f"PASSAGES ({count} whole passage{'' if count == 1 else 's'}; every one is a "
-                  "passage a fact above was read from, and a citation may name no other)"]
+                  "passage a fact above was read from. Read them; do not cite them and do not "
+                  "copy text out of them - cite the evidence id printed under the fact)"]
     lines.extend(_writer_passage_lines(passages))
     lines += ["", f"LENGTH  about {length_target} sentences."]
     return "\n".join(lines)
@@ -1031,10 +1071,23 @@ def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
         else:
             lines.append("      period surface: this period has no permitted surface - do not "
                          "write about this fact")
-        if fact.passage_id:
-            quoted = f' quoting "{fact.quoted_text}"' if fact.quoted_text else ""
-            row = f' from row "{fact.row_label}"' if fact.row_label else ""
-            lines.append(f"      read from passage {fact.passage_id}{row}{quoted}")
+        # The line the whole of TABLE_CELL_CITATIONS is about. It used to end
+        # `quoting "{fact.quoted_text}"`, which for 523 of 2,704 observations named a string
+        # occurring more than once in the passage it named — and §12's gate refused exactly
+        # that. The handle replaces it; the *quote is deliberately not printed*, because a
+        # prompt that shows the model the source bytes is a prompt that invites it to retype
+        # them, which is the contract this step removed.
+        #
+        # The two branches are exhaustive over a well-formed package: `_has_some_evidence`
+        # requires a `passage_id` or an `evidence_source_id`, and a `passage_id` always mints a
+        # handle. A fact reaching neither prints no evidence line and is therefore uncitable,
+        # which is the safe direction to fail in.
+        if fact.evidence_handle:
+            # The row label is the one piece of table context that survives, and it names
+            # *which* row the handle points at rather than the value the model must not retype.
+            row = f', row "{fact.row_label}"' if fact.row_label else ""
+            lines.append(f'      evidence id: "{fact.evidence_handle}"  (cite this fact with '
+                         f"that exact string; it is passage {fact.passage_id}{row})")
         elif fact.evidence_source_id:
             lines.append(f"      evidenced by {fact.evidence_source_id} (no filed passage; "
                          "this fact cannot be cited and must not be written)")

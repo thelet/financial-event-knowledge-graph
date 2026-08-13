@@ -408,7 +408,10 @@ WRITER_ANSWER = {
                            "metric_surface": "Adjusted EBITDA",
                            "period_surface": "the third quarter of 2022"}],
         "calculation": [],
-        "citations": [{"passage_id": "psg:1", "quote": "Adjusted EBITDA (211)"}],
+        # TABLE_CELL_CITATIONS S4: a citation is the handle the package minted, not a retyped
+        # quote. `conftest.make_package`'s fact carries no `cell` — it is narrative evidence —
+        # so its handle is the `:span:<metric>:<period>` form.
+        "citations": [{"evidence_id": "ev:psg:1:span:adjusted_ebitda:2022Q3"}],
     }],
 }
 
@@ -455,10 +458,12 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.statement in prompt, fact.fact_id
-    # 1.3.0 since S6 gave three warning codes accepted phrases. S4's own bump was 1.2.0; the
-    # literal is kept beside the constant so a version that stops moving is as loud as one that
-    # moves for the wrong reason.
-    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "1.3.0"
+    # 1.4.0 since TABLE_CELL_CITATIONS S4 replaced the retyped citation quote with an evidence
+    # handle — a change to the schema, the rules and the FACTS rendering, all three of which are
+    # digest inputs. 1.3.0 was S6's warning phrases; S4's own bump was 1.2.0. The literal is kept
+    # beside the constant so a version that stops moving is as loud as one that moves for the
+    # wrong reason.
+    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "1.4.0"
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])

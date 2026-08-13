@@ -52,7 +52,11 @@ EXPECTED_SIZES = {
     FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
     FAMILY_PLANNER: 11,
-    FAMILY_WRITER: 11,
+    # 11 until TABLE_CELL_CITATIONS S4 added `unresolvable_evidence_handle` and
+    # `evidence_handle_out_of_bounds` — the two ways a citation can fail once it is a handle
+    # rather than a retyped quote. Neither quote code was removed; a table-backed fact no longer
+    # reaches them and a narrative one still does.
+    FAMILY_WRITER: 13,
 }
 
 

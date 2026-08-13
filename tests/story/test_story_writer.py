@@ -60,8 +60,10 @@ from story.core.models import (
     Severity,
     StatementClass,
     StoryEvidencePackage,
+    TableCellRef,
 )
 from story.core.numerals import tokenize_numerals
+from story.core.table_cells import resolve_cell
 from story.providers.portable_schema import PORTABLE_KEYWORDS, validate_portable_schema
 from story.providers.public import (
     PINNED_TEMPERATURE,
@@ -89,10 +91,12 @@ from story.stages.generation.writer import (
     BINDING_RENDERING_NOT_IN_TEXT,
     CITATION_QUOTE_AMBIGUOUS,
     CITATION_QUOTE_NOT_IN_PASSAGE,
+    EVIDENCE_HANDLE_OUT_OF_BOUNDS,
     MORE_THAN_ONE_CALCULATION,
     NO_SENTENCES,
     PLAN_NAMES_ANOTHER_PACKAGE,
     THESIS_ABANDONED,
+    UNRESOLVABLE_EVIDENCE_HANDLE,
     UNRESOLVABLE_FACT_ID,
     UNRESOLVABLE_PASSAGE_ID,
     DraftRejected,
@@ -130,15 +134,33 @@ PASSAGE_ID = "psg:opendoor-10q-2022q3:margins-table"
 COUNTER_PASSAGE_ID = "psg:opendoor-10q-2022q3:inventory-table"
 DOCUMENT_ID = "doc:opendoor-10q-2022q3"
 
-#: A margins table as the extraction lane normalises one. Both quoted texts occur verbatim,
-#: which is §13.7 Rule A step 1 — measured to hold on 2,714/2,714 evidence rows.
+#: A margins table as the extraction lane normalises one, and it is a **flattened markdown
+#: grid** rather than the four bare lines this fixture used to carry. The shape is the corpus's:
+#: every line opens and closes with `|`, a `| --- |` separator row sits under the header, and the
+#: `$` column and the blank spacer column push each value out of the column its period header
+#: sits in — which is why `TableCellRef` carries both indices (2,125 of 2,690 rows differ,
+#: verified live 2026-08-13). The old shape had no delimiters at all, so `split_cells` read each
+#: line as a single column-0 cell and the row label and the value would have been the same
+#: string; a fixture like that cannot exercise the coordinates the whole repair rests on.
+#:
+#: Both quoted texts still occur verbatim, which is §13.7 Rule A step 1 — measured to hold on
+#: 2,714/2,714 evidence rows. Every figure is the founder candidate's own.
 PASSAGE_TEXT = (
-    "Three Months Ended September 30, 2022\n"
-    "Revenue $3,394\n"
-    "Gross Margin (12.6)\n"
-    "Adjusted Gross Margin 3.3\n"
+    "|  |  | Three Months Ended September 30, 2022 |\n"
+    "| --- | --- | --- |\n"
+    "| Revenue |  | $ | 3,394 |\n"
+    "| Gross Margin |  |  | (12.6) |\n"
+    "| Adjusted Gross Margin |  |  | 3.3 |\n"
 )
 COLUMN_LABEL = "Three Months Ended September 30, 2022"
+
+#: Where each margin sits in that grid. The period header is at **column 2** and both values are
+#: at **column 3**: `resolve_header` reading at the value's own column would return `""` from the
+#: spacer above, silently, which is the corpus's own failure mode stated in a fixture.
+AGM_CELL = TableCellRef(row_index=4, value_column_index=3,
+                        period_header_row_index=0, period_header_column_index=2)
+GGM_CELL = TableCellRef(row_index=3, value_column_index=3,
+                        period_header_row_index=0, period_header_column_index=2)
 
 #: Counter-evidence at **document** grain: a neighbouring table of the same filing that evidences
 #: no packaged fact. §10's join is at document grain, which is why this shape is the ordinary one.
@@ -164,6 +186,7 @@ def make_fact(**overrides: Any) -> PackagedFact:
         passage_id=PASSAGE_ID,
         document_id=DOCUMENT_ID,
         quoted_text="3.3",
+        cell=AGM_CELL,
     )
     fields.update(overrides)
     return PackagedFact(**fields)
@@ -176,7 +199,14 @@ GGM_FACT = make_fact(
     value=-12.6,
     row_label="Gross Margin",
     quoted_text="(12.6)",
+    cell=GGM_CELL,
 )
+
+#: The handles `PackagedFact` mints for the two facts above — spelled out rather than read off
+#: the model, because these are the exact strings the writer must copy back and a test that
+#: derived them from the same function that mints them would assert nothing about the format.
+AGM_HANDLE = f"ev:{PASSAGE_ID}:r4c3"
+GGM_HANDLE = f"ev:{PASSAGE_ID}:r3c3"
 
 METRICS = (
     PackagedMetric(metric_id="adjusted_gross_margin", label="Adjusted Gross Margin",
@@ -281,8 +311,13 @@ def binding(fact_id: str, rendered: str, metric_surface: str) -> dict[str, Any]:
             "period_surface": "the third quarter of 2022"}
 
 
-def citation(quote: str, passage_id: str = PASSAGE_ID) -> dict[str, Any]:
-    return {"passage_id": passage_id, "quote": quote}
+def citation(evidence_id: str) -> dict[str, Any]:
+    """One citation as §12 now spells it: a single evidence handle and nothing else.
+
+    The passage id and the retyped quote are both gone. There is nowhere left in this helper to
+    put a run of source text, which is the contract change stated as a signature.
+    """
+    return {"evidence_id": evidence_id}
 
 
 def sentence(text: str, kind: str, **overrides: Any) -> dict[str, Any]:
@@ -299,10 +334,10 @@ def valid_answer(**overrides: Any) -> dict[str, Any]:
         "sentences": [
             sentence(AGM_TEXT, "reported",
                      fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
-                     citations=[citation("Adjusted Gross Margin 3.3")]),
+                     citations=[citation(AGM_HANDLE)]),
             sentence(GGM_TEXT, "reported",
                      fact_bindings=[binding(GGM_ID, "-12.6%", "GAAP gross margin")],
-                     citations=[citation("Gross Margin (12.6)")]),
+                     citations=[citation(GGM_HANDLE)]),
             sentence(GAP_TEXT, "calculated", calculation=[{
                 "operation": "delta_pp",
                 "input_observation_ids": [GGM_ID, AGM_ID],
@@ -684,39 +719,174 @@ def test_a_rendering_that_occurs_twice_in_its_own_sentence_is_refused_rather_tha
     answer = valid_answer(sentences=[
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
-                 citations=[citation("Adjusted Gross Margin 3.3")])])
+                 citations=[citation(AGM_HANDLE)])])
     with pytest.raises(DraftRejected) as raised:
         write_with(FakeWriteProvider(answer))
     assert raised.value.codes == (BINDING_RENDERING_AMBIGUOUS,)
     assert "occurs 2 times" in str(raised.value)
 
 
-def test_a_citation_to_a_passage_outside_the_writers_slice_is_refused():
-    """§10.2.1 point 3 again, from the answer's side: the counter-evidence passage is not in the
-    slice, so a citation naming it is a citation to text the writer was never shown."""
+# -- rule: a citation is a handle this package minted, and code resolves it ----------------------
+
+
+def test_a_handle_naming_a_cell_no_fact_occupies_is_refused():
+    """The fabrication the new contract makes cheap: the passage is real, the grid position is
+    real, and no fact in the package was read from it.
+
+    `ev:…:r2c3` is the Revenue row of this table — a cell that exists, holds `3,394`, and
+    evidences nothing this package carries. A handle is minted from coordinates a `PackagedFact`
+    already holds and nothing else mints one, so *"a cell nobody read a fact out of"* and *"a
+    passage this package never saw"* are the same refusal, and both are it.
+    """
     answer = valid_answer()
-    answer["sentences"][0]["citations"] = [citation("Inventory 2,152", COUNTER_PASSAGE_ID)]
+    answer["sentences"][0]["citations"] = [citation(f"ev:{PASSAGE_ID}:r2c3")]
     with pytest.raises(DraftRejected) as raised:
         write_with(FakeWriteProvider(answer))
+    assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
+    assert "mints a handle for every fact it holds" in str(raised.value)
+
+
+def test_a_handle_naming_a_passage_this_package_does_not_hold_is_refused():
+    """The counter-evidence passage evidences no packaged fact, so no handle names it — which is
+    §10.2.1 point 3 arriving as *"nothing minted that"* rather than as a passage-id check."""
+    answer = valid_answer()
+    answer["sentences"][0]["citations"] = [citation(f"ev:{COUNTER_PASSAGE_ID}:r0c0")]
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer))
+    assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
+
+
+def test_a_handle_for_a_fact_whose_passage_the_writer_was_not_shown_is_refused():
+    """`unresolvable_passage_id` survives, and this is the shape that still reaches it.
+
+    `writer_passages` intersects the facts' passages with the package's four passage sections, so
+    a fact naming a passage no section carries mints a perfectly good handle and is outside the
+    slice. The model is not at fault and the citation is still refused: §10.2.1 point 3 says the
+    writer may cite only what it was shown, and it was not shown that text.
+    """
+    orphan = make_fact(observation_id="obs:revenue:opendoor:2022Q3:normalized-table:aa01",
+                       metric_id="revenue", metric_label="Revenue", value=3394.0, unit="USD",
+                       currency="USD", scale="millions", row_label="Revenue",
+                       quoted_text="3,394", passage_id="psg:opendoor-10q-2022q3:not-carried",
+                       cell=TableCellRef(row_index=2, value_column_index=3,
+                                         period_header_row_index=0,
+                                         period_header_column_index=2))
+    package = make_package(facts=(make_fact(), GGM_FACT, orphan))
+    assert orphan.evidence_handle == "ev:psg:opendoor-10q-2022q3:not-carried:r2c3"
+    assert orphan.passage_id not in {p.passage_id for p in writer_passages(package)}
+
+    answer = valid_answer()
+    answer["sentences"][0]["citations"] = [citation(orphan.evidence_handle)]
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer), package)
     assert raised.value.codes == (UNRESOLVABLE_PASSAGE_ID,)
 
 
-def test_a_quote_the_cited_passage_does_not_contain_is_refused():
+def test_a_cell_the_packages_own_passage_text_does_not_reach_is_refused_as_out_of_bounds():
+    """§3.4 check 2, and it is **not** a model failure — it cannot be one.
+
+    The coordinates come off the `PackagedFact`, so this fires when a package and the passage
+    text it carries disagree about the table: a stored package replayed against a re-extracted
+    corpus, which is the case `table_cells.CellOutOfBounds` was given its own exception type for.
+    Row 9 names nothing in a grid `passage_text.split("\\n")` gives six rows — five lines and the
+    empty one after the closing newline, which is the rule the graph's `row_index` was produced
+    under and which `table_cells` deliberately keeps.
+    """
+    drifted = make_fact(cell=TableCellRef(row_index=9, value_column_index=3,
+                                          period_header_row_index=0,
+                                          period_header_column_index=2))
+    package = make_package(facts=(drifted, GGM_FACT))
     answer = valid_answer()
-    answer["sentences"][0]["citations"] = [citation("Adjusted Gross Margin 4.4")]
+    answer["sentences"][0]["citations"] = [citation(drifted.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        write_with(FakeWriteProvider(answer), package)
+    assert raised.value.codes == (EVIDENCE_HANDLE_OUT_OF_BOUNDS,)
+    assert "which has 6 lines" in str(raised.value)
+
+
+def test_a_handle_that_resolves_to_a_spacer_cell_has_no_span_and_is_refused():
+    """Column 1 of the adjusted-margin row is a blank spacer, which is a real cell at a real
+    coordinate and holds nothing.
+
+    `quoted_text` is non-empty on 2,704 / 2,704 evidence edges, so a fact resolving to an empty
+    cell means its coordinates do not name the value it was read from. Refused under the
+    out-of-bounds code because the outcome is the same one: the handle locates no span, and
+    `PassageCitation` will not carry `char_end == char_start`.
+    """
+    spacer = make_fact(cell=TableCellRef(row_index=4, value_column_index=1,
+                                         period_header_row_index=0,
+                                         period_header_column_index=2))
+    package = make_package(facts=(spacer, GGM_FACT))
+    answer = valid_answer()
+    answer["sentences"][0]["citations"] = [citation(spacer.evidence_handle)]
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer), package)
+    assert raised.value.codes == (EVIDENCE_HANDLE_OUT_OF_BOUNDS,)
+    assert "is empty; there is no span to cite" in str(raised.value)
+
+
+def test_citing_another_facts_handle_constructs_here_and_is_left_to_13_7():
+    """**Stated because the boundary matters more than the outcome.** A sentence binding the
+    adjusted margin and citing the GAAP cell is a mis-citation, and §12 does *not* refuse it.
+
+    §3.4 check 7 — *"the handle this package minted for `F`"* — is §13.7's, and `writer.py` may
+    not import the verifier. A weaker copy here would be a second authority on the same question,
+    and the two would eventually disagree about one draft. What §12 owes is that the citation
+    resolves to the cell the handle names, and it does: the span is the GAAP row's value, not the
+    adjusted one's, so the mis-citation is *visible* in the draft rather than smoothed over.
+
+    Today's verifier does not catch it either — both cells sit in one passage, so §13.7's
+    existing *"the passage each bound fact was read from"* test passes. That gap is the reason
+    check 7 exists, and closing it is S5's, not this stage's.
+    """
+    answer = valid_answer()
+    answer["sentences"][0]["citations"] = [citation(GGM_HANDLE)]
+    draft = draft_of(answer)
+    cited = draft.sentences[0].citations[0]
+    assert cited.evidence_handle == GGM_HANDLE
+    assert PASSAGE_TEXT[cited.char_start:cited.char_end] == "(12.6)"
+    assert draft_violations(draft, make_package(), make_plan()) == ()
+
+
+def test_a_narrative_quote_the_packages_passage_no_longer_contains_is_refused():
+    """`citation_quote_not_in_passage` survives, narrowed to narrative evidence.
+
+    A fact with no `cell` was read out of prose, so there is no coordinate to resolve and the
+    package's own `quoted_text` is located by search. Zero occurrences means the passage the
+    package carries no longer holds the sentence the edge quoted — a defect in the evidence, not
+    a typing mistake, because the model never wrote this string.
+    """
+    prose = make_fact(cell=None, quoted_text="adjusted gross margin of 4.4%")
+    package = make_package(facts=(prose, GGM_FACT))
+    answer = valid_answer()
+    answer["sentences"][0]["citations"] = [citation(prose.evidence_handle)]
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer), package)
     assert raised.value.codes == (CITATION_QUOTE_NOT_IN_PASSAGE,)
+    assert "narrative evidence" in str(raised.value)
 
 
-def test_a_quote_that_occurs_twice_in_its_passage_resolves_to_no_span_and_is_refused():
-    """§13.7 measured 523 `quoted_text` strings occurring more than once inside their own
-    passage; a citation that cannot say which occurrence resolves to nothing."""
+def test_a_narrative_quote_that_occurs_twice_still_resolves_to_no_span_and_is_refused():
+    """`citation_quote_ambiguous_in_passage` survives too, and this is the whole of what it now
+    means.
+
+    All **14 / 14** narrative quotes in the corpus are whole sentences occurring exactly once in
+    their passage *(verified live 2026-08-13)*, so this does not fire on today's evidence. It is
+    kept because the uniqueness requirement is real: a narrative fact has no coordinate, so a
+    quote naming two places in its own passage resolves to no span at all. What is gone is the
+    branch that made the old contract unsatisfiable — `Gross Margin` occurs twice in this table
+    and a **table** fact never reaches this path, so 523 of 2,704 observations stopped being
+    un-citable.
+    """
+    assert PASSAGE_TEXT.count("Gross Margin") == 2
+    prose = make_fact(cell=None, quoted_text="Gross Margin")
+    package = make_package(facts=(prose, GGM_FACT))
     answer = valid_answer()
-    answer["sentences"][0]["citations"] = [citation("Gross Margin")]
+    answer["sentences"][0]["citations"] = [citation(prose.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        write_with(FakeWriteProvider(answer), package)
     assert raised.value.codes == (CITATION_QUOTE_AMBIGUOUS,)
+    assert "occurs 2 times" in str(raised.value)
 
 
 def test_two_calculations_on_one_sentence_are_refused_rather_than_one_being_picked():
@@ -735,10 +905,16 @@ def test_a_draft_resting_on_no_fact_the_plan_named_is_refused_as_a_changed_thesi
     """§12: *"the writer must not change the thesis"*, in the only form the draft contract can
     express — a `Draft` has no thesis field, so what is checkable is that the post rests on the
     evidence the plan chose."""
+    # Its own cell, not `make_fact`'s default: two facts claiming one coordinate mint one handle
+    # twice, and `StoryEvidencePackage` refuses that package outright (§3.4 check 7 rests on
+    # handle → fact being a function). Revenue sits at row 2 of the same grid.
     other = make_fact(observation_id="obs:revenue:opendoor:2022Q3:normalized-table:aa01",
                       metric_id="revenue", metric_label="Revenue", value=3394.0, unit="USD",
                       currency="USD", scale="millions", row_label="Revenue",
-                      quoted_text="3,394")
+                      quoted_text="3,394",
+                      cell=TableCellRef(row_index=2, value_column_index=3,
+                                        period_header_row_index=0,
+                                        period_header_column_index=2))
     package = make_package(facts=(make_fact(), GGM_FACT, other))
     text = "Revenue was $3,394 million in the third quarter of 2022."
     answer = valid_answer(sentences=[
@@ -746,7 +922,7 @@ def test_a_draft_resting_on_no_fact_the_plan_named_is_refused_as_a_changed_thesi
                  fact_bindings=[{"fact_id": other.observation_id, "rendered": "$3,394 million",
                                  "metric_surface": "Revenue",
                                  "period_surface": "the third quarter of 2022"}],
-                 citations=[citation("Revenue $3,394")])])
+                 citations=[citation(other.evidence_handle)])])
     with pytest.raises(DraftRejected) as raised:
         write_with(FakeWriteProvider(answer), package)
     assert THESIS_ABANDONED in raised.value.codes
@@ -853,16 +1029,42 @@ def test_a_conformant_answer_becomes_a_structured_draft_with_located_spans():
     assert written.generation.total_tokens == 2038
 
 
-def test_a_citation_is_located_in_the_passage_and_rebased_to_the_full_passage_text():
+def test_a_citation_is_resolved_from_its_handle_and_rebased_to_the_full_passage_text():
     """§10.2.1 point 2: `PackagedPassage.char_start` is the offset of `text[0]` into the full
-    `:Passage.text`, so a citation an evidence panel can resolve is an absolute one."""
+    `:Passage.text`, so a citation an evidence panel can resolve is an absolute one.
+
+    The passage id and the document id are **code's answer now**, read off the fact the handle
+    names rather than off the model, and the span is the cell at `(4, 3)` — the numeral alone,
+    not the row it sits in. Everything the model contributed to this row is the handle string.
+    """
     draft = draft_of(valid_answer())
-    citation_handle = draft.sentences[0].citations[0]
-    assert citation_handle.passage_id == PASSAGE_ID
-    assert citation_handle.document_id == DOCUMENT_ID
-    start = PASSAGE_TEXT.index("Adjusted Gross Margin 3.3")
-    assert (citation_handle.char_start, citation_handle.char_end) == (
-        start, start + len("Adjusted Gross Margin 3.3"))
+    cited = draft.sentences[0].citations[0]
+    assert cited.evidence_handle == AGM_HANDLE
+    assert cited.passage_id == PASSAGE_ID
+    assert cited.document_id == DOCUMENT_ID
+    assert PASSAGE_TEXT[cited.char_start:cited.char_end] == "3.3"
+    assert (cited.char_start, cited.char_end) == (
+        resolve_cell(PASSAGE_TEXT, row_index=4, column_index=3).char_start,
+        resolve_cell(PASSAGE_TEXT, row_index=4, column_index=3).char_end)
+
+
+def test_the_writer_never_receives_and_never_returns_a_run_of_source_text():
+    """§3.2 in the two places it has to hold: the prompt and the schema.
+
+    The prompt no longer prints `quoting "3.3"` under a fact, and the schema has nowhere to put
+    a quote back. Both halves matter — leaving the quote in the prompt while removing it from the
+    schema would still be showing a 9B model the bytes and hoping it does not copy them into its
+    own prose, where §13.1 would then meet a numeral nothing bound.
+    """
+    prompt = writer_prompt(make_package(), make_plan(), writer_passages(make_package()))
+    assert 'quoting "' not in prompt
+    assert f'evidence id: "{AGM_HANDLE}"' in prompt
+    assert f'evidence id: "{GGM_HANDLE}"' in prompt
+
+    item = writer_schema()["properties"]["sentences"]["items"]["properties"]["citations"]["items"]
+    assert sorted(item["properties"]) == ["evidence_id"]
+    assert item["required"] == ["evidence_id"]
+    assert "quote" not in item["properties"] and "passage_id" not in item["properties"]
 
 
 def test_the_identity_fields_come_from_the_package_and_not_from_the_model():
@@ -916,6 +1118,19 @@ def test_the_rendered_post_shows_its_citations_and_its_derivation():
     assert "adjusted_gross_margin - gaap_gross_margin = 15.9 percentage points" in rendered
 
 
+def test_the_sources_panel_names_the_handle_beside_the_span_it_resolved_to():
+    """§3.1: a handle is readable *because* it surfaces where a refusal can be matched to it.
+
+    Every §3.4 refusal names a handle; a panel printing only character offsets would leave a
+    reader holding `unresolvable_evidence_handle: ev:…:r4c3` with nothing in the post to compare
+    it against. The span stays too — it is what an evidence panel highlights.
+    """
+    rendered = render_markdown(draft_of(valid_answer()))
+    assert f"[{AGM_HANDLE}]" in rendered and f"[{GGM_HANDLE}]" in rendered
+    assert f"characters {resolve_cell(PASSAGE_TEXT, row_index=4, column_index=3).char_start}-" \
+        in rendered
+
+
 def test_rendering_the_same_draft_twice_produces_the_same_bytes():
     draft = draft_of(valid_answer())
     assert render_markdown(draft) == render_markdown(draft)
@@ -934,7 +1149,7 @@ def test_an_invented_number_the_draft_does_not_declare_is_refused_by_the_verifie
     answer = valid_answer(sentences=[
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
-                 citations=[citation("Adjusted Gross Margin 3.3")]),
+                 citations=[citation(AGM_HANDLE)]),
         valid_answer()["sentences"][3]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "unbound_numeral" in codes_of(verified)
@@ -958,7 +1173,7 @@ def test_an_invented_entity_is_refused_as_a_foreign_subject(verifier):
     answer = valid_answer(sentences=[
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
-                 citations=[citation("Adjusted Gross Margin 3.3")]),
+                 citations=[citation(AGM_HANDLE)]),
         valid_answer()["sentences"][3]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "foreign_subject_named" in codes_of(verified)
@@ -975,7 +1190,7 @@ def test_unsupported_causation_is_refused_even_though_the_plan_forbade_it_in_wor
     answer = valid_answer(sentences=[
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
-                 citations=[citation("Adjusted Gross Margin 3.3")]),
+                 citations=[citation(AGM_HANDLE)]),
         valid_answer()["sentences"][3]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "causal_construction_forbidden" in codes_of(verified)
@@ -1004,20 +1219,37 @@ def test_a_dropped_plan_counterpoint_is_refused(verifier):
 
 def test_document_grain_counter_evidence_cannot_be_cited_by_the_writer_and_is_refused_if_it_is(
         verifier):
-    """The prohibition from both ends.
+    """The prohibition from both ends, and **the writer's end is now closed by construction**.
 
-    The writer's slice excludes the passage, so the ordinary path refuses the citation as
-    `unresolvable_passage_id` (asserted above). Handed the passage anyway — the state a future
-    caller could reach by passing its own slice — the draft builds, and §13.7 refuses it as
-    `counter_evidence_cited_as_support`: presenting a neighbouring table of the same filing as
-    support for a cited cell presents an association as a contradiction's opposite.
+    A citation is a handle, a handle is minted only from a `PackagedFact`, and a document-grain
+    counter-evidence passage evidences no packaged fact — so there is no string the model can
+    write that cites one. `draft_from` refuses every attempt as `unresolvable_evidence_handle`
+    (asserted above), and no `passages=` argument reopens it: widening the slice does not mint a
+    handle. That is stronger than the old contract, where a quote out of the smuggled passage
+    built a citation and §13 was the only thing standing behind it.
+
+    So the draft below is **hand-built**, which is the only way this state is now reachable, and
+    §13.7 still refuses it: presenting a neighbouring table of the same filing as support for a
+    cited cell presents an association as a contradiction's opposite. The check is not weakened;
+    the road to it from the model is.
     """
     package = make_package()
     smuggled = (*writer_passages(package), *package.counter_evidence)
     answer = valid_answer()
-    answer["sentences"][0]["citations"] = [citation("Inventory 2,152", COUNTER_PASSAGE_ID)]
-    draft = draft_from(answer, package, make_plan(), passages=smuggled, model_id="fake")
-    verified = verifier.verify(draft, package, make_plan())
+    answer["sentences"][0]["citations"] = [citation(f"ev:{COUNTER_PASSAGE_ID}:r0c0")]
+    with pytest.raises(DraftRejected) as raised:
+        draft_from(answer, package, make_plan(), passages=smuggled, model_id="fake")
+    assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
+
+    intact = draft_of(valid_answer())
+    counter = package.counter_evidence[0]
+    hand = intact.model_copy(update={"sentences": (
+        intact.sentences[0].model_copy(update={"citations": (PassageCitation(
+            passage_id=COUNTER_PASSAGE_ID, document_id=DOCUMENT_ID,
+            char_start=counter.char_start,
+            char_end=counter.char_start + len("Inventory 2,152")),)}),
+        *intact.sentences[1:])})
+    verified = verifier.verify(hand, package, make_plan())
     assert "counter_evidence_cited_as_support" in codes_of(verified)
 
 
@@ -1041,7 +1273,7 @@ def test_a_calculated_sentence_that_cites_a_passage_is_refused(verifier):
     """§13.9: `claims.yaml` gives `calculated` `optional_fields: []` — no filed-passage field is
     permitted. The gap is a calculation over two observations, not a reported fact."""
     answer = valid_answer()
-    answer["sentences"][2]["citations"] = [citation("Adjusted Gross Margin 3.3")]
+    answer["sentences"][2]["citations"] = [citation(AGM_HANDLE)]
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "calculated_sentence_cites_passage" in codes_of(verified)
 
@@ -1112,6 +1344,122 @@ def test_the_writers_own_output_survives_the_deterministic_verifier_end_to_end(v
     # And the post is rendered from the draft that passed, never from the model's answer.
     rendered = render_markdown(written.draft)
     assert "15.9 percentage points" in rendered and "15.9%" not in rendered
+
+
+# ---------------------------------------------------------------------------------------
+# The `'7'` case — the plan's worked example, and the one this whole step exists for
+# ---------------------------------------------------------------------------------------
+
+#: S2's committed pull from the live graph. Every field is copied from `:Observation` and
+#: `:Passage`; nothing in it is authored, which is what makes the row below evidence rather than
+#: a scenario. See `tests/story/test_story_table_cells.py` for the resolver's own use of it.
+TABLE_CELLS_CORPUS = json.loads(
+    (Path(__file__).parent / "fixtures" / "table_cells_corpus.json").read_text(encoding="utf-8"))
+
+SEVEN = next(row for row in TABLE_CELLS_CORPUS["rows"] if row["quoted_text"] == "7")
+
+
+def seven_package() -> StoryEvidencePackage:
+    """A one-fact package around the corpus row whose `quoted_text` is `'7'`.
+
+    The passage, the coordinates, the labels and the quote are the graph's; the package wrapper
+    around them is this module's, for the reason the demo package is built by hand — a generation
+    test must run on a checkout where `data/` is absent.
+    """
+    fact = PackagedFact(
+        observation_id=SEVEN["observation_id"],
+        metric_id=SEVEN["metric_id"],
+        metric_label="Adjusted Gross Profit",
+        period_key=SEVEN["period_key"],
+        period_start="2023-04-01", period_end="2023-06-30",
+        shape="duration", value=7000000.0, unit="USD", currency="USD", scale="millions",
+        printed_form="$7", row_label=SEVEN["row_label"], column_label=SEVEN["column_label"],
+        source_lane="normalized_table", validation_state="ok",
+        passage_id=SEVEN["passage_id"], document_id=DOCUMENT_ID,
+        quoted_text=SEVEN["quoted_text"],
+        cell=TableCellRef(row_index=SEVEN["row_index"],
+                          value_column_index=SEVEN["value_column_index"],
+                          period_header_row_index=SEVEN["period_header_row_index"],
+                          period_header_column_index=SEVEN["period_header_column_index"]))
+    package = make_package(
+        facts=(fact,),
+        metrics=(PackagedMetric(metric_id=SEVEN["metric_id"], label="Adjusted Gross Profit",
+                                unit="USD", allowed_units=("USD",),
+                                aliases=("adjusted gross profit",)),),
+        primary_passages=(PackagedPassage(
+            passage_id=SEVEN["passage_id"], document_id=DOCUMENT_ID,
+            text=SEVEN["passage_text"], char_count=len(SEVEN["passage_text"]),
+            passage_kind="normalized_table", role=EvidenceRole.PRIMARY_SUPPORT),),
+        counter_evidence=())
+    return package
+
+
+def test_the_quote_this_fact_carries_occurs_27_times_in_its_own_passage():
+    """The measurement the repair rests on, executable and read off the corpus.
+
+    `EVIDENCED_BY.quoted_text` for this observation is the single character `'7'`, and the
+    passage it was read from contains 27 of them. 523 of 2,704 observations are in this shape.
+    """
+    assert SEVEN["quoted_text"] == "7"
+    assert SEVEN["passage_text"].count("7") == SEVEN["quote_occurrences_in_passage"] == 27
+
+
+def test_the_seven_case_now_constructs_where_the_old_contract_could_not():
+    """**The plan's §5 test: previously impossible, must now generate.**
+
+    Under the contract this step replaced, the prompt rendered `quoting "7"` and `draft_from`
+    refused that exact string as `citation_quote_ambiguous_in_passage` — so there was no answer
+    a model could give for this fact. Under handles the citation resolves to one span, and it is
+    the cell at `(10, 7)` rather than the first `'7'` a naive search finds.
+    """
+    package = seven_package()
+    fact = package.facts[0]
+    handle = f"ev:{SEVEN['passage_id']}:r{SEVEN['row_index']}c{SEVEN['value_column_index']}"
+    assert fact.evidence_handle == handle
+
+    text = "Adjusted gross profit was $7 million in the second quarter of 2023."
+    plan = make_plan(key_points=(KeyPoint(
+        claim="Adjusted gross profit was $7 million in 2023Q2.",
+        required_fact_ids=(fact.observation_id,),
+        required_citation_passage_ids=(SEVEN["passage_id"],),
+        statement_class=StatementClass.REPORTED),), counterpoints=())
+    answer = valid_answer(sentences=[sentence(
+        text, "reported",
+        fact_bindings=[{"fact_id": fact.observation_id, "rendered": "$7 million",
+                        "metric_surface": "Adjusted Gross Profit",
+                        "period_surface": "the second quarter of 2023"}],
+        citations=[citation(handle)])])
+
+    draft = draft_from(answer, package, plan, model_id="fake")
+    cited = draft.sentences[0].citations[0]
+    passage_text = package.primary_passages[0].text
+    assert passage_text[cited.char_start:cited.char_end] == "7"
+    # Not the naive answer. `passage_text.find("7")` is what searching for the quote returns, and
+    # it lands in the `2023` of the header rather than in the cell the value was read from.
+    assert cited.char_start != passage_text.find("7")
+    assert cited.evidence_handle == handle
+
+
+def test_the_seven_case_is_still_refused_when_the_handle_is_not_the_one_that_was_minted():
+    """The other half: the new contract is not *"anything the model writes now works"*.
+
+    One character off the row index and the handle names a cell no fact occupies, which refuses.
+    """
+    package = seven_package()
+    plan = make_plan(key_points=(KeyPoint(
+        claim="Adjusted gross profit was $7 million in 2023Q2.",
+        required_fact_ids=(package.facts[0].observation_id,),
+        required_citation_passage_ids=(SEVEN["passage_id"],),
+        statement_class=StatementClass.REPORTED),), counterpoints=())
+    answer = valid_answer(sentences=[sentence(
+        "Adjusted gross profit was $7 million in the second quarter of 2023.", "reported",
+        fact_bindings=[{"fact_id": package.facts[0].observation_id, "rendered": "$7 million",
+                        "metric_surface": "Adjusted Gross Profit",
+                        "period_surface": "the second quarter of 2023"}],
+        citations=[citation(f"ev:{SEVEN['passage_id']}:r11c7")])])
+    with pytest.raises(DraftRejected) as raised:
+        draft_from(answer, package, plan, model_id="fake")
+    assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
 
 
 # ---------------------------------------------------------------------------------------
