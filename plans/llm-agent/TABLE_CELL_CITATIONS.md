@@ -159,12 +159,30 @@ Each packaged fact gets one deterministic, readable evidence handle, derived fro
 and structural position per the repository's ID rule:
 
 ```
-ev:<passage_id>:r<row_index>c<value_column_index>     # table-backed
-ev:<passage_id>:span                                   # narrative
+ev:<passage_id>:r<row_index>c<value_column_index>       # table-backed
+ev:<passage_id>:span:<metric_id>:<period_key>           # narrative
+(none)                                                  # no filed passage (§13.7.2)
 ```
 
 Readable because it surfaces in the evidence panel and in rejections. Deterministic because it is
 a pure function of coordinates already digested into the package.
+
+> **Corrected at S3 (2026-08-13). The narrative form was written here as `ev:<passage_id>:span`
+> and that is not a key.** §1.4 measured uniqueness for *table cells* and the form above
+> generalised it to spans without measuring. The 14 narrative observations sit in **6** distinct
+> passages — one carries 6 of them, one 3, one 2 — so the passage-only form names up to six facts
+> at once, and it does so in a package that exists today:
+> `cand:cross-metric-divergence:adjusted-gross-profit-contribution-profit:opendoor:2021Q4:727148801299`
+> carries `adjusted_gross_profit` and `contribution_profit` for 2021Q4, both read out of
+> `…q42021formxex992sharehol.htm#p10`. Adding the span's *char offsets* would not have fixed it:
+> `adjusted_gross_profit` and `adjusted_gross_margin` 2021Q4 quote the **same 66-character
+> sentence at the same offset**, so one sentence really does evidence two facts and no structural
+> coordinate separates them. The handle therefore names the fact's **slot**, which §6.1 guarantees
+> is one canonical fact. The table form is unchanged — §1.4's measurement stands for it.
+>
+> A fact evidenced by an `:EvidenceSource` (§13.7.2) gets **no handle**, rather than one minted
+> from `evidence_source_id`: V1 refuses that citation path outright, and a citable-looking token
+> for a path that always refuses is worse than a fact the writer cannot cite.
 
 ### 3.2 The model's new contract
 
@@ -220,7 +238,7 @@ did not exist before.
 | --- | --- | --- |
 | **S1** Carry the coordinates | `retrieval/cypher.py`, `core/series.py`, `detection/canonicalization.py` | — |
 | **S2** The cell resolver | `core/table_cells.py` + tests | — |
-| **S3** Mint handles | `core/models.py` (`EvidenceHandle`, `PackagedFact.evidence_handle`), `packaging/` | S1, S2 |
+| **S3** Mint handles | `core/models.py` (`TableCellRef`, `PackagedFact.cell`, `PackagedFact.evidence_handle`, `StoryEvidencePackage.facts_by_evidence_handle`), `packaging/` | S1, S2 |
 | **S4** §12 writer contract | `generation/prompts.py`, `generation/writer.py` | S3 |
 | **S5** §13.7 over handles | `verification/citations.py`, `verification/codes.py` | S3, S2 |
 | **S6** UI cell rendering | `demo_ui/` (`package_view.py`, `api.py`, `static/`) | S3, S2 |
@@ -231,6 +249,22 @@ work to two agents committing in one worktree, and that is not repeated.
 
 `PACKAGE_VERSION` moves 1.2.0 → **1.3.0** and `WRITER_PROMPT_VERSION` 1.3.0 → **1.4.0**. Both
 re-key the replay store by design; S7 re-records under `--live`.
+
+> **What the version bump actually cost, measured at S3 (2026-08-13).** Less than the paragraph
+> above expected, and in a different place. The committed demo package's `package_id` is *stored
+> data* and does not recompute offline, so the recorded planner and writer generations still hit
+> and the offline demo did **not** need re-recording at S3. What did break is §13.13's
+> `package_content_digest_mismatch`: two new fields on `PackagedFact` change the serialized shape,
+> so `fixtures/story_demo/evidence_package.json` no longer hashed to its own stored digest. It was
+> re-stamped in place — same rows, same ids, digest recomputed — which is what keeps the eight
+> offline demo and UI tests green.
+>
+> That fixture predates S1, so its two **table** facts carry `cell: null` and therefore the
+> *narrative* handle form. That is honest about the artifact and wrong about the corpus, and it is
+> S7's to fix: `test_live_the_package_and_the_freshness_report_match_the_committed_fixture` and
+> `test_the_d4_package_is_byte_identical_to_the_one_the_accepted_path_builds` (both `neo4j`-marked,
+> both outside the offline suite) fail until S7 rebuilds the fixture from the graph and re-records
+> the store against it.
 
 ## 5. Tests
 

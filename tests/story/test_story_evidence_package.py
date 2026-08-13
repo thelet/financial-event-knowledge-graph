@@ -1623,6 +1623,66 @@ def test_every_fact_in_a_package_resolves_to_a_passage_a_document_and_a_source_u
         assert fact.quoted_text
 
 
+# -- the cell the fact was read from, and the handle that names it (TABLE_CELL_CITATIONS S3) --
+
+
+#: What a table-backed `:Observation` carries beside its labels, on 2,690 of 2,690 rows. The
+#: header sits in a different column from the value on 2,125 of them, so the two are given
+#: different numbers here rather than one repeated — a fixture where they coincided would make
+#: `resolve_header`'s whole argument list look redundant.
+#:
+#: Deliberately not resolved against `TABLE_TEXT`: this stage *carries* coordinates and never
+#: reads a grid. That they resolve to the fact's own `quoted_text` is asserted against the real
+#: corpus in `test_story_evidence_handles.py`, and over every live package in S3's report.
+CELL = dict(row_index=10, value_column_index=7,
+            period_header_row_index=3, period_header_column_index=4)
+
+
+def test_a_packaged_fact_carries_the_cell_its_record_was_read_from(registry):
+    """The coordinates travel from the `:Observation` through the record into `facts[]`.
+
+    From the record and not from the `EVIDENCED_BY` row: S1 put them on the history statement so
+    a series loaded without `get_fact_evidence` still has a cell identity, and this asserts the
+    package reads them from there — `evidence_row` below supplies none.
+    """
+    records = tuple(replace(record, **CELL) for record in make_records())
+    package = build_package(registry, records=records)
+
+    assert package.facts
+    for fact in package.facts:
+        assert fact.cell is not None
+        assert fact.cell.model_dump() == CELL
+        assert fact.evidence_handle == f"ev:{fact.passage_id}:r10c7"
+
+
+def test_a_fact_with_no_coordinates_is_named_by_its_passage_and_slot_instead(registry):
+    """The 14 narrative observations carry no grid position, and `make_records` carries none
+    either — so this is also what every fixture in this file has been producing since S3."""
+    package = build_package(registry)
+
+    assert package.facts
+    for fact in package.facts:
+        assert fact.cell is None
+        assert fact.evidence_handle == (
+            f"ev:{fact.passage_id}:span:{fact.metric_id}:{fact.period_key}")
+
+
+def test_a_half_populated_coordinate_stops_the_build_rather_than_shipping_a_span_handle(
+        registry):
+    """A partial coordinate is the dangerous state, and silence is the dangerous response.
+
+    All five indices are present on 2,690 table-backed observations, absent on 14 narrative
+    ones and partial on **0** *(verified live 2026-08-13)*, so this cannot arrive from this
+    graph. If it ever does, the fact would otherwise be handed the narrative handle form and a
+    table row would be presented as prose evidence — which is exactly the ambiguous citation
+    this repair removes. The refusal names the observation and every index it was given.
+    """
+    records = (replace(make_records()[0], row_index=10),) + make_records()[1:]
+
+    with pytest.raises(ValueError, match="coordinates are partial"):
+        build_package(registry, records=records)
+
+
 def test_the_subject_is_inferred_from_the_observations_because_no_tool_reads_entity(registry):
     package = build_package(registry)
 

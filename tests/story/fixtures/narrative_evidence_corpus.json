@@ -1,0 +1,137 @@
+{
+ "_provenance": {
+  "source": "live Neo4j at bolt://127.0.0.1:7687, graph run in data/graph_runs",
+  "pulled": "2026-08-13",
+  "statement": "MATCH (o:Observation)-[e:EVIDENCED_BY]->(p:Passage) WHERE e.table_id IS NULL",
+  "population": 14,
+  "note": "Every narrative-evidenced observation in the graph. All 14 carry no cell coordinates, and all 14 quote a sentence occurring exactly once in their passage. They sit in 6 distinct passages, which is what TABLE_CELL_CITATIONS §3.1's `ev:<passage_id>:span` did not account for: that form names between 1 and 6 facts."
+ },
+ "rows": [
+  {
+   "observation_id": "obs:adjusted-gross-margin:opendoor:2021Q4:normalized-narrative:67518b47ace1",
+   "metric_id": "adjusted_gross_margin",
+   "period_key": "2021Q4",
+   "passage_id": "norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10",
+   "quoted_text": "Adjusted gross profit was $279 million and 7.3% of revenue in 4Q21",
+   "quote_char_start": 996,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:adjusted-gross-profit:opendoor:2021Q4:normalized-narrative:67518b47ace1",
+   "metric_id": "adjusted_gross_profit",
+   "period_key": "2021Q4",
+   "passage_id": "norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10",
+   "quoted_text": "Adjusted gross profit was $279 million and 7.3% of revenue in 4Q21",
+   "quote_char_start": 996,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:contribution-margin:opendoor:2021Q4:normalized-narrative:67518b47ace1",
+   "metric_id": "contribution_margin",
+   "period_key": "2021Q4",
+   "passage_id": "norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10",
+   "quoted_text": "Contribution Margin, which we view as an important measure of unit economics associated with a specific resale cohort, was 4.0% versus 12.6% in 4Q20.",
+   "quote_char_start": 1530,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:contribution-profit:opendoor:2021Q4:normalized-narrative:67518b47ace1",
+   "metric_id": "contribution_profit",
+   "period_key": "2021Q4",
+   "passage_id": "norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10",
+   "quoted_text": "Contribution Profit, which accounts for the direct selling and holding costs incurred on the homes sold during the quarter, was $152 million in 4Q21",
+   "quote_char_start": 1359,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:gaap-gross-margin:opendoor:2021Q4:normalized-narrative:67518b47ace1",
+   "metric_id": "gaap_gross_margin",
+   "period_key": "2021Q4",
+   "passage_id": "norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10",
+   "quoted_text": "GAAP gross profit was $272 million and 7.1% of revenue in 4Q21",
+   "quote_char_start": 883,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:pct-homes-on-market-gt-120-days:opendoor:2021-12-31:normalized-narrative:67518b47ace1",
+   "metric_id": "pct_homes_on_market_gt_120_days",
+   "period_key": "2021-12-31",
+   "passage_id": "norm:0001801169:0001801169-22-000026:q42021formxex992sharehol.htm#p10",
+   "quoted_text": "As of December 31, 2021, only 8% of our homes had been listed on the market for more than 120 days.",
+   "quote_char_start": 83,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:adjusted-ebitda-margin:opendoor:2022Q2:normalized-narrative:603c21481ff3",
+   "metric_id": "adjusted_ebitda_margin",
+   "period_key": "2022Q2",
+   "passage_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#p7",
+   "quoted_text": "As a percentage of revenue, Adjusted EBITDA was 5.2% in 2Q22 versus 2.2% in 2Q21.",
+   "quote_char_start": 613,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:adjusted-ebitda:opendoor:2022Q2:normalized-narrative:603c21481ff3",
+   "metric_id": "adjusted_ebitda",
+   "period_key": "2022Q2",
+   "passage_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#p7",
+   "quoted_text": "Adjusted EBITDA was $218 million in 2Q22 compared to $25 million in 2Q21.",
+   "quote_char_start": 539,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:housing-inventory-homes:opendoor:2022-06-30:normalized-narrative:603c21481ff3",
+   "metric_id": "housing_inventory_homes",
+   "period_key": "2022-06-30",
+   "passage_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#p7",
+   "quoted_text": "We ended 2Q with 17,013 homes in inventory on our balance sheet, representing $6.6 billion in value.",
+   "quote_char_start": 863,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:borrowing-capacity:opendoor:2022-10-19:normalized-narrative:a129a14c7956",
+   "metric_id": "borrowing_capacity",
+   "period_key": "2022-10-19",
+   "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p117",
+   "quoted_text": "On October 19, 2022, a subsidiary of the Company entered into a new asset-backed senior revolving credit facility with $525 million in borrowing capacity and a final maturity date of October 31, 2023.",
+   "quote_char_start": 376,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:housing-inventory-homes:opendoor:2023-03-31:normalized-narrative:4afb2c7bf016",
+   "metric_id": "housing_inventory_homes",
+   "period_key": "2023-03-31",
+   "passage_id": "norm:0001801169:0001801169-23-000054:q12023formxex992sharehol.htm#p8",
+   "quoted_text": "We ended the quarter with $2.1 billion in inventory, representing 6,261 homes",
+   "quote_char_start": 90,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:homes-under-contract:opendoor:2023-12-31:normalized-narrative:98dc8ae6c529",
+   "metric_id": "homes_under_contract",
+   "period_key": "2023-12-31",
+   "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p9",
+   "quoted_text": "Additionally, as of the end of the year, we were in contract to purchase 2,114 homes, up 27% versus 3Q23 and up 109% versus 4Q22.",
+   "quote_char_start": 466,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:pct-homes-on-market-gt-120-days:opendoor:2023-12-31:normalized-narrative:98dc8ae6c529",
+   "metric_id": "pct_homes_on_market_gt_120_days",
+   "period_key": "2023-12-31",
+   "passage_id": "norm:0001801169:0001801169-24-000015:q42023formxex992sharehol.htm#p9",
+   "quoted_text": "As of December 31, 2023, 18% of our homes had been listed on the market for more than 120 days versus 21% for the broader market as adjusted for our buybox.",
+   "quote_char_start": 596,
+   "quote_occurrences_in_passage": 1
+  },
+  {
+   "observation_id": "obs:pct-homes-on-market-gt-120-days:opendoor:2023-12-31:normalized-narrative:da3910ab2e0f",
+   "metric_id": "pct_homes_on_market_gt_120_days",
+   "period_key": "2023-12-31",
+   "passage_id": "norm:0001801169:0001801169-24-000016:open-20231231.htm#p114",
+   "quoted_text": "As of December 31, 2023, such homes represented 18% of our portfolio, compared to 21% for the broader market when filtered for the types of homes we are able to underwrite and acquire",
+   "quote_char_start": 2614,
+   "quote_occurrences_in_passage": 1
+  }
+ ]
+}

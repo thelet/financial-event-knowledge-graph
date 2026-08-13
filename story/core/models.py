@@ -61,7 +61,14 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 #: and one more field on `PackagedPassage`, `diagnostic_codes`. The same event, the same
 #: consequence: `package_id` moves again, and S7's single re-record covers both bumps because it
 #: happens after every schema change has landed.
-PACKAGE_VERSION = "1.2.0"
+#:
+#: **1.3.0 at S3 of TABLE_CELL_CITATIONS.** `PackagedFact` gained `cell` — the grid coordinates
+#: the story layer had been discarding — and `evidence_handle`, the deterministic name a citation
+#: now binds to instead of retyping a four-character quote. Both are inside
+#: `package_content_digest`, and the handle is the *model's* vocabulary, so a change to its
+#: format must re-key the package exactly as a new section does; that is the whole reason the
+#: handle is a stored field rather than a property derived on read.
+PACKAGE_VERSION = "1.3.0"
 
 #: The canonicalisation policy every candidate and every canonical series is computed under
 #: (§6.1). A digest input to `candidate_id`, so a policy change mints new candidates rather
@@ -536,6 +543,133 @@ class PackagedSubject(StoryModel):
     labels: tuple[str, ...] = ()
 
 
+class TableCellRef(StoryModel):
+    """Where a table-backed fact's value sits in its passage's flattened grid, and where the
+    period header standing over it sits (TABLE_CELL_CITATIONS §1.3).
+
+    **Nested rather than four loose `int | None` fields on `PackagedFact`, because the
+    coordinates are all-or-nothing and a partial one is the dangerous state.** Verified live
+    2026-08-13: 2,690 of 2,690 table-backed observations carry every index, the 14 narrative
+    ones carry none, and **0 carry some** — `tests/story/test_story_retrieval.py`'s census
+    holds that over the whole graph. Four optional ints would make fifteen partial combinations
+    constructible, and a fact holding a `row_index` with no `value_column_index` looks citable
+    and resolves to the wrong cell. Here there are two states: a cell, or no cell.
+
+    **`period_header_column_index` is carried and is not `value_column_index`.** `$` signs and
+    blank spacer columns push a period header out of the column its value sits in, and the two
+    differ on **2,125 of the 2,690** table-backed rows *(verified live 2026-08-13)* — so a
+    verifier reading the header at the value's own column would name the wrong period four
+    times in five, and would get a well-formed `$` or empty string back rather than an error.
+    `story.core.table_cells.resolve_header` takes the header column as an argument for that
+    reason, and this is where the argument comes from.
+
+    **`metric_label_row_index` is deliberately not carried.** It equals `row_index` on all
+    2,690 rows, and `resolve_cell` already returns the row label from column 0 of the value's
+    own row. A fifth field holding a copy of the first is a second place for one truth to drift.
+    """
+
+    row_index: int
+    value_column_index: int
+    period_header_row_index: int
+    period_header_column_index: int
+
+    @model_validator(mode="after")
+    def _indices_are_positions(self) -> "TableCellRef":
+        """No negative index, for `table_cells.resolve_cell`'s reason.
+
+        Python would resolve `-1` by wrapping to the end of the table and returning a plausible
+        wrong cell in silence; the resolver refuses it with `CellOutOfBounds` and this refuses
+        it a step earlier, at the point a package is built.
+        """
+        for name in ("row_index", "value_column_index", "period_header_row_index",
+                     "period_header_column_index"):
+            value = getattr(self, name)
+            if value < 0:
+                raise ValueError(
+                    f"{name}={value} is not a grid position; a negative index resolves by "
+                    "wrapping to the end of the table, which is a wrong cell and not an error")
+        return self
+
+
+#: Every evidence handle opens with this. A citation carries a fact id and a handle, and the
+#: prefix is what lets a reader — and a rejection message — tell one from the other at a glance
+#: without parsing either.
+EVIDENCE_HANDLE_PREFIX = "ev"
+
+
+def _evidence_handle(
+    *, passage_id: Any, metric_id: Any, period_key: Any, cell: Any
+) -> str | None:
+    """The handle for a fact with this passage, this slot and this cell (§3.1).
+
+        ev:<passage_id>:r<row_index>c<value_column_index>       table-backed
+        ev:<passage_id>:span:<metric_id>:<period_key>           narrative
+        None                                                    no filed passage (§13.7.2)
+
+    **The plan's narrative form, `ev:<passage_id>:span`, does not work, and the correction is
+    measured rather than defensive.** §3.1 wrote the span handle as passage-only on the strength
+    of §1.4 — which measured uniqueness for *table cells* and never for spans. Live 2026-08-13,
+    the 14 narrative observations sit in **6** distinct passages: one carries 6 of them, one 3,
+    one 2. So that form names two to six facts at once, and it does so in a package that exists
+    today: `cand:cross-metric-divergence:adjusted-gross-profit-contribution-profit:opendoor:
+    2021Q4:727148801299` carries `adjusted_gross_profit` and `contribution_profit` for 2021Q4,
+    both read out of `…q42021formxex992sharehol.htm#p10`, quoting two different sentences at
+    character 996 and character 1,359.
+
+    Adding the *span offsets* instead would not have fixed it: `adjusted_gross_profit` and
+    `adjusted_gross_margin` 2021Q4 quote the **same 66-character sentence at the same offset**
+    in that passage. One sentence really does evidence two facts, so no structural coordinate
+    can separate them and the discriminator has to come from the fact.
+
+    **What it names is the fact's slot, `(metric_id, period_key)`, and both halves earn their
+    place.** The metric separates the sentence-sharing pair above. The period separates two
+    readings of one metric out of one passage — which the corpus does not hold in prose today,
+    but which `tests/story/test_story_deterministic_verifier.py` builds as a matter of course
+    for table facts, and §6.1 guarantees exactly one canonical fact per slot, so the slot is the
+    finest grain that is guaranteed unique rather than merely observed to be.
+
+    The table form takes neither, and the asymmetry is a measurement and not an oversight: §1.4
+    grouped every table-backed observation by `(passage_id, row_index, value_column_index)` and
+    found 2,690 distinct cells, **0** mapping to two periods and **0** to two metrics. A cell
+    identifies its fact; a passage does not.
+    """
+    if not isinstance(passage_id, str) or not passage_id:
+        return None
+    indices = _cell_indices(cell)
+    if indices is not None:
+        return f"{EVIDENCE_HANDLE_PREFIX}:{passage_id}:r{indices[0]}c{indices[1]}"
+    if not (isinstance(metric_id, str) and metric_id
+            and isinstance(period_key, str) and period_key):
+        return None
+    return f"{EVIDENCE_HANDLE_PREFIX}:{passage_id}:span:{metric_id}:{period_key}"
+
+
+def _cell_indices(cell: Any) -> tuple[int, int] | None:
+    """`(row_index, value_column_index)` off a `TableCellRef` or the mapping one is built from.
+
+    Both shapes because the handle is minted *before* field validation — that is the only hook
+    that can fill a field pydantic would otherwise leave to the caller — so `cell` is whatever
+    the caller passed: a model on a direct construction, a `dict` on the `model_validate` that
+    reads a package back from `data/story_runs/` (§14).
+
+    `None` only when there is no cell at all. A `cell` that is present but carries no usable
+    pair is **refused**, not read as absent: treating it as absent would mint the narrative
+    `…:span:…` form for a table row and present a grid reading as prose evidence.
+
+    `bool` is rejected for the reason `canonicalization._integer` states: it subclasses `int`,
+    so a stray `True` would mint `r1` — a handle that resolves to a real cell and is wrong.
+    """
+    if cell is None:
+        return None
+    read = cell.get if isinstance(cell, Mapping) else (lambda key: getattr(cell, key, None))
+    row, column = read("row_index"), read("value_column_index")
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in (row, column)):
+        raise ValueError(
+            f"cell={cell!r} carries no usable (row_index, value_column_index); a handle minted "
+            "from a coordinate this row does not actually hold would name a cell nobody chose")
+    return row, column
+
+
 class PackagedFact(StoryModel):
     """One observation as the model may see it (§10 `facts[]`).
 
@@ -556,6 +690,39 @@ class PackagedFact(StoryModel):
 
     Membership is decided by `story.core.observation_equivalence.same_reading`, on canonical
     values and never on printed strings.
+
+    **`evidence_handle` is derived, never stated, and that is not a retreat from
+    `PackagedPassage.role`.** `role` is required with no default because *nothing else on that
+    row answers it*: only the caller knows what a passage is to the story, and every default was
+    a claim about evidence, so seventeen call sites had to say. The handle is the opposite case.
+    It is a pure function of `passage_id`, `cell` and the fact's slot — four fields of this row —
+    so a caller who stated it would be adding no information and could only disagree, and
+    "the handle this package minted for `F`" (§3.4 check 7) would then have two authorities. It
+    is therefore minted at construction, and a stated handle that differs from the coordinates
+    is **refused** rather than believed. Every existing call site keeps working, and none of
+    them was ever in a position to know the answer better than the row.
+
+    **Stored, not a `@property`, for two reasons.** §14 writes the package to
+    `data/story_runs/<id>/evidence_package.json` and the evidence panel reads it there, so the
+    token a rejection names has to be greppable in the artifact. And it is inside
+    `package_content_digest`: the handle is the *model's* citation vocabulary, so changing its
+    format must re-key the package the way a new section does, and a handle computed on read
+    would let that vocabulary change while the digest stood still. A pydantic `computed_field`
+    would give the first and not the second, and would additionally break the round trip — under
+    `extra="forbid"` a computed field is rejected as input, so `model_validate(model_dump())`
+    raises *(checked against pydantic 2.13.4)*, and §14 reads every package back.
+
+    **`None` means this fact names no filed passage** — the §13.7.2 `evidence_source_id` row, of
+    which zero exist today. That fact has no passage handle and is given none: minting
+    `ev:<evidence_source_id>:…` would hand the writer a citable-looking token for the one path
+    V1 refuses outright (`evidence_kind_not_supported_in_v1`), which is worse than a fact the
+    writer cannot cite at all.
+
+    **The handle names this fact's own cell and no corroborating one.** The `corroborating_*`
+    ids stay ids: a concordant source that §6.1 collapsed is a second *source*, not a second
+    piece of evidence for this sentence, and a handle minted for one could be cited as though
+    the package had verified it. `cell` and `evidence_handle` describe `passage_id`, which is
+    the reading §6.1 step 5 chose as the representative.
     """
 
     observation_id: str
@@ -598,6 +765,44 @@ class PackagedFact(StoryModel):
     corroborating_observation_ids: tuple[str, ...] = ()
     corroborating_passage_ids: tuple[str, ...] = ()
     corroborating_document_ids: tuple[str, ...] = ()
+    #: Where in `passage_id`'s flattened grid this fact's value was read, and where its period
+    #: header sits. `None` for the 14 narrative observations, which were read out of prose and
+    #: have no grid — the same `None` `ObservationRecord`'s five indices carry, kept honest
+    #: rather than filled.
+    cell: TableCellRef | None = None
+    #: The name a citation binds to instead of retyping `quoted_text` (§3.1). Derived — see the
+    #: class docstring for why it is not a required field and why it is stored rather than
+    #: computed on read.
+    evidence_handle: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mint_evidence_handle(cls, data: Any) -> Any:
+        """Fill `evidence_handle` from the coordinates, and refuse one that disagrees.
+
+        `mode="before"` because it is the only hook that can *fill* a field: an after-validator
+        cannot assign to a frozen model, and returning a copy from one is silently ignored on
+        direct construction — pydantic 2.13.4 warns *"returning anything other than `self` from
+        a top level model validator isn't supported when validating via `__init__`"*, so
+        `PackagedFact(...)` would have kept the `None` while `model_validate(...)` filled it.
+        Two constructions of one row disagreeing about its handle is the single thing this
+        field may not do.
+        """
+        if not isinstance(data, Mapping):
+            return data
+        minted = _evidence_handle(passage_id=data.get("passage_id"),
+                                  metric_id=data.get("metric_id"),
+                                  period_key=data.get("period_key"), cell=data.get("cell"))
+        stated = data.get("evidence_handle")
+        if stated is not None and stated != minted:
+            raise ValueError(
+                f"{data.get('observation_id')}: evidence_handle={stated!r} was stated, but this "
+                f"row's own passage, slot and cell mint {minted!r}"
+                + (" — None because the row names no filed passage" if minted is None else "")
+                + ". A handle is derived from coordinates the row already carries; a stated one "
+                "that differs is a second authority for one fact, and naming another cell is "
+                "the mis-citation §13.7 check 7 refuses")
+        return {**data, "evidence_handle": minted}
 
     @model_validator(mode="after")
     def _corroboration_is_sorted(self) -> "PackagedFact":
@@ -1230,6 +1435,57 @@ class StoryEvidencePackage(StoryModel):
     retrieval_trace: tuple[RetrievalTraceEntry, ...] = ()
     budget: PackageBudget
 
+    @model_validator(mode="after")
+    def _evidence_handles_are_unique(self) -> "StoryEvidencePackage":
+        """No two facts in one package answer to one handle.
+
+        This is what §3.4's check 7 rests on. A citation carries a fact id and a handle, and the
+        check is *"the handle this package minted for `F`"* — which is a well-formed question
+        only while handle → fact is a function. Two facts sharing one would let a sentence bound
+        to the wrong fact pass the check that exists to catch exactly that.
+
+        For a table cell a collision is a **defect and not a naming clash**: §1.4 grouped every
+        table-backed observation by `(passage_id, row_index, value_column_index)` and measured
+        2,690 distinct cells, none mapping to two periods or two metrics *(verified live
+        2026-08-13)*. One cell is one fact, so two facts claiming one cell means one of them was
+        read out of a cell it does not occupy, and a package that shipped both would be citing a
+        number the grid does not hold at that position.
+
+        For a narrative span it is a shape the corpus is one row away from producing — 14
+        observations in 6 passages, and `_evidence_handle` explains what the slot in the handle
+        is doing. Refused rather than deduplicated or warned about, because the failure
+        it prevents is a *citation* that verifies against the wrong fact, and a package that
+        cannot name its evidence distinctly cannot support the contract §12 and §13 are about.
+        """
+        minted: dict[str, str] = {}
+        for fact in self.facts:
+            if fact.evidence_handle is None:
+                continue
+            first = minted.setdefault(fact.evidence_handle, fact.observation_id)
+            if first != fact.observation_id:
+                raise ValueError(
+                    f"evidence_handle {fact.evidence_handle!r} is minted for two facts, "
+                    f"{first} and {fact.observation_id}. A handle names one piece of evidence "
+                    "and §13.7 check 7 asks which fact a package minted it for; two answers "
+                    "make a citation to the wrong fact unrefusable")
+        return self
+
+    def facts_by_evidence_handle(self) -> Mapping[str, PackagedFact]:
+        """Handle → fact, for every fact that has one.
+
+        Here rather than in each consumer because §12's writer gate and §13.7's citation rules
+        both resolve handles and would otherwise build one index each from one package — the
+        arrangement `PackageIndex` already refuses for the column-ambiguity map. A method and
+        not a property, so the O(facts) build is visible at the call site and a caller holds the
+        result instead of rebuilding it per citation.
+
+        Facts with no handle — §13.7.2's `evidence_source_id` rows — are absent rather than
+        keyed under `None`: a citation that resolves to nothing is `unresolvable_evidence_handle`
+        (§3.4 check 1), and that is the answer they should produce.
+        """
+        return {fact.evidence_handle: fact
+                for fact in self.facts if fact.evidence_handle is not None}
+
     @property
     def identity(self) -> PackageIdentity:
         payload = self.model_dump(mode="json")
@@ -1698,6 +1954,7 @@ class RetrievalResult(StoryModel):
 
 __all__ = [
     "CITATION_ADAPTER",
+    "EVIDENCE_HANDLE_PREFIX",
     "PACKAGE_VERSION",
     "POLICY_VERSION",
     "Audience",
@@ -1758,6 +2015,7 @@ __all__ = [
     "StoryCandidate",
     "StoryEvidencePackage",
     "StoryModel",
+    "TableCellRef",
     "UnusableEvidence",
     "UnusableReason",
     "VerificationFinding",

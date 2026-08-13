@@ -428,7 +428,11 @@ def test_a_packaged_fact_must_name_a_passage_or_an_evidence_source():
     from story.core.models import PackagedFact
 
     fields = make_package().facts[0].model_dump()
-    fields.update(passage_id=None, evidence_source_id=None)
+    # `evidence_handle` goes with the passage: it is derived from it, and re-validating a dumped
+    # row that has lost its passage while keeping the handle minted from it is refused one rule
+    # earlier, as a stated handle disagreeing with the row's own coordinates (S3 of
+    # TABLE_CELL_CITATIONS). Dropping it is what a caller changing the evidence chain must do.
+    fields.update(passage_id=None, evidence_source_id=None, evidence_handle=None)
     with pytest.raises(pydantic.ValidationError, match="citation chain"):
         PackagedFact(**fields)
 

@@ -583,6 +583,10 @@ def derive_corroboration(sections: PackageSections) -> tuple[PackagedFact, ...]:
     carried = {fact.observation_id for fact in sections.facts}
     rows: list[PackagedFact] = []
     for fact in sections.facts:
+        # `model_copy` does not re-validate, so it does not re-mint `evidence_handle` — which is
+        # correct here and only here: the three corroboration lists are ids of readings the
+        # package discarded, and the handle names the passage and cell of the reading it kept.
+        # A copy that changed `passage_id` or `cell` would have to go back through validation.
         sources = [
             source for source in sections.corroboration.get(fact.observation_id, ())
             if source[0] not in carried

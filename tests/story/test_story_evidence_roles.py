@@ -456,10 +456,12 @@ def test_the_package_version_moved_because_the_shape_did():
     """`PACKAGE_VERSION` exists so two shapes can never share a `package_id`.
 
     `1.1.0` at S1: three sections added and four row types re-shaped. `1.2.0` at S2: one more
-    section (`diagnostic_passages`) and one more field (`PackagedPassage.diagnostic_codes`). Not
-    bumping it would have kept the replay demo green by breaking the one guarantee the constant
-    makes."""
-    assert PACKAGE_VERSION == "1.2.0"
+    section (`diagnostic_passages`) and one more field (`PackagedPassage.diagnostic_codes`).
+    `1.3.0` at S3 of TABLE_CELL_CITATIONS: `PackagedFact` gained `cell` and `evidence_handle`,
+    and the handle is the model's citation vocabulary, so a package that carries one is not the
+    shape a package without one was. Not bumping it would have kept the replay demo green by
+    breaking the one guarantee the constant makes."""
+    assert PACKAGE_VERSION == "1.3.0"
 
 
 # ---------------------------------------------------------------------------------------
@@ -580,6 +582,6 @@ def test_a_package_built_by_the_assembler_carries_no_ontology_facts_and_still_di
     assembler = assembly.PackageAssembler(identity=identity, budget=BudgetParameters())
     package = assembler.finalize(sections, make_candidate())
 
-    assert package.package_version == "1.2.0"
+    assert package.package_version == "1.3.0"
     assert package.budget.section_counts["semantic_facts"] == 0
     assert package.package_content_digest == package_content_digest(package.digestible_payload())

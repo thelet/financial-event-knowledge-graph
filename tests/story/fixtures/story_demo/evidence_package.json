@@ -307,6 +307,7 @@
   "facts": [
     {
       "ambiguity_codes": [],
+      "cell": null,
       "column_label": "2022",
       "corroborating_document_ids": [
         "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
@@ -325,6 +326,7 @@
       ],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
+      "evidence_handle": "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:span:adjusted_gross_margin:2022Q3",
       "evidence_source_id": null,
       "fact_kind": "observed",
       "instant_date": null,
@@ -350,6 +352,7 @@
     },
     {
       "ambiguity_codes": [],
+      "cell": null,
       "column_label": "2022",
       "corroborating_document_ids": [
         "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
@@ -375,6 +378,7 @@
       ],
       "currency": null,
       "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
+      "evidence_handle": "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:span:gaap_gross_margin:2022Q3",
       "evidence_source_id": null,
       "fact_kind": "observed",
       "instant_date": null,
@@ -537,7 +541,7 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "5c420f8c50717b731656e1bec1c744b26f378669a9c00d25395f0ac4c51e6ad3",
+  "package_content_digest": "0857cc4f951a565dd78c2d0b00511cd21990ce509160f789f59bdddff6de910d",
   "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6a858ae5c031",
   "package_version": "1.2.0",
   "policy_version": "canon-policy:1.0.0",

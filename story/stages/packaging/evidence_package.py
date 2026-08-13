@@ -79,6 +79,7 @@ from story.core.models import (
     RetrievalResult,
     StoryCandidate,
     StoryEvidencePackage,
+    TableCellRef,
 )
 from story.core.observation_equivalence import same_reading
 from story.core.series import (
@@ -519,6 +520,13 @@ class BoundedEvidencePackageBuilder:
         carry `pct_120_days_denominator` and 124 `homes_sold` rows carry
         `homes_sold_recognition_point` *(counted live)*, and those are the only two metrics in
         the ontology whose observations were stamped at all.
+
+        **`cell` is a third source of a kind: the record's own coordinates** (`_cell_ref`). It
+        is what turns `quoted_text` from a string the reader has to find into a position — for
+        523 of 2,704 observations that string occurs more than once in its own passage, worst
+        case 32 times, and the citation contract had no way to say which copy. `evidence_handle`
+        is not passed: `PackagedFact` mints it from the passage, the cell and the fact's slot, and
+        refuses a stated one that disagrees.
         """
         # The three `corroborating_*` lists are left empty here and filled by `_add_facts` once
         # the cap has run: corroboration names what the package discarded, and until `facts[]`
@@ -555,6 +563,7 @@ class BoundedEvidencePackageBuilder:
             document_id=assembly.text_or_none(evidence, "document_id"),
             source_url=assembly.text_or_none(evidence, "source_url"),
             quoted_text=assembly.text_or_none(evidence, "quoted_text"),
+            cell=_cell_ref(record),
         )
 
     def _ambiguity_codes(self, record: ObservationRecord) -> tuple[str, ...]:
@@ -1626,6 +1635,42 @@ class BoundedEvidencePackageBuilder:
 
 
 # -- module-level helpers -------------------------------------------------------------------
+
+
+def _cell_ref(record: ObservationRecord) -> TableCellRef | None:
+    """The record's grid coordinates, or `None` for a fact that was not read out of a grid.
+
+    **From the record and not from the `EVIDENCED_BY` row, though both carry them.** They are
+    `:Observation` node properties, and S1 put them on the history statement deliberately so a
+    series loaded without `get_fact_evidence` still carries a cell identity — reading them here
+    off the evidence row would make the package's coordinates come from a different query than
+    every other consumer's, for no gain.
+
+    **A partial coordinate raises rather than degrading to `None`.** All five indices are
+    present on 2,690 of 2,690 table-backed observations, absent on all 14 narrative ones, and
+    partial on **0** *(verified live 2026-08-13; `test_story_retrieval.py`'s census holds it)*.
+    Silently dropping a half-populated row would hand it the narrative `…:span:…` handle and so
+    present a table fact as prose evidence, which is the ambiguous citation this whole repair
+    exists to remove. The state cannot arrive from this graph; if it
+    ever does, it is a projection defect and the run should stop on it.
+    """
+    indices = (record.row_index, record.value_column_index,
+               record.period_header_row_index, record.period_header_column_index)
+    if all(index is None for index in indices):
+        return None
+    if any(index is None for index in indices):
+        raise ValueError(
+            f"{record.observation_id}: cell coordinates are partial — row_index="
+            f"{record.row_index}, value_column_index={record.value_column_index}, "
+            f"period_header_row_index={record.period_header_row_index}, "
+            f"period_header_column_index={record.period_header_column_index}. A coordinate that "
+            "is half there resolves to a real cell nobody chose")
+    return TableCellRef(
+        row_index=indices[0],  # type: ignore[arg-type]
+        value_column_index=indices[1],  # type: ignore[arg-type]
+        period_header_row_index=indices[2],  # type: ignore[arg-type]
+        period_header_column_index=indices[3],  # type: ignore[arg-type]
+    )
 
 
 def collapses_into(
