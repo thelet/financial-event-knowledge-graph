@@ -97,7 +97,36 @@ matches `column_label` on only **565 / 2,690**. The value column and the header 
 *different indices* because of `$` and blank spacer cells — which is precisely why a model cannot
 retype the row and why `period_header_column_index` must be carried rather than inferred.
 
-### 1.4 Narrative evidence is already safe
+### 1.4 The cell coordinate is a perfect key — this is what makes handles sound
+
+Grouping every table-backed observation by `(passage_id, row_index, value_column_index)`:
+
+| Quantity | Count |
+| --- | ---: |
+| Distinct cells | 2,690 |
+| Cells mapping to more than one `period_key` | **0** |
+| Cells mapping to more than one `metric_id` | **0** |
+
+A cell identifies exactly one fact. That is the guarantee check 7 of §3.4 rests on: a handle
+cannot accidentally name two facts, so "the handle this package minted for `F`" is well defined,
+and citing a different cell is always detectable.
+
+### 1.5 What this repair does **not** fix — measured, not assumed
+
+`column_label_ambiguous_in_passage` (§13.7.1, 179 of 485 `(passage_id, column_label)` pairs,
+61.3% of observations) is a *label-grain* check. Carrying `period_header_column_index` helps but
+does not close it:
+
+| `(passage_id, column_label)` pairs mapping to >1 `period_key` | 179 |
+| --- | ---: |
+| …which the header **column index** separates | 87 |
+| …which it does **not** separate | **92** |
+
+So this repair must **not** claim to fix §13.7.1, and S5 must leave that check's behaviour alone.
+Ninety-two pairs share a header column index while spanning more than one period; why they do is
+not yet understood and is deliberately out of scope here.
+
+### 1.6 Narrative evidence is already safe
 
 All **14 / 14** narrative quotes are whole sentences occurring **exactly once** in their passage
 (e.g. `'As of December 31, 2021, only 8% of our homes had been listed on the m…'`). The existing
@@ -164,6 +193,13 @@ sentence `S`:
 | 5 | header cell == `F.column_label` | `evidence_column_label_mismatch` |
 | 6 | `reconstruct_table_quote(cell, scale, unit) == F.value` | `table_quote_does_not_reconstruct` *(exists)* |
 | 7 | `H` is the handle **this package minted for `F`** | `evidence_handle_not_for_fact` |
+
+Check 7 is sound because §1.4 measured the cell coordinate as a perfect key: 2,690 distinct
+cells, none mapping to two periods or two metrics.
+
+**§13.7.1's `column_label_ambiguous_in_passage` is not touched.** §1.5 measured that the header
+column index separates only 87 of its 179 ambiguous pairs, so this repair has no standing to
+change it. S5 leaves `_column_findings` exactly as it is.
 
 Check 7 is what makes "wrong cell, wrong metric, wrong period, wrong value, unrelated evidence"
 refuse: a handle for another cell either is not in the package (1) or is not `F`'s (7).
