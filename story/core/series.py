@@ -139,6 +139,22 @@ class ObservationRecord:
     `quoted_text` and `filing_date` are optional and their absence is *reported*, never assumed
     benign: a record with no quote cannot be put through the quarantine test, and a record with
     no filing date cannot claim to be the earliest.
+
+    **The five cell indices are the fact's position in the flattened table, and they are here
+    because `quoted_text` alone cannot find it** (TABLE_CELL_CITATIONS §1.3). A bare cell value
+    occurs more than once in its own passage for 523 of 2,704 observations — worst case 32
+    times *(verified live 2026-08-13)* — so a consumer that searched the passage text for the
+    quote would be guessing between copies. `row_index` and `value_column_index` name the cell; `period_header_row_index` and
+    `period_header_column_index` name the header cell `column_label` was printed in, which is a
+    *different column* from the value on 2,125 of the 2,690 table-backed rows because of `$`
+    signs and blank spacer cells *(verified live 2026-08-13)*; `metric_label_row_index` names
+    the row `row_label` came from, and it equals `row_index` on all 2,690.
+
+    **`None` is the honest value and not a gap to fill.** All five are present on 2,690 of 2,690
+    table-backed observations and on none of the 14 narrative ones *(verified live 2026-08-13)*,
+    so a `None` here says *"this fact was not read out of a grid"* — the state `passage_kind ==
+    'narrative'` says the same way round. Defaulting them keeps every narrative record valid
+    without a consumer having to special-case construction.
     """
 
     observation_id: str
@@ -157,6 +173,17 @@ class ObservationRecord:
     quoted_text: str | None = None
     warning_codes: tuple[str, ...] = ()
     ambiguity_codes: tuple[str, ...] = ()
+    row_index: int | None = None
+    value_column_index: int | None = None
+    period_header_row_index: int | None = None
+    period_header_column_index: int | None = None
+    metric_label_row_index: int | None = None
+    #: `:Passage.passage_kind`, carried so a consumer can tell a table passage from a narrative
+    #: one without inferring it from `source_lane` — the lane is who read the number and the
+    #: passage kind is what it was read out of, and only the second decides whether a grid can
+    #: be indexed into. Arrives with `get_fact_evidence`, so it is `None` on a record loaded
+    #: without evidence, which is not the same as a passage that is not a table.
+    passage_kind: str | None = None
 
     @property
     def slot_key(self) -> tuple[str, str]:

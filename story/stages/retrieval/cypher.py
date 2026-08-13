@@ -58,6 +58,25 @@ coverage.
   other 400 — never from a `shape` property, which does not exist. Where an aggregate could
   hide the difference, a `…_present_count` is returned beside it, because `collect()` drops
   absent values and a caller cannot tell an empty list from a list of nothings.
+
+**The table-cell indices are returned because a label pair cannot name a cell**
+(TABLE_CELL_CITATIONS §1.3). `row_label` and `column_label` were the only structural fields
+carried, and they do not locate anything: `quoted_text` is a bare cell value that occurs more
+than once in its own passage for **523 of 2,704** observations, worst case **32** times, and
+exactly once for the other 2,181 *(re-measured live 2026-08-13 by splitting `Passage.text` on
+the quote; zero quotes are absent from their passage)*. `:Observation`
+already carries `row_index`, `value_column_index`, `period_header_row_index`,
+`period_header_column_index` and `metric_label_row_index` on **2,690 of 2,690** table-backed
+rows and on **none** of the 14 narrative ones *(verified live 2026-08-13)*, so the two statements
+that read an observation's cell — `METRIC_HISTORY` and `FACT_EVIDENCE_FOR_OBSERVATION` — return
+all five. They are node properties added to an existing `RETURN` list: no new pattern, no new
+hop, no new relationship type.
+
+`value_column_index` and `period_header_column_index` are deliberately **both** returned rather
+than one inferred from the other. `$` signs and blank spacer cells push a period header out of
+the column its value sits in, and the two indices differ on **2,125 of the 2,690** table-backed
+rows *(verified live 2026-08-13)* — so a consumer that read the header at `value_column_index`
+would name the wrong column four times in five.
 """
 
 from __future__ import annotations
@@ -122,6 +141,12 @@ LIMIT $row_limit
 #:
 #: `$shape`, `$since` and `$until` are optional by the `IS NULL OR` idiom rather than by
 #: building a `WHERE` clause: one statement, one plan, and no branch that could assemble text.
+#:
+#: **The five cell indices are read here and not only from the evidence statement**, because
+#: they are `:Observation` properties and this is the tool that loads observations whole
+#: (`canonicalization.load_observations` pages every one of the 2,704). `get_fact_evidence` is
+#: called per observation and is optional on that path, so a series loaded without evidence
+#: would otherwise carry no cell identity at all.
 METRIC_HISTORY = """
 MATCH (observation:Observation)
 WHERE observation.metric_id = $metric_id
@@ -151,6 +176,11 @@ RETURN observation.observation_id AS observation_id,
        END AS period_shape,
        observation.row_label AS row_label,
        observation.column_label AS column_label,
+       observation.row_index AS row_index,
+       observation.value_column_index AS value_column_index,
+       observation.period_header_row_index AS period_header_row_index,
+       observation.period_header_column_index AS period_header_column_index,
+       observation.metric_label_row_index AS metric_label_row_index,
        observation.source_lane AS source_lane,
        observation.assertion_type AS assertion_type,
        observation.validation_state AS validation_state,
@@ -255,6 +285,11 @@ LIMIT $row_limit
 #:
 #: `document.report_date` is on 184 of 185 documents (C2); it is returned as-is and the one
 #: absence surfaces as `None`, which S0c's contract defines as *absent* and nothing else.
+#:
+#: **`passage.passage_kind` is what tells a table row from a narrative one**, and it was already
+#: returned here before the cell indices were: `'table'` on all 2,690 table-backed evidence rows
+#: and `'narrative'` on all 14 others *(verified live 2026-08-13)*. It agrees with the indices
+#: exactly, which is why nothing downstream has to infer one from the other.
 FACT_EVIDENCE_FOR_OBSERVATION = """
 MATCH (observation:Observation)-[evidence:EVIDENCED_BY]->(passage:Passage)-[:PART_OF]->(document:Document)
 WHERE observation.observation_id = $observation_id
@@ -267,6 +302,11 @@ RETURN observation.observation_id AS observation_id,
        observation.currency AS currency,
        observation.row_label AS row_label,
        observation.column_label AS column_label,
+       observation.row_index AS row_index,
+       observation.value_column_index AS value_column_index,
+       observation.period_header_row_index AS period_header_row_index,
+       observation.period_header_column_index AS period_header_column_index,
+       observation.metric_label_row_index AS metric_label_row_index,
        observation.source_lane AS source_lane,
        observation.validation_state AS validation_state,
        evidence.quoted_text AS quoted_text,

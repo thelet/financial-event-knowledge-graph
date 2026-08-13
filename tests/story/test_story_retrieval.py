@@ -25,6 +25,7 @@ import pytest
 
 from story.contracts import GraphRetriever
 from story.core.models import RetrievalOutcome
+from story.stages.detection.canonicalization import record_from_rows
 from story.stages.retrieval import cypher
 from story.stages.retrieval.graph_tools import (
     DEFAULT_HANDLE_LIMIT,
@@ -59,6 +60,11 @@ EVIDENCE_ROW: dict[str, Any] = {
     "currency": "USD",
     "row_label": "Adjusted EBITDA",
     "column_label": "2022",
+    "row_index": 12,
+    "value_column_index": 3,
+    "period_header_row_index": 3,
+    "period_header_column_index": 2,
+    "metric_label_row_index": 12,
     "source_lane": "normalized_table",
     "validation_state": "clean",
     "quoted_text": "(211)",
@@ -79,6 +85,119 @@ EVIDENCE_ROW: dict[str, Any] = {
     "filing_date": "2022-11-10",
     "report_date": "2022-09-30",
 }
+
+
+#: The same observation in the shape `METRIC_HISTORY` returns it, and the narrative counterpart
+#: that stands for the 14 observations with no table identity at all. Both copied from a live
+#: read on 2026-08-13 — the numbers below are what the graph held, not what a cell resolver
+#: would like them to be, which is the point of committing them.
+#:
+#: `row_index == metric_label_row_index == 12` and `value_column_index == 3` against
+#: `period_header_column_index == 2`: the value and its period header sit in different columns
+#: of the same table, which is true of 2,125 of the 2,690 table-backed observations.
+HISTORY_ROW: dict[str, Any] = {
+    "observation_id": "obs:adjusted-ebitda:opendoor:2022Q3:normalized-table:ca9391dd3a50",
+    "metric_id": "adjusted_ebitda",
+    "period_key": "2022Q3",
+    "value": -211_000_000.0,
+    "unit": "USD",
+    "scale": "millions",
+    "currency": "USD",
+    "period_start": "2022-07-01",
+    "period_end": "2022-09-30",
+    "instant_date": None,
+    "period_shape": "duration",
+    "row_label": "Adjusted EBITDA",
+    "column_label": "2022",
+    "row_index": 12,
+    "value_column_index": 3,
+    "period_header_row_index": 3,
+    "period_header_column_index": 2,
+    "metric_label_row_index": 12,
+    "source_lane": "normalized_table",
+    "assertion_type": "reported",
+    "validation_state": "clean",
+    "warning_codes": [],
+    "ambiguity_codes": [],
+    "subject_entity_id": "opendoor",
+    "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p120",
+    "document_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm",
+}
+
+NARRATIVE_HISTORY_ROW: dict[str, Any] = {
+    "observation_id": "obs:adjusted-ebitda:opendoor:2022Q2:normalized-narrative:603c21481ff3",
+    "metric_id": "adjusted_ebitda",
+    "period_key": "2022Q2",
+    "value": 218_000_000.0,
+    "unit": "USD",
+    "scale": "millions",
+    "currency": "USD",
+    "period_start": "2022-04-01",
+    "period_end": "2022-06-30",
+    "instant_date": None,
+    "period_shape": "duration",
+    "row_label": None,
+    "column_label": None,
+    "row_index": None,
+    "value_column_index": None,
+    "period_header_row_index": None,
+    "period_header_column_index": None,
+    "metric_label_row_index": None,
+    "source_lane": "normalized_narrative",
+    "assertion_type": "reported",
+    "validation_state": "warned",
+    "warning_codes": ["unpreferred_source_lane"],
+    "ambiguity_codes": [],
+    "subject_entity_id": "opendoor",
+    "passage_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#p7",
+    "document_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm",
+}
+
+NARRATIVE_EVIDENCE_ROW: dict[str, Any] = {
+    "observation_id": "obs:adjusted-ebitda:opendoor:2022Q2:normalized-narrative:603c21481ff3",
+    "metric_id": "adjusted_ebitda",
+    "period_key": "2022Q2",
+    "value": 218_000_000.0,
+    "unit": "USD",
+    "scale": "millions",
+    "currency": "USD",
+    "row_label": None,
+    "column_label": None,
+    "row_index": None,
+    "value_column_index": None,
+    "period_header_row_index": None,
+    "period_header_column_index": None,
+    "metric_label_row_index": None,
+    "source_lane": "normalized_narrative",
+    "validation_state": "warned",
+    "quoted_text": "Adjusted EBITDA was $218 million in 2Q22 compared to $25 million in 2Q21.",
+    "table_id": None,
+    "block_ids": ["norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#b22"],
+    "evidence_kind": "normalized_passage",
+    "ontology_declared": True,
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000075/q22022formxex992sharehol.htm",
+    "passage_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#p7",
+    "passage_kind": "narrative",
+    "passage_char_count": 2232,
+    "passage_table_id": None,
+    "section_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm#s2",
+    "document_id": "norm:0001801169:0001801169-22-000075:q22022formxex992sharehol.htm",
+    "form": "8-K",
+    "document_type": "shareholder_letter",
+    "accession": "0001801169-22-000075",
+    "filing_date": "2022-08-04",
+    "report_date": "2022-08-04",
+}
+
+#: The five `:Observation` properties that locate a value in its flattened table. Named once so
+#: a test that drops one fails here rather than by quietly checking four.
+CELL_INDEX_FIELDS = (
+    "row_index",
+    "value_column_index",
+    "period_header_row_index",
+    "period_header_column_index",
+    "metric_label_row_index",
+)
 
 
 def retriever(**rows_by_statement: Any) -> tuple[BoundedGraphRetriever, RecordedReadExecutor]:
@@ -325,6 +444,78 @@ def test_the_edge_table_id_and_the_passage_table_id_are_returned_under_different
     passages — and one name for both would manufacture agreement between them."""
     assert "evidence.table_id AS table_id" in cypher.FACT_EVIDENCE_FOR_OBSERVATION
     assert "passage.table_id AS passage_table_id" in cypher.FACT_EVIDENCE_FOR_OBSERVATION
+
+
+# ---------------------------------------------------------------------------------------
+# The table cell — the coordinates a label pair cannot supply (TABLE_CELL_CITATIONS §1.3)
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [cypher.METRIC_HISTORY, cypher.FACT_EVIDENCE_FOR_OBSERVATION],
+    ids=["METRIC_HISTORY", "FACT_EVIDENCE_FOR_OBSERVATION"],
+)
+@pytest.mark.parametrize("field", CELL_INDEX_FIELDS)
+def test_every_statement_that_reads_a_cell_returns_its_coordinates_and_not_only_its_labels(
+    statement: str, field: str
+) -> None:
+    """Both statements already returned `row_label` and `column_label`, which locate nothing:
+    a bare cell value occurs more than once in its own passage for 523 of 2,704 observations
+    *(verified live 2026-08-13)*.
+    Asserted as a named return on the statement text because that is the thing a future edit
+    would drop, and a scripted executor would keep passing without it."""
+    assert f"observation.{field} AS {field}" in statement
+
+
+def test_a_table_backed_observation_is_retrieved_with_the_cell_its_value_was_printed_in() -> None:
+    tool, _executor = retriever(**{cypher.FACT_EVIDENCE_FOR_OBSERVATION: (EVIDENCE_ROW,)})
+
+    result = tool.call("get_fact_evidence", {"observation_id": EVIDENCE_ROW["observation_id"]})
+
+    row = result.rows[0]
+    assert [row[field] for field in CELL_INDEX_FIELDS] == [12, 3, 3, 2, 12]
+    assert row["passage_kind"] == "table"
+
+
+def test_a_table_backed_observation_record_carries_all_five_indices() -> None:
+    """The contract this stage exists to widen: retrieval's two rows, merged into the record
+    every detector and the packager read."""
+    record = record_from_rows(HISTORY_ROW, EVIDENCE_ROW)
+
+    assert [getattr(record, field) for field in CELL_INDEX_FIELDS] == [12, 3, 3, 2, 12]
+    assert record.passage_kind == "table"
+    assert record.quoted_text == "(211)"
+
+
+def test_a_narrative_observation_record_carries_none_for_every_index_and_is_still_a_record() -> None:
+    """14 of 2,704 observations have no table identity, and `None` is their honest answer —
+    not a defect to raise on. The record still has to build, and its quote is still a quote."""
+    record = record_from_rows(NARRATIVE_HISTORY_ROW, NARRATIVE_EVIDENCE_ROW)
+
+    assert [getattr(record, field) for field in CELL_INDEX_FIELDS] == [None] * 5
+    assert record.passage_kind == "narrative"
+    assert record.quoted_text.startswith("Adjusted EBITDA was $218 million")
+
+
+def test_the_cell_indices_survive_a_history_load_that_never_asked_for_evidence() -> None:
+    """They are `:Observation` properties, so `get_metric_history` alone carries them. A
+    coordinate that appeared only when a caller paid for a per-observation `get_fact_evidence`
+    would be a cell identity that comes and goes; `passage_kind` is the one field that genuinely
+    cannot, because it belongs to the `:Passage`."""
+    record = record_from_rows(HISTORY_ROW)
+
+    assert [getattr(record, field) for field in CELL_INDEX_FIELDS] == [12, 3, 3, 2, 12]
+    assert record.passage_kind is None
+
+
+def test_an_index_that_arrives_as_a_boolean_is_read_as_absent_rather_than_as_row_one() -> None:
+    """`bool` is a subclass of `int` in Python, so an unguarded read would turn `True` into a
+    coordinate that resolves to a real cell and names the wrong one."""
+    record = record_from_rows({**HISTORY_ROW, "row_index": True, "value_column_index": False})
+
+    assert record.row_index is None
+    assert record.value_column_index is None
 
 
 def test_a_missing_observation_is_not_found_rather_than_an_empty_ok() -> None:
@@ -1286,3 +1477,32 @@ def test_live_the_trace_carries_one_entry_per_call_with_a_measured_elapsed_time(
     assert trace[-1].tool == "list_metrics"
     assert trace[-1].row_count == 26
     assert trace[-1].elapsed_ms > 0
+
+
+@pytest.mark.neo4j
+def test_live_every_observation_carries_all_five_cell_indices_or_none_of_them(
+    live_retriever,  # type: ignore[no-untyped-def]
+) -> None:
+    """The census the offline fixtures stand in for, over every observation in the graph.
+
+    All-or-nothing is the claim that matters. A record with three of five coordinates could not
+    be resolved and could not be refused either — it would look like a citable cell and index
+    into the wrong one. Measured 2026-08-13: 2,690 complete, 14 empty, 0 partial.
+
+    Paged through the loader rather than issued directly, because `adjusted_ebitda` alone has
+    296 observations against `get_metric_history`'s bound of 200 and a single call would count
+    a truncated page.
+    """
+    from story.stages.detection.canonicalization import load_observations
+
+    load = load_observations(live_retriever, with_evidence=False)
+    assert load.unreadable == ()
+
+    complete = [r for r in load.records
+                if all(getattr(r, f) is not None for f in CELL_INDEX_FIELDS)]
+    empty = [r for r in load.records
+             if all(getattr(r, f) is None for f in CELL_INDEX_FIELDS)]
+
+    assert len(load.records) == len(complete) + len(empty), "an observation carries a partial cell"
+    assert (len(complete), len(empty)) == (2690, 14)
+    assert all(r.row_index == r.metric_label_row_index for r in complete)

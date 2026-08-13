@@ -324,6 +324,14 @@ def record_from_rows(
     C2 in one function: every optional field is read with `.get` and an absent key and a `None`
     value produce the same record, because Neo4j cannot tell them apart and neither may a
     consumer.
+
+    **The five cell indices come from `history`, not from `evidence`.** They are `:Observation`
+    node properties (TABLE_CELL_CITATIONS §1.3), and both statements return them — but
+    `evidence` is `None` on every path that loads a series without paying for a
+    `get_fact_evidence` call per observation, and a coordinate that appeared only when someone
+    asked for the quote would be a cell identity that comes and goes. `passage_kind` is the
+    exception and stays on the evidence side: it belongs to the `:Passage`, which only the
+    evidence statement reaches.
     """
     return ObservationRecord(
         observation_id=str(history["observation_id"]),
@@ -342,6 +350,12 @@ def record_from_rows(
         quoted_text=None if evidence is None else _text(evidence, "quoted_text"),
         warning_codes=_texts(history, "warning_codes"),
         ambiguity_codes=_texts(history, "ambiguity_codes"),
+        row_index=_integer(history, "row_index"),
+        value_column_index=_integer(history, "value_column_index"),
+        period_header_row_index=_integer(history, "period_header_row_index"),
+        period_header_column_index=_integer(history, "period_header_column_index"),
+        metric_label_row_index=_integer(history, "metric_label_row_index"),
+        passage_kind=None if evidence is None else _text(evidence, "passage_kind"),
     )
 
 
@@ -535,6 +549,18 @@ def _last_filed(records: Iterable[ObservationRecord]) -> str | None:
 def _text(row: Mapping[str, Any], key: str) -> str | None:
     value = row.get(key)
     return value if isinstance(value, str) and value else None
+
+
+def _integer(row: Mapping[str, Any], key: str) -> int | None:
+    """A grid coordinate, or `None` for a row that has no position in a grid.
+
+    `isinstance(value, bool)` is excluded because `bool` is a subclass of `int` in Python and a
+    driver-returned boolean arriving as row 1 is the kind of coordinate that would resolve to a
+    real cell and be wrong. Nothing on `:Observation` carries a boolean under these names today;
+    the guard is here because the failure mode is silent.
+    """
+    value = row.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _texts(row: Mapping[str, Any], key: str) -> tuple[str, ...]:
