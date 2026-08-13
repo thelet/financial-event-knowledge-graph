@@ -140,8 +140,9 @@ span path is correct for them and is kept unchanged.
 | --- | --- | --- |
 | Extraction / normalization | outside `story/` | **Correct. Not touched.** |
 | Graph | outside `story/` | **Correct. Not touched.** |
-| Story retrieval | `story/stages/retrieval/cypher.py:258` | Returns `row_label`, `column_label`, `table_id`, `block_ids`, `passage_table_id`. **Omits all five indices.** |
-| Story contract | `story/core/models.py:575` | `ObservationRecord` has `row_label`/`column_label`, **no index fields**. |
+| Story retrieval | `story/stages/retrieval/cypher.py` — `METRIC_HISTORY` **and** `FACT_EVIDENCE_FOR_OBSERVATION` | Returned `row_label`, `column_label`, `table_id`, `block_ids`, `passage_table_id`, `passage_kind`. **Omitted all five indices.** |
+| Story contract | **`story/core/series.py:128`** | `ObservationRecord` carried **no cell identity at all** — not even the labels. |
+| Row → record | **`record_from_rows`, `story/stages/detection/canonicalization.py:319`** | Nothing to map the coordinates into. |
 | Packaging | `story/stages/packaging/` | `PackagedFact` carries `quoted_text` only. |
 | Writer contract | `story/stages/generation/prompts.py:804` | Model emits `{passage_id, quote}` — a retyped byte string. |
 | §12 gate | `story/stages/generation/writer.py:410` | `len(occurrences) != 1`. |
@@ -217,7 +218,7 @@ did not exist before.
 
 | Stage | Owns | Depends on |
 | --- | --- | --- |
-| **S1** Carry the coordinates | `retrieval/cypher.py`, `retrieval/results.py`, `ObservationRecord` | — |
+| **S1** Carry the coordinates | `retrieval/cypher.py`, `core/series.py`, `detection/canonicalization.py` | — |
 | **S2** The cell resolver | `core/table_cells.py` + tests | — |
 | **S3** Mint handles | `core/models.py` (`EvidenceHandle`, `PackagedFact.evidence_handle`), `packaging/` | S1, S2 |
 | **S4** §12 writer contract | `generation/prompts.py`, `generation/writer.py` | S3 |
