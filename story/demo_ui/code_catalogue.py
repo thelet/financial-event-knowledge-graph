@@ -256,14 +256,25 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
         "The sentence names an entity the graph could not resolve to a known party, so who it "
         "refers to is a guess.",
 
-    # §13.7 citation support
+    # §13.7 citation support.
+    #
+    # **The two `quote` codes are no longer about anything a model typed, and these sentences
+    # were rewritten at S6 because they still read as though they were.** Since
+    # TABLE_CELL_CITATIONS S4 a citation is one field, `evidence_id`; the character range is
+    # derived from the fact's own cell by `resolve_cell`, and the quote these two compare
+    # against is the package's `EVIDENCED_BY.quoted_text` — not a run of text a model
+    # reproduced. Both therefore say the *package* disagrees with the passage it carries, which
+    # is a different instruction to a reader than "check your typing".
     "citation_span_not_in_passage":
-        "The cited character range falls outside the passage text the package actually holds.",
+        "The cited character range falls outside the passage text the package actually holds. "
+        "The range is derived from the fact's own coordinates, so this is the package and its "
+        "own evidence disagreeing.",
     "citation_quote_not_in_passage":
-        "The quoted text does not occur in the passage it is cited from.",
+        "The value this fact was read from no longer occurs in the passage the package carries "
+        "beside it, so there is nothing for the citation to point at.",
     "table_quote_does_not_reconstruct":
-        "The cited table cell does not reconstruct from the passage's row and column labels, so "
-        "the quote does not locate the number.",
+        "The cell value the fact was read from does not reconstruct to the fact's own number "
+        "once its scale and unit are applied.",
     "citation_does_not_support_fact":
         "The cited passage is not one the bound fact was read from, so it evidences something "
         "else.",

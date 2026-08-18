@@ -256,9 +256,25 @@ _WRITER_RULE_CODES: Mapping[int, tuple[str, ...]] = {
         "calculation_inputs_incomparable"),
     6: ("calculation_does_not_recompute", "sign_disagreement"),
     7: ("formula_version_not_valid_for_period",),
-    8: ("uncited_factual_sentence", "citation_quote_not_in_passage",
-        "citation_span_not_in_passage"),
-    9: ("citation_reused_for_unrelated_claim", "citation_does_not_support_fact"),
+    # Rule 8 became the **evidence-id** rule at TABLE_CELL_CITATIONS S4 and this mapping was
+    # left naming the two quote codes, which the rule can no longer produce: the model writes
+    # no quote and no offset, so nothing it types can put a substring in the wrong place. What
+    # it *can* do is omit the citation, or write an `evidence_id` no fact printed — and §13.7
+    # then judges the cell that id names. `citation_quote_not_in_passage` stays reachable, but
+    # only on the narrative lane where code searches for the package's own quote (14 of 2,704
+    # observations); it is not a consequence of a model breaking this rule, and listing it here
+    # would tell a reader to check their typing.
+    8: ("uncited_factual_sentence", "unresolvable_evidence_handle",
+        "evidence_handle_out_of_bounds", "evidence_cell_value_mismatch",
+        "evidence_row_label_mismatch", "evidence_column_label_mismatch",
+        "evidence_cell_span_mismatch"),
+    # `evidence_handle_not_for_fact` is rule 9's, not rule 8's: rule 8 says a sentence must
+    # carry an evidence id the FACTS section printed, and rule 9 says it must be *the id of a
+    # fact that sentence binds*. §3.4 check 7 is exactly the second sentence, and it is the
+    # check that catches a sentence citing a neighbouring cell in the same passage — 90 of
+    # which were measured constructible, 88 raising no other finding at all.
+    9: ("citation_reused_for_unrelated_claim", "citation_does_not_support_fact",
+        "evidence_handle_not_for_fact"),
     10: ("percent_change_ambiguous", "percentage_point_surface_missing",
          "percent_change_reported_not_calculated"),
     11: ("unsupported_superlative", "unsupported_absence_claim",

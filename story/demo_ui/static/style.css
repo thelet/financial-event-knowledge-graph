@@ -432,6 +432,108 @@ textarea {
   padding-left: 0.4rem;
 }
 
+/* ------------------------------------------------------- table evidence ---- */
+/*
+   A flattened table passage, drawn as the grid it came from with the cited cell highlighted.
+   Three rules here are measurements rather than taste, and each is recorded in
+   `story/demo_ui/table_grid.py`'s docstring:
+
+   - The widest table in the corpus is 46 columns and 111 of 503 are twenty or wider, so the
+     grid scrolls **inside its own box** and the row-index gutter and the row-label column are
+     both sticky. Without them the cell a reader scrolled to arrives with no row to read it on.
+   - 72.0% of cells are empty. They are drawn as real, empty columns and never collapsed: the
+     `r5c2` in an evidence id counts them, so renumbering the grid would make the id
+     unreadable against the picture it names.
+   - The cited cell is marked with a border and a background, not with colour alone —
+     `is-cited` has to survive a monochrome print and a colour-blind reader.
+*/
+
+.cell-grid-scroll {
+  overflow: auto;
+  max-height: 22rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunk);
+}
+
+table.cell-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+table.cell-grid th,
+table.cell-grid td {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 0.15rem 0.35rem;
+  text-align: right;
+  vertical-align: top;
+}
+
+/* The index ruler. It is what turns `r5c2` in a refusal message into a place on the page. */
+table.cell-grid .grid-index,
+table.cell-grid .grid-corner {
+  color: var(--ink-faint);
+  background: var(--surface-raised);
+  font-size: 10px;
+  text-align: center;
+  font-weight: normal;
+}
+table.cell-grid thead th { position: sticky; top: 0; z-index: 2; }
+table.cell-grid tbody th.grid-index { position: sticky; left: 0; z-index: 1; }
+table.cell-grid .grid-corner { position: sticky; left: 0; top: 0; z-index: 3; }
+
+table.cell-grid td.is-row-label {
+  text-align: left;
+  color: var(--ink-soft);
+  position: sticky;
+  left: 1.9rem;
+  background: var(--surface);
+  z-index: 1;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An empty spacer column is a real column. It is drawn narrow and blank rather than removed. */
+table.cell-grid td.is-empty { min-width: 0.9rem; background: var(--surface-sunk); }
+/* A row that carries fewer cells than the widest one. No corpus passage does this today. */
+table.cell-grid td.is-missing { background: repeating-linear-gradient(
+  45deg, transparent, transparent 3px, var(--line) 3px, var(--line) 4px); }
+
+table.cell-grid tr.is-rule td { color: var(--ink-faint); }
+table.cell-grid tr.is-period-header td { color: var(--ink); font-weight: 600; }
+
+/* The period header standing over the cited value — a *different* column from the value's on
+   2,125 of 2,690 table-backed observations, which is why it is marked separately. */
+table.cell-grid td.is-period-header-cell {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  color: var(--accent);
+}
+
+table.cell-grid td.is-cited {
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 2px var(--warn);
+}
+
+#sources-list .cell-mark-where { cursor: pointer; }
+#sources-list .cell-mark-where:hover { color: var(--accent); }
+
+/* `is-blocking` was already being set on rows in this panel and the sheet had no rule for it
+   outside `#verification-findings`, so a citation whose span did not resolve was flagged in the
+   DOM and drawn exactly like one that did. It is a disagreement between the package and its own
+   evidence, and it has to be visible. */
+#sources-list .is-blocking {
+  border-left: 3px solid var(--bad);
+  padding-left: 0.4rem;
+}
+
 fieldset {
   border: 1px solid var(--line);
   border-radius: var(--radius);

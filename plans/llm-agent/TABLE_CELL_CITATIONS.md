@@ -273,7 +273,7 @@ did not exist before.
 | **S3** Mint handles | `core/models.py` (`TableCellRef`, `PackagedFact.cell`, `PackagedFact.evidence_handle`, `StoryEvidencePackage.facts_by_evidence_handle`), `packaging/` | S1, S2 |
 | **S4** §12 writer contract | `generation/prompts.py`, `generation/writer.py` | S3 |
 | **S5** §13.7 over handles | `verification/citations.py`, `verification/codes.py` | S3, S2 |
-| **S6** UI cell rendering | `demo_ui/` (`package_view.py`, `api.py`, `static/`) | S3, S2 |
+| **S6** UI cell rendering | `demo_ui/` (**`table_grid.py`** new, `package_view.py`, `api.py`, `static/`) | S3, S2 |
 | **S7** Re-record + end-to-end + adversarial review | fixtures, `plans/` | all |
 
 S1 and S2 are disjoint and run in parallel. Everything after is sequential — a previous wave lost
@@ -334,6 +334,47 @@ re-key the replay store by design; S7 re-records under `--live`.
 >
 > Offline suite: 5,684 collected, **5,684 passed, 0 failures** (was 29 failures).
 > `tests/story -m neo4j`: 138 collected, **138 passed, 0 failures**.
+
+> **Done at S6 (2026-08-18). Table evidence renders as its grid, and four defects were found on
+> the way — three of them older than this repair.** A table passage now reaches the panel as
+> `grid` (rows, cells, absolute char spans, an index ruler) plus `cell_marks` (one per packaged
+> fact and one per citation), both built by the new `story/demo_ui/table_grid.py`, which imports
+> `resolve_cell` and `split_cells` rather than resolving anything itself. Driven against the live
+> graph, **2,690 of 2,690** table-backed evidence edges place a mark whose resolved value, row
+> label and period header all equal the fact's own and whose span slices `quoted_text` exactly;
+> all **144** table-backed passages grid without error, the widest at **33** columns.
+>
+> Rendering decisions came off measurements, not taste: **72.0%** of the corpus's 197,183 table
+> cells are empty, so spacer columns are drawn rather than collapsed — `r5c2` counts them — and
+> with **111 of 503** tables at twenty columns or wider the grid carries a row-index gutter and a
+> column-index ruler, which is what makes the handle in a refusal message findable by eye.
+>
+> **`_sources_payload` was slicing the packaged passage text with absolute citation offsets.**
+> `writer._citations_from` rebases a citation by `PackagedPassage.char_start`, and this endpoint
+> indexed `passage.text` with the result. It was right only because `char_start` is 0 for every
+> passage a citation can reach today (a passage a fact binds is never excerpted). Fixed and
+> pinned; correct by coincidence is not correct.
+>
+> **`#sources-list .is-blocking` had no rule in the stylesheet.** The panel had been setting that
+> class on a citation whose span did not resolve since it was written, and the sheet styled it
+> only under `#verification-findings`, so an unresolved citation was drawn exactly like a
+> resolved one.
+>
+> **Two §13.7 catalogue sentences were stale and one was wrong.**
+> `citation_quote_not_in_passage` read as though a model had typed the quote — at §13.7 it is the
+> *package's own* `quoted_text` — and `table_quote_does_not_reconstruct` said the cell
+> "does not reconstruct from the passage's row and column labels", when
+> `reconstruct_table_quote` takes `scale` and `unit` and never looks at a label.
+>
+> **The two strings the brief named are fixed, and rule 9 needed the same treatment.** Writer
+> rule 8's codes are now the seven the evidence-id rule can produce; `evidence_handle_not_for_fact`
+> went to **rule 9**, not 8, because rule 8 says *carry an id the FACTS section printed* and rule
+> 9 says *carry the id of a fact this sentence binds* — which is §3.4 check 7 exactly.
+>
+> Offline suite: **5,716 passed, 0 failures** (5,684 → +25 new tests, +6 from
+> `test_story_package_structure.py`'s per-module parametrization over the new file, +1 from
+> `test_story_retrieval_cypher.py`'s). `tests/story -m neo4j`: **140 passed, 0 failures**
+> (138 → +2, both driving the renderer over every table-backed edge in the graph).
 
 ## 5. Tests
 

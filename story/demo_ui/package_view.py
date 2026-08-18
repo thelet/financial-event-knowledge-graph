@@ -43,6 +43,15 @@ wrong:
 * **`available: null` in the section ledger means nobody counted**, never *"the same as
   carried"*. S5 put the `None` there on purpose: *"4 of 4 available"* about a section that had
   nine is a false statement. `section_summary` returns `available_known: false` and no number.
+
+**A table passage carries its grid, and for the same reason it carries its role.** 503 of the
+corpus's 8,776 passages are flattened tables and 2,690 of 2,704 evidence edges point into one
+*(verified live 2026-08-18)*, so "the evidence" is almost always one cell of a grid. Every
+passage row therefore carries `cell_marks` — where each fact and each citation lands — and
+`grid`, the rows and columns those coordinates index, both built by `story.demo_ui.table_grid`
+and by nothing else. A renderer that placed the highlight itself would be the same
+per-serialiser patching this module exists to prevent, one layer down: it would be a third
+opinion about where a cell is, beside `resolve_cell`'s and the verifier's.
 """
 
 from __future__ import annotations
@@ -58,6 +67,8 @@ from story.core.models import (
 )
 from story.stages.packaging import section_bounds
 from story.stages.packaging import warning_codes
+
+from . import table_grid
 
 # ---------------------------------------------------------------------------------------
 # Roles.
@@ -153,15 +164,25 @@ def role_block(passage: Any) -> dict[str, Any]:
 
 
 def passage_payload(
-    passage: PackagedPassage, *, section: str, also_in: Sequence[str] = ()
+    passage: PackagedPassage, *, section: str, also_in: Sequence[str] = (),
+    marks: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    """One passage as every surface serialises it: the whole row, plus role, plus section.
+    """One passage as every surface serialises it: the whole row, plus role, plus section,
+    plus — for a flattened table — the grid it was flattened from with its cited cells in place.
 
     The model dump comes first and the derived fields are written over it, so `role` on the
     wire is `PackagedPassage.role` by construction and cannot be a second opinion.
 
     `also_in` names the **other** sections the same `passage_id` appears in, and it is not
     hypothetical — see `sections_by_passage`.
+
+    `marks` are `table_grid`'s rows for the evidence that lands in this passage — one per
+    packaged fact read out of it, plus one per citation pointing into it where the caller has a
+    draft. They are a parameter rather than something derived here because this function is
+    given a passage and not a package: the fact join is `passage_rows`' and the citation join
+    belongs to the endpoint that holds the draft. Both go through `table_grid.grid_of`, so the
+    two endpoints cannot end up with two accounts of where a cell is — the same argument that
+    put `role` here.
     """
     if section not in SECTION_DESCRIPTION:
         raise KeyError(f"{section!r} is not a §10 passage section: {sorted(SECTION_DESCRIPTION)}")
@@ -171,6 +192,8 @@ def passage_payload(
     payload["section_description"] = SECTION_DESCRIPTION[section]
     payload["row_id"] = f"{section}:{passage.passage_id}"
     payload["also_in"] = list(also_in)
+    payload["cell_marks"] = [dict(mark) for mark in marks]
+    payload["grid"] = table_grid.grid_of(passage, marks=payload["cell_marks"])
     return payload
 
 
@@ -199,17 +222,53 @@ def sections_by_passage(package: StoryEvidencePackage) -> dict[str, tuple[str, .
     return {passage_id: tuple(sections) for passage_id, sections in found.items()}
 
 
-def passage_rows(package: StoryEvidencePackage) -> list[dict[str, Any]]:
+def fact_cell_marks(package: StoryEvidencePackage) -> dict[str, list[dict[str, Any]]]:
+    """Where each packaged fact's value sits in the passage it was read from, by passage id.
+
+    The join lives here because this module is the one that holds a package and a passage at
+    the same time; `table_grid` is given the pair and decides nothing about which pair.
+
+    A fact whose `passage_id` names no passage in the package produces no mark and is not an
+    error here — §13.7 refuses a *citation* that does that, and `_sources_payload` reports the
+    unresolved ones. Silently inventing a passage to hang the mark on would be worse.
+    """
+    passages = {passage.passage_id: passage
+                for rows in passage_sections(package).values() for passage in rows}
+    marks: dict[str, list[dict[str, Any]]] = {}
+    for fact in package.facts:
+        passage = passages.get(fact.passage_id or "")
+        if passage is None:
+            continue
+        marks.setdefault(passage.passage_id, []).append(table_grid.fact_mark(fact, passage))
+    return marks
+
+
+def passage_rows(
+    package: StoryEvidencePackage,
+    *,
+    extra_marks: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     """Every passage occurrence, serialised once per section it occurs in.
 
     Sorted by `passage_id` then by `SECTION_ORDER`, so two runs over one package produce one
     ordering and a panel keyed on `row_id` is stable.
+
+    Every row carries the marks for the facts read out of it. `extra_marks` is how a caller
+    holding a *draft* adds the citation marks — `GET /demo/runs/{id}/sources` does, and
+    `POST /demo/evidence-package` cannot, because a package has no citations. A parameter
+    rather than a second serialiser patching `row["grid"]` afterwards: the mark list and the
+    grid's `marked_by` indices are built from one sequence, and patching one of them would
+    leave the indices pointing at the wrong mark.
     """
     elsewhere = sections_by_passage(package)
+    facts = fact_cell_marks(package)
+    added = dict(extra_marks or {})
     rows = [
         passage_payload(
             passage, section=section,
-            also_in=[other for other in elsewhere[passage.passage_id] if other != section])
+            also_in=[other for other in elsewhere[passage.passage_id] if other != section],
+            marks=[*facts.get(passage.passage_id, ()),
+                   *added.get(passage.passage_id, ())])
         for section, passages in passage_sections(package).items()
         for passage in passages
     ]
@@ -344,6 +403,19 @@ def _fact_rows(
                 "source": fact.document_id or fact.evidence_source_id or "",
                 "source_detail": f"{fact.source_lane} · {fact.validation_state}",
                 "passage_id": fact.passage_id,
+                # The token a §12 or §13.7 refusal names when it refuses a citation to this
+                # fact, and the only citation field the model writes (TABLE_CELL_CITATIONS
+                # §3.2). Printed on the row so a reader can match `ev:…:r5c2` in a rejection to
+                # the line it came from without parsing the handle.
+                "evidence_handle": fact.evidence_handle,
+                "evidence_handle_absent_because": (
+                    "" if fact.evidence_handle is not None else
+                    "this fact names no filed passage, so no handle was minted and V1 refuses "
+                    "a citation to it (§13.7.2)"),
+                "cell": None if fact.cell is None else fact.cell.model_dump(mode="json"),
+                "row_label": fact.row_label,
+                "column_label": fact.column_label,
+                "quoted_text": fact.quoted_text,
                 "authoritative": False,
                 "authority": "a filing, through the extraction run this graph was built from",
                 "editable": False,
@@ -544,6 +616,7 @@ __all__ = [
     "SECTION_DESCRIPTION",
     "SECTION_ORDER",
     "UnroledPassage",
+    "fact_cell_marks",
     "in_model_slice",
     "model_facts",
     "passage_payload",

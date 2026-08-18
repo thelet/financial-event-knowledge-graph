@@ -307,12 +307,17 @@ export const LABELS = Object.freeze({
 // DOM helpers. Six functions, none of which can produce markup.
 // ---------------------------------------------------------------------------------------
 
+/* BEGIN DOM MAKE — `tests/story/test_demo_ui_table_grid.py` extracts this block and the grid
+   renderer below it by their markers and runs both under `node` against a payload the server
+   really built, so the highlighted cell in the report is the one this file draws and not a
+   description of it. Keep it self-contained: no closure over module state. */
 function make(tag, className, textValue) {
   const created = document.createElement(tag);
   if (className) created.className = className;
   if (textValue !== undefined && textValue !== null) created.textContent = String(textValue);
   return created;
 }
+/* END DOM MAKE */
 
 function clear(host) {
   if (host) host.replaceChildren();
@@ -1593,6 +1598,26 @@ function modelFactRow(row) {
       `${plural(row.corroborating_document_ids.length, 'corroborating document')}: `
       + row.corroborating_document_ids.join(', ')));
   }
+  // The evidence id is printed in the panel that shows what the model was given, because it is
+  // what the model was given: the FACTS block prints this string under the fact and rule 8
+  // says a citation is that string copied character for character. A reader comparing a
+  // refusal to the prompt needs both ends of that.
+  if (row.evidence_handle) {
+    const handle = make('div', 'mono', `evidence id ${row.evidence_handle}`);
+    if (row.cell) {
+      handle.title = `row ${row.cell.row_index}, column ${row.cell.value_column_index}; `
+        + `period header at row ${row.cell.period_header_row_index}, `
+        + `column ${row.cell.period_header_column_index}`;
+    }
+    item.append(handle);
+    if (row.row_label || row.column_label) {
+      item.append(make('div', 'note',
+        `read from row “${row.row_label ?? ''}” under “${row.column_label ?? ''}”`
+        + `${row.quoted_text ? `, cell value “${row.quoted_text}”` : ''}`));
+    }
+  } else if (row.evidence_handle_absent_because) {
+    item.append(make('div', 'is-absent', row.evidence_handle_absent_because));
+  }
   item.append(make('div', 'mono', row.fact_id));
   return item;
 }
@@ -1673,7 +1698,26 @@ function renderFacts(facts) {
     const line = make('div', 'mono', fact.observation_id);
     item.append(line);
     if (fact.quoted_text) {
-      item.append(make('div', null, `quoted: “${fact.quoted_text}”`));
+      item.append(make('div', null, `cell value: “${fact.quoted_text}”`));
+    }
+    if (fact.row_label || fact.column_label) {
+      item.append(make('div', null,
+        `read from row “${fact.row_label ?? ''}” under “${fact.column_label ?? ''}”`));
+    }
+    // The evidence id, on the fact it was minted for. It is the only citation token the model
+    // is given and the only one a §13.7 refusal names, so a reader matching a rejection to a
+    // line has to be able to find it here.
+    if (fact.evidence_handle) {
+      const handle = make('div', 'mono', `evidence id ${fact.evidence_handle}`);
+      if (fact.cell) {
+        handle.title = `row ${fact.cell.row_index}, column ${fact.cell.value_column_index}; `
+          + `period header at row ${fact.cell.period_header_row_index}, `
+          + `column ${fact.cell.period_header_column_index}`;
+      }
+      item.append(handle);
+    } else {
+      item.append(make('div', 'is-absent',
+        'no evidence id: this fact names no filed passage, so V1 refuses a citation to it'));
     }
     const meta = make('div', 'note',
       `${fact.source_lane} · ${fact.validation_state} · ${fact.document_id ?? ''}`);
@@ -2593,8 +2637,19 @@ function renderDraft(host, outcome) {
     if (citations.length) {
       const group = make('div');
       for (const citation of citations) {
-        const chip = make('span', 'citation',
-          `cites ${citation.passage_id} [${citation.char_start}–${citation.char_end}]  `);
+        // The evidence id leads because it is the whole of what the model wrote: since S4 a
+        // citation is one field, `evidence_id`, and the passage and the offsets beside it were
+        // derived from it by `writer.draft_from`. Showing the derived span first would put the
+        // model's name for the evidence behind two numbers it did not choose.
+        // A citation with no `passage_id` is Rule C's `:EvidenceSource` form, which V1 refuses
+        // and the corpus can produce none of — but it used to render as `cites undefined`
+        // rather than as the thing it is.
+        const names = citation.evidence_handle ?? citation.passage_id
+          ?? citation.evidence_source_id ?? 'evidence with no filed passage';
+        const span = citation.passage_id
+          ? ` [${citation.char_start}–${citation.char_end}]` : '';
+        const chip = make('span', 'citation', `cites ${names}${span}  `);
+        chip.title = citation.passage_id ?? citation.kind ?? '';
         chip.addEventListener('click', () => revealPassage(citation.passage_id));
         group.append(chip);
       }
@@ -2855,6 +2910,147 @@ function renderSources(sources) {
   }
 }
 
+/**
+ * A flattened table passage drawn as the grid it came from, with the cited cell in place.
+ *
+ * **Why this is not a bare quote any more.** A citation used to render as `“(12.6)” [492–498]`:
+ * a numeral and two offsets. Nothing in that says which line item the number sits on or which
+ * period stands over it, and those two are what make a figure mean anything. The server sends
+ * `grid` and `cell_marks` from `story/demo_ui/table_grid.py`, which resolves every cell through
+ * `story.core.table_cells.resolve_cell` — the same function the verifier uses — so this file
+ * places nothing itself and cannot become a third opinion about where the evidence is.
+ *
+ * Three things it draws that are easy to get wrong, and all three come off measurements of the
+ * live corpus recorded in `table_grid`'s docstring:
+ *
+ * - **Every column, including the blank ones.** 72.0% of cells in the corpus's 503 table
+ *   passages are empty once stripped. Collapsing them would renumber the grid, and the number
+ *   in the handle — `r5c2` — counts them.
+ * - **An index ruler down the left and across the top.** The widest table here has 46 columns
+ *   and 111 of the 503 have twenty or more, so "column 2" is not something an eye finds by
+ *   counting cells. The ruler is what makes the handle legible against the picture.
+ * - **The row label and the period header are marked as such**, not just the value: `is-cited`
+ *   is the value, `is-row-label` its line item, `is-period-header-cell` the column header the
+ *   package's `period_header_column_index` names — which is a different column from the value's
+ *   on four rows in five.
+ */
+/* BEGIN CELL GRID — extracted with the block above; see its comment. */
+function cellGrid(grid) {
+  const table = make('table', 'cell-grid');
+  const head = make('thead');
+  const ruler = make('tr');
+  ruler.append(make('th', 'grid-corner', 'r\\c'));
+  for (const index of grid.column_indices ?? []) {
+    ruler.append(make('th', 'grid-index', String(index)));
+  }
+  head.append(ruler);
+  table.append(head);
+
+  const body = make('tbody');
+  for (const row of grid.rows ?? []) {
+    const line = make('tr');
+    line.dataset.rowIndex = String(row.row_index);
+    if (row.is_rule) line.classList.add('is-rule');
+    if (row.is_period_header) line.classList.add('is-period-header');
+    line.append(make('th', 'grid-index', String(row.row_index)));
+    const cells = row.cells ?? [];
+    for (const cell of cells) {
+      const box = make('td', null, cell.text);
+      box.dataset.columnIndex = String(cell.column_index);
+      if (cell.empty) box.classList.add('is-empty');
+      if (cell.is_row_label) box.classList.add('is-row-label');
+      if ((cell.header_for ?? []).length) box.classList.add('is-period-header-cell');
+      if ((cell.marked_by ?? []).length) {
+        box.classList.add('is-cited');
+        // **All** the marks, space separated, matched below with `~=`. One cell ordinarily
+        // carries two — the packaged fact and the sentence citing it — and writing only the
+        // first left every "jump to the cited cell" from a citation row finding nothing.
+        box.dataset.markIndex = cell.marked_by.join(' ');
+        box.title = `row ${row.row_index}, column ${cell.column_index} · `
+          + `characters ${cell.char_start}–${cell.char_end}`;
+      }
+      line.append(box);
+    }
+    // A short row keeps the ruler honest rather than sliding the remaining cells left. No
+    // passage in the corpus is ragged (0 of 503), so this draws nothing today; it is here so a
+    // re-extracted corpus that did go ragged renders as ragged.
+    for (let index = cells.length; index < (grid.column_count ?? 0); index += 1) {
+      line.append(make('td', 'is-missing'));
+    }
+    body.append(line);
+  }
+  table.append(body);
+  return table;
+}
+/* END CELL GRID */
+
+/**
+ * One piece of evidence, said in words: which cell, on which row, under which header.
+ *
+ * The evidence id leads because it is the model's entire citation vocabulary since S4 and it is
+ * what a §13.7 refusal names — `evidence_handle_not_for_fact` prints `ev:…:r5c2` and nothing
+ * else, so a reader with a rejection in front of them needs that string beside the cell it
+ * means.
+ *
+ * Where the package and its own passage text disagree, both are printed and the row is marked
+ * blocking. This states no verdict: §13.7's checks 3–5 decide whether a disagreement refuses a
+ * draft, and they run whether or not anything renders.
+ */
+function cellMarkRow(mark, grid, onReveal) {
+  const row = make('div');
+  row.dataset.evidenceHandle = mark.evidence_handle ?? '';
+  const head = make('div');
+  if (mark.kind === 'citation' && mark.sentence_index !== null
+      && mark.sentence_index !== undefined) {
+    const chip = make('span', 'citation', `sentence ${mark.sentence_index}  `);
+    chip.addEventListener('click', () => revealSentence(Number(mark.sentence_index)));
+    head.append(chip);
+  }
+  head.append(make('span', null, `${mark.label}  `));
+  row.append(head);
+  row.append(make('div', 'mono', mark.evidence_handle ?? 'no evidence id on this citation'));
+
+  if (!mark.resolved) {
+    row.append(make('div', 'is-absent', mark.unplaced_reason));
+    if (mark.declared_value_text) {
+      row.append(make('div', null, `the package reads this fact as “${mark.declared_value_text}”`
+        + `${mark.declared_row_label ? ` on row “${mark.declared_row_label}”` : ''}`));
+    }
+    return row;
+  }
+
+  const where = make('div', null,
+    `row ${mark.row_index} “${mark.row_label}” × column ${mark.column_index} `
+    + `under “${mark.column_header}” = “${mark.text}”`);
+  where.addEventListener('click', () => onReveal(mark));
+  where.classList.add('cell-mark-where');
+  row.append(where);
+  row.append(make('div', 'mono',
+    `characters ${mark.char_start}–${mark.char_end} · period header at row `
+    + `${mark.header_row_index}, column ${mark.header_column_index}`));
+
+  for (const [flag, said] of [
+    ['matches_value', `the package records the value as “${mark.declared_value_text}”`],
+    ['matches_row_label', `the package records the row as “${mark.declared_row_label}”`],
+    ['matches_column_label', `the package records the column as “${mark.declared_column_label}”`],
+  ]) {
+    if (mark[flag] === false) {
+      row.classList.add('is-blocking');
+      row.append(make('div', null, `${said}, and the passage does not agree`));
+    }
+  }
+  if (mark.span_matches_cell === false) {
+    row.classList.add('is-blocking');
+    row.append(make('div', null,
+      `this citation highlights characters ${mark.span_char_start}–${mark.span_char_end}, `
+      + 'which is not the span of the cell its evidence id names'));
+  }
+  if (grid && grid.coordinates_apply === false) {
+    row.append(make('div', 'note', grid.coordinates_note));
+  }
+  return row;
+}
+
 function passageBlock(passage, document_) {
   const wrapper = make('div');
   wrapper.dataset.passageId = passage.passage_id;
@@ -2891,18 +3087,51 @@ function passageBlock(passage, document_) {
   }
   box.append(make('div', 'mono', passage.excerpted ? 'excerpted' : 'whole passage'));
 
-  for (const citation of passage.citations ?? []) {
-    const row = make('div');
-    const chip = make('span', 'citation', `sentence ${citation.sentence_index}`);
-    chip.addEventListener('click', () => revealSentence(Number(citation.sentence_index)));
-    row.append(chip);
-    row.append(make('span', null, `  “${citation.quoted_text}” `));
-    row.append(make('span', 'mono',
-      `[${citation.char_start}–${citation.char_end}]`
-      + `${citation.quote_resolved ? '' : ' · span did not resolve'}`));
-    if (!citation.quote_resolved) row.classList.add('is-blocking');
-    row.append(make('div', 'note', citation.sentence_text));
-    box.append(row);
+  // The grid is drawn first so a mark row below it can scroll its own cell into view.
+  // `marked_by` on a cell is an index into `cell_marks`, and the two arrived in one payload
+  // built from one sequence — see `package_view.passage_rows`.
+  const grid = passage.grid ? cellGrid(passage.grid) : null;
+  let gridBox = null;
+  if (grid) {
+    // A table passage renders as its grid **and** keeps its raw text one disclosure away. The
+    // grid is the reading; the text is what the package actually carries and what the character
+    // offsets index, and dropping it would leave a reader unable to check the drawing.
+    gridBox = details(box, `table · ${passage.grid.row_count} rows × `
+      + `${passage.grid.column_count} columns · ${passage.grid.empty_cells} of `
+      + `${passage.grid.cell_count} cells empty`, { open: true });
+    gridBox.append(make('div', 'note', passage.grid.coordinates_note));
+    const scroller = make('div', 'cell-grid-scroll');
+    scroller.append(grid);
+    gridBox.append(scroller);
+  }
+  const revealCell = (target) => {
+    if (!grid) return;
+    const cell = grid.querySelector(
+      `td[data-mark-index~="${cellMarkIndex(passage, target)}"]`);
+    if (!cell) return;
+    if (gridBox) gridBox.open = true;
+    mark(cell);
+    cell.scrollIntoView({ block: 'nearest', inline: 'center' });
+  };
+
+  const marks = passage.cell_marks ?? [];
+  if (marks.length) {
+    const evidence = details(box, `evidence in this passage · ${marks.length}`, { open: true });
+    evidence.append(make('div', 'note',
+      'Each row names the evidence id a citation carries and the cell it resolves to. The id '
+      + 'is what a refusal message names; the cell is what the verifier checked.'));
+    for (const entry of marks) {
+      const row = cellMarkRow(entry, passage.grid, revealCell);
+      if (entry.kind === 'citation' && entry.sentence_text) {
+        row.append(make('div', 'note', entry.sentence_text));
+      }
+      if (entry.kind === 'citation' && entry.span_resolved === false) {
+        row.classList.add('is-blocking');
+        row.append(make('div', null,
+          'the citation\u2019s character range falls outside the text this package carries'));
+      }
+      evidence.append(row);
+    }
   }
 
   for (const fact of passage.facts ?? []) {
@@ -2911,7 +3140,14 @@ function passageBlock(passage, document_) {
     row.append(make('div', null,
       `${fact.metric_label} · ${fact.value_display} ${fact.unit} · ${fact.period_key}`));
     row.append(make('div', 'mono', fact.fact_id));
-    if (fact.quoted_text) row.append(make('div', null, `quoted: “${fact.quoted_text}”`));
+    if (fact.evidence_handle) {
+      row.append(make('div', 'mono', `evidence id ${fact.evidence_handle}`));
+    }
+    if (fact.row_label || fact.column_label) {
+      row.append(make('div', null,
+        `read from row “${fact.row_label ?? ''}” under “${fact.column_label ?? ''}”`));
+    }
+    if (fact.quoted_text) row.append(make('div', null, `cell value: “${fact.quoted_text}”`));
     const indexes = fact.sentence_indexes ?? [];
     if (indexes.length) {
       const group = make('div');
@@ -2932,13 +3168,18 @@ function passageBlock(passage, document_) {
     box.append(row);
   }
 
-  const text = details(box, 'passage text');
+  const text = details(box, grid ? 'passage text, as the package carries it' : 'passage text');
   text.append(make('div', 'mono', passage.text));
   if (!state.passageRows.has(passage.passage_id)) {
     state.passageRows.set(passage.passage_id, []);
   }
-  state.passageRows.get(passage.passage_id).push({ box, wrapper, role: passage.role });
+  state.passageRows.get(passage.passage_id).push({ box, wrapper, role: passage.role, grid });
   return wrapper;
+}
+
+/** A mark's position in its passage's `cell_marks`, which is what `marked_by` indexes. */
+function cellMarkIndex(passage, mark) {
+  return (passage.cell_marks ?? []).indexOf(mark);
 }
 
 /**

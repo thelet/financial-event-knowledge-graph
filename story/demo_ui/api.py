@@ -91,6 +91,7 @@ from . import (
     package_view,
     projection,
     prompt_presets,
+    table_grid,
 )
 from .runs import InvalidIdentifier, Run, UnknownRun, validate_candidate_id
 from .server import (
@@ -1650,9 +1651,22 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
     dropped: §13.7 refuses that draft, so an empty `unresolved` is a property of an accepted
     run and not something this function should be able to arrange by hiding a row.
 
-    The quote is taken from the passage text by the citation's own span, which is what a
-    citation *is* in §12 — the model declares a substring and `writer.draft_from` locates it.
-    `quote_resolved` says whether the span landed inside the text it names.
+    **What a citation is, restated because S4 changed it.** The model declares one field,
+    `evidence_id` — a handle the package minted for one fact — and `writer.draft_from` resolves
+    it through `PackagedFact.cell` and `story.core.table_cells.resolve_cell` into the character
+    span of the cell that fact was read from. The model never retypes source text and never
+    supplies an offset. So this endpoint reports **both halves**: `cited_text` is the passage's
+    own bytes at the citation's span, and `cell_marks` places the handle's cell in the grid.
+    `span_matches_cell` on the mark says whether the two agree — they can disagree, which is
+    what §13.7's `evidence_cell_span_mismatch` refuses, and a panel showing only one of them
+    would render a verified handle over unverified bytes as though it were fine.
+
+    `cited_text` is sliced by `table_grid.citation_mark`, with the passage's own `char_start`
+    subtracted. Citation offsets are absolute into the full `:Passage.text`
+    (`writer._citations_from` rebases them by exactly that), and this function used to index the
+    *packaged* text with them directly — correct only because `char_start` is 0 for every
+    passage a citation can reach today, since a passage a fact binds is never excerpted.
+    Correct by coincidence is not correct.
 
     **Both the section and the role, and neither is invented here (§4 S6).** This function used
     to write its own `role` — `"primary"`, `"context"`, `"explanatory"`, `"diagnostic"` — from
@@ -1675,13 +1689,12 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
     """
     package = inputs.package
     by_section = package_view.passage_sections(package)
-    rows_by_document: dict[str, list[dict[str, Any]]] = {}
-    for row in package_view.passage_rows(package):
-        rows_by_document.setdefault(row["document_id"], []).append(row)
     passages = {p.passage_id: p for rows in by_section.values() for p in rows}
+    facts_by_handle = package.facts_by_evidence_handle()
     documents = {d.document_id: d for d in package.documents}
     facts_by_passage: dict[str, list[dict[str, Any]]] = {}
     citations_by_passage: dict[str, list[dict[str, Any]]] = {}
+    citation_marks: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
 
     for fact in package.facts:
@@ -1697,6 +1710,12 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
             "unit": fact.unit,
             "printed_form": fact.printed_form,
             "quoted_text": fact.quoted_text,
+            # The model's citation vocabulary since S4: a §13.7 refusal names this string and
+            # nothing else, so a reader matching a rejection to a line needs it on the row.
+            "evidence_handle": fact.evidence_handle,
+            "cell": None if fact.cell is None else fact.cell.model_dump(mode="json"),
+            "row_label": fact.row_label,
+            "column_label": fact.column_label,
             "source_lane": fact.source_lane,
             "document_id": fact.document_id,
             "sentence_indexes": [],
@@ -1713,32 +1732,50 @@ def _sources_payload(inputs: Any, outcome: Any) -> dict[str, Any]:
                 bound.setdefault(binding.fact_id, []).append(sentence.index)
             for citation in sentence.citations:
                 citation_count += 1
+                handle = getattr(citation, "evidence_handle", None)
                 passage_id = getattr(citation, "passage_id", None)
                 if passage_id is None:
                     unresolved.append({"sentence_index": sentence.index,
                                        "kind": getattr(citation, "kind", "evidence_source"),
                                        "evidence_source_id": getattr(
-                                           citation, "evidence_source_id", "")})
+                                           citation, "evidence_source_id", ""),
+                                       "evidence_handle": handle})
                     continue
                 passage = passages.get(passage_id)
-                start = getattr(citation, "char_start", 0)
-                end = getattr(citation, "char_end", 0)
-                quote = "" if passage is None else passage.text[start:end]
                 if passage is None:
                     unresolved.append({"sentence_index": sentence.index,
-                                       "kind": "passage", "passage_id": passage_id})
+                                       "kind": "passage", "passage_id": passage_id,
+                                       "evidence_handle": handle})
                     continue
+                mark = table_grid.citation_mark(
+                    citation, passage, facts_by_handle.get(handle or ""),
+                    sentence_index=sentence.index, sentence_text=sentence.text)
+                citation_marks.append(mark)
                 citations_by_passage.setdefault(passage_id, []).append({
                     "sentence_index": sentence.index,
                     "sentence_text": sentence.text,
-                    "char_start": start,
-                    "char_end": end,
-                    "quoted_text": quote,
-                    "quote_resolved": bool(quote),
+                    "char_start": citation.char_start,
+                    "char_end": citation.char_end,
+                    "evidence_handle": handle,
+                    "fact_id": mark["fact_id"],
+                    # Both off the mark, which rebases the span itself. Slicing the packaged
+                    # text here as well would be a second answer to "what does this citation
+                    # cover", and the two would drift the moment one of them was corrected.
+                    "cited_text": mark["cited_text"],
+                    "span_resolved": mark["span_resolved"],
+                    "cell": {name: mark[name] for name in
+                             ("resolved", "unplaced_reason", "row_index", "column_index",
+                              "row_label", "column_header", "text", "char_start", "char_end",
+                              "span_matches_cell")},
                 })
         for rows in facts_by_passage.values():
             for row in rows:
                 row["sentence_indexes"] = sorted(bound.get(row["fact_id"], []))
+
+    rows_by_document: dict[str, list[dict[str, Any]]] = {}
+    for row in package_view.passage_rows(
+            package, extra_marks=table_grid.marks_by_passage(citation_marks)):
+        rows_by_document.setdefault(row["document_id"], []).append(row)
 
     grouped: list[dict[str, Any]] = []
     for document_id in sorted(

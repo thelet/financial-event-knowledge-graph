@@ -1224,12 +1224,20 @@ def test_the_sources_endpoint_resolves_sentence_to_passage_to_document(graph_ser
               for passage in document["passages"]
               for citation in passage["citations"]]
     assert quoted, "no citation resolved to a passage"
-    assert all(citation["quote_resolved"] for citation in quoted)
-    # The quote is a substring of the passage it names, which is what §12 declares it to be.
+    assert all(citation["span_resolved"] for citation in quoted)
+    # **The field is `cited_text` and not `quoted_text`, and the rename is the point.** Since
+    # TABLE_CELL_CITATIONS S4 the model declares one field, `evidence_id`; the span is derived
+    # from the fact's cell coordinates by `resolve_cell`, and these are the bytes that span
+    # covers. Every citation states a handle, and the handle resolves to the cell whose bytes
+    # these are — which is the whole chain, asserted rather than described.
     for document in sources["documents"]:
         for passage in document["passages"]:
             for citation in passage["citations"]:
-                assert citation["quoted_text"] in passage["text"]
+                assert citation["cited_text"] in passage["text"]
+                assert citation["evidence_handle"], "a citation with no evidence id"
+                assert citation["cell"]["resolved"] is True
+                assert citation["cell"]["text"] == citation["cited_text"]
+                assert citation["cell"]["span_matches_cell"] is True
 
 
 def test_every_passage_says_which_section_of_the_package_it_came_from(graph_services):
