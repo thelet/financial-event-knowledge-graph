@@ -298,6 +298,43 @@ re-key the replay store by design; S7 re-records under `--live`.
 > both outside the offline suite) fail until S7 rebuilds the fixture from the graph and re-records
 > the store against it.
 
+> **Done at S7a (2026-08-18), and one thing the brief required turned out not to be available.**
+> The rebuild came first, as S4 said it had to. `resolve_demo_inputs` against
+> `graph-v1-0483dc6b4b10` re-derived `candidate.json` and `graph_identity.json`
+> **byte-identical**, which is the evidence that only the packaging shape moved; the package
+> moved from `…:6a858ae5c031` / digest `0857cc4f951a…` to **`…:4e4363b11373` / digest
+> `76a9c8ac2a2a…`**, and its two facts now carry real cells and the table handle form —
+> `ev:…open-20220930.htm#p139:r5c2` (gaap, row 5) and `…:r11c2` (adjusted, row 11) — where they
+> carried `cell: null` and a `:span:` handle. `freshness_report.json` was deliberately **not**
+> re-stamped: a rebuild changes only `detail` strings holding the absolute path of the checkout
+> that produced them, no digest covers those bytes, and re-stamping would trade a stale path for
+> a different machine's path.
+>
+> One `--live` run then re-recorded `generations.jsonl` — planner request `fa975557990f…`,
+> writer `940d6f6c43e6…`, 7,398 prompt and 1,328 completion tokens, disposition **accepted**,
+> zero findings, both handles written back verbatim by the model.
+>
+> **The 1.3.0-era `compare_levels` refusal could not be re-recorded, and that is a measurement.**
+> `fixtures/story_demo/generations_rejected_recorded.jsonl` exists because one live run in six
+> under 1.3.0 mis-declared the operation. Under 1.4.0 that variation is gone: **19 consecutive
+> live writer calls** — 7 full `--live` demo runs plus 12 direct `write_story` calls over the
+> same package and plan — returned the byte-identical answer every time (`content_sha256`
+> `b14908e636d5…`), always `difference`, always accepted. The fixture was therefore carried
+> forward with only its two citation objects migrated from `{passage_id, quote}` to
+> `{evidence_id}` — the same mechanical migration the two synthetic stores got — with its prose
+> and its `compare_levels` declaration untouched. It is no longer a byte-for-byte capture of one
+> call, and `test_story_demo.py`'s module docstring says so rather than leaving the old claim
+> standing. **No gate, prompt or check was altered to reach green.**
+>
+> Two test-side leftovers of S4's contract change had to move with it, and neither is a
+> weakening: `BadWriterProvider` emitted the old `{passage_id, quote}` citation, which 1.4.0's
+> schema now rejects *before* §12 — a different stage from the one that test is about — so it
+> names a handle no fact minted and is refused as `unresolvable_evidence_handle`; and the
+> manifest test pinned `story_post_draft: 1.3.0`.
+>
+> Offline suite: 5,684 collected, **5,684 passed, 0 failures** (was 29 failures).
+> `tests/story -m neo4j`: 138 collected, **138 passed, 0 failures**.
+
 ## 5. Tests
 
 - The four §1.3 invariants, as fixtures committed from the real corpus.

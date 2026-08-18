@@ -1038,12 +1038,14 @@ def _config_over(config: pipeline.DemoConfig, store: str) -> pipeline.DemoConfig
     """The same configuration against one of the two synthetic stores `test_story_demo.py`
     documents.
 
-    Neither is a recording. Both are the genuine S7 pair with one edit to sentence 2's prose and
+    Neither is a recording. Both are the genuine refusal with one edit to sentence 2's prose and
     the declaration untouched: the accepted one states the comparative the way the calculation
     declares it, the rejected one reverses it so that a true declaration carries a false
-    sentence. **The shipped store — the genuine recording — is `rejected` since S7**, on a
-    different §13.14 failure (no comparative at all), so the accepted branch below needs a store
-    of its own, and nothing here presents either file as a recording.
+    sentence. **The shipped store is `accepted` again since TABLE_CELL_CITATIONS S7a** — nineteen
+    live calls under the 1.4.0 writer all declared `difference` — so these two are kept for the
+    §13.14 path they take rather than for the disposition they reach: a comparative the
+    calculation supports, and the same comparative inverted. Nothing here presents either file
+    as a recording.
 
     **`raw` is edited beside the field, and that is not tidiness.** `config_hash` is taken over
     `raw` as written and is a `story_run_id` input, so replacing only the dataclass field would

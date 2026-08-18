@@ -5,45 +5,64 @@ re-derive the candidate and the package from the live graph; the `live`-marked o
 model server.
 
 **The recorded responses in `fixtures/story_demo/generations.jsonl` are genuine Qwen output.**
-Re-captured 2026-08-05 at S7 from `http://127.0.0.1:8080` serving
+Re-captured 2026-08-18 at TABLE_CELL_CITATIONS S7a from `http://127.0.0.1:8080` serving
 `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf`, against the package
 `fixtures/story_demo/evidence_package.json` in the same directory — the planner's answer at
 `PLANNER_MAX_TOKENS` and the writer's at `length_target: 4`. Two rows, nothing hand-edited,
-both `finish_reason: stop`. The demo therefore replays something the model actually produced,
-and the manifest names the model it came from.
+both `finish_reason: stop`, both lifted whole out of one `--live` run's own
+`generations.jsonl`. The demo therefore replays something the model actually produced, and the
+manifest names the model it came from. That run cost 7,398 prompt and 1,328 completion tokens
+across its two calls, and its disposition is **accepted**.
 
-**Both rows are new, and every earlier row is unreachable.** S1–S6a of
-EVIDENCE_ROLES_AND_SEMANTIC_FACTS moved `PACKAGE_VERSION` 1.0.0 → 1.2.0,
-`PLANNER_PROMPT_VERSION` 1.0.0 → 1.1.0 and `WRITER_PROMPT_VERSION` 1.1.0 → 1.3.0, and the
-D4 `package_content_digest` with them — now `5c420f8c5071…` on package `…:6a858ae5c031`. All of
-those reach the prompt, which is what the store is keyed on, so one re-record (§4 S7) replaced
-both rows: planner `10a417c704ed…`, writer `37cb65bf6dc7…`.
+**Both rows are new, and every earlier row is unreachable.** TABLE_CELL_CITATIONS S3 and S4
+moved `PACKAGE_VERSION` 1.2.0 → 1.3.0 and `WRITER_PROMPT_VERSION` 1.3.0 → 1.4.0, and the D4
+`package_content_digest` with them — now `76a9c8ac2a2a…` on package `…:4e4363b11373`, rebuilt
+from the graph at S7a so its two table facts carry real cell coordinates instead of `null`.
+Both prompts embed the package id and the writer's schema changed shape, so every row keyed
+under the old rule is unreachable: planner `fa975557990f…`, writer `940d6f6c43e6…`. **All four
+stores in this directory share those two request digests**, and all four carry the same live
+planner row; what distinguishes them is the writer's answer.
 
-**Two recordings sit here, and the split between them is published rather than chosen.** Across
-**six `--live` runs** of this one candidate the model wrote *identical prose* every time — same
-title, same three sentences — and moved exactly one field, `calculation.operation`. **Five
-declared `difference` and were accepted; one declared `compare_levels` and was refused.** Both
-outcomes are committed:
+**The 5-in-6 / 1-in-6 split this docstring used to publish did not survive the prompt bump, and
+the measurement is recorded rather than the old sentence kept.** Under 1.3.0 six `--live` runs
+of this candidate wrote identical prose and moved exactly one field, `calculation.operation`:
+five declared `difference` and were accepted, one declared `compare_levels` and was refused.
+Under 1.4.0 that variation is gone. **Nineteen consecutive live writer calls — seven full
+`python -m story demo --live` runs and twelve direct `write_story` calls against the same
+package and plan — returned the byte-identical answer every time** (`content_sha256`
+`b14908e636d5…`), always `difference`, always accepted *(measured 2026-08-18)*. The refusal
+could not be re-recorded, and no attempt was made to shop for one.
+
+So the two rejected stores below are what they say they are, and one of them changed kind:
 
 * `generations.jsonl` — an accepted run, and the store `config/story.yaml` points the demo at.
-  It is the majority outcome, not a shopped one.
-* `generations_rejected_recorded.jsonl` — the one refusal. The sentence *"The difference between
-  the two margins is 15.9 percentage points."* is a **size with no direction**, while the
-  declaration says `compare_levels` over `(gaap, adjusted)` with `left < right` — which
-  recomputes perfectly. §13.14 refuses it as `comparative_not_supported_by_text`, exactly the
-  rule `claims._comparison_text_findings` states in its own docstring: *"that sentence states a
-  size and no direction, so it is a `difference` or a `delta_pp`, not a comparison."* **The model
-  mis-declared the operation; nothing in §13 changed.**
+  It is now the only outcome observed in nineteen calls, not the majority of six.
+* `generations_rejected_recorded.jsonl` — **the 2026-08-13 refusal, with its two citation
+  objects migrated and nothing else touched.** Its `{passage_id, quote}` pairs became
+  `{"evidence_id": "ev:…#p139:r5c2"}` and `{"evidence_id": "ev:…#p139:r11c2"}` — the two
+  handles the package mints for the facts those sentences bind, and the two the live model
+  itself wrote — because the 1.4.0 schema has no `passage_id` or `quote` property and the old
+  row is rejected before §12 sees it. **The mis-declaration the fixture exists for is
+  untouched.** The sentence *"The difference between the two margins is 15.9 percentage
+  points."* is a **size with no direction**, while the declaration says `compare_levels` over
+  `(gaap, adjusted)` with `left < right` — which recomputes perfectly. §13.14 refuses it as
+  `comparative_not_supported_by_text`, exactly the rule `claims._comparison_text_findings`
+  states in its own docstring: *"that sentence states a size and no direction, so it is a
+  `difference` or a `delta_pp`, not a comparison."* **The model mis-declared the operation;
+  nothing in §13 changed.** It is no longer a byte-for-byte capture of one call, and this
+  paragraph is where that is said rather than left for a reader to discover.
 
 Keeping the refusal matters more than which store is default: it is the only fixture in this
-directory where a real model made a real mistake and the verifier caught it. The synthetic pair
-below proves the check *fires*; this one proves it fires on something a model actually wrote.
-The nondeterminism is a design fact `story/providers/generation_store.py` states — byte-identical
-replay is achievable, byte-identical generation is not.
+directory whose *prose and declaration* a real model produced and the verifier caught. The
+synthetic pair below proves the check *fires*; this one proves it fires on something a model
+actually wrote. The nondeterminism the old split rested on is still a design fact
+`story/providers/generation_store.py` states — byte-identical replay is achievable,
+byte-identical generation is not promised — and nineteen identical calls do not repeal it.
 
-**Two synthetic stores sit beside them, and neither is a recording.** Both are the genuine pair
-above with exactly one edit, to sentence 2's prose, and the declaration is untouched in both —
-so each is a test of what the *words* say against a calculation that still recomputes:
+**Two synthetic stores sit beside them, and neither is a recording.** Both are the genuine
+refusal above with exactly one edit, to sentence 2's prose, and the declaration is untouched in
+both — so each is a test of what the *words* say against a calculation that still recomputes.
+Both had their citations migrated at S7a the same way and for the same reason:
 
 * `generations_accepted_synthetic.jsonl` — *"The GAAP Gross Margin was 15.9 percentage points
   lower than the Adjusted Gross Margin."*, which is true and which the 2026-08-04 recording
@@ -118,10 +137,12 @@ ALWAYS_WRITTEN = {
 ACCEPTED_STORE = "generations_accepted_synthetic.jsonl"
 REJECTED_STORE = "generations_rejected_synthetic.jsonl"
 
-#: A **recording**, not a synthetic: the one `--live` run in six that the verifier refused.
-#: Kept because it is the only fixture in this directory where a real model made a real mistake
-#: and §13 caught it — the synthetic pair is two hand-edits of a sentence, which proves the
-#: check fires but not that it fires on anything a model actually writes.
+#: A **recording**, not a synthetic: the one `--live` run in six that the verifier refused, with
+#: its citations migrated to the 1.4.0 handle form at S7a and its prose and its declaration
+#: untouched — see this module's docstring for why it could not simply be re-run. Kept because
+#: it is the only fixture in this directory where a real model made a real mistake and §13
+#: caught it — the synthetic pair is two hand-edits of a sentence, which proves the check fires
+#: but not that it fires on anything a model actually writes.
 REJECTED_RECORDING = "generations_rejected_recorded.jsonl"
 
 
@@ -130,11 +151,24 @@ def _read(name: str) -> Any:
 
 
 def demo_inputs() -> DemoInputs:
-    """The live 2022Q3 slice as it came off the graph on 2026-08-04, byte-for-byte.
+    """The live 2022Q3 slice as it came off the graph, byte-for-byte.
 
     Assembled here rather than mocked: every value below was produced by
     `resolve_demo_inputs` against `graph-v1-0483dc6b4b10` and written out unchanged, so a test
     driving `run_demo` over it is driving the same object the live path hands over.
+
+    **`evidence_package.json` was rebuilt from the graph on 2026-08-18** (TABLE_CELL_CITATIONS
+    S7a) because the 2026-08-04 capture predates S1: its two table facts carried `cell: null`
+    and therefore the *narrative* handle form, which is honest about the file and wrong about
+    the corpus. `candidate.json` and `graph_identity.json` re-derived byte-identical and were
+    left alone, which is the evidence that only the packaging shape moved.
+
+    **`freshness_report.json` was deliberately not rewritten.** Rebuilding it changes only the
+    `detail` strings, which spell the absolute path of the checkout that produced it — the
+    committed file names `…/FKG-story-agent-impl` and a rebuild here would name
+    `…/Prototyping-Financial-Knowlege-Graph`. Neither is a fact about the corpus, no digest
+    covers them, and the live test compares `(name, passed)` pairs, so re-stamping would bake
+    one machine's directory layout into a fixture in exchange for nothing.
     """
     return DemoInputs(
         identity=GraphIdentity.model_validate(_read("graph_identity.json")),
@@ -178,10 +212,19 @@ class CountingProvider:
 class BadWriterProvider:
     """Replays the genuine plan, then hands the writer a draft §12 cannot construct.
 
-    The deliberately bad generation: a citation quoting a string that does not occur in the
-    passage it names. §12 refuses it before §13 runs, which is the `draft_refused` disposition
-    — a different outcome from a draft the verifier rejected, and one the demo must not report
-    as the same thing.
+    The deliberately bad generation: a citation naming an evidence id this package minted for
+    no fact. §12 refuses it before §13 runs, which is the `draft_refused` disposition — a
+    different outcome from a draft the verifier rejected, and one the demo must not report as
+    the same thing.
+
+    **The defect had to move with the contract, and the new one is the same kind of mistake.**
+    Until TABLE_CELL_CITATIONS S4 this provider quoted a string absent from the passage it
+    named and was refused as `citation_quote_not_in_passage`. Under 1.4.0 a citation has one
+    field, `evidence_id`, so that answer no longer reaches §12 at all — `writer_schema` rejects
+    the extra properties and the run fails as a schema violation, which is a different stage and
+    a different claim. `r99c99` is well-formed, is on the right passage, and names a cell no
+    fact in this package was read from: `unresolvable_evidence_handle`, refused by
+    `_citations_from` before a span is ever resolved.
     """
 
     model_id = MODEL_ID
@@ -211,8 +254,8 @@ class BadWriterProvider:
                 }],
                 "calculation": [],
                 "citations": [{
-                    "passage_id": "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139",
-                    "quote": "a string this passage does not contain",
+                    "evidence_id": "ev:norm:0001801169:0001801169-22-000108:"
+                                   "open-20220930.htm#p139:r99c99",
                 }],
             }],
         }
@@ -278,7 +321,9 @@ def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_block
     `--live` runs of one candidate the model wrote *identical prose* every time and moved exactly
     one field: `calculation.operation`. Five declared `difference` and were accepted; **one
     declared `compare_levels`** — a comparison — over a sentence stating a size and no direction,
-    and §13.14 refused it. That run is this fixture.
+    and §13.14 refused it. That run is this fixture, carried forward at S7a with its two
+    citations rewritten to the handles the rebuilt package mints and everything the refusal
+    turns on left exactly as the model wrote it.
 
     Asserting the disposition alone would pass against a verifier that looked at nothing, so the
     denominators are asserted with it: the numbers check counted every numeral, the periods check
@@ -344,10 +389,13 @@ def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config
 def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
     """The accepted branch: the two files are mutually exclusive.
 
-    Driven by the **accepted synthetic** store, because the genuine S7 recording is rejected —
-    see this module's docstring. The branch is still real: §13 runs in full over the draft and
-    returns no finding, and `pipeline._write_run` chooses `post.md` on the same condition it
-    always did.
+    Driven by the **accepted synthetic** store rather than the shipped one, which since S7a is
+    also accepted. Kept pointed here because the two reach the disposition through different
+    §13.14 paths: this store's sentence 2 is a **comparative** the calculation supports, the
+    shipped recording's is a `difference` carrying no comparative at all, and a branch reached
+    one way is not evidence about the other. The branch is real either way: §13 runs in full
+    over the draft and returns no finding, and `pipeline._write_run` chooses `post.md` on the
+    same condition it always did.
 
     The prose is rendered from the structured draft and never from the model's own text (§12),
     which is why the post can be asserted to hold a figure the verifier bound.
@@ -511,7 +559,7 @@ def test_a_draft_the_writer_refuses_is_recorded_as_its_own_disposition(tmp_path,
     assert outcome.disposition == DRAFT_REFUSED
     assert outcome.verified is None
     assert rejected["stage"] == "post_writer"
-    assert "citation_quote_not_in_passage" in rejected["codes"]
+    assert "unresolvable_evidence_handle" in rejected["codes"]
     assert "verification_report.json" not in written
     assert "draft.json" not in written
     assert "post.md" not in written
@@ -562,9 +610,11 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     assert manifest["temperature"] == 0.0
     # Both prompts moved across EVIDENCE_ROLES_AND_SEMANTIC_FACTS S4 and S6a — the planner
     # gained rule 8 and the writer rules 18 and 19 for the three ontology sections — and the
-    # manifest is where a reader sees which wording produced these rows.
+    # writer moved again at TABLE_CELL_CITATIONS S4, to 1.4.0, when its citation stopped being
+    # a retyped quote and became an evidence handle. The manifest is where a reader sees which
+    # wording produced these rows.
     assert manifest["prompt_versions"] == {"story_editorial_plan": "1.1.0",
-                                           "story_post_draft": "1.3.0"}
+                                           "story_post_draft": "1.4.0"}
     assert sorted(manifest["schema_digests"]) == ["story_editorial_plan", "story_post_draft"]
     assert manifest["ranking_policy_version"] == "1.1.0"
     assert manifest["policy_version"] == POLICY_VERSION
@@ -699,10 +749,10 @@ def test_the_command_exits_zero_and_names_the_post_when_the_draft_is_accepted(
     """The accepted branch of the same verb, over the **accepted synthetic** store.
 
     Pointed at that store for the same reason `test_an_accepted_run_writes_the_post_and_no_
-    rejection` is: the genuine S7 recording is rejected, so the shipped store no longer reaches
-    this branch, and the branch — exit 0, the post named on stdout, `post.md` on disk — is what
-    this test exists for. The config is otherwise the shipped one, and the store is swapped the
-    way the rejected test above swaps it.
+    rejection` is: it reaches acceptance through a comparative where the shipped recording
+    reaches it through a `difference`, and the branch — exit 0, the post named on stdout,
+    `post.md` on disk — is what this test exists for. The config is otherwise the shipped one,
+    and the store is swapped the way the rejected test above swaps it.
     """
     class Closable:
         def close(self) -> None:
