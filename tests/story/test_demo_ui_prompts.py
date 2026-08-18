@@ -19,6 +19,7 @@ today can be pasted tomorrow by someone who found the import inconvenient.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -319,18 +320,28 @@ def test_a_length_target_outside_the_schema_is_refused_or_absent(value: object):
 
 
 def test_a_target_above_the_measured_maximum_is_accepted_and_warned_about():
-    """Bounded by measurement, not by taste — and watching §12 refuse is a legitimate demo.
+    """Bounded by measurement, not by taste — and the measurement moved.
 
-    `config/story.yaml:50-64` records six live writer calls, one per target: 3 and 4 built a
-    draft and were rejected by §13; 5 through 8 were refused by §12's own construction checks
-    before the verifier ran.
+    The 2026-08-04 sweep found 5 through 8 refused by §12's own construction checks
+    (`citation_quote_ambiguous_in_passage`, `citation_quote_not_in_passage`) before the verifier
+    ran, and this test asserted that sentence. TABLE_CELL_CITATIONS removed that gate from the
+    table path. Re-measured 2026-08-18, six live writer calls against the demo package, planner
+    replayed so only the target moved: **every target 3–8 constructed a draft and every one was
+    accepted**. So the verified maximum is 8, the advisory is empty for every target the schema
+    accepts, and what this test pins is that a target beyond the measurement is *accepted and
+    described*, never refused.
     """
-    assert LENGTH_TARGET_VERIFIED_MAX == 4
+    assert LENGTH_TARGET_VERIFIED_MAX == 8 == LENGTH_TARGET_MAX
     assert composed(length_target=LENGTH_TARGET_VERIFIED_MAX).length_target_advisory == ""
-    warned = composed(length_target=LENGTH_TARGET_VERIFIED_MAX + 1)
-    assert "citation_quote_ambiguous_in_passage" in warned.length_target_advisory
-    assert warned.length_target == LENGTH_TARGET_VERIFIED_MAX + 1
+    assert composed(length_target=LENGTH_TARGET_MIN).length_target_advisory == ""
     assert LENGTH_TARGET_MIN == 1
+    # Beyond the schema's own bound, so `PromptRequest` never builds one — driven directly to
+    # keep the sentence honest, because a bound with no way to say so is how the last stale
+    # advisory survived a contract change.
+    beyond = composed(length_target=LENGTH_TARGET_VERIFIED_MAX)
+    beyond = dataclasses.replace(beyond, length_target=LENGTH_TARGET_VERIFIED_MAX + 1)
+    assert "is accepted and run, not refused" in beyond.length_target_advisory
+    assert "citation_quote" not in beyond.length_target_advisory
 
 
 def test_a_body_that_is_not_an_object_is_refused():

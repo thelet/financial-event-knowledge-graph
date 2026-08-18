@@ -28,15 +28,18 @@ the metric, the period and the subject and nothing else. That is why lexical gro
 Rule B and on `explanatory` sentences, and not on Rule A — there is nothing in a 4-character
 quote to be grounded against.
 
-**The handle rules (TABLE_CELL_CITATIONS §3.4), and what they replace.** A citation now carries
-the `PackagedFact.evidence_handle` the package minted, and `_handle_findings` asks the six
-questions §3.4 lists plus one it does not — see `codes.py` notes 9 through 11. The one that
-carries the load is check 7, *"the handle is the one this package minted for this fact"*, and
-the hole it closes was **total on table evidence**: §13.7's older test is
-`citation_does_not_support_fact`, *"the passage each bound fact was read from"*, and every one
-of the corpus's **144** table-backed passages evidences more than one observation — 2,690 of
-2,690, up to 70 in a single passage *(verified live 2026-08-18)*. A sentence binding one cell
-and citing the cell beside it passed that test for the whole corpus.
+**The handle rules (TABLE_CELL_CITATIONS §3.4), and what they replace.** Every citation carries
+the `PackagedFact.evidence_handle` the package minted — the field is required, see
+`PassageCitation` — and `_handle_findings` asks the six questions §3.4 lists plus one it does
+not, `evidence_cell_span_mismatch` (see `codes.py` notes 9 through 11). `_coverage_findings` asks
+an eighth that §3.4 also does not: *"is every fact this sentence binds named by one of its
+citations"*, which check 7 leaves open because any handle for any bound fact satisfies it for
+every bound fact. The one that carries the load is check 7, *"the handle is the one this package
+minted for this fact"*, and the hole it closes was **total on table evidence**: §13.7's older
+test is `citation_does_not_support_fact`, *"the passage each bound fact was read from"*, and
+every one of the corpus's **144** table-backed passages evidences more than one observation —
+2,690 of 2,690, up to 70 in a single passage *(verified live 2026-08-18)*. A sentence binding one
+cell and citing the cell beside it passed that test for the whole corpus.
 
 **Rule A step 1 is not made redundant by check 3, and Rule B is no longer a check on the
 model.** Both are argued where they are implemented — `_rule_a` and `_rule_b` — because both
@@ -224,6 +227,7 @@ def check_sentence_citations(
         findings.extend(_reuse_findings(
             sentence, citation, handle, index, earlier_uses))
 
+    findings.extend(_coverage_findings(sentence, index, handles, bound_ids))
     return tuple(findings), tuple(uses), examined
 
 
@@ -237,14 +241,16 @@ def _handle_findings(
 ) -> list[VerificationFinding]:
     """§3.4 checks 1, 7 and — through `_cell_findings` — 2 through 5.
 
-    **Runs only when the citation states a handle, and that asymmetry is the one real limit of
-    this repair.** `PassageCitation.evidence_handle` is optional because a citation nothing
-    minted has no handle to state, so `None` is *"no package named this evidence"* and not a
-    missing value. Every citation `writer.draft_from` builds carries one by construction — the
-    §15.3 schema makes `evidence_id` the model's only citation field — so on the path a model's
-    answer takes, these checks always run. A `PassageCitation` assembled in code can still omit
-    the handle and fall back to §13.7's older, weaker tests, and closing *that* means making the
-    field required on a type this stage does not own.
+    **Runs on every citation, because `PassageCitation.evidence_handle` is required.** This
+    function opened with `if declared is None: return []` until the adversarial review of S7, and
+    the docstring called the gap *"the one real limit of this repair"* on the grounds that a
+    handle-less citation *"falls back to §13.7's older, weaker tests"*. **For a table fact there
+    is no weaker test**: Rule A step 1 compares the package's own `quoted_text` against the whole
+    `passage.text` — which is true of any citation into that passage, whatever bytes it names —
+    and Rule B does not run at all. A one-character citation into the demo package's table
+    passage, bound to `adjusted_gross_margin`, passed §12 and verified with zero findings
+    *(reproduced 2026-08-18)*. The field is now required with no default (`story/core/models.py`),
+    so the branch is gone rather than narrowed.
 
     Check 7 is conditioned on the sentence binding a fact at all, exactly as
     `citation_does_not_support_fact` is. A sentence that binds nothing has no fact for the
@@ -255,9 +261,6 @@ def _handle_findings(
     reporting both tells the reader which fact the cited cell actually belongs to.
     """
     declared = citation.evidence_handle
-    if declared is None:
-        return []
-
     fact = handles.get(declared)
     if fact is None:
         return [finding(
@@ -346,10 +349,28 @@ def _cell_findings(
     anyway because a package is stored data (§14) that can be replayed against a re-extracted
     corpus, and because a measurement is not a guarantee about the next one.
 
-    `evidence_cell_span_mismatch` is the one addition to §3.4's list and is checked only when
-    the citation names the fact's own passage — when it does not, `citation_does_not_support_fact`
-    is already the finding, and a second one comparing offsets across two different passages
-    would be noise rather than a second defect.
+    `evidence_cell_span_mismatch` is the one addition to §3.4's list, and it is checked **on
+    every citation that states a handle**, against the cell's own passage.
+
+    **It used to be guarded by `citation.passage_id == passage.passage_id`, and the reason given
+    for the guard was false.** The claim was *"when it does not, `citation_does_not_support_fact`
+    is already the finding"*. `_support_findings` raises that code only when **no** bound fact was
+    read from the cited passage; a sentence binding a second fact that *was* read from it leaves
+    the span unexamined. Reproduced 2026-08-18 on
+    `pkg:metric-move-adjusted-ebitda-opendoor-2021q3-2021q4:87518cfbba68`: one sentence binding
+    `obs:adjusted-ebitda:opendoor:2021Q3:normalized-table:507a6e847d8b` (read from
+    `…q32021form8-kxexhibit991.htm#p28`) and `…:2021Q4:…772d120949e5` (read from
+    `…q42021formxex991earningsre.htm#p29`), carrying one citation with the 2021Q3 handle, the
+    2021Q4 passage id and the span `[0, 7)` over `'|  |  |'` — `check_sentence_citations`
+    returned **no finding at all**, and the evidence panel highlighted seven bytes of the wrong
+    filing under a verified handle.
+
+    So the comparison is `(passage_id, char_start, char_end)` against the cell, not offsets
+    against offsets: a span in another passage is not the cell's span whatever its numbers say.
+    Where the older code *does* also fire the two findings stand together rather than one
+    suppressing the other — `citation_does_not_support_fact` says the citation is not the fact's
+    passage, this says the handle and the bytes on one row name different things, and a reader
+    fixing one has not learned the other.
     """
     findings: list[VerificationFinding] = []
     cell = fact.cell
@@ -456,25 +477,28 @@ def _cell_findings(
                     "is not the period the fact was read under."),
             ))
 
-    if citation.passage_id == passage.passage_id:
-        cited = (citation.char_start - passage.char_start,
-                 citation.char_end - passage.char_start)
-        if cited != (resolved.char_start, resolved.char_end):
-            findings.append(finding(
-                "evidence_cell_span_mismatch",
-                sentence_index=sentence.index,
-                citation_ids=(handle,),
-                fact_ids=(fact.observation_id,),
-                expected=f"[{resolved.char_start}, {resolved.char_end}) — cell "
-                         f"({cell.row_index}, {cell.value_column_index}) of "
-                         f"{passage.passage_id}",
-                observed=f"[{cited[0]}, {cited[1]})",
-                explanation=(
-                    "§13.7: the handle and the span on one citation row must name the same "
-                    "bytes. §12 derives the span from the handle, so a draft the writer built "
-                    "cannot differ; one where they differ has a verified handle and an evidence "
-                    "panel highlighting characters nothing checked."),
-            ))
+    # Absolute, and carrying the passage id: `char_start`/`char_end` on a citation are offsets
+    # into the full `:Passage.text` of the passage it names, so two spans are the same bytes only
+    # when the passages agree too. Rebased through `passage.char_start`, which is 0 for every
+    # passage a fact binds and would not be if that rule ever broke — `_cell_findings` refuses an
+    # excerpted one above.
+    cell_span = (passage.char_start + resolved.char_start, passage.char_start + resolved.char_end)
+    if (citation.passage_id, citation.char_start, citation.char_end) != (
+            passage.passage_id, *cell_span):
+        findings.append(finding(
+            "evidence_cell_span_mismatch",
+            sentence_index=sentence.index,
+            citation_ids=(handle,),
+            fact_ids=(fact.observation_id,),
+            expected=f"[{cell_span[0]}, {cell_span[1]}) of {passage.passage_id} — cell "
+                     f"({cell.row_index}, {cell.value_column_index})",
+            observed=f"[{citation.char_start}, {citation.char_end}) of {citation.passage_id}",
+            explanation=(
+                "§13.7: the handle and the span on one citation row must name the same "
+                "bytes. §12 derives the span from the handle, so a draft the writer built "
+                "cannot differ; one where they differ has a verified handle and an evidence "
+                "panel highlighting characters nothing checked."),
+        ))
     return findings
 
 
@@ -540,13 +564,20 @@ def _rule_a(
     it stands that makes step 1 dead weight: 2,704 / 2,704 evidence rows satisfy it and every
     table-backed one is now covered by a strictly stronger equality.
 
-    It stays because **check 3's population is a subset of step 1's, and the difference is not
-    hypothetical**. Check 3 runs only when the citation states a handle *and* the fact carries a
-    `TableCellRef`. Step 1 runs for every fact `PackageIndex.is_table_fact` accepts, which is
-    decided by `source_lane == "normalized_table"` and not by the presence of coordinates — so a
-    table-lane fact with `cell is None` reaches step 1 and reaches no §3.4 check at all. That
-    shape is not a thought experiment: it is what `fixtures/story_demo/evidence_package.json`
-    carries today, because that fixture predates S1 and S7 has not yet rebuilt it.
+    It stays because **check 3's population is a subset of step 1's**. Check 3 runs only when the
+    fact carries a `TableCellRef`. Step 1 runs for every fact `PackageIndex.is_table_fact`
+    accepts, which is decided by `source_lane == "normalized_table"` and not by the presence of
+    coordinates — so a table-lane fact with `cell is None` reaches step 1 and reaches no §3.4
+    check at all.
+
+    **The example this paragraph used to give was dead, and the correction is a measurement.** It
+    named `fixtures/story_demo/evidence_package.json` as carrying that shape *"because that
+    fixture predates S1 and S7 has not yet rebuilt it"*. S7 rebuilt it in `74f4f1c`; both its
+    facts now carry cells and table handles. Re-measured live 2026-08-18 over the 262 packages
+    the four detectors offer: `source_lane == normalized_table` implies `cell is not None` on
+    **558 / 558**, and all **6** cell-less facts are `normalized_narrative`. So the gap between
+    the two populations is one the types permit and the corpus does not currently hold — which is
+    the standing of a check, not the standing of an example.
 
     Step 1 also owns a failure check 3 cannot phrase. `quote` empty — a retrieval query that
     returned node fields and dropped the `EVIDENCED_BY` edge property — is *"the fact carries no
@@ -794,6 +825,87 @@ def _reuse_findings(
             "§13.7: the identical span was already cited for a different claim, and this "
             "sentence binds nothing that passage evidences. A citation carried forward to "
             "decorate a second claim is provenance the passage does not supply."),
+    )]
+
+
+def _coverage_findings(
+    sentence: DraftSentence,
+    index: PackageIndex,
+    handles: Mapping[str, PackagedFact],
+    bound_ids: tuple[str, ...],
+) -> list[VerificationFinding]:
+    """Every fact this sentence binds must be named by one of this sentence's citations.
+
+    **The hole, and why check 7 does not close it.** Check 7 asks *"is this handle one this
+    package minted for a fact this sentence binds"* — `fact.observation_id not in bound_ids` —
+    so **any** handle for **any** bound fact satisfies it for **every** bound fact. A sentence
+    stating two figures and carrying one evidence id therefore verified clean: reproduced
+    2026-08-18 on `pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-
+    2022q3:4e4363b11373`, one sentence binding both margins with only
+    `ev:…open-20220930.htm#p139:r11c2`, `passed=True` and zero findings. The GAAP figure was
+    stated with nothing pointing at it, and the panel drew one mark.
+
+    **`uncited_factual_sentence` is the right code and no new one is minted.** §13.7 already
+    names this defect at sentence grain — *"a reported sentence states what a filing said, and an
+    explanatory one paraphrases it; neither is checkable without the span"*
+    (`deterministic.py`) — and a bound figure no citation reaches is that same sentence for that
+    same figure. Its remedy, `REBIND_TO_FACT`, is the right instruction: cite the fact's handle
+    or drop the binding. Minting a second code would split one claim across two names and leave
+    the demo's rejection catalogue explaining the difference between them.
+
+    **It runs only when every citation resolved to a fact this sentence binds**, which is the
+    difference between *"the sentence cites fewer facts than it states"* and *"the sentence cites
+    the wrong fact"*. A citation whose handle names an unbound fact is already
+    `evidence_handle_not_for_fact` and one that names nothing is `unresolvable_evidence_handle`;
+    both name the fact to rebind to, and a second finding saying the bound fact went uncited
+    would be the same defect counted twice. A sentence with no `PassageCitation` at all is
+    `uncited_factual_sentence` from `deterministic.py` or — for a Rule C row —
+    `evidence_kind_not_supported_in_v1`, so this returns nothing there and the code is raised
+    once however the sentence fails.
+
+    A bound fact carrying no `evidence_handle` cannot be covered by anything: that is the
+    §13.7.2 row with no filed passage, **0 of 564 facts** across the 262 live packages
+    *(measured 2026-08-18)*, and refusing it is the same answer Rule C gives its citations.
+
+    **Driven over every real package, both ways.** For each of the **724** ordered pairs of
+    handle-carrying facts in one package, a sentence binding both: citing both handles raises
+    this code **0** times, citing one raises it **724 / 724** and names the uncovered fact every
+    time *(measured 2026-08-18 against the 262 packages the four detectors offer)*. And the
+    stand-down holds where it must: the 90 wrong-cell mis-citations §3.4 was built for still
+    refuse with `evidence_handle_not_for_fact` **and nothing else**.
+    """
+    cited = tuple(citation for citation in sentence.citations
+                  if isinstance(citation, PassageCitation))
+    if not cited:
+        return []
+    named = {citation.evidence_handle for citation in cited}
+    covered = {handles[declared].observation_id for declared in named if declared in handles}
+    if any(declared not in handles for declared in named) or not covered <= set(bound_ids):
+        return []
+
+    uncovered = tuple(fact_id for fact_id in dict.fromkeys(bound_ids)
+                      if fact_id not in covered and index.fact(fact_id) is not None)
+    if not uncovered:
+        return []
+    wanted = sorted(
+        fact.evidence_handle for fact in index.package.facts
+        if fact.observation_id in uncovered and fact.evidence_handle is not None)
+    return [finding(
+        "uncited_factual_sentence",
+        sentence_index=sentence.index,
+        citation_ids=tuple(citation_id(citation) for citation in cited),
+        fact_ids=uncovered,
+        expected=("a citation for each fact this sentence binds: "
+                  + (", ".join(wanted) if wanted else
+                     "no handle exists for it — §13.7.2 evidence names no filed passage")),
+        observed=", ".join(sorted(named)),
+        explanation=(
+            "§13.7: a citation is evidence for the fact its handle names and for no other. "
+            "§3.4 check 7 asks only that a handle belong to *a* fact the sentence binds, so one "
+            "handle satisfies it for every binding — a sentence stating two figures and "
+            "evidencing one is provenance the evidence does not supply, in the same words the "
+            "reuse rule refuses a citation carried forward to decorate a second claim."),
+        suggested_fact_ids=uncovered,
     )]
 
 

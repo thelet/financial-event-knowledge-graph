@@ -358,14 +358,32 @@ def test_a_semantic_fact_is_semantic_and_cannot_be_relabelled():
 
 def test_a_semantic_fact_may_cite_filed_text_and_ordinarily_does_not():
     """A definition the ontology asserts is not a sentence in a 10-Q. Empty citations are the
-    ordinary case; inventing a span for one would be the fabrication §13.7 refuses."""
+    ordinary case; inventing a span for one would be the fabrication §13.7 refuses.
+
+    **What the citation now costs, recorded rather than assumed away.**
+    `PassageCitation.evidence_handle` was made required with no default when the adversarial
+    review of S7 found that `None` switched §13.7's §3.4 family off, and nothing mints a handle
+    for an ontology declaration — §3.1's two forms are a table cell and a `PackagedFact`'s slot.
+    So a semantic fact that cites filed text has to name a handle some `PackagedFact` minted, and
+    §13.7 would read it as evidence for *that* fact. The population is zero: across the 262
+    packages the four detectors offer, the 1,441 semantic, 1,048 identity and 327 comparability
+    rows carry **0** citations between them *(measured live 2026-08-18)*. When a lane needs one,
+    §3.1 gains an ontology handle form — the move it already made once, when the narrative form
+    turned out not to be a key.
+    """
     plain = SemanticFact(fact_id="sem:1", metric_id="m", attribute="unit", statement="percent",
                          authoritative=True, editable=False)
     cited = plain.model_copy(update={"citations": (PassageCitation(
-        passage_id="psg:1", document_id="doc:1", char_start=0, char_end=10),)})
+        passage_id="psg:1", document_id="doc:1", char_start=0, char_end=10,
+        evidence_handle="ev:psg:1:span:m:2022Q3"),)})
 
     assert plain.citations == ()
     assert cited.citations[0].passage_id == "psg:1"
+    with pytest.raises(ValidationError):
+        plain.model_copy(update={"citations": ()}).__class__(
+            **(plain.model_dump() | {"citations": [{
+                "kind": "passage", "passage_id": "psg:1", "document_id": "doc:1",
+                "char_start": 0, "char_end": 10}]}))
 
 
 def test_an_identity_fact_can_say_the_corpus_has_no_source_backed_description():

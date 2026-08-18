@@ -236,7 +236,15 @@ class DemoConfig:
             raise DemoConfigurationError(f"{path}: {type(exc).__name__}: {exc}") from exc
 
     def config_hash(self) -> str:
-        """`sha256` over the document as written — a `story_run_id` input (§14).
+        """`sha256` over the document **as parsed** — a `story_run_id` input (§14).
+
+        Not as written, which this docstring claimed until the TABLE_CELL_CITATIONS review:
+        `canonical_json` is taken over `self.raw`, the mapping `yaml.safe_load` returned, so
+        comments and formatting never reach the digest. Measured 2026-08-18 — rewriting the
+        `length_target` commentary moved the file's own sha256 and left `config_hash` at
+        `b8488b32076b9b1d…`. That is the useful behaviour, since a corrected comment must not
+        re-key every run, but a reader who believed the old sentence would have left a false
+        statement standing in a hashed file rather than fix it.
 
         `canonical_json` and `digest`, the pair `story/core/keys.py` already uses, rather than
         `extraction.core.config.canonical_hash`: one hashing rule for the package, and reaching

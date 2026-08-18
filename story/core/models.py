@@ -508,15 +508,30 @@ class PassageCitation(StoryModel):
     never the model's to supply and still are not; what changed is which model-supplied token
     they are derived from.
 
-    **Optional, and `None` is a real answer rather than a missing value.** Every citation
-    `writer.draft_from` builds carries a handle by construction, because it was resolved from
-    one. A citation assembled by hand carries `None`, and that is the truth about it: no package
-    minted a handle for those characters, so there is nothing to state. Required with no default
-    would have made this type sayable only by the writer — and `CitationHandle` is shared
-    vocabulary that a draft sentence, a semantic fact and a comparability fact all use, none of
-    which resolves through a `PackagedFact`. The asymmetry with `PackagedPassage.role`, which is
-    required precisely *because* nothing else on its row answers it, is deliberate: there the
-    caller is the only one who knows, here the caller cannot know better than the resolver.
+    **Required with no default, and the earlier argument for optionality was wrong.** This field
+    read `evidence_handle: str | None = None` until the adversarial review of S7, justified here
+    as *"a citation assembled by hand carries `None`, and that is the truth about it"*. `None`
+    is not a missing value, which was the true half; it is a **claim about evidence** — *"no
+    package minted a handle for these bytes"* — and stating it switched §13.7's entire §3.4
+    family off. On a **table** fact that left nothing behind: Rule A step 1 compares the
+    package's own `quoted_text` against the whole `passage.text` and Rule B does not run, so a
+    hand-built citation naming *one character* of a table passage verified clean against
+    `fixtures/story_demo/evidence_package.json` *(reproduced 2026-08-18)*. There is no weaker
+    test to fall back to.
+
+    The population the optionality was for is empty, measured rather than assumed. Over the 262
+    packages the four detectors offer, built live 2026-08-18: **564 of 564** facts mint a handle
+    and **0** lack one; the 1,441 `semantic_facts`, 1,048 `identity_facts` and 327
+    `comparability_facts` rows those packages carry hold **0** citations between them. So the
+    *"shared vocabulary a semantic fact and a comparability fact also use"* argument was about a
+    row that has never existed, while the hole was reachable from any hand-built or replayed
+    draft. This is `PackagedPassage.role` exactly: every default was a claim about evidence, so
+    the caller must state one, and twenty-one call sites had to — each of them knew the answer.
+
+    Where a caller genuinely has no handle, it is not in a position to cite: nothing minted a
+    name for those bytes, so no check can be asked about them. If a lane ever backs an ontology
+    declaration with filed text, it mints a handle form for it first (§3.1) — the move §3.1
+    already made once, when the narrative form turned out not to be a key.
     """
 
     kind: Literal["passage"] = "passage"
@@ -524,11 +539,11 @@ class PassageCitation(StoryModel):
     document_id: str
     char_start: int
     char_end: int
-    #: The `PackagedFact.evidence_handle` this citation was resolved from (§3.1), or `None` for
-    #: a citation no package minted. `story.stages.verification` reads it for §3.4 check 7 —
-    #: *"the handle this package minted for `F`"* — which is the check that makes citing another
-    #: fact's cell detectable at all.
-    evidence_handle: str | None = None
+    #: The `PackagedFact.evidence_handle` this citation was resolved from (§3.1). Required with
+    #: no default — see the class docstring. `story.stages.verification` reads it for §3.4
+    #: check 7 — *"the handle this package minted for `F`"* — which is the check that makes
+    #: citing another fact's cell detectable at all.
+    evidence_handle: str
 
     @model_validator(mode="after")
     def _span_is_usable(self) -> "PassageCitation":

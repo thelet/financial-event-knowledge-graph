@@ -5,11 +5,19 @@
 # `provider.api_key`, `api_token`, `authorization` or `token` key rather than reading it, and
 # `STORY_LLM_API_KEY` in the gitignored repository-root `.env` is the only place one may live.
 #
-# This file is a digest input. `story/pipeline.py` hashes the document **as written** into
-# `config_hash`, which is a `story_run_id` input (§14), so every key below — including one this
-# loader does not read — moves the run id when it changes. That is what makes `length_target`
-# safe to keep here: it changes the writer's prompt text without changing
-# `WRITER_PROMPT_VERSION`, and without the config hash nothing in the id would notice.
+# This file is a digest input. `story/pipeline.py` hashes it into `config_hash`, which is a
+# `story_run_id` input (§14), so every key below — including one this loader does not read —
+# moves the run id when it changes. That is what makes `length_target` safe to keep here: it
+# changes the writer's prompt text without changing `WRITER_PROMPT_VERSION`, and without the
+# config hash nothing in the id would notice.
+#
+# **What is hashed is the *parsed* document, not the file's bytes**, and this comment said
+# "as written" until 2026-08-18. `DemoConfig.config_hash` is
+# `sha256(canonical_json(yaml.safe_load(text)))`, and `safe_load` drops comments — checked by
+# mutating this header in memory and recomputing: `b8488b32076b9b1d…` either way, while the
+# file's own sha256 moves. So a **key** nobody reads still moves the run id, and a **comment**
+# does not. Both halves matter: the first is why an unread key is safe to add, the second is
+# why the corrections below could be made without invalidating a committed artifact.
 #
 # **Scope.** This file serves the §8b demo path and nothing else. The production run lifecycle,
 # the `discover`/`package`/`plan`/`draft`/`verify` CLI family and the research mode are deferred
@@ -48,20 +56,32 @@ generation:
   writer_max_tokens: 2048
 
   # §12's `length_target`, in sentences. **4, and the code default is 5** — measured, not
-  # preferred. Six live writer calls against the demo package on 2026-08-04, one per target,
-  # with the planner's answer replayed so only this number moved:
+  # preferred. Six live writer calls against the demo package, one per target, with the
+  # planner's answer replayed so only this number moved.
   #
-  #   target 3  draft constructed, 3 sentences   verifier REJECTED (9 blocking findings)
-  #   target 4  draft constructed, 4 sentences   verifier REJECTED (9 blocking findings)
-  #   target 5  §12 refused: citation_quote_ambiguous_in_passage
-  #   target 6  §12 refused: citation_quote_ambiguous_in_passage, citation_quote_not_in_passage
-  #   target 7  §12 refused: citation_quote_not_in_passage ×2
-  #   target 8  §12 refused: citation_quote_ambiguous_in_passage ×2, citation_quote_not_in_passage
+  # **Re-measured 2026-08-18 under `WRITER_PROMPT_VERSION` 1.4.0, and the reason for 4 is gone:**
   #
-  # At 5 and above the writer's own construction checks refuse the draft, so §13 never runs and
-  # the demo cannot demonstrate the one thing it claims — that the numbers, periods, identities
-  # and citations are *deterministically verified*. 4 is the longest target that reaches the
-  # verifier. It does not make the draft pass: the recorded run's disposition is **rejected**.
+  #   target 3  draft constructed, 3 sentences   verifier ACCEPTED
+  #   target 4  draft constructed, 3 sentences   verifier ACCEPTED
+  #   target 5  draft constructed, 3 sentences   verifier ACCEPTED
+  #   target 6  draft constructed, 3 sentences   verifier ACCEPTED
+  #   target 7  draft constructed, 3 sentences   verifier ACCEPTED
+  #   target 8  draft constructed, 3 sentences   verifier ACCEPTED
+  #
+  # The 2026-08-04 table this replaced read *"target 5–8: §12 refused,
+  # citation_quote_ambiguous_in_passage / citation_quote_not_in_passage; 3 and 4 rejected with 9
+  # blocking findings each; 4 is the longest target that reaches the verifier"*. Both halves are
+  # now false. TABLE_CELL_CITATIONS removed the quote gate the table path had — a citation is an
+  # evidence id and §12 resolves the span from the fact's own cell — so no target refuses at §12,
+  # and the model writes three sentences whatever it is asked for. The recorded run's disposition
+  # is **accepted**, not rejected, and has been since `74f4f1c` rebuilt the fixture.
+  #
+  # **4 stays, and not because it is still the answer.** `length_target` is in the writer prompt,
+  # the prompt is in `request_identity`, and `generation_store` below is keyed on it: any other
+  # value misses the committed row and the offline demo would need a live re-record. Whether the
+  # demo should now run at 5 is a real question with a cost attached, and it is the
+  # orchestrator's to decide, not this file's. *(Verified 2026-08-18: a live target-4 call
+  # returns `content_sha256 b14908e636d5…`, byte-identical to the committed row.)*
   length_target: 4
 
 # §8b's demo path. `candidate_id` is not here on purpose — it is the one argument
@@ -76,8 +96,11 @@ demo:
   # `data/extraction_runs/`, in `data/graph_runs/` and in Neo4j.
   out_root: data/story_demo
 
-  # The recorded answer store the deterministic path replays — real Qwen responses, captured
-  # 2026-08-04 from the server named above. Tracked, because §14 keeps `tests/story/fixtures/`
+  # The recorded answer store the deterministic path replays — real Qwen responses, re-captured
+  # **2026-08-18** from the server named above under `PACKAGE_VERSION` 1.3.0 and
+  # `WRITER_PROMPT_VERSION` 1.4.0. (The 2026-08-04 capture this comment used to name was
+  # superseded at TABLE_CELL_CITATIONS S7a: the citation contract changed, so every request
+  # digest moved.) Tracked, because §14 keeps `tests/story/fixtures/`
   # and "a small committed answer store for replay tests" in git; the pattern is
   # `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores it and calls the server.
   generation_store: tests/story/fixtures/story_demo/generations.jsonl

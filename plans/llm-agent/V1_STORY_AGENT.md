@@ -1471,8 +1471,19 @@ DraftSentence:
   fact_bindings[]:  {fact_id, rendered, char_start, char_end, metric_surface, period_surface}
   calculation:      {operation, input_observation_ids[], expression, result_rendered,
                      formula_version_id, period_surface} | null
-  citations[]:      {passage_id, document_id, char_start, char_end}
+  citations[]:      {passage_id, document_id, char_start, char_end, evidence_handle}
 ```
+
+**The model no longer writes a citation; it names one (TABLE_CELL_CITATIONS S4, 2026-08-13).**
+What the model emits per citation is one field, `{"evidence_id": "ev:…"}` — the
+`PackagedFact.evidence_handle` the package minted — and `writer._citations_from` resolves the
+other four from the fact's own cell coordinates through `story.core.table_cells.resolve_cell`.
+The row above is what the **draft artifact** carries after that resolution, not what the model
+answers with. The old contract asked the model to retype a run of the passage's bytes and §12
+located it by unique occurrence; that was unsatisfiable for **523 of 2,704** observations, whose
+`quoted_text` occurs more than once in its own passage (worst case 32) while §12 refused exactly
+that string as ambiguous. `evidence_handle` is **required with no default** — see §13.7's
+correction below for the hole its optionality left open.
 
 **`calculation.period_surface` was added at R7 (2026-08-04), and the reason is worth recording:
 without it a calculated sentence could not name its own period.** §13.1 licenses a period
@@ -1667,11 +1678,59 @@ today.** No Zillow, no Offerpad, no Redfin, no index, no "the market" — `mortg
 `home_price_appreciation` are declared and empty. **A comparative post is not verifiable and
 must not be drafted.**
 
-### 13.7 Citation support — two rules, because the evidence is two different things
+### 13.7 Citation support — three rules, because the evidence is three different things
 
 Measured: 2,690 table observations have `quoted_text` of median **4 characters**, all bare
 numerals, none carrying `%` or `$`. The 14 narrative observations, 6 events and 4 relationships
 have full sentences (median 99–157 characters).
+
+> **Swept 2026-08-18, after the adversarial review of TABLE_CELL_CITATIONS S7. This section had
+> not been touched since the citation became a handle, and it is the master spec.** The heading
+> said *"two rules"* while §13.7.2 has said *"Rule C"* since F0. What follows is what §13.7
+> checks now; Rules A and B below are unchanged in their own terms, and everything here is
+> **additional obligation**, not relaxation.
+>
+> **Every citation carries the handle of the fact it evidences, and §3.4's eight checks run on
+> it** (TABLE_CELL_CITATIONS §3.4, implemented in `story/stages/verification/citations.py`):
+>
+> | # | Check | Refusal code |
+> | --- | --- | --- |
+> | 1 | the handle is one this package minted, and its passage is in the writer's slice | `unresolvable_evidence_handle` |
+> | 2 | its coordinates are inside the passage grid | `evidence_handle_out_of_bounds` |
+> | 3 | the resolved cell text is the fact's `quoted_text` | `evidence_cell_value_mismatch` |
+> | 4 | the row's first cell is the fact's `row_label` | `evidence_row_label_mismatch` |
+> | 5 | the header at `period_header_(row,column)_index` is the fact's `column_label` | `evidence_column_label_mismatch` |
+> | 6 | the cell reconstructs to the fact's value | `table_quote_does_not_reconstruct` *(pre-existing)* |
+> | 7 | the handle is one this package minted **for a fact this sentence binds** | `evidence_handle_not_for_fact` |
+> | 8 | the citation's span **is** the span of the cell its handle names, in that cell's own passage | `evidence_cell_span_mismatch` |
+>
+> Checks 2–5 carry `REBUILD_PACKAGE` rather than §13.7's usual `REBIND_TO_FACT`: their inputs are
+> the `PackagedFact`'s own coordinates and the `PackagedPassage`'s own text, so no draft can cause
+> one and no rebinding fixes one. Checks 3–5 hold on **2,690 / 2,690** table-backed evidence rows
+> *(verified live 2026-08-18)*; they are checked anyway because a package is stored data (§14)
+> that can be replayed against a re-extracted corpus.
+>
+> **Check 7 is what "the passage each bound fact was read from" never did.** That older test —
+> `citation_does_not_support_fact`, still in force — separated **nothing** on table evidence: all
+> **144** table-backed passages in the corpus evidence more than one observation, covering 2,690
+> of 2,690, up to **70** in one passage. A sentence binding one cell and citing the cell beside
+> it passed it for the whole corpus.
+>
+> **Two further rules the review of S7 added, each because the checks above have a shape they
+> cannot see.**
+>
+> * **Every bound fact must be named by one of the sentence's citations** —
+>   `uncited_factual_sentence`, the same code §13.7 already raises for a factual sentence citing
+>   nothing, now at fact grain. Check 7 asks only that a handle belong to *a* fact the sentence
+>   binds, so one handle answered for every binding: a sentence stating two figures and carrying
+>   one evidence id verified clean *(reproduced 2026-08-18)*. It stands down where check 7 or
+>   check 1 already fired, so one sentence is named once.
+> * **`PassageCitation.evidence_handle` is required with no default.** It was optional, and
+>   `None` — *"no package minted a handle for these bytes"* — switched checks 1–8 off. There is no
+>   weaker test underneath on a table fact: Rule A step 1 asks only that the package's own
+>   `quoted_text` occur somewhere in the passage, which every citation into that passage
+>   satisfies, and Rule B does not run. A one-character citation into a table passage verified
+>   clean *(reproduced 2026-08-18)*.
 
 **Rule A — table facts.** Support means *positional reconstruction*, not entailment. A
 4-character quote `"2.2"` entails nothing; what it supports exactly is the value.

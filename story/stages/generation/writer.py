@@ -297,10 +297,11 @@ def _citation_violations(
     do not overlap by construction — a citation `_citations_from` built is inside its passage
     because a resolver put it there.
 
-    The handle is checked **only when the citation carries one**. `PassageCitation.evidence_handle`
-    is optional because a citation nothing minted has no handle to state, so `None` is *"no
-    package named this evidence"* rather than a missing value, and refusing it here would refuse
-    every hand-built citation in the repository for a field that was introduced today.
+    The handle is checked on **every** citation, because `PassageCitation.evidence_handle` is
+    now required with no default. It read *"checked only when the citation carries one"* until
+    the adversarial review of S7: `None` was sayable, and on a table fact it turned every §3.4
+    check off with nothing weaker underneath. A citation that cannot name a handle is a citation
+    nothing can be asked about, so the type no longer builds.
     """
     found: list[DraftViolation] = []
     texts = {passage.passage_id: passage
@@ -311,7 +312,7 @@ def _citation_violations(
     for citation in sentence.citations:
         if not isinstance(citation, PassageCitation):
             continue  # §13.7.2 Rule C is the verifier's refusal, not this stage's
-        if citation.evidence_handle is not None and citation.evidence_handle not in handles:
+        if citation.evidence_handle not in handles:
             found.append(DraftViolation(
                 UNRESOLVABLE_EVIDENCE_HANDLE,
                 f"{where} cites evidence {citation.evidence_handle!r}, which this package minted "
@@ -678,7 +679,9 @@ def render_markdown(draft: Draft) -> str:
             # The handle is printed beside the span, not instead of it. A reader resolves the
             # span; a *rejection* names the handle (§3.4's codes all carry one), and a panel that
             # printed only offsets would leave nothing in the post to match a refusal against.
-            # `""` for a citation nothing minted a handle for — see `PassageCitation`.
+            # The falsy branch is now only an empty string: `evidence_handle` is required with
+            # no default, so `None` is unsayable. `""` is still constructible and refuses at
+            # §3.4 check 1 rather than here, so this prints nothing instead of `[]`.
             handle = f" [{citation.evidence_handle}]" if citation.evidence_handle else ""
             lines.append(f"- sentence {sentence.index}: {citation.passage_id} "
                          f"({citation.document_id}) characters "

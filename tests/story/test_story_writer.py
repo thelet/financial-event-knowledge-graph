@@ -1248,10 +1248,15 @@ def test_document_grain_counter_evidence_cannot_be_cited_by_the_writer_and_is_re
     intact = draft_of(valid_answer())
     counter = package.counter_evidence[0]
     hand = intact.model_copy(update={"sentences": (
+        # The handle of the fact the sentence binds, over the smuggled passage's bytes — the
+        # only shape this is now buildable in, since the handle is required and no handle names
+        # a counter-evidence passage. §13.7 answers with the counter-evidence refusal *and*
+        # `evidence_cell_span_mismatch`, because the handle's cell is in the other passage.
         intact.sentences[0].model_copy(update={"citations": (PassageCitation(
             passage_id=COUNTER_PASSAGE_ID, document_id=DOCUMENT_ID,
             char_start=counter.char_start,
-            char_end=counter.char_start + len("Inventory 2,152")),)}),
+            char_end=counter.char_start + len("Inventory 2,152"),
+            evidence_handle=AGM_HANDLE),)}),
         *intact.sentences[1:])})
     verified = verifier.verify(hand, package, make_plan())
     assert "counter_evidence_cited_as_support" in codes_of(verified)

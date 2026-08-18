@@ -396,7 +396,7 @@ def test_a_citation_is_either_a_passage_or_an_evidence_source_and_never_neither(
     union so "neither" is not a value that can exist and have to be caught downstream."""
     passage = CITATION_ADAPTER.validate_python(
         {"kind": "passage", "passage_id": "psg:1", "document_id": "doc:1",
-         "char_start": 0, "char_end": 12})
+         "char_start": 0, "char_end": 12, "evidence_handle": "ev:psg:1:r0c1"})
     assert isinstance(passage, PassageCitation)
 
     source = CITATION_ADAPTER.validate_python(
@@ -413,7 +413,17 @@ def test_a_citation_is_either_a_passage_or_an_evidence_source_and_never_neither(
 
 def test_a_passage_citation_refuses_a_span_that_ends_before_it_starts():
     with pytest.raises(pydantic.ValidationError):
-        PassageCitation(passage_id="psg:1", document_id="doc:1", char_start=9, char_end=4)
+        PassageCitation(passage_id="psg:1", document_id="doc:1", char_start=9, char_end=4,
+                        evidence_handle="ev:psg:1:r0c1")
+
+
+def test_a_passage_citation_refuses_to_be_built_without_an_evidence_handle():
+    """Required with no default, for `PackagedPassage.role`'s reason: every default was a claim
+    about evidence. `None` meant *"no package minted a handle for these bytes"*, and stating it
+    turned §13.7's whole §3.4 family off with nothing weaker underneath on a table fact."""
+    with pytest.raises(pydantic.ValidationError):
+        PassageCitation(passage_id="psg:1", document_id="doc:1",  # type: ignore[call-arg]
+                        char_start=0, char_end=12)
 
 
 def test_a_fact_binding_refuses_a_span_that_ends_before_it_starts():

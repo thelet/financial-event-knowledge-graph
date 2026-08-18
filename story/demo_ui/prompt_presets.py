@@ -144,15 +144,24 @@ MAX_FIELD_LINES = 20
 LENGTH_TARGET_MIN = 1
 LENGTH_TARGET_MAX = 8
 
-#: The largest target measured to reach the verifier at all. Six live writer calls against the
-#: demo package on 2026-08-04, one per target, with the planner's answer replayed so only this
-#: number moved (`config/story.yaml:50-64`): 3 and 4 constructed a draft and were *rejected* by
-#: §13; 5, 6, 7 and 8 were refused by §12's own construction checks —
-#: `citation_quote_ambiguous_in_passage` and `citation_quote_not_in_passage` — before the
-#: verifier ran at all. A target above this is accepted and warned about rather than refused:
-#: watching §12 refuse is a legitimate thing to demonstrate, and hiding the option would make
-#: the bound look like a rule of the language instead of a measurement of one 9B model.
-LENGTH_TARGET_VERIFIED_MAX = 4
+#: The largest target measured to reach the verifier at all.
+#:
+#: **8, re-measured 2026-08-18, and it was 4 on a measurement that no longer reproduces.** The
+#: 2026-08-04 sweep — six live writer calls against the demo package, one per target, planner
+#: replayed so only this number moved — found 5 through 8 refused by §12's own construction
+#: checks, `citation_quote_ambiguous_in_passage` and `citation_quote_not_in_passage`, before the
+#: verifier ran. TABLE_CELL_CITATIONS removed that gate from the table path: a citation is an
+#: evidence id and §12 resolves the span from the fact's own cell, so there is no quote to be
+#: ambiguous. The same six calls under `WRITER_PROMPT_VERSION` 1.4.0: **every target 3–8
+#: constructed a draft and every one was ACCEPTED**, three sentences each whatever was asked
+#: for. Leaving the old advisory in place would have had the panel tell a user that a target of
+#: 5 is refused for a reason that cannot be raised any more.
+#:
+#: This now equals `LENGTH_TARGET_MAX`, so `length_target_advisory` is empty for every target
+#: the schema accepts. The two bounds stay separate constants because they are separate claims —
+#: one is what the request budget fits, the other is what one 9B model was measured to do — and
+#: they were equal only after this re-measurement.
+LENGTH_TARGET_VERIFIED_MAX = 8
 
 #: Everything except tab. A control character in a system prompt is not an editorial choice, and
 #: `\r` in particular would make two byte-different requests that render identically.
@@ -273,8 +282,12 @@ _WRITER_RULE_CODES: Mapping[int, tuple[str, ...]] = {
     # fact that sentence binds*. §3.4 check 7 is exactly the second sentence, and it is the
     # check that catches a sentence citing a neighbouring cell in the same passage — 90 of
     # which were measured constructible, 88 raising no other finding at all.
+    # `uncited_factual_sentence` is on **both** rules, and that is not a duplicate: rule 8 is
+    # broken by a sentence carrying no citation, and rule 9 by a sentence carrying one evidence
+    # id while binding two facts. §13.7 raises the same code for both, because a figure with no
+    # evidence behind it is one defect however the sentence got there.
     9: ("citation_reused_for_unrelated_claim", "citation_does_not_support_fact",
-        "evidence_handle_not_for_fact"),
+        "evidence_handle_not_for_fact", "uncited_factual_sentence"),
     10: ("percent_change_ambiguous", "percentage_point_surface_missing",
          "percent_change_reported_not_calculated"),
     11: ("unsupported_superlative", "unsupported_absence_claim",
@@ -1006,13 +1019,21 @@ class ComposedPrompts:
 
     @property
     def length_target_advisory(self) -> str:
+        """What the panel says about a target beyond what was measured. Empty today.
+
+        The sentence it used to return named `citation_quote_ambiguous_in_passage` and
+        `citation_quote_not_in_passage`, which the table path cannot raise since a citation
+        became an evidence id — see `LENGTH_TARGET_VERIFIED_MAX` for the re-measurement. The
+        branch is unreachable while the two bounds coincide and is kept rather than deleted
+        because they are two independent claims; a future model or a longer package separates
+        them again, and a bound with no way to say so is how the last stale sentence survived.
+        """
         if self.length_target <= LENGTH_TARGET_VERIFIED_MAX:
             return ""
-        return (f"A target of {self.length_target} was measured to be refused by §12's own "
-                f"construction checks (citation_quote_ambiguous_in_passage, "
-                f"citation_quote_not_in_passage) before the deterministic verifier runs at all. "
-                f"{LENGTH_TARGET_VERIFIED_MAX} is the longest target measured to reach the "
-                f"verifier - measured 2026-08-04 over six live writer calls, one per target.")
+        return (f"A target of {self.length_target} is beyond the longest target measured to "
+                f"reach the deterministic verifier ({LENGTH_TARGET_VERIFIED_MAX}, measured "
+                f"2026-08-18 over six live writer calls against the demo package, one per "
+                f"target). It is accepted and run, not refused.")
 
     def as_dict(self) -> dict[str, Any]:
         return {

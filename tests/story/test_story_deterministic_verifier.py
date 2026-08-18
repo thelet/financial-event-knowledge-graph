@@ -24,6 +24,7 @@ The ten malicious drafts each have their own test and each names the code that c
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from story.core.keys import package_content_digest
 from story.core.table_cells import resolve_cell, resolve_header
@@ -143,6 +144,18 @@ GGM_FACT = make_fact(
     quoted_text="(12.6)",
 )
 
+#: Read off the rows, never spelled — the rule `AGM_HANDLE` states for the grid fixtures below.
+#: Both facts here carry `cell=None`, so these are §3.1's narrative `…:span:…` form.
+#:
+#: **Every citation in this file states one, because `PassageCitation.evidence_handle` is
+#: required with no default.** It was optional until the adversarial review of S7, and the
+#: fixtures here took the default — which meant the drafts they build ran §13.7's older tests
+#: and none of §3.4's. On a table fact there is nothing underneath: Rule A step 1 asks only that
+#: the package's own `quoted_text` occur somewhere in the passage, which is true of every
+#: citation into that passage whatever bytes it names.
+AGM_SPAN_HANDLE = make_fact().evidence_handle
+GGM_SPAN_HANDLE = GGM_FACT.evidence_handle
+
 METRICS = (
     PackagedMetric(
         metric_id="adjusted_gross_margin", label="Adjusted Gross Margin", unit="percent",
@@ -219,7 +232,8 @@ def agm_sentence(**overrides: object) -> DraftSentence:
         fact_bindings=(_binding(AGM_TEXT, "3.3%"),),
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
                                    char_start=_span("Adjusted Gross Margin 3.3")[0],
-                                   char_end=_span("Adjusted Gross Margin 3.3")[1]),),
+                                   char_end=_span("Adjusted Gross Margin 3.3")[1],
+                                   evidence_handle=AGM_SPAN_HANDLE),),
     )
     fields.update(overrides)
     return DraftSentence(**fields)  # type: ignore[arg-type]
@@ -232,7 +246,8 @@ def ggm_sentence(**overrides: object) -> DraftSentence:
                                 metric_surface="GAAP gross margin"),),
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
                                    char_start=_span("Gross Margin (12.6)")[0],
-                                   char_end=_span("Gross Margin (12.6)")[1]),),
+                                   char_end=_span("Gross Margin (12.6)")[1],
+                                   evidence_handle=GGM_SPAN_HANDLE),),
     )
     fields.update(overrides)
     return DraftSentence(**fields)  # type: ignore[arg-type]
@@ -454,7 +469,8 @@ def test_the_tolerance_test_compares_magnitudes_so_a_loss_written_unsigned_still
             metric_surface="Adjusted EBITDA",
             period_surface="the fourth quarter of 2020"),),
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
-                                   char_start=0, char_end=24),),
+                                   char_start=0, char_end=24,
+                                   evidence_handle=fact.evidence_handle),),
     )
     verified = DeterministicVerifier().verify(
         make_draft(sentences=(sentence,)), package, make_plan(required_warnings=()))
@@ -684,7 +700,8 @@ def test_an_unresolved_borrower_may_only_appear_as_its_own_entity_text(verifier)
     sentence = DraftSentence(
         index=0, text=text, kind=SentenceKind.REPORTED,
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
-                                   char_start=0, char_end=20),),
+                                   char_start=0, char_end=20,
+                                   evidence_handle=AGM_SPAN_HANDLE),),
     )
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), make_package(events=(event,)),
@@ -756,7 +773,8 @@ def test_document_grain_counter_evidence_may_never_be_cited_as_passage_level_sup
         role=EvidenceRole.COUNTER_EVIDENCE, match_basis=MATCH_BASIS_SAME_DOCUMENT)
     package = make_package(counter_evidence=(other,))
     sentence = agm_sentence(citations=(PassageCitation(
-        passage_id=other.passage_id, document_id=DOCUMENT_ID, char_start=0, char_end=15),))
+        passage_id=other.passage_id, document_id=DOCUMENT_ID, char_start=0, char_end=15,
+        evidence_handle=AGM_SPAN_HANDLE),))
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), package, make_plan(required_warnings=()))
     assert "counter_evidence_cited_as_support" in codes_of(verified)
@@ -780,7 +798,8 @@ def test_a_citation_reused_for_a_claim_the_passage_does_not_evidence_is_refused(
         index=1, text="Housing inventory fell over the same period.",
         kind=SentenceKind.EXPLANATORY,
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
-                                   char_start=span[0], char_end=span[1]),),
+                                   char_start=span[0], char_end=span[1],
+                                   evidence_handle=AGM_SPAN_HANDLE),),
     )
     verified = verifier.verify(
         make_draft(sentences=(agm_sentence(), reuse)), make_package(),
@@ -796,7 +815,8 @@ def test_a_citation_reused_for_a_claim_the_passage_does_not_evidence_is_refused(
 def test_a_calculated_sentence_may_not_carry_a_passage_citation(verifier):
     """§13.9: `claims.yaml` gives `calculated` `optional_fields: []`."""
     sentence = gap_sentence(citations=(PassageCitation(
-        passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, char_start=0, char_end=10),))
+        passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, char_start=0, char_end=10,
+        evidence_handle=AGM_SPAN_HANDLE),))
     verified = verifier.verify(
         make_draft(sentences=(agm_sentence(), ggm_sentence(), sentence)),
         make_package(), make_plan(required_warnings=()))
@@ -1093,7 +1113,8 @@ def test_a_span_carrying_two_causal_markers_is_refused_because_the_binding_canno
     sentence = DraftSentence(
         index=0, text=text, kind=SentenceKind.EXPLANATORY,
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
-                                   char_start=0, char_end=len(passage_text)),),
+                                   char_start=0, char_end=len(passage_text),
+                                   evidence_handle=AGM_SPAN_HANDLE),),
     )
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), package, make_plan(required_warnings=()))
@@ -1111,7 +1132,8 @@ def test_a_negated_causal_construction_in_the_span_is_refused(verifier):
     sentence = DraftSentence(
         index=0, text=text, kind=SentenceKind.EXPLANATORY,
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
-                                   char_start=0, char_end=len(passage_text)),),
+                                   char_start=0, char_end=len(passage_text),
+                                   evidence_handle=AGM_SPAN_HANDLE),),
     )
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), package, make_plan(required_warnings=()))
@@ -1311,7 +1333,8 @@ def test_malicious_citation_to_an_unrelated_passage_is_caught_by_citation_suppor
     package = make_package(
         primary_passages=(make_package().primary_passages[0], other))
     sentence = agm_sentence(citations=(PassageCitation(
-        passage_id=other.passage_id, document_id=DOCUMENT_ID, char_start=0, char_end=41),))
+        passage_id=other.passage_id, document_id=DOCUMENT_ID, char_start=0, char_end=41,
+        evidence_handle=AGM_SPAN_HANDLE),))
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), package, make_plan(required_warnings=()))
     assert "citation_does_not_support_fact" in codes_of(verified)
@@ -1453,7 +1476,8 @@ def _reported_attack(text: str, rendered: str, **binding_overrides: object) -> D
         fact_bindings=(FactBinding(**fields),),  # type: ignore[arg-type]
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
                                    char_start=_span("Gross Margin (12.6)")[0],
-                                   char_end=_span("Gross Margin (12.6)")[1]),),
+                                   char_end=_span("Gross Margin (12.6)")[1],
+                                   evidence_handle=GGM_SPAN_HANDLE),),
     )
 
 
@@ -1524,9 +1548,19 @@ def test_a_sentence_naming_two_metrics_grounds_a_binding_to_either_of_them(verif
                         metric_surface="Adjusted gross margin",
                         period_surface="the third quarter of 2022"),
         ),
+        # One citation per bound fact. A single citation spanning both rows was enough before
+        # §13.7 asked each binding for its own evidence, and it is `uncited_factual_sentence`
+        # now: one handle names one cell, so a sentence stating two figures under one handle
+        # evidences one of them. This test is about metric grounding, and a draft refused for a
+        # citation defect would not be testing it.
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
                                    char_start=_span("Gross Margin (12.6)")[0],
-                                   char_end=_span("Adjusted Gross Margin 3.3")[1]),),
+                                   char_end=_span("Gross Margin (12.6)")[1],
+                                   evidence_handle=GGM_SPAN_HANDLE),
+                   PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+                                   char_start=_span("Adjusted Gross Margin 3.3")[0],
+                                   char_end=_span("Adjusted Gross Margin 3.3")[1],
+                                   evidence_handle=AGM_SPAN_HANDLE),),
     )
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
@@ -1894,7 +1928,8 @@ def _explanatory_attack(text: str, rendered: str, **binding_overrides: object) -
         fact_bindings=(FactBinding(**fields),),  # type: ignore[arg-type]
         citations=(PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
                                    char_start=_span("Gross Margin (12.6)")[0],
-                                   char_end=_span("Gross Margin (12.6)")[1]),),
+                                   char_end=_span("Gross Margin (12.6)")[1],
+                                   evidence_handle=GGM_SPAN_HANDLE),),
     )
 
 
@@ -2143,9 +2178,9 @@ def test_citing_the_same_metrics_other_period_from_the_same_row_is_refused(verif
 
     This is the mis-citation §13.7.1 has never been able to refuse and this repair does not
     claim to fix at label grain: `column_label_ambiguous_in_passage` is about a label naming two
-    periods, and §1.5 measured the header column index separating only 87 of its 179 ambiguous
-    pairs. Check 7 refuses this one for a different reason — the handle names a different fact —
-    and leaves §13.7.1 exactly as it was.
+    periods, and §1.5 measured the header column index separating only **71** of its 179
+    ambiguous pairs. Check 7 refuses this one for a different reason — the handle names a
+    different fact — and leaves §13.7.1 exactly as it was.
     """
     verified = verifier.verify(
         grid_draft(sentences=(
@@ -2303,25 +2338,17 @@ def test_narrative_evidence_keeps_the_span_path_and_meets_no_cell_check(verifier
     still owns the span.
 
     Driven over the fixtures at the top of this file, whose facts carry `cell=None` — the same
-    draft as `test_a_clean_draft_of_the_demo_candidate_passes_with_no_finding_at_all`, with the
-    handles the package minted now stated on the citations.
+    draft as `test_a_clean_draft_of_the_demo_candidate_passes_with_no_finding_at_all`, whose
+    citations state the handles the package minted because nothing else is constructible.
     """
     package = make_package()
     handles = package.facts_by_evidence_handle()
-    assert set(handles) == {make_fact().evidence_handle, GGM_FACT.evidence_handle}
+    assert set(handles) == {AGM_SPAN_HANDLE, GGM_SPAN_HANDLE}
     assert all(":span:" in handle for handle in handles)
 
-    def with_handle(sentence: DraftSentence, handle: str) -> DraftSentence:
-        citation = sentence.citations[0]
-        assert isinstance(citation, PassageCitation)
-        return sentence.model_copy(update={"citations": (
-            citation.model_copy(update={"evidence_handle": handle}),)})
-
     verified = verifier.verify(
-        make_draft(sentences=(
-            with_handle(agm_sentence(), make_fact().evidence_handle),
-            with_handle(ggm_sentence(), GGM_FACT.evidence_handle),
-            gap_sentence(), warning_sentence())),
+        make_draft(sentences=(agm_sentence(), ggm_sentence(),
+                              gap_sentence(), warning_sentence())),
         package, make_plan())
     assert verified.all_findings == ()
     assert verified.passed is True
@@ -2342,26 +2369,81 @@ def test_a_narrative_handle_bound_to_the_other_fact_is_still_refused(verifier):
     assert codes_of(verified) == {"evidence_handle_not_for_fact"}
 
 
-def test_a_citation_that_states_no_handle_falls_back_to_the_older_tests(verifier):
-    """**The limit of this repair, stated rather than implied.**
+def test_a_citation_that_states_no_handle_cannot_be_built_at_all():
+    """**The limit this repair used to state is closed, and the old test asserted the hole.**
 
-    `PassageCitation.evidence_handle` is optional because a citation nothing minted has no handle
-    to state, so §3.4's checks run only when one is present. Every citation `writer.draft_from`
-    builds carries one — `evidence_id` is the model's only citation field — so on the path a
-    model's answer takes they always run. A `PassageCitation` assembled in code can omit it and
-    get §13.7's older behaviour, which is exactly what the fixtures at the top of this file do.
+    It read *"a citation that states no handle falls back to the older tests"* and asserted
+    `codes_of(verified) == set()` — a citation carrying the GAAP cell's bytes under no handle, on
+    a sentence binding the adjusted margin, with **nothing** found. There is no older test to
+    fall back to on a table fact: Rule A step 1 asks that the package's `quoted_text` occur
+    somewhere in the passage, which every citation into that passage satisfies, and Rule B does
+    not run. Reproduced on the committed demo package at one character.
 
-    Closing that means making the field required on `story/core/models.py`, which this stage does
-    not own and which would refuse every hand-built citation in the repository.
+    `PassageCitation.evidence_handle` is now required with no default, so the citation the old
+    test built is not constructible — the `PackagedPassage.role` answer to a field whose every
+    default was a claim about evidence.
     """
-    unhandled = grid_citation(GRID_GGM, evidence_handle=None)
+    for missing in ({"evidence_handle": None}, {}):
+        with pytest.raises(ValidationError):
+            PassageCitation(passage_id=GRID_PASSAGE_ID, document_id=DOCUMENT_ID,
+                            char_start=0, char_end=7, **missing)  # type: ignore[arg-type]
+
+
+def test_a_sentence_that_states_two_figures_and_evidences_one_is_refused(verifier):
+    """**§3.4 check 7 is satisfied by any handle for any bound fact, and that was the hole.**
+
+    Check 7 asks `fact.observation_id not in bound_ids`, so one handle answers for every binding.
+    Reproduced 2026-08-18 on the committed demo package: one sentence binding both margins and
+    carrying only `ev:…open-20220930.htm#p139:r11c2` verified clean, and the second number was
+    stated with nothing pointing at it.
+
+    The code is `uncited_factual_sentence` — §13.7's own name for a factual sentence with no
+    span behind it, here at fact grain rather than sentence grain — and not a new one. Its
+    remedy, `REBIND_TO_FACT`, is the instruction: cite the fact's handle, or drop the binding.
+    """
+    text = "Adjusted gross margin was 3.3% and GAAP gross margin was -12.6% in 2022Q3."
+    both = DraftSentence(
+        index=0, text=text, kind=SentenceKind.REPORTED,
+        fact_bindings=(_binding(text, "3.3%", period_surface="2022Q3"),
+                       _binding(text, "-12.6%", fact_id=GGM_ID,
+                                metric_surface="GAAP gross margin", period_surface="2022Q3")),
+        citations=(grid_citation(GRID_AGM),))
+    verified = verifier.verify(
+        grid_draft(sentences=(both, gap_sentence(index=1), warning_sentence(index=2))),
+        grid_package(), grid_plan())
+    assert "uncited_factual_sentence" in codes_of(verified)
+    assert verified.passed is False
+    found = next(f for f in verified.all_findings if f.code == "uncited_factual_sentence")
+    assert found.fact_ids == (GGM_ID,)
+    assert GGM_HANDLE in found.expected
+    assert found.observed == AGM_HANDLE
+    assert found.remedy is Remedy.REBIND_TO_FACT
+
+    # Citing both is what the sentence owed, and the same draft then carries no citation finding
+    # at all — the rule is satisfiable by saying the true thing.
+    honest = both.model_copy(update={
+        "citations": (grid_citation(GRID_AGM), grid_citation(GRID_GGM))})
+    assert not any(found.code == "uncited_factual_sentence" for found in verifier.verify(
+        grid_draft(sentences=(honest, gap_sentence(index=1), warning_sentence(index=2))),
+        grid_package(), grid_plan()).all_findings)
+
+
+def test_citing_the_wrong_cell_is_named_once_and_not_twice(verifier):
+    """The coverage rule stands down where check 7 has already spoken.
+
+    A sentence binding the adjusted margin and citing the GAAP cell leaves the adjusted margin
+    uncovered *and* carries a handle for a fact it does not bind. Those are one defect with one
+    remedy — `evidence_handle_not_for_fact` already names the fact to rebind to — so
+    `uncited_factual_sentence` does not also fire, and the rejection panel does not tell a reader
+    to fix one sentence twice.
+    """
     verified = verifier.verify(
         grid_draft(sentences=(
-            agm_sentence(citations=(unhandled,)),
+            agm_sentence(citations=(grid_citation(GRID_GGM),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
             gap_sentence(), warning_sentence())),
         grid_package(), grid_plan())
-    assert codes_of(verified) == set()
+    assert codes_of(verified) == {"evidence_handle_not_for_fact"}
 
 
 def test_the_seven_handle_codes_are_refusals_and_none_of_them_weakens_a_check(verifier):
@@ -2392,10 +2474,17 @@ def test_the_seven_handle_codes_are_refusals_and_none_of_them_weakens_a_check(ve
 
 def test_the_column_ambiguity_check_is_untouched_by_this_repair(verifier):
     """§1.5, and it is a bound on what this repair may claim. Carrying
-    `period_header_column_index` separates only **87 of the 179** ambiguous
-    `(passage_id, column_label)` pairs in the corpus; **92 survive**. So
+    `period_header_column_index` fully separates only **71 of the 179** ambiguous
+    `(passage_id, column_label)` pairs in the corpus; **108 survive**. So
     `column_label_ambiguous_in_passage` still fires on a label naming two periods, with both
     handles resolving perfectly and every §3.4 check silent.
+
+    **The numbers were 87 and 92 here and in §1.5 until the adversarial review of S7, and both
+    were the wrong measurement.** 87 counts the pairs where `period_header_column_index` takes
+    more than one value — *"it distinguishes something"* — not the pairs where grouping by it
+    leaves one `period_key` in every group. Re-derived live 2026-08-18 over the 2,690
+    table-backed evidence rows: 179 ambiguous pairs, **71** separated, **108** not, 87 in which
+    the index merely varies. The conclusion this test asserts is unchanged.
     """
     q2_same_label = grid_fact(
         observation_id=AGM_Q2_ID, period_key="2022Q2", period_start="2022-04-01",

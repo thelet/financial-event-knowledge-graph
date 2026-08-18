@@ -186,8 +186,13 @@ def make_draft(**overrides: Any) -> Draft:
                                 metric_surface="Adjusted EBITDA",
                                 period_surface="the third quarter of 2022"),
                 ),
-                citations=(PassageCitation(passage_id="psg:1", document_id="doc:1",
-                                           char_start=0, char_end=21),),
+                # The handle the package above minted for the fact this sentence binds, read
+                # off the row rather than spelled: `PassageCitation.evidence_handle` is required
+                # with no default, and a handle written by hand in a fixture is a second
+                # authority on a format §3.4 check 7 says has exactly one.
+                citations=(PassageCitation(
+                    passage_id="psg:1", document_id="doc:1", char_start=0, char_end=21,
+                    evidence_handle=make_package().facts[0].evidence_handle),),
             ),
         ),
     )

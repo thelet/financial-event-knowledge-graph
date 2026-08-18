@@ -119,12 +119,24 @@ does not close it:
 
 | `(passage_id, column_label)` pairs mapping to >1 `period_key` | 179 |
 | --- | ---: |
-| …which the header **column index** separates | 87 |
-| …which it does **not** separate | **92** |
+| …which the header **column index** fully **separates** (every group → one period) | **71** |
+| …which it does **not** separate | **108** |
+| …in which the index merely takes more than one value | 87 |
+
+> **Corrected after the adversarial review of S7 (re-derived live 2026-08-18).** This table read
+> *"separates 87 / does not separate 92"*. **87 is the count of pairs where
+> `period_header_column_index` takes more than one value at all** — *"it distinguishes
+> something"* — which is not the same question as *"does grouping by it leave one period in every
+> group"*. Re-derived by grouping the 2,690 table-backed evidence rows by
+> `(passage_id, column_label)`, taking the 179 that map to more than one `period_key`, and asking
+> of each whether every `period_header_column_index` group holds exactly one `period_key`:
+> **71 separate, 108 do not**. The old pair summed to 179 as well — 87 + 92 — which is what made
+> a number nobody had derived look like one that had been.
 
 So this repair must **not** claim to fix §13.7.1, and S5 must leave that check's behaviour alone.
-Ninety-two pairs share a header column index while spanning more than one period; why they do is
-not yet understood and is deliberately out of scope here.
+One hundred and eight pairs are not separated by the header column index; why they are not is
+not yet understood and is deliberately out of scope here. The conclusion is unchanged and is if
+anything stronger: `_column_findings` is left exactly as it is.
 
 ### 1.6 Narrative evidence is already safe
 
@@ -217,8 +229,8 @@ Check 7 is sound because §1.4 measured the cell coordinate as a perfect key: 2,
 cells, none mapping to two periods or two metrics.
 
 **§13.7.1's `column_label_ambiguous_in_passage` is not touched.** §1.5 measured that the header
-column index separates only 87 of its 179 ambiguous pairs, so this repair has no standing to
-change it. S5 leaves `_column_findings` exactly as it is.
+column index separates only **71** of its **179** ambiguous pairs, so this repair has no standing
+to change it. S5 leaves `_column_findings` exactly as it is.
 
 Check 7 is what makes "wrong cell, wrong metric, wrong period, wrong value, unrelated evidence"
 refuse: a handle for another cell either is not in the package (1) or is not `F`'s (7).
@@ -235,7 +247,14 @@ refuse: a handle for another cell either is not in the package (1) or is not `F`
 > catch). Over the same 262 packages, the honest citation §12 builds raised **0** §3.4 findings
 > on **564 / 564** facts carrying a handle.
 >
-> **A seventh check was added, and it is not in the table above.**
+> **An eighth check was added, and it is not in the table above** — the table already lists
+> seven, and *"a seventh check"* here was a miscount corrected after the adversarial review.
+> `evidence_cell_span_mismatch` is the eighth **check** and the seventh new **code**: check 6's
+> `table_quote_does_not_reconstruct` already existed, so S5's seven codes are checks 1–5, 7 and
+> this one. The commit message counts checks and reads *"an eighth check the plan did not
+> list"*; `codes.py` note 11 counts codes and reads *"the seventh"*. Both are right about
+> different things and neither is right without the sentence above.
+>
 > `evidence_cell_span_mismatch` (REFUSE, `REBIND_TO_FACT`): the citation's `char_start` /
 > `char_end` must be the span of the cell its handle names. §3.4 reads as though the handle were
 > the only thing on a citation row, but `PassageCitation` also carries the offsets the evidence
@@ -254,6 +273,57 @@ refuse: a handle for another cell either is not in the package (1) or is not `F`
 > a model's answer takes. A citation assembled in code can omit it and get §13.7's older, weaker
 > tests; closing that means making the field required on `story/core/models.py`, which would
 > refuse every hand-built citation in the repository and is not S5's to do.
+>
+> > **Closed at S7b (2026-08-18), and the sentence above is wrong where it matters most.** There
+> > are no *"older, weaker tests"* for a table fact. Rule A step 1 asks whether the package's own
+> > `quoted_text` occurs anywhere in the passage — true of **every** citation into that passage,
+> > whatever bytes it names — and Rule B does not run. Reproduced on the committed demo package:
+> > a citation with `evidence_handle=None` over **one character** of the table passage, bound to
+> > `adjusted_gross_margin`, passed §12 and verified `passed=True` with zero findings.
+> > `evidence_handle` is now **required with no default**. The population the optionality
+> > protected is empty — 564 of 564 packaged facts mint a handle, and the 2,816 semantic,
+> > identity and comparability rows across 262 live packages carry 0 citations between them — and
+> > the twenty-one hand-built citations in `tests/` each knew which fact they were about. See
+> > §3.5.
+
+### 3.5 What the adversarial review of S7 found — three holes, reproduced and closed
+
+Every row below was reproduced against real packages before it was fixed and refuses after.
+None of them is a weakening; `_column_findings` was not touched.
+
+| # | The hole | Reproduced on | Now |
+| --- | --- | --- | --- |
+| 1 | `evidence_cell_span_mismatch` was guarded by `citation.passage_id == passage.passage_id`, justified as *"when it does not, `citation_does_not_support_fact` is already the finding"* | `pkg:metric-move-adjusted-ebitda-opendoor-2021q3-2021q4:87518cfbba68` — one sentence binding 2021Q3 and 2021Q4 adjusted EBITDA, one citation carrying the **2021Q3** handle, the **2021Q4** passage id and the span `[0, 7)` over `'\|  \|  \|'`. **Zero findings.** | The span is checked whenever the citation states a handle, as `(passage_id, char_start, char_end)` against the cell — `evidence_cell_span_mismatch` |
+| 2 | `PassageCitation.evidence_handle` optional, so `declared is None` returned before every §3.4 check | the committed demo package — a **one-character** citation with no handle, bound to `adjusted_gross_margin`. §12 clean, `passed=True`, zero findings. | Required with no default; the citation is not constructible |
+| 3 | check 7 asks `fact.observation_id not in bound_ids`, so one handle satisfies it for every binding | the committed demo package — one sentence binding both margins, carrying only `ev:…#p139:r11c2`. `passed=True`, zero findings. | Every bound fact must be named by one of the sentence's citations — `uncited_factual_sentence` |
+
+**The justification for hole 1 was false, not merely narrow.** `_support_findings` raises
+`citation_does_not_support_fact` only when **no** bound fact was read from the cited passage. A
+sentence binding a second fact that *was* read from it never reaches that branch, and the span
+went unexamined — a verified handle over another filing's bytes, highlighted in the panel.
+
+**Hole 3 reuses `uncited_factual_sentence` rather than minting a code.** §13.7 already owns
+*"a factual sentence with nothing to check it against"*; this is the same claim at fact grain,
+and its remedy — `REBIND_TO_FACT` — is already the instruction (cite the fact's handle, or drop
+the binding). It stands down where check 7 or check 1 has already fired, so a sentence citing the
+*wrong* cell is named once and not twice.
+
+**Driven over the corpus, both ways.** Of the 262 packages the four detectors offer there are
+**724** ordered pairs of handle-carrying facts inside one package. A sentence binding both and
+citing both handles raises `uncited_factual_sentence` **0** times; citing one raises it
+**724 / 724**, naming the uncovered fact every time. The 90 wrong-cell mis-citations §3.4 was
+built for still refuse with `evidence_handle_not_for_fact` **and nothing else** — the stand-down
+works. The honest citation §12 builds still raises **0** §3.4 findings on **564 / 564** facts.
+
+**One thing this rule is ahead of the prompt on, stated rather than hidden.** Writer rule 9 says
+*"give a sentence the evidence id of a fact it binds"*, singular — a model writing a two-fact
+sentence with one evidence id satisfies the letter of the rule and is now refused by §13.7. The
+verifier is authoritative independently of the writer (`codes.py` note 7 argues the same shape
+for `operation_not_recomputable`), so refusing is right; the wording is still worth changing.
+**Recommendation: fold *"and one for each fact it binds"* into rule 9 at the next
+`WRITER_PROMPT_VERSION` bump.** Not done here because rule text is in `request_identity`, so a
+one-word edit re-keys `generations.jsonl` and needs a live re-record — a cost that belongs with
+the change that pays for it, not with a repair to §13.
 
 **Why this is not a weakening.** The model was never the authority on which bytes support a fact —
 it was being asked to *retype* an identity the package already knew. What is removed is a typing
@@ -376,13 +446,49 @@ re-key the replay store by design; S7 re-records under `--live`.
 > `test_story_retrieval_cypher.py`'s). `tests/story -m neo4j`: **140 passed, 0 failures**
 > (138 → +2, both driving the renderer over every table-backed edge in the graph).
 
+> **Done at S7b (2026-08-18): the adversarial review's three holes closed, and five stale
+> statements swept.** The holes and their reproductions are §3.5; the numbers they were
+> re-derived from are §1.5. What moved outside `verification/`:
+>
+> * `PassageCitation.evidence_handle` is required with no default (`story/core/models.py`), which
+>   took the guard out of `writer._citation_violations` and put a handle on 21 hand-built
+>   citations in `tests/`. Each knew which fact it was about; the one place it cost anything is
+>   `SemanticFact`, whose citation now has to name a handle some `PackagedFact` minted — recorded
+>   in `test_story_evidence_roles.py`, population **0** across 262 packages.
+> * `_column_findings` was **not touched**, as §1.5 requires. §1.5's own numbers were.
+> * `code_catalogue.py`: `citation_quote_not_in_passage` covers Rule B's meaning as well as Rule
+>   A's, and `uncited_factual_sentence` covers fact grain as well as sentence grain.
+>   `prompt_presets.py`: `uncited_factual_sentence` is on rules 8 **and** 9 — rule 8 is a
+>   sentence citing nothing, rule 9 a sentence citing one fact of two.
+> * `V1_STORY_AGENT.md` §12 and §13.7 had never been swept since the citation became a handle —
+>   the master spec still spelled a citation `{passage_id, document_id, char_start, char_end}`
+>   and described *"two rules"* with no handle checks. Both corrected there rather than only
+>   here. `INTERACTIVE_DEMO_UI.md`'s `/sources` row documented the exact bug S6 fixed.
+> * `config/story.yaml`: **a comment edit breaks nothing.** `DemoConfig.config_hash` is
+>   `sha256(canonical_json(yaml.safe_load(text)))`, so comments are dropped before hashing —
+>   checked by mutating the header in memory: `b8488b32076b9b1d…` before and after, while the
+>   file's own sha256 moves. The recorded run's disposition is **accepted**, the store was
+>   re-captured 2026-08-18, and the six-refusal `length_target` table was re-measured live: under
+>   prompt 1.4.0 **every target 3–8 constructs a draft and every one is accepted**, three
+>   sentences each. `length_target` stays 4 because `generations.jsonl` is keyed to it; moving it
+>   is the orchestrator's call and costs a live re-record. `LENGTH_TARGET_VERIFIED_MAX` moved
+>   4 → 8 with it: the demo panel had been telling users that a target of 5 is refused by a gate
+>   the table path no longer has.
+>
+> Offline suite: **5,719 passed, 0 failures** (5,716 → +3: the two new §13.7 refusals and the
+> required-field test; one test was renamed, not added). `tests/story -m neo4j`: **140 passed,
+> 0 failures**, unchanged.
+
 ## 5. Tests
 
 - The four §1.3 invariants, as fixtures committed from the real corpus.
 - The `'7'` case end-to-end: previously impossible, must now generate **and** verify.
 - Wrong-cell, wrong-row, wrong-column, wrong-period and foreign-handle citations each refuse with
   the named code.
+- A citation whose span is not its handle's cell refuses **whichever passage it names** (S7b), and
+  a citation that names no handle does not build.
 - Narrative evidence keeps the span path; all 14 still verify.
+- A sentence binding two facts and citing one handle refuses; citing both passes (S7b).
 - The AST scan (`test_story_retrieval_cypher.py`) still passes: new fields are named returns on a
   fixed statement, no new traversal, no APOC, explicit `LIMIT`.
 - No new unbounded traversal; S1 adds fields to existing `RETURN` lists only.

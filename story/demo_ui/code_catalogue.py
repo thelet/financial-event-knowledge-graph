@@ -269,9 +269,15 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
         "The cited character range falls outside the passage text the package actually holds. "
         "The range is derived from the fact's own coordinates, so this is the package and its "
         "own evidence disagreeing.",
+    # One code, two rules, and the S6 sentence covered only one of them: Rule A asks whether the
+    # package's `quoted_text` occurs in the passage at all, and Rule B — narrative evidence, and
+    # a table fact cited by an `explanatory` sentence — asks whether it occurs inside the cited
+    # span. A reader who sees this code on a prose citation whose passage plainly holds the
+    # sentence needs the second half to make sense of it.
     "citation_quote_not_in_passage":
-        "The value this fact was read from no longer occurs in the passage the package carries "
-        "beside it, so there is nothing for the citation to point at.",
+        "The value this fact was read from is not where the citation says it is: either it no "
+        "longer occurs in the passage the package carries beside it, or it falls outside the "
+        "range of characters the citation points at.",
     "table_quote_does_not_reconstruct":
         "The cell value the fact was read from does not reconstruct to the fact's own number "
         "once its scale and unit are applied.",
@@ -324,9 +330,13 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
     "evidence_kind_not_supported_in_v1":
         "The citation points at a kind of evidence this version cannot check — no lane in this "
         "run produces one.",
+    # Sentence grain and fact grain are one defect: a figure with no evidence behind it. §13.7
+    # raises this code for a sentence that cites nothing at all and for a sentence that binds
+    # two facts and carries a handle for one — one evidence id names one cell, so the second
+    # figure is stated with nothing pointing at it.
     "uncited_factual_sentence":
-        "A sentence states something a filing said and cites nothing, so there is no span to "
-        "check it against.",
+        "A sentence states something a filing said and cites nothing for it — either no citation "
+        "at all, or none naming the fact behind one of the figures it states.",
 
     # §13.8 events
     "event_property_bound_as_fact":

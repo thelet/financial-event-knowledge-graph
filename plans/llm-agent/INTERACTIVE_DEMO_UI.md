@@ -230,8 +230,29 @@ Until they land, `python -m story ui` serves the static shell and `/demo-ui/heal
 | `GET /demo/prompt-presets` | `prompt_presets.presets_payload(baseline_length_target=config.length_target)`, unchanged |
 | `POST /demo/generate` | `202` + `run_id`, three URLs, `prompt` = `ComposedPrompts.as_dict()`, `style_delivery`. `409 edited_prompt_requires_live` carries the same `prompt` block beside the error |
 | `GET /demo/runs/{run_id}` | `run`, `ready`, `error`, `outcome` — disposition, `rendered_as`, artifacts, manifest, plan, draft, verification, `post` **or** `rejection`, `cost`, `trace_events` |
-| `GET /demo/runs/{run_id}/sources` | documents → passages → citations (with the quote sliced from the passage by the citation's own span) and facts, plus `unresolved` |
+| `GET /demo/runs/{run_id}/sources` | documents → passages → citations and facts, plus `unresolved`. Each citation carries `evidence_handle`, `fact_id`, `cited_text`, `span_resolved` and `cell`; a table passage additionally carries `grid` and `cell_marks` |
 | both `/events` | SSE: `event: trace` frames carrying `TraceEvent.model_dump(mode="json")`, then exactly one `event: end` carrying `Run.summary()` |
+
+> **The `/sources` row was swept 2026-08-18, and what it said was the bug S6 fixed.** It read
+> *"citations (with the quote sliced from the passage by the citation's own span)"*. There is no
+> quote on a citation since TABLE_CELL_CITATIONS S4 — the model writes one field, `evidence_id`,
+> and code resolves the span from the fact's own cell — and the endpoint had been slicing the
+> **packaged** passage text with **absolute** citation offsets, which was right only because
+> `char_start` is 0 for every passage a fact binds. The field names are `cited_text` (was
+> `quoted_text` in an earlier draft of this table) and `span_resolved` (was `quote_resolved`),
+> and five fields this table never mentioned are the ones a reader needs:
+>
+> | Field on a citation row | What it is |
+> | --- | --- |
+> | `evidence_handle` | the `ev:…` id the model named — the only thing it wrote |
+> | `fact_id` | the fact that handle was minted for |
+> | `cited_text` | the passage's own bytes at the citation's span, rebased by `PackagedPassage.char_start` |
+> | `span_resolved` | false when the span falls outside the text the package holds |
+> | `cell` | the handle's cell — indices, row label, period header, text, span, and `span_matches_cell` |
+>
+> Beside them, a table passage carries `grid` (rows, cells, absolute spans, an index ruler) and
+> `cell_marks` (one per packaged fact and one per citation). `span_matches_cell` is the field
+> that makes `evidence_cell_span_mismatch` visible in the panel rather than only in a rejection.
 
 **Three honesty fields that are not decoration.** `cost.measured` is `false` on a replay with
 `prompt_tokens`/`completion_tokens`/`total_tokens`/`latency_ms` as `null` and a reason — the
