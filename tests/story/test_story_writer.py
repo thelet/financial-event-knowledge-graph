@@ -835,9 +835,13 @@ def test_citing_another_facts_handle_constructs_here_and_is_left_to_13_7():
     resolves to the cell the handle names, and it does: the span is the GAAP row's value, not the
     adjusted one's, so the mis-citation is *visible* in the draft rather than smoothed over.
 
-    Today's verifier does not catch it either — both cells sit in one passage, so §13.7's
-    existing *"the passage each bound fact was read from"* test passes. That gap is the reason
-    check 7 exists, and closing it is S5's, not this stage's.
+    When this was written the verifier did not catch it either — both cells sit in one passage,
+    so §13.7's *"the passage each bound fact was read from"* test passed. **S5 closed that**:
+    `evidence_handle_not_for_fact` refuses this draft at §13.7, and the test holding it is
+    `test_citing_another_facts_cell_in_the_same_passage_is_refused` in
+    `test_story_deterministic_verifier.py`.
+    What is asserted here is unchanged and is still §12's own boundary — the draft is
+    *constructible*, and the mis-citation is visible in it rather than smoothed over.
     """
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(GGM_HANDLE)]

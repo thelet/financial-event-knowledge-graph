@@ -47,8 +47,14 @@ PACKAGE = pathlib.Path(code_catalogue.__file__).resolve().parents[2]
 #: (`required_fact_does_not_fit`, the plan's one new blocking behaviour) and 29 → 30 at S3a
 #: (`concordant_readings_collapsed`, the disclosure that `facts[]` carries one row where several
 #: filings state one number identically).
+#:
+#: `verification_gate` went 85 → 92 at TABLE_CELL_CITATIONS S5, which gave §13.7 the seven
+#: checks a citation carrying an evidence handle can fail: §3.4's checks 1–5 and 7, plus
+#: `evidence_cell_span_mismatch` for the span the citation pairs with the handle. Six of the
+#: seven are new obligations — the verifier gained checks in the change that removed one from
+#: §12.
 EXPECTED_SIZES = {
-    FAMILY_VERIFICATION: 85,
+    FAMILY_VERIFICATION: 92,
     FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
     FAMILY_PLANNER: 11,
@@ -203,17 +209,29 @@ def test_no_description_is_reused_across_two_codes_in_one_family():
 # -- lookup --------------------------------------------------------------------------------------
 
 
-def test_six_codes_are_shared_between_two_families_and_the_lookup_says_which():
-    """Measured, not assumed: a shared code means two different things at two stages."""
+def test_eight_codes_are_shared_between_two_families_and_the_lookup_says_which():
+    """Measured, not assumed: a shared code means two different things at two stages.
+
+    Six until TABLE_CELL_CITATIONS S5 gave §13.7 the two handle failures §12 already had. Both
+    are deliberately one name at two stages — a reader who meets `unresolvable_evidence_handle`
+    in a rejection should not have to learn that the writer and the verifier spell it
+    differently — so both need their own sentence here, and the assertion below is what makes a
+    copied description fail the build.
+    """
     shared = sorted({code for (_family, code) in CATALOGUE if len(families_of(code)) > 1})
     assert shared == [
-        "citation_quote_not_in_passage", "event_review_flag", "graph_run_id_mismatch",
-        "plan_names_another_package", "unresolvable_fact_id", "unresolvable_passage_id"]
+        "citation_quote_not_in_passage", "event_review_flag", "evidence_handle_out_of_bounds",
+        "graph_run_id_mismatch", "plan_names_another_package", "unresolvable_evidence_handle",
+        "unresolvable_fact_id", "unresolvable_passage_id"]
     # `graph_run_id_mismatch` is the sharpest: §7 raises it about the loaded database and
     # §13.13 raises it about a package, and the two want different sentences.
     assert families_of("graph_run_id_mismatch") == (FAMILY_VERIFICATION, FAMILY_FRESHNESS)
     assert (explain("graph_run_id_mismatch", FAMILY_FRESHNESS).description
             != explain("graph_run_id_mismatch", FAMILY_VERIFICATION).description)
+    for code in ("unresolvable_evidence_handle", "evidence_handle_out_of_bounds"):
+        assert families_of(code) == (FAMILY_VERIFICATION, FAMILY_WRITER)
+        assert (explain(code, FAMILY_WRITER).description
+                != explain(code, FAMILY_VERIFICATION).description)
 
 
 def test_a_bare_lookup_resolves_in_precedence_order_and_names_the_family():

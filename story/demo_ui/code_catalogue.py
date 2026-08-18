@@ -26,11 +26,15 @@ too. That is what stops the catalogue rotting into a second, stale vocabulary.
 
 **Codes collide across families, and the collision is real rather than an accident of naming.**
 `citation_quote_not_in_passage` is both a §12 writer refusal (the draft could not be built) and
-a §13.7 verifier refusal (the draft was built and then rejected). Six codes are shared, measured
-2026-08-04: `citation_quote_not_in_passage`, `event_review_flag`, `graph_run_id_mismatch`,
-`plan_names_another_package`, `unresolvable_fact_id` and `unresolvable_passage_id` — and
-`graph_run_id_mismatch` is the sharpest, because the freshness gate raises it about the *loaded
-database* and §13.13 raises it about a *package*. The catalogue is therefore keyed by
+a §13.7 verifier refusal (the draft was built and then rejected). Six codes were shared when
+this was written, measured 2026-08-04: `citation_quote_not_in_passage`, `event_review_flag`,
+`graph_run_id_mismatch`, `plan_names_another_package`, `unresolvable_fact_id` and
+`unresolvable_passage_id` — and `graph_run_id_mismatch` is the sharpest, because the freshness
+gate raises it about the *loaded database* and §13.13 raises it about a *package*. **Eight since
+TABLE_CELL_CITATIONS S5**, which gave §13.7 the two handle failures §12 already had:
+`unresolvable_evidence_handle` and `evidence_handle_out_of_bounds` are now raised at both
+stages, deliberately under one name each, so a refusal reads the same in a panel wherever it
+came from. The catalogue is therefore keyed by
 `(family, code)` and `explain()` takes an optional family; a bare lookup resolves in a declared
 precedence order and says which family answered.
 """
@@ -281,6 +285,31 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
         "refusal.",
     "counter_evidence_cited_as_support":
         "A passage collected as counter-evidence is cited as if it supported the claim.",
+
+    # §13.7 over evidence handles — TABLE_CELL_CITATIONS §3.4. Two of these names are also §12
+    # writer refusals; the sentences differ because the stages differ. At §12 the draft could
+    # not be built, here it was built and then rejected.
+    "unresolvable_evidence_handle":
+        "The evidence id cited is not one this package minted for any fact, so it names no "
+        "cell and no passage that can be checked.",
+    "evidence_handle_not_for_fact":
+        "The evidence id cited belongs to a different fact than the sentence binds — the "
+        "sentence states one number and points at the cell holding another.",
+    "evidence_cell_span_mismatch":
+        "The citation's character range and the evidence id it carries name different parts of "
+        "the passage, so the highlighted text is not the cell that was checked.",
+    "evidence_handle_out_of_bounds":
+        "The cited fact's table coordinates name no cell in the passage the package carries, so "
+        "the package and its own evidence disagree about the table.",
+    "evidence_cell_value_mismatch":
+        "The table cell the evidence id points at does not hold the value the fact was read "
+        "from.",
+    "evidence_row_label_mismatch":
+        "The table row the evidence id points at is labelled for a different line item than the "
+        "fact records.",
+    "evidence_column_label_mismatch":
+        "The period header standing over the cited cell is not the column the fact was read "
+        "under.",
     "evidence_kind_not_supported_in_v1":
         "The citation points at a kind of evidence this version cannot check — no lane in this "
         "run produces one.",

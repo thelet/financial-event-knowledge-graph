@@ -70,6 +70,37 @@ far as a numeral reached.
    `DeterministicVerifier._period_grounding_findings` for why that asymmetry with the metric
    rule is deliberate.
 
+**S5's seven, and why a repair that removed a check from §12 adds six to §13.**
+TABLE_CELL_CITATIONS moved the writer's citation from a retyped quote to an evidence handle the
+package minted, and §3.4 states what §13.7 then owes. Six of these are that list; the seventh is
+recorded below as an addition to it.
+
+9. `unresolvable_evidence_handle` and `evidence_handle_not_for_fact` (REFUSE, §13.7, §3.4
+   checks 1 and 7). A handle names one cell and — §1.4, re-measured live 2026-08-18 — a cell
+   names one fact: 2,690 table-backed observations, 2,690 distinct
+   `(passage_id, row_index, value_column_index)` cells, **0** mapping to two `period_key`s and
+   **0** to two `metric_id`s. So *"the handle this package minted for `F`"* is well defined, and
+   citing another fact's cell is detectable. It was not detectable before, and the gap was total
+   rather than marginal: §13.7's existing test is *"the passage each bound fact was read from"*,
+   and **all 144** table-backed passages in the corpus evidence more than one observation — 2,690
+   of 2,690 observations, up to 70 in one passage *(verified live 2026-08-18)*. On table
+   evidence that test separated nothing.
+10. `evidence_handle_out_of_bounds`, `evidence_cell_value_mismatch`,
+   `evidence_row_label_mismatch` and `evidence_column_label_mismatch` (REFUSE, §13.7, §3.4
+   checks 2–5) carry **REBUILD_PACKAGE** and not REBIND_TO_FACT, which is the one place this
+   family's remedy differs from §13.7's others. The coordinates come off the `PackagedFact`, not
+   off the model's answer, so a draft cannot cause any of the four and no rebinding fixes one:
+   they say the package and the passage text it carries disagree about the table. All three
+   equalities hold on **2,690 / 2,690** *(verified live 2026-08-18)*, so a failure is a defect
+   in the evidence and the honest instruction is to rebuild it.
+11. `evidence_cell_span_mismatch` (REFUSE, §13.7). **Not in §3.4's list**, and added because
+   §3.4 reads as though the handle were the only thing on a citation row. `PassageCitation` also
+   carries `char_start`/`char_end` — what the evidence panel highlights and what §13.7's reuse
+   rule keys on — and checks 1–5 and 7 never look at them. A citation carrying `F`'s handle and
+   a span over another cell would then have a verified handle and unverified bytes. §12 derives
+   the span from the handle, so this cannot come from a model; it is the same class of defect as
+   check 2 and is refused rather than assumed away.
+
 **Two remedies §13.17's enum cannot express**, recorded because the enum lives in
 `story/core/models.py`, which this step does not own: a dropped `required_warning` and an
 absent counterpoint both want *"put the disclosure back"*, and the nearest member is
@@ -174,6 +205,20 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("citation_span_not_in_passage", Remedy.REBIND_TO_FACT, "13.7"),
     _refuse("citation_quote_not_in_passage", Remedy.REBIND_TO_FACT, "13.7"),
     _refuse("table_quote_does_not_reconstruct", Remedy.REBIND_TO_FACT, "13.7"),
+
+    # -- §13.7 over evidence handles: TABLE_CELL_CITATIONS §3.4, notes 9-11 above -----------
+    #
+    # Split by who can cause them. The first two are the draft's — it named a handle nothing
+    # minted, or a handle for a fact it did not bind — and rebinding fixes both. The last four
+    # are the package's own coordinates disagreeing with its own passage text, which no
+    # rebinding reaches.
+    _refuse("unresolvable_evidence_handle", Remedy.REBIND_TO_FACT, "13.7"),
+    _refuse("evidence_handle_not_for_fact", Remedy.REBIND_TO_FACT, "13.7"),
+    _refuse("evidence_cell_span_mismatch", Remedy.REBIND_TO_FACT, "13.7"),
+    _refuse("evidence_handle_out_of_bounds", Remedy.REBUILD_PACKAGE, "13.7"),
+    _refuse("evidence_cell_value_mismatch", Remedy.REBUILD_PACKAGE, "13.7"),
+    _refuse("evidence_row_label_mismatch", Remedy.REBUILD_PACKAGE, "13.7"),
+    _refuse("evidence_column_label_mismatch", Remedy.REBUILD_PACKAGE, "13.7"),
     _refuse("citation_does_not_support_fact", Remedy.REBIND_TO_FACT, "13.7"),
     _refuse("citation_reused_for_unrelated_claim", Remedy.REBIND_TO_FACT, "13.7"),
     _refuse("row_label_not_licensed_for_metric", Remedy.NARROW_METRIC_SURFACE, "13.7"),

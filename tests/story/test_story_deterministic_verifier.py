@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from story.core.keys import package_content_digest
+from story.core.table_cells import resolve_cell, resolve_header
 from story.core.models import (
     BudgetParameters,
     Calculation,
@@ -53,6 +54,7 @@ from story.core.models import (
     Severity,
     StatementClass,
     StoryEvidencePackage,
+    TableCellRef,
 )
 from story.stages.verification import (
     GATE,
@@ -1958,3 +1960,448 @@ def test_the_two_new_period_codes_are_refusals_under_section_13_4():
         assert GATE[code].blocking is True
         assert GATE[code].section == "13.4"
         assert GATE[code].remedy is Remedy.ADD_PERIOD_QUALIFIER
+
+
+# ---------------------------------------------------------------------------------------
+# §13.7 over evidence handles — TABLE_CELL_CITATIONS §3.4
+#
+# **Its own passage and its own facts, and the reason is a defect in the fixtures above.** Every
+# fact in this file carries `source_lane="normalized_table"` with `cell=None`, and that is a
+# shape the corpus does not hold: 2,690 of 2,690 table-backed observations carry all five
+# indices and **0 carry some** *(verified live 2026-08-18)*. `PASSAGE_TEXT` is four bare lines
+# with no `|` at all, so `split_cells` reads every line as a single column-0 cell and a row's
+# label and its value would be the same string — a fixture like that cannot exercise a
+# coordinate. Retrofitting it would rewrite every offset in this file for no gain, so the §3.4
+# checks get a grid of their own and the fixtures above go on proving what they always proved.
+#
+# The grid's shape is the corpus's. **The value column and the period-header column are
+# different indices** — values at 2 and 5, headers at 1 and 4 — because `$` signs and blank
+# spacer cells push them apart on 2,125 of the 2,690 table-backed rows *(verified live
+# 2026-08-13 by S3)*. A fixture that put them in one column would let `resolve_header` read the
+# value's own column and still pass, which is the corpus's real failure mode and the reason
+# `period_header_column_index` is carried at all.
+#
+# Two period columns, because "wrong period" is the mis-citation this repair is most about: the
+# 2022Q2 cell sits three columns from the 2022Q3 one in the same row of the same passage, and
+# §13.7's older `citation_does_not_support_fact` cannot tell them apart.
+# ---------------------------------------------------------------------------------------
+
+GRID_PASSAGE_ID = "psg:opendoor-10q-2022q3:margins-grid"
+GRID_TEXT = (
+    "|  | Three Months Ended September 30, 2022 |  |  | "
+    "Three Months Ended June 30, 2022 |  |\n"
+    "| --- | --- | --- | --- | --- | --- |\n"
+    "| Revenue | $ | 3,394 |  | $ | 2,297 |\n"
+    "| Gross Margin |  | (12.6) |  |  | (5.3) |\n"
+    "| Adjusted Gross Margin |  | 3.3 |  |  | 8.7 |\n"
+)
+Q2_COLUMN_LABEL = "Three Months Ended June 30, 2022"
+AGM_Q2_ID = "obs:adjusted-gross-margin:opendoor:2022Q2:normalized-table:c40b7e19d8a2"
+
+AGM_CELL = TableCellRef(row_index=4, value_column_index=2,
+                        period_header_row_index=0, period_header_column_index=1)
+GGM_CELL = TableCellRef(row_index=3, value_column_index=2,
+                        period_header_row_index=0, period_header_column_index=1)
+AGM_Q2_CELL = TableCellRef(row_index=4, value_column_index=5,
+                           period_header_row_index=0, period_header_column_index=4)
+
+
+def grid_fact(**overrides: object) -> PackagedFact:
+    """A fact of the grid above. `cell` defaults to the adjusted-margin 2022Q3 cell."""
+    fields: dict[str, object] = dict(passage_id=GRID_PASSAGE_ID, cell=AGM_CELL)
+    fields.update(overrides)
+    return make_fact(**fields)
+
+
+GRID_AGM = grid_fact()
+GRID_GGM = grid_fact(
+    observation_id=GGM_ID, metric_id="gaap_gross_margin", metric_label="Gross Margin",
+    value=-12.6, row_label="Gross Margin", quoted_text="(12.6)", cell=GGM_CELL)
+GRID_AGM_Q2 = grid_fact(
+    observation_id=AGM_Q2_ID, period_key="2022Q2", period_start="2022-04-01",
+    period_end="2022-06-30", value=8.7, quoted_text="8.7",
+    column_label=Q2_COLUMN_LABEL, cell=AGM_Q2_CELL)
+
+#: Minted by `PackagedFact`, never spelled here. A handle written by hand in a test is a second
+#: authority on the format, and §3.4 check 7 is exactly the claim that there is only one.
+AGM_HANDLE = GRID_AGM.evidence_handle
+GGM_HANDLE = GRID_GGM.evidence_handle
+AGM_Q2_HANDLE = GRID_AGM_Q2.evidence_handle
+
+
+def grid_passage(text: str = GRID_TEXT, **overrides: object) -> PackagedPassage:
+    fields: dict[str, object] = dict(
+        passage_id=GRID_PASSAGE_ID, document_id=DOCUMENT_ID, text=text, char_count=len(text),
+        passage_kind="normalized_table", role=EvidenceRole.PRIMARY_SUPPORT)
+    fields.update(overrides)
+    return PackagedPassage(**fields)  # type: ignore[arg-type]
+
+
+def grid_package(**overrides: object) -> StoryEvidencePackage:
+    fields: dict[str, object] = dict(
+        facts=(GRID_AGM, GRID_GGM, GRID_AGM_Q2), primary_passages=(grid_passage(),))
+    fields.update(overrides)
+    return make_package(**fields)
+
+
+def grid_plan(**overrides: object) -> EditorialPlan:
+    fields: dict[str, object] = dict(key_points=(
+        KeyPoint(claim="Adjusted gross margin was 3.3% in 2022Q3.",
+                 required_fact_ids=(AGM_ID,),
+                 required_citation_passage_ids=(GRID_PASSAGE_ID,),
+                 statement_class=StatementClass.REPORTED),))
+    fields.update(overrides)
+    return make_plan(**fields)
+
+
+def grid_citation(fact: PackagedFact, *, text: str = GRID_TEXT, **overrides: object
+                  ) -> PassageCitation:
+    """The citation §12 would build for `fact`: the span is resolved from the coordinates.
+
+    Written this way so a test that wants a *wrong* citation has to say which part is wrong,
+    rather than assembling a plausible-looking one by hand and accidentally testing two things.
+    """
+    assert fact.cell is not None
+    cell = resolve_cell(text, row_index=fact.cell.row_index,
+                        column_index=fact.cell.value_column_index)
+    fields: dict[str, object] = dict(
+        passage_id=GRID_PASSAGE_ID, document_id=DOCUMENT_ID,
+        char_start=cell.char_start, char_end=cell.char_end,
+        evidence_handle=fact.evidence_handle)
+    fields.update(overrides)
+    return PassageCitation(**fields)  # type: ignore[arg-type]
+
+
+def grid_draft(sentences=None, **overrides: object) -> Draft:  # type: ignore[no-untyped-def]
+    return make_draft(
+        sentences=tuple(sentences) if sentences is not None else (
+            agm_sentence(citations=(grid_citation(GRID_AGM),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence()),
+        **overrides)
+
+
+def test_the_grid_fixture_holds_the_four_invariants_the_repair_rests_on():
+    """§1.3, on this fixture, so a later edit to the grid cannot silently make every §3.4 test
+    below vacuous by moving a value into its own header's column."""
+    for fact in (GRID_AGM, GRID_GGM, GRID_AGM_Q2):
+        assert fact.cell is not None
+        cell = resolve_cell(GRID_TEXT, row_index=fact.cell.row_index,
+                            column_index=fact.cell.value_column_index)
+        assert cell.text == fact.quoted_text
+        assert cell.row_label == fact.row_label
+        assert resolve_header(GRID_TEXT, row_index=fact.cell.period_header_row_index,
+                              column_index=fact.cell.period_header_column_index
+                              ) == fact.column_label
+        # The measurement that makes `period_header_column_index` a carried property: reading
+        # the header at the value's own column returns a spacer, silently and well-formed.
+        assert resolve_header(GRID_TEXT, row_index=0,
+                              column_index=fact.cell.value_column_index) == ""
+
+
+def test_a_clean_draft_over_a_real_grid_passes_with_no_finding_at_all(verifier):
+    """§3.4 checks 1–5 and 7 are new obligations, and this is the proof they cost nothing true.
+
+    Both citations carry the handle the package minted, resolved to the cell the coordinates
+    name — which is what `writer.draft_from` builds — and the verifier finds nothing.
+    """
+    verified = verifier.verify(grid_draft(), grid_package(), grid_plan())
+    assert verified.all_findings == ()
+    assert verified.passed is True
+
+
+def test_citing_another_facts_cell_in_the_same_passage_is_refused(verifier):
+    """**The hole S4 left open, closed.** The sentence binds the adjusted margin and cites the
+    GAAP cell — a mis-citation §12 constructs cleanly, because §12 owes only that the span is the
+    cell the handle names.
+
+    The older test cannot see it and the gap is total rather than marginal:
+    `citation_does_not_support_fact` asks for *"the passage each bound fact was read from"*, and
+    **all 144** table-backed passages in the corpus evidence more than one observation — 2,690 of
+    2,690, up to 70 in one passage *(verified live 2026-08-18)*. On table evidence that test
+    separated nothing at all. The assertion below that it stays silent is the point of the test.
+    """
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(GRID_GGM),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(), grid_plan())
+    assert codes_of(verified) == {"evidence_handle_not_for_fact"}
+    assert verified.passed is False
+    found = next(f for f in verified.all_findings
+                 if f.code == "evidence_handle_not_for_fact")
+    assert found.observed == f"{GGM_HANDLE} was minted for {GGM_ID}"
+    # The handle to cite instead is in `expected`; `suggested_fact_ids` is fact ids, and the
+    # fact it names is the one the *cited cell* belongs to — the other way to fix the sentence.
+    assert AGM_HANDLE in found.expected
+    assert found.suggested_fact_ids == (GGM_ID,)
+
+
+def test_citing_the_same_metrics_other_period_from_the_same_row_is_refused(verifier):
+    """Wrong period, same row, same passage, same metric — three cells along.
+
+    This is the mis-citation §13.7.1 has never been able to refuse and this repair does not
+    claim to fix at label grain: `column_label_ambiguous_in_passage` is about a label naming two
+    periods, and §1.5 measured the header column index separating only 87 of its 179 ambiguous
+    pairs. Check 7 refuses this one for a different reason — the handle names a different fact —
+    and leaves §13.7.1 exactly as it was.
+    """
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(GRID_AGM_Q2),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(), grid_plan())
+    assert codes_of(verified) == {"evidence_handle_not_for_fact"}
+    assert "2022Q2" in AGM_Q2_HANDLE or AGM_Q2_HANDLE.endswith("r4c5")
+
+
+def test_a_handle_from_another_package_resolves_to_nothing_and_is_refused(verifier):
+    """§3.4 check 1. The handle is well formed, names a real cell of a real table, and this
+    package minted it for no fact — which is every fabrication at once, because a handle is
+    derived from coordinates and nothing else mints one."""
+    foreign = make_fact(passage_id="psg:opendoor-10q-2021q4:margins-grid", cell=AGM_CELL)
+    assert foreign.evidence_handle != AGM_HANDLE
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(
+                GRID_AGM, evidence_handle=foreign.evidence_handle),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(), grid_plan())
+    assert codes_of(verified) == {"unresolvable_evidence_handle"}
+    found = next(f for f in verified.all_findings)
+    assert found.observed == foreign.evidence_handle
+    assert AGM_ID in found.suggested_fact_ids
+
+
+def test_a_handle_whose_passage_the_package_does_not_carry_is_refused(verifier):
+    """§3.4 check 1, second half: *"H names a passage in the writer's slice"*.
+
+    Reachable without anyone doing anything wrong — §10.2.1 point 3 builds the slice by
+    intersecting the facts' passages with the package's four passage sections, so a fact whose
+    passage no section carries has a citable-looking handle and no text to resolve it in.
+    """
+    orphan = grid_fact(observation_id=AGM_Q2_ID, passage_id="psg:opendoor-10q-2022q2:elsewhere")
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(fact_bindings=(_binding(AGM_TEXT, "3.3%", fact_id=AGM_Q2_ID),),
+                         citations=(grid_citation(
+                             GRID_AGM, evidence_handle=orphan.evidence_handle),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(facts=(GRID_AGM, GRID_GGM, orphan)), grid_plan())
+    assert "unresolvable_evidence_handle" in codes_of(verified)
+    found = next(f for f in verified.all_findings
+                 if f.code == "unresolvable_evidence_handle")
+    assert "psg:opendoor-10q-2022q2:elsewhere" in found.observed
+
+
+def test_coordinates_the_passage_no_longer_has_are_refused_as_out_of_bounds(verifier):
+    """§3.4 check 2, and it cannot be a model's doing: the coordinates come off the
+    `PackagedFact`. It says the package and the passage text it carries disagree about the
+    table — a stored package (§14) replayed against a re-extracted corpus."""
+    drifted = grid_fact(cell=TableCellRef(row_index=9, value_column_index=2,
+                                          period_header_row_index=0,
+                                          period_header_column_index=1))
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(
+                GRID_AGM, evidence_handle=drifted.evidence_handle),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(facts=(drifted, GRID_GGM, GRID_AGM_Q2)), grid_plan())
+    assert codes_of(verified) == {"evidence_handle_out_of_bounds"}
+    assert "which has 6 lines" in next(iter(verified.all_findings)).observed
+
+
+def test_a_cell_that_no_longer_holds_the_facts_value_is_refused(verifier):
+    """§3.4 check 3, which held on 2,690 / 2,690 *(verified live 2026-08-18)*.
+
+    The coordinates name column 0 — the row's own label — instead of the value, which is what a
+    package built against a table with one fewer spacer column would carry.
+    """
+    shifted = grid_fact(cell=TableCellRef(row_index=4, value_column_index=0,
+                                          period_header_row_index=0,
+                                          period_header_column_index=1))
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(
+                shifted, evidence_handle=shifted.evidence_handle),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(facts=(shifted, GRID_GGM, GRID_AGM_Q2)), grid_plan())
+    assert codes_of(verified) == {"evidence_cell_value_mismatch"}
+    found = next(iter(verified.all_findings))
+    assert found.observed == "'Adjusted Gross Margin'"
+    assert found.remedy is Remedy.REBUILD_PACKAGE
+
+
+def test_a_row_relabelled_in_the_passage_is_refused(verifier):
+    """§3.4 check 4, which held on 2,690 / 2,690.
+
+    The drift is in the **passage**, not in the fact: a re-extraction that renamed the line item
+    leaves the coordinates resolving to the right value under the wrong label. `row_label` on the
+    fact is untouched, so §13.7 Rule A step 3's alias check is silent and this is the only
+    finding — which is the whole reason check 4 is a separate obligation.
+    """
+    relabelled = GRID_TEXT.replace("| Adjusted Gross Margin |",
+                                   "| Adjusted Gross Margin (Loss) |")
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(GRID_AGM, text=relabelled),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM, text=relabelled),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(primary_passages=(grid_passage(relabelled),)), grid_plan())
+    assert codes_of(verified) == {"evidence_row_label_mismatch"}
+    assert next(iter(verified.all_findings)).observed == "'Adjusted Gross Margin (Loss)'"
+
+
+def test_a_header_that_no_longer_names_the_facts_period_is_refused(verifier):
+    """§3.4 check 5, which holds on 2,690 / 2,690 **at `period_header_column_index`** and on
+    only 565 / 2,690 at the value's own column. The header row is redated here, so both facts'
+    period headers stop matching the `column_label` they were read under."""
+    redated = GRID_TEXT.replace("Three Months Ended September 30, 2022",
+                                "Nine Months Ended September 30, 2022")
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(GRID_AGM, text=redated),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM, text=redated),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(primary_passages=(grid_passage(redated),)), grid_plan())
+    assert codes_of(verified) == {"evidence_column_label_mismatch"}
+    assert all("Nine Months Ended September 30, 2022" in found.observed
+               for found in verified.all_findings)
+
+
+def test_a_span_that_is_not_the_handles_cell_is_refused(verifier):
+    """**Not one of §3.4's checks**, and added because §3.4 reads as though the handle were the
+    only thing on a citation row.
+
+    `PassageCitation` also carries the offsets the evidence panel highlights and §13.7's reuse
+    rule keys on. Here the handle is the adjusted margin's and the span covers the GAAP cell:
+    every §3.4 check passes, and a reader would be shown `(12.6)` under a sentence saying 3.3%.
+    §12 derives the span from the handle so no model can write this, which is the same standing
+    check 2 has.
+    """
+    elsewhere = resolve_cell(GRID_TEXT, row_index=3, column_index=2)
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(grid_citation(
+                GRID_AGM, char_start=elsewhere.char_start, char_end=elsewhere.char_end),)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(), grid_plan())
+    assert codes_of(verified) == {"evidence_cell_span_mismatch"}
+
+
+def test_narrative_evidence_keeps_the_span_path_and_meets_no_cell_check(verifier):
+    """§1.6: all 14 narrative observations quote whole sentences occurring exactly once in their
+    passage, and this repair leaves that path alone. The handle for a fact with no `cell` names
+    the fact's slot rather than a coordinate, so §3.4 checks 2–5 have nothing to ask and Rule B
+    still owns the span.
+
+    Driven over the fixtures at the top of this file, whose facts carry `cell=None` — the same
+    draft as `test_a_clean_draft_of_the_demo_candidate_passes_with_no_finding_at_all`, with the
+    handles the package minted now stated on the citations.
+    """
+    package = make_package()
+    handles = package.facts_by_evidence_handle()
+    assert set(handles) == {make_fact().evidence_handle, GGM_FACT.evidence_handle}
+    assert all(":span:" in handle for handle in handles)
+
+    def with_handle(sentence: DraftSentence, handle: str) -> DraftSentence:
+        citation = sentence.citations[0]
+        assert isinstance(citation, PassageCitation)
+        return sentence.model_copy(update={"citations": (
+            citation.model_copy(update={"evidence_handle": handle}),)})
+
+    verified = verifier.verify(
+        make_draft(sentences=(
+            with_handle(agm_sentence(), make_fact().evidence_handle),
+            with_handle(ggm_sentence(), GGM_FACT.evidence_handle),
+            gap_sentence(), warning_sentence())),
+        package, make_plan())
+    assert verified.all_findings == ()
+    assert verified.passed is True
+
+
+def test_a_narrative_handle_bound_to_the_other_fact_is_still_refused(verifier):
+    """Check 7 does not depend on there being a cell. The narrative handle names the fact's
+    `(metric_id, period_key)` slot, which §6.1 guarantees is one canonical fact, so a handle
+    still names exactly one fact and citing another's is still detectable."""
+    citation = agm_sentence().citations[0]
+    assert isinstance(citation, PassageCitation)
+    verified = verifier.verify(
+        make_draft(sentences=(
+            agm_sentence(citations=(citation.model_copy(
+                update={"evidence_handle": GGM_FACT.evidence_handle}),)),
+            ggm_sentence(), gap_sentence(), warning_sentence())),
+        make_package(), make_plan())
+    assert codes_of(verified) == {"evidence_handle_not_for_fact"}
+
+
+def test_a_citation_that_states_no_handle_falls_back_to_the_older_tests(verifier):
+    """**The limit of this repair, stated rather than implied.**
+
+    `PassageCitation.evidence_handle` is optional because a citation nothing minted has no handle
+    to state, so §3.4's checks run only when one is present. Every citation `writer.draft_from`
+    builds carries one — `evidence_id` is the model's only citation field — so on the path a
+    model's answer takes they always run. A `PassageCitation` assembled in code can omit it and
+    get §13.7's older behaviour, which is exactly what the fixtures at the top of this file do.
+
+    Closing that means making the field required on `story/core/models.py`, which this stage does
+    not own and which would refuse every hand-built citation in the repository.
+    """
+    unhandled = grid_citation(GRID_GGM, evidence_handle=None)
+    verified = verifier.verify(
+        grid_draft(sentences=(
+            agm_sentence(citations=(unhandled,)),
+            ggm_sentence(citations=(grid_citation(GRID_GGM),)),
+            gap_sentence(), warning_sentence())),
+        grid_package(), grid_plan())
+    assert codes_of(verified) == set()
+
+
+def test_the_seven_handle_codes_are_refusals_and_none_of_them_weakens_a_check(verifier):
+    """§13.17's gate is the one place a severity is chosen, and §3.4 adds to it rather than
+    around it. The remedies split by who can cause the finding: a draft can name a handle that
+    is not the package's or not its fact's, and nothing else here is a draft's doing."""
+    assert {code: GATE[code].remedy for code in (
+        "unresolvable_evidence_handle", "evidence_handle_not_for_fact",
+        "evidence_cell_span_mismatch")} == {
+        "unresolvable_evidence_handle": Remedy.REBIND_TO_FACT,
+        "evidence_handle_not_for_fact": Remedy.REBIND_TO_FACT,
+        "evidence_cell_span_mismatch": Remedy.REBIND_TO_FACT}
+    assert {code: GATE[code].remedy for code in (
+        "evidence_handle_out_of_bounds", "evidence_cell_value_mismatch",
+        "evidence_row_label_mismatch", "evidence_column_label_mismatch")} == {
+        "evidence_handle_out_of_bounds": Remedy.REBUILD_PACKAGE,
+        "evidence_cell_value_mismatch": Remedy.REBUILD_PACKAGE,
+        "evidence_row_label_mismatch": Remedy.REBUILD_PACKAGE,
+        "evidence_column_label_mismatch": Remedy.REBUILD_PACKAGE}
+    for code in ("unresolvable_evidence_handle", "evidence_handle_not_for_fact",
+                 "evidence_cell_span_mismatch", "evidence_handle_out_of_bounds",
+                 "evidence_cell_value_mismatch", "evidence_row_label_mismatch",
+                 "evidence_column_label_mismatch"):
+        assert GATE[code].severity is Severity.REFUSE
+        assert GATE[code].blocking is True
+        assert GATE[code].section == "13.7"
+
+
+def test_the_column_ambiguity_check_is_untouched_by_this_repair(verifier):
+    """§1.5, and it is a bound on what this repair may claim. Carrying
+    `period_header_column_index` separates only **87 of the 179** ambiguous
+    `(passage_id, column_label)` pairs in the corpus; **92 survive**. So
+    `column_label_ambiguous_in_passage` still fires on a label naming two periods, with both
+    handles resolving perfectly and every §3.4 check silent.
+    """
+    q2_same_label = grid_fact(
+        observation_id=AGM_Q2_ID, period_key="2022Q2", period_start="2022-04-01",
+        period_end="2022-06-30", value=8.7, quoted_text="8.7", cell=AGM_Q2_CELL)
+    assert q2_same_label.column_label == COLUMN_LABEL == GRID_AGM.column_label
+    verified = verifier.verify(
+        grid_draft(), grid_package(facts=(GRID_AGM, GRID_GGM, q2_same_label)), grid_plan())
+    assert "column_label_ambiguous_in_passage" in codes_of(verified)
+    assert not any(found.code.startswith("evidence_") for found in verified.all_findings)

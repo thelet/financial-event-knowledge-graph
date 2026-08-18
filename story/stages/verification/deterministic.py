@@ -1229,9 +1229,13 @@ class DeterministicVerifier:
         found: list[VerificationFinding] = []
         examined = 0
         seen: dict[tuple[str, int, int], citation_rules.CitationUse] = {}
+        # Built once for the whole draft, not once per sentence: TABLE_CELL_CITATIONS §3.3 made
+        # `facts_by_evidence_handle` a method a caller holds precisely so §12 and §13.7 each
+        # build one index over one package rather than one per citation.
+        handles = index.package.facts_by_evidence_handle()
         for sentence in draft.sentences:
             sentence_findings, uses, count = citation_rules.check_sentence_citations(
-                sentence, index, aliases, seen)
+                sentence, index, aliases, seen, handles)
             found.extend(sentence_findings)
             examined += count
             for key, use in citation_rules.index_uses(uses).items():

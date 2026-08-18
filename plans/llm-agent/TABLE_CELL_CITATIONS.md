@@ -223,6 +223,38 @@ change it. S5 leaves `_column_findings` exactly as it is.
 Check 7 is what makes "wrong cell, wrong metric, wrong period, wrong value, unrelated evidence"
 refuse: a handle for another cell either is not in the package (1) or is not `F`'s (7).
 
+> **Measured at S5 (2026-08-18), and the hole was larger than this section says.** §3.4 called
+> check 7 the answer to a gap `citation_does_not_support_fact` leaves open. It is not a gap: on
+> table evidence that check separated **nothing**. All **144** table-backed passages in the
+> corpus evidence more than one observation, covering **2,690 of 2,690** table-backed
+> observations, up to **70** in a single passage *(verified live 2026-08-18)*. Driven over real
+> packages — the 262 candidates the four detectors offer, packaged from the live graph — there
+> are **90** cases where a fact's sentence can cite a neighbouring fact's cell in the same
+> passage. All 90 are refused by check 7, and **88 of the 90 raised no blocking finding of any
+> kind before it** (the other 2 are narrative-lane facts Rule B's span containment happened to
+> catch). Over the same 262 packages, the honest citation §12 builds raised **0** §3.4 findings
+> on **564 / 564** facts carrying a handle.
+>
+> **A seventh check was added, and it is not in the table above.**
+> `evidence_cell_span_mismatch` (REFUSE, `REBIND_TO_FACT`): the citation's `char_start` /
+> `char_end` must be the span of the cell its handle names. §3.4 reads as though the handle were
+> the only thing on a citation row, but `PassageCitation` also carries the offsets the evidence
+> panel highlights and §13.7's reuse rule keys on, and checks 1–5 and 7 never look at them — so a
+> citation carrying `F`'s handle over another cell's bytes had a verified handle and unverified
+> text. §12 derives the span from the handle, so no model can write one; it is the same standing
+> as check 2 and is refused rather than assumed away.
+>
+> **The remedy for checks 2–5 is `REBUILD_PACKAGE`, not `REBIND_TO_FACT`.** The coordinates come
+> off the `PackagedFact` and the text off the `PackagedPassage`, so a draft cannot cause any of
+> the four and no rebinding fixes one; they say the package disagrees with itself.
+>
+> **One limit, stated rather than implied.** `PassageCitation.evidence_handle` is optional, so
+> §3.4's checks run only when a citation states one. Every citation `writer.draft_from` builds
+> carries one — `evidence_id` is the model's only citation field — so they always run on the path
+> a model's answer takes. A citation assembled in code can omit it and get §13.7's older, weaker
+> tests; closing that means making the field required on `story/core/models.py`, which would
+> refuse every hand-built citation in the repository and is not S5's to do.
+
 **Why this is not a weakening.** The model was never the authority on which bytes support a fact —
 it was being asked to *retype* an identity the package already knew. What is removed is a typing
 test. Everything that decides whether a sentence is true is untouched: §13.1 numeral binding,
