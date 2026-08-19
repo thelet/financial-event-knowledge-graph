@@ -1156,6 +1156,133 @@ def test_a_rejected_run_renders_as_a_rejection_and_writes_no_post(graph_services
                for row in outcome["verification"]["blocking_findings"])
 
 
+class NeverAnsweringProvider:
+    """A provider that takes the call and returns nothing, at whichever stage is chosen.
+
+    The double for a rejected key, a closed port or a 503 that outlived its retries: the same
+    `StoryProviderError` hierarchy the adapters raise, and no `GenerationResult`, because there
+    is no answer to carry. Structural — `ObservedProvider` decorates it exactly as it decorates
+    a real one.
+    """
+
+    model_id = MODEL_ID
+    provider_id = PROVIDER_LOCAL
+
+    def __init__(self, *, fail_at: str = "story_editorial_plan") -> None:
+        self._fail_at = fail_at
+        self._inner = None
+        self.calls: list[str] = []
+
+    def health(self) -> Any:
+        from story.core.models import HealthStatus
+
+        return HealthStatus(ok=False, status="unreachable")
+
+    def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
+                 schema_name: str, max_tokens: int, temperature: float) -> Any:
+        from story.providers.public import StoryProviderResponseError
+
+        self.calls.append(schema_name)
+        raise StoryProviderResponseError(
+            "https://api.openai.com/v1/responses: HTTP 401: invalid_api_key: Incorrect API key "
+            "provided: sk-***.")
+
+
+def test_a_call_that_got_no_answer_renders_as_a_fault_and_not_as_a_refusal(
+    graph_services, config, monkeypatch
+):
+    """**The browser's half of the 2026-08-19 defect, reproduced against a rejected key.**
+
+    A live OpenAI run with a bogus key reached this endpoint as `plan_refused`, with
+    `rejection.stage: "editorial_planner"`, an empty `codes` list, and one hint that no model
+    had answered: the phrase *"a provider or transport failure"* inside the sentence explaining
+    why the code list was empty. A panel reading that payload said *"Refused · plan_refused"*
+    about a request that reached no planner.
+
+    What the payload says now is a fact rather than an inference from an absence: which call was
+    *attempted*, that no answer was produced, and the typed error class. `codes` is still empty
+    and still carries a reason — because a code is something a model's answer earns, and
+    inventing `provider_unavailable` here would put a string in the panel's catalogue that no
+    stage in this repository declares.
+    """
+    monkeypatch.setattr(api, "_provider_for",
+                        lambda *a, **k: NeverAnsweringProvider())
+    harness = Harness(services=accepting_services(graph_services, config))
+    _, started = harness.json("POST", "/demo/generate",
+                              {"candidate_id": CANDIDATE_ID, "live": True})
+    harness.wait(started["run_id"])
+
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    outcome = payload["outcome"]
+    assert outcome["disposition"] == pipeline.PROVIDER_FAILED
+    assert outcome["accepted"] is False and outcome["rendered_as"] == "rejection"
+    assert outcome["post"] is None and outcome["plan"] is None and outcome["draft"] is None
+    assert outcome["verification"] is None
+    rejection = outcome["rejection"]
+    assert rejection["stage"] == pipeline.STAGE_PLANNER
+    assert rejection["verifier_ran"] is False
+    assert rejection["codes"] == []
+    assert rejection["provider_fault"] == {
+        "stage": pipeline.STAGE_PLANNER,
+        "error_class": "StoryProviderResponseError",
+        "answer_produced": False,
+    }
+    assert rejection["codes_absent_reason"] == api.PROVIDER_FAULT_CODES_REASON
+    # The run really did spend nothing, and the panel is told that rather than "not measured on
+    # replay" — which is what a live run was told before 6e1e32c, about a run that was no replay.
+    assert outcome["cost"]["measured"] is False
+    assert outcome["cost"]["reason"] == api.PROVIDER_FAULT_COST_REASON
+    assert outcome["cost"]["total_tokens"] is None
+    # The whole closed set reaches the browser, including the value this run is.
+    assert outcome["dispositions"] == list(pipeline.DISPOSITIONS)
+    assert pipeline.PROVIDER_FAILED in outcome["dispositions"]
+    # The adapter's own text names the endpoint it called, and is still not served.
+    assert "api.openai.com" not in json.dumps(payload)
+
+
+def test_a_fault_at_the_writer_call_names_the_writer_and_keeps_the_plan_it_got(
+    graph_services, config, monkeypatch
+):
+    """One disposition, two stages — the same claim as `test_story_demo.py`'s, at the wire.
+
+    The plan the run *did* receive is still in the payload, because it really was produced. What
+    the panel must not do is call this a refusal of it.
+    """
+    provider = NeverAnsweringProvider(fail_at="story_post_draft")
+    real = api._provider_for
+
+    def replaying_then_faulting(*args: Any, **kwargs: Any) -> Any:
+        inner = real(*args, **kwargs)
+        provider._inner = inner
+        return provider
+
+    def generate(*, system: str, prompt: str, schema: Mapping[str, Any], schema_name: str,
+                 max_tokens: int, temperature: float) -> Any:
+        from story.providers.public import StoryProviderTimeout
+
+        provider.calls.append(schema_name)
+        if schema_name == "story_post_draft":
+            raise StoryProviderTimeout("http://127.0.0.1:8080: no response within 180 s")
+        return provider._inner.generate(
+            system=system, prompt=prompt, schema=schema, schema_name=schema_name,
+            max_tokens=max_tokens, temperature=temperature)
+
+    provider.generate = generate  # type: ignore[method-assign]
+    monkeypatch.setattr(api, "_provider_for", replaying_then_faulting)
+    harness = Harness(services=accepting_services(graph_services, config))
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    outcome = payload["outcome"]
+    assert provider.calls == ["story_editorial_plan", "story_post_draft"]
+    assert outcome["disposition"] == pipeline.PROVIDER_FAILED
+    assert outcome["rejection"]["stage"] == pipeline.STAGE_WRITER
+    assert outcome["rejection"]["provider_fault"]["error_class"] == "StoryProviderTimeout"
+    assert outcome["plan"] is not None, "the plan arrived; a later fault does not retract it"
+    assert outcome["draft"] is None
+
+
 def test_a_replayed_run_reports_no_token_count_rather_than_a_zero(graph_services):
     """An investor-facing cost panel showing zeroes would be a fabricated measurement (§7)."""
     harness = Harness(services={**graph_services,
@@ -2099,8 +2226,9 @@ def test_a_handler_result_is_always_a_shape_the_transport_can_send(graph_service
 # ---------------------------------------------------------------------------------------
 
 
-def _outcome_with(totals: Mapping[str, Any]) -> Any:
-    return types.SimpleNamespace(manifest=types.SimpleNamespace(token_totals=dict(totals)))
+def _outcome_with(totals: Mapping[str, Any], fault: Any = None) -> Any:
+    return types.SimpleNamespace(manifest=types.SimpleNamespace(token_totals=dict(totals)),
+                                 fault=fault)
 
 
 def test_a_live_run_that_measured_nothing_is_not_told_it_was_a_replay():
@@ -2135,6 +2263,45 @@ def test_a_live_run_that_did_measure_reports_its_numbers_and_neither_absence_rea
 
     assert panel["measured"] is True and panel["total_tokens"] == 3398
     assert panel["reason"] not in (api.REPLAY_COST_REASON, api.LIVE_UNMEASURED_COST_REASON)
+
+
+def test_a_run_that_got_no_answer_is_told_so_rather_than_handed_the_two_way_hedge():
+    """The third absence, added with `provider_failed` on 2026-08-19.
+
+    `LIVE_UNMEASURED_COST_REASON` hedges between two possibilities — the run failed before its
+    first answer, or every call was served from the store — because until this disposition
+    existed the panel could not tell them apart. It can now, and a sentence that guesses where
+    the payload knows is the same class of claim as the zero both sentences exist to avoid.
+    """
+    panel = api._cost_panel(
+        _outcome_with({"generation_calls": 0},
+                      fault=pipeline.ProviderFault(stage=pipeline.STAGE_PLANNER,
+                                                   error_class="StoryProviderResponseError")),
+        live=True)
+
+    assert panel["measured"] is False, "no counter ran; this is not a measured zero"
+    assert panel["total_tokens"] is None
+    assert panel["reason"] == api.PROVIDER_FAULT_COST_REASON
+    assert panel["reason"] not in (api.REPLAY_COST_REASON, api.LIVE_UNMEASURED_COST_REASON)
+
+
+def test_a_fault_after_a_paid_call_still_reports_what_that_call_cost():
+    """The half a "a fault spent nothing" shortcut would get wrong.
+
+    A fault at the writer leaves a planner answer that was made, returned and billed. `measured`
+    is read off the totals and not off the fault, so this run reports its real numbers and none
+    of the three absence sentences.
+    """
+    panel = api._cost_panel(
+        _outcome_with({"prompt_tokens": 1101, "completion_tokens": 202, "total_tokens": 1303,
+                       "generation_calls": 1},
+                      fault=pipeline.ProviderFault(stage=pipeline.STAGE_WRITER,
+                                                   error_class="StoryProviderTransportError")),
+        live=True)
+
+    assert panel["measured"] is True and panel["total_tokens"] == 1303
+    assert panel["reason"] not in (api.REPLAY_COST_REASON, api.LIVE_UNMEASURED_COST_REASON,
+                                   api.PROVIDER_FAULT_COST_REASON)
 
 
 def test_a_model_id_that_is_not_a_path_is_left_alone_and_claims_no_redaction():

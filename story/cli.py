@@ -35,9 +35,11 @@ Nothing is constructed until an endpoint asks for it, which is why the server st
 database running.
 
 **Exits non-zero when the run produced no accepted post** — a draft the verifier rejected, a
-plan or draft §11/§12 refused, a stale graph, or a candidate id that no longer reproduces. A
-rejection is still a complete run and still writes its artifacts; the exit code says the demo
-has no post, not that nothing happened.
+plan or draft §11/§12 refused, a call the provider never answered, a stale graph, or a candidate
+id that no longer reproduces. A rejection is still a complete run and still writes its artifacts;
+the exit code says the demo has no post, not that nothing happened. It does **not** say which of
+those happened: `disposition` does, and `provider_failed` is there so a bad key and a refused
+plan stop sharing one exit code *and* one word.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ from .pipeline import (
     ACCEPTED,
     MANIFEST_FILENAME,
     POST_FILENAME,
+    PROVIDER_FAILED,
     REJECTED,
     SELECTION_MODE,
     DemoConfig,
@@ -197,6 +200,18 @@ def cmd_demo(args) -> int:
                 print(f"    expected  {finding.expected}")
                 print(f"    observed  {finding.observed}")
                 print(f"    {finding.explanation}")
+        return EXIT_FAILED
+    if outcome.disposition == PROVIDER_FAILED and outcome.fault is not None:
+        # A separate paragraph because it is a separate claim. "No draft reached the verifier"
+        # is true of a refused plan *and* of a 401, and printing only that sent an operator
+        # looking for the model's mistake in a run where the model was never reached. The stage
+        # named here is the call that was attempted, which is the one line that says whether a
+        # key, a URL or a budget is what wants fixing.
+        print(f"\nPROVIDER_FAILED — the {outcome.fault.stage} call got no answer, so no plan, "
+              "no draft and no verification exist. Nothing was refused and nothing was "
+              "generated.")
+        print(f"  {outcome.fault.error_class}")
+        print(f"  {outcome.refusal}")
         return EXIT_FAILED
     print(f"\n{outcome.disposition.upper()} — no draft reached the verifier.")
     for code in outcome.refusal_codes:

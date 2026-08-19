@@ -165,10 +165,14 @@ from story.core.models import (
 )
 from story.pipeline import (
     ACCEPTED,
+    DISPOSITIONS,
     DRAFT_REFUSED,
     PLAN_REFUSED,
+    PROVIDER_FAILED,
     REJECTED,
     SELECTION_MODE,
+    STAGE_PLANNER,
+    STAGE_WRITER,
     CandidateNotFound,
     DemoConfig,
     DemoInputs,
@@ -507,6 +511,70 @@ class ReportingProvider:
             total_tokens=prompt_tokens + completion_tokens, latency_ms=1.0, raw_sha256="",
             content_sha256=replayed.content_sha256, finish_reason=replayed.finish_reason,
             attempts=1, metadata={**replayed.metadata, **self._metadata})
+
+
+class FaultingWriterProvider:
+    """Answers the planner and reports what it cost, then never answers the writer.
+
+    The other half of "which call was in flight". The disposition is the same
+    `provider_failed` `UnreachableProvider` produces, so everything that says *where* has to
+    come from the fault rather than from the disposition — which is the claim
+    `ProviderFault.stage` exists to carry.
+
+    It is also the only state in which a fault has a real cost: the planner's call was made,
+    answered and billed before the writer's never came back. A panel or a manifest that read
+    "this run spent nothing" off the disposition would be wrong about exactly this run, and the
+    non-zero token counts below are what make that a failing test rather than a hypothetical.
+    """
+
+    model_id = MODEL_ID
+    provider_id = PROVIDER_ID
+
+    def __init__(self) -> None:
+        self._inner = ReportingProvider(PROVIDER_ID, tokens=[(1101, 202)])
+        self.calls: list[str] = []
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(ok=True, status="faulting-writer")
+
+    def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
+                 schema_name: str, max_tokens: int, temperature: float) -> GenerationResult:
+        from story.providers.public import StoryProviderTransportError
+
+        self.calls.append(schema_name)
+        if schema_name == "story_post_draft":
+            raise StoryProviderTransportError(
+                "http://127.0.0.1:8080/v1/chat/completions: HTTP 503 after 3 attempts")
+        return self._inner.generate(
+            system=system, prompt=prompt, schema=schema, schema_name=schema_name,
+            max_tokens=max_tokens, temperature=temperature)
+
+
+class AdapterSchemaErrorProvider:
+    """Raises the schema error an *adapter* raises: real violations, and no `GenerationResult`.
+
+    This is the case the disposition rule had to decide (`pipeline._provider_failure`). The
+    response arrived, it parsed as JSON and it missed the schema — a model's answer, judged —
+    but the adapter refuses mid-translation, before it has built a result to attach. Keying the
+    disposition on the missing result would report `provider_failed` for a server that really
+    answered, so the class decides and the missing result decides only the accounting.
+
+    The violation string is `openai_compatible.py`'s own shape, not an invented one.
+    """
+
+    model_id = MODEL_ID
+    provider_id = PROVIDER_ID
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(ok=True, status="adapter-schema-error")
+
+    def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
+                 schema_name: str, max_tokens: int, temperature: float) -> GenerationResult:
+        from story.providers.public import StoryProviderSchemaError
+
+        raise StoryProviderSchemaError(
+            f"response does not satisfy schema {schema_name!r}: thesis: required property is "
+            "missing", ("thesis: required property is missing",))
 
 
 @pytest.fixture(scope="module")
@@ -1696,16 +1764,170 @@ def test_a_stage_that_never_got_an_answer_records_no_call_at_all(tmp_path, confi
     must say zero rather than reach into a store or synthesise a block from configuration —
     which is why the result travels *on the refusal* and a `StoryProviderUnavailable` carries
     none.
+
+    **The disposition asserted here was `plan_refused` until 2026-08-19, and that was the
+    defect, not the contract.** This run reaches no planner: it is `provider_failed` now, and
+    the accounting claim — zero calls, zero tokens, two empty blocks — is unchanged by the
+    rename, which is the point of asserting it in the same test.
     """
     outcome = run_demo(demo_inputs(), provider=UnreachableProvider(), config=config,
                        out_dir=tmp_path / "run")
     manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
 
-    assert outcome.disposition == PLAN_REFUSED
+    assert outcome.disposition == PROVIDER_FAILED
     assert manifest["token_totals"]["generation_calls"] == 0
     assert manifest["token_totals"]["total_tokens"] == 0
     assert manifest["planner_provider_model"] == {}
     assert manifest["writer_provider_model"] == {}
+
+
+def test_a_call_the_provider_never_answered_is_not_recorded_as_a_stage_refusing_it(
+    tmp_path, config
+):
+    """**Reproduced live on 2026-08-19, and this is the run that produced the disposition.**
+
+    `python -m story demo --provider openai --live` with a rejected key finished
+    `disposition: plan_refused` and wrote a `rejected.json` reading `"stage":
+    "editorial_planner"` — about a request that got an HTTP 401 and reached no planner at all.
+    Two false claims: that a planner ran, and that something refused an answer. `run_demo`'s own
+    docstring argues four dispositions exist so a §11 refusal is not reported as a verifier
+    rejection; the same argument makes a 401 its own fifth.
+
+    Everything asserted below is the artifact saying what happened rather than what class was
+    caught: the stage was *attempting*, no answer was produced, and the typed error is the
+    taxonomy's name for the boundary that raised. `codes` stays empty — a refusal code is
+    something a model's answer earns.
+    """
+    outcome = run_demo(demo_inputs(), provider=UnreachableProvider(), config=config,
+                       out_dir=tmp_path / "run")
+    rejected = json.loads((tmp_path / "run" / "rejected.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+
+    assert outcome.disposition == PROVIDER_FAILED
+    assert outcome.fault is not None
+    assert outcome.fault.stage == STAGE_PLANNER
+    assert outcome.fault.error_class == "StoryProviderUnavailable"
+    assert outcome.refusal_codes == ()
+    assert rejected["disposition"] == PROVIDER_FAILED
+    assert rejected["stage"] == STAGE_PLANNER
+    assert rejected["codes"] == []
+    assert rejected["provider_fault"] == {
+        "stage": STAGE_PLANNER,
+        "error_class": "StoryProviderUnavailable",
+        "answer_produced": False,
+    }
+    # No plan, no draft, no verification — and the artifact never claims one ran.
+    assert "rejection" not in rejected
+    assert manifest["demo"]["disposition"] == PROVIDER_FAILED
+    assert manifest["demo"]["provider_fault"]["stage"] == STAGE_PLANNER
+    assert not (tmp_path / "run" / "editorial_plan.json").exists()
+    assert not (tmp_path / "run" / "post.md").exists()
+
+
+def test_a_fault_at_the_writer_is_distinguishable_from_one_at_the_planner(tmp_path, config):
+    """One disposition, two stages, and the run that proves the cost is not read off either.
+
+    The brief's requirement stated as a test: which call was in flight is *data*, not a second
+    disposition. Both runs below are `provider_failed`; only `stage` separates them.
+
+    The writer run is also the honest-accounting case that a naive fix gets wrong. Its planner
+    call was made, answered and billed — 1 303 tokens — before the writer's call failed, so the
+    manifest must report one call and a filled planner block beside an empty writer one. A
+    `provider_failed` run is not a run that spent nothing; it is a run that got no answer to the
+    call named in `stage`.
+    """
+    planner_fault = run_demo(demo_inputs(), provider=UnreachableProvider(), config=config,
+                             out_dir=tmp_path / "planner")
+    writer = FaultingWriterProvider()
+    writer_fault = run_demo(demo_inputs(), provider=writer, config=config,
+                            out_dir=tmp_path / "writer")
+    manifest = json.loads(
+        (tmp_path / "writer" / "demo_manifest.json").read_text(encoding="utf-8"))
+    rejected = json.loads((tmp_path / "writer" / "rejected.json").read_text(encoding="utf-8"))
+
+    assert planner_fault.disposition == writer_fault.disposition == PROVIDER_FAILED
+    assert planner_fault.fault.stage == STAGE_PLANNER
+    assert writer_fault.fault.stage == STAGE_WRITER
+    assert writer_fault.fault.error_class == "StoryProviderTransportError"
+    assert writer.calls == ["story_editorial_plan", "story_post_draft"]
+    assert rejected["stage"] == STAGE_WRITER
+    # The planner's call happened and is accounted for; the writer's did not and is not.
+    assert manifest["token_totals"]["generation_calls"] == 1
+    assert manifest["token_totals"]["total_tokens"] == 1303
+    assert manifest["planner_provider_model"]["schema_name"] == "story_editorial_plan"
+    assert manifest["writer_provider_model"] == {}
+    # The plan the run did get is on disk. A fault does not retract what already arrived.
+    assert (tmp_path / "writer" / "editorial_plan.json").is_file()
+    assert not (tmp_path / "writer" / "draft.json").exists()
+
+
+def test_a_stage_refusing_its_own_answer_keeps_the_disposition_it_had(tmp_path, config):
+    """The half that must not move. §11 stays `plan_refused`; §12 stays `draft_refused`.
+
+    Both of these refuse an answer the model produced, which is a judgement about a generation
+    and is exactly what the two dispositions have always meant. `fault` is `None` on both — the
+    field is the marker for "no answer came back", and a stage that refused one had an answer.
+    """
+    refused_plan = run_demo(demo_inputs(), provider=RefusedPlannerProvider(), config=config,
+                            out_dir=tmp_path / "plan")
+    refused_draft = run_demo(demo_inputs(), provider=BadWriterProvider(), config=config,
+                             out_dir=tmp_path / "draft")
+
+    assert refused_plan.disposition == PLAN_REFUSED
+    assert refused_plan.fault is None
+    assert "unknown_unusable_id" in refused_plan.refusal_codes
+    assert refused_draft.disposition == DRAFT_REFUSED
+    assert refused_draft.fault is None
+    assert refused_draft.refusal_codes != ()
+    for run in ("plan", "draft"):
+        rejected = json.loads((tmp_path / run / "rejected.json").read_text(encoding="utf-8"))
+        assert "provider_fault" not in rejected
+        assert rejected["codes"] != []
+
+
+def test_a_schema_violation_is_the_models_answer_wherever_it_was_raised(tmp_path, config):
+    """The line `_provider_failure` draws, asserted from the side that made it a decision.
+
+    An adapter raises `StoryProviderSchemaError` while translating a response it has parsed and
+    checked, before any `GenerationResult` exists — so this refusal carries violations and no
+    result. Sorting it by the missing result would call it `provider_failed`, which would say
+    "the provider did not produce an answer" about a server that answered with JSON somebody
+    could name the violations of. It stays the stage's own disposition, and only the accounting
+    records the absence: zero calls, because no result was ever built to count.
+    """
+    outcome = run_demo(demo_inputs(), provider=AdapterSchemaErrorProvider(), config=config,
+                       out_dir=tmp_path / "run")
+    manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+    rejected = json.loads((tmp_path / "run" / "rejected.json").read_text(encoding="utf-8"))
+
+    assert outcome.disposition == PLAN_REFUSED
+    assert outcome.fault is None
+    assert outcome.refusal_codes == ("thesis: required property is missing",)
+    assert rejected["stage"] == STAGE_PLANNER
+    assert "provider_fault" not in rejected
+    assert manifest["token_totals"]["generation_calls"] == 0
+
+
+def test_the_dispositions_are_a_closed_set_the_run_reports_from(tmp_path, config):
+    """Five values, declared once, and every one of them reachable from this file's doubles.
+
+    A list stated in more than one place is a list that ends up different lengths in different
+    places, which is how a browser came to render a disposition set that had four members while
+    `pipeline` had five. The demo UI reads `DISPOSITIONS` rather than restating it, and this is
+    the end that says the constant is complete.
+    """
+    reached = {
+        run_demo(demo_inputs(), provider=provider, config=config,
+                 out_dir=tmp_path / name).disposition
+        for name, provider in (("accepted", replaying(ACCEPTED_STORE)),
+                               ("rejected", replaying(REJECTED_STORE)),
+                               ("plan", RefusedPlannerProvider()),
+                               ("draft", BadWriterProvider()),
+                               ("fault", UnreachableProvider()))
+    }
+
+    assert reached == set(DISPOSITIONS)
+    assert len(DISPOSITIONS) == len(set(DISPOSITIONS)) == 5
 
 
 def test_the_manifest_is_written_last_and_names_the_hash_of_every_other_artifact(
@@ -1830,6 +2052,39 @@ def test_the_command_exits_non_zero_and_writes_its_artifacts_when_the_draft_is_r
     # Every failure, not the first (§20).
     assert out.count("remedy ") == 1
     assert SELECTION_MODE in out
+    assert (tmp_path / "run" / "rejected.json").is_file()
+    assert not (tmp_path / "run" / "post.md").exists()
+
+
+def test_the_command_names_the_call_that_got_no_answer_and_not_a_stage_that_refused(
+    tmp_path, monkeypatch, capsys
+):
+    """The CLI half of the `provider_failed` disposition, over the whole verb.
+
+    The exit code does not move — a run with no post is a failure whichever way it failed — so
+    what this asserts is the *summary*, which is the part an operator reads. "No draft reached
+    the verifier" is true of a refused plan and of a 401 alike, and printing only that sent
+    somebody looking for the model's mistake in a run where no model was reached. The stage
+    named here is the call that was attempted and the class is the boundary that raised, which
+    together say whether a key, a URL or a budget wants fixing.
+    """
+    class Closable:
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(cli, "build_story_context", lambda *a, **k: Closable())
+    monkeypatch.setattr(cli, "resolve_demo_inputs", lambda *a, **k: demo_inputs())
+    monkeypatch.setattr(cli, "_provider", lambda *a, **k: UnreachableProvider())
+
+    code = cli.main(["--root", str(REPO_ROOT), "demo", "--candidate-id", CANDIDATE_ID,
+                     "--out", str(tmp_path / "run")])
+    out = capsys.readouterr().out
+
+    assert code == cli.EXIT_FAILED
+    assert f"disposition    {PROVIDER_FAILED}" in out
+    assert f"the {STAGE_PLANNER} call got no answer" in out
+    assert "StoryProviderUnavailable" in out
+    assert "no draft reached the verifier" not in out
     assert (tmp_path / "run" / "rejected.json").is_file()
     assert not (tmp_path / "run" / "post.md").exists()
 

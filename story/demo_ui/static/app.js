@@ -292,6 +292,11 @@ export const LABELS = Object.freeze({
   rejectedRun:
     'This run was refused. What follows is the refused draft and the findings that refused it; '
     + 'no post was written and none is shown.',
+  providerFaultRun:
+    'This run got no answer. The request went out and the provider did not reply with one \u2014 '
+    + 'so nothing was planned, nothing was drafted, nothing was verified and nothing was '
+    + 'refused. What is below is the call that was attempted and what the provider boundary '
+    + 'raised; there is no draft and no finding to show, because none was ever produced.',
   streamLost:
     'The event stream closed before the run reported a terminal state. The run’s own '
     + 'status was fetched instead of assuming it finished.',
@@ -2601,18 +2606,34 @@ function renderOutcome(outcome) {
     // `rendered_as` is the branch, not the disposition string: a run that was refused shows the
     // refused draft and the findings that refused it, and there is no path here that can put an
     // accepted-looking post on the screen for a rejected run.
-    host.append(make('h3', null, `Refused · ${outcome.disposition}`));
-    host.append(make('p', null, LABELS.rejectedRun));
     const rejection = outcome.rejection ?? {};
-    host.append(make('p', 'mono',
-      `refused at ${rejection.stage ?? ''} · artifact ${rejection.filename ?? ''} · `
-      + `verifier ran: ${rejection.verifier_ran ? 'yes' : 'no'}`));
+    // The one thing inside this branch that is *not* a refusal. `provider_fault` is present
+    // only when the provider answered nothing, and it changes the two sentences at the top:
+    // "Refused" and "the findings that refused it" are both claims about a model's answer, and
+    // this run has none. The `codes` loop below runs either way and is empty for a fault,
+    // because the server sends no code it cannot name a stage for.
+    const fault = rejection.provider_fault ?? null;
+    host.append(make('h3', null, fault
+      ? `No answer · ${outcome.disposition}`
+      : `Refused · ${outcome.disposition}`));
+    host.append(make('p', null, fault ? LABELS.providerFaultRun : LABELS.rejectedRun));
+    host.append(make('p', 'mono', fault
+      ? `attempted at ${fault.stage ?? ''} · ${fault.error_class ?? ''} · answer produced: `
+        + `${fault.answer_produced ? 'yes' : 'no'} · artifact ${rejection.filename ?? ''}`
+      : `refused at ${rejection.stage ?? ''} · artifact ${rejection.filename ?? ''} · `
+        + `verifier ran: ${rejection.verifier_ran ? 'yes' : 'no'}`));
     for (const code of rejection.codes ?? []) {
       const row = make('div', 'is-blocking');
       row.append(make('strong', null, code.code));
       row.append(make('div', null, code.description || 'no catalogue entry documents this code'));
       if (code.remedy) row.append(make('div', 'note', code.remedy));
       host.append(row);
+    }
+    // The server's own sentence for an empty code list, rendered rather than dropped. It was
+    // sent and never shown until 2026-08-19, which is how a panel came to print "Refused" and
+    // nothing else about a run that had reached no model.
+    if (rejection.codes_absent_reason) {
+      host.append(make('p', 'note', String(rejection.codes_absent_reason)));
     }
     if (outcome.draft) {
       const box = details(host, 'The refused draft, as written', { open: true });
@@ -2652,10 +2673,18 @@ function renderInconsistentOutcome(host, outcome, consistency) {
   }
   const rejection = outcome.rejection;
   if (rejection) {
-    const refusal = details(host, 'The rejection the payload carries', { open: true });
-    refusal.append(make('p', 'mono',
-      `refused at ${rejection.stage ?? ''} · artifact ${rejection.filename ?? ''} · `
-      + `verifier ran: ${rejection.verifier_ran ? 'yes' : 'no'}`));
+    const fault = rejection.provider_fault ?? null;
+    const refusal = details(host, fault
+      ? 'The provider fault the payload carries'
+      : 'The rejection the payload carries', { open: true });
+    // Captioned as what it is, for this function's own reason: relabelling a fault as a refusal
+    // is the mistake this branch exists to stop, and it does not stop being one because the
+    // payload is also inconsistent about something else.
+    refusal.append(make('p', 'mono', fault
+      ? `attempted at ${fault.stage ?? ''} · ${fault.error_class ?? ''} · answer produced: `
+        + `${fault.answer_produced ? 'yes' : 'no'} · artifact ${rejection.filename ?? ''}`
+      : `refused at ${rejection.stage ?? ''} · artifact ${rejection.filename ?? ''} · `
+        + `verifier ran: ${rejection.verifier_ran ? 'yes' : 'no'}`));
     for (const code of rejection.codes ?? []) {
       const row = make('div', 'is-blocking');
       row.append(make('strong', null, code.code));

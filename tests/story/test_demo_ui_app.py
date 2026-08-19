@@ -504,6 +504,31 @@ def test_the_panel_branches_on_rendered_as_and_not_on_a_guess() -> None:
     assert "blocking" in source
 
 
+def test_the_panel_tells_a_fault_apart_from_a_refusal_rather_than_calling_both_refused() -> None:
+    """The browser end of the `provider_failed` disposition (2026-08-19).
+
+    The rejection branch used to open with *"Refused · <disposition>"* and the sentence "what
+    follows is the refused draft and the findings that refused it" for every non-accepted run —
+    including a live run with a rejected key, which had no draft, no finding and nothing that
+    refused anything. The branch is now on `rejection.provider_fault`, which the server sends
+    only when no answer was produced, and it renders the call that was *attempted* rather than a
+    stage that refused.
+
+    Source-level, like everything else in this file: what is proved is that the branch and the
+    two sentences exist, not that a browser painted them.
+    """
+    source = app_source()
+    assert "rejection.provider_fault" in source, "app.js never reads provider_fault"
+    assert "providerFaultRun" in source, "app.js has no sentence for a run that got no answer"
+    assert "attempted at" in source, "app.js never says which call was attempted"
+    assert "codes_absent_reason" in source, (
+        "the server explains an empty code list and app.js drops the explanation")
+    # The fault sentence is the panel's, not a paraphrase of the disposition string.
+    labels = source[source.index("export const LABELS"):]
+    fault_sentence = labels[labels.index("providerFaultRun"):labels.index("streamLost")]
+    assert "no answer" in fault_sentence and "refused" in fault_sentence
+
+
 def test_the_panel_never_renders_an_unmeasured_cost_as_a_number() -> None:
     """`cost.measured === false` means the recorded store holds no token count, by design. A `0`
     in that panel would tell a reader the run was free."""

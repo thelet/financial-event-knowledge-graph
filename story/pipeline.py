@@ -72,6 +72,7 @@ from story.providers.public import (
     KIND_LOCAL_OPENAI_COMPATIBLE as PROVIDER_LOCAL,
     PINNED_TEMPERATURE,
     StoryProviderError,
+    StoryProviderSchemaError,
 )
 from story.stages.detection import (
     POLICY_VERSION,
@@ -136,13 +137,44 @@ REJECTED_FILENAME = "rejected.json"
 GENERATIONS_FILENAME = "generations.jsonl"
 MANIFEST_FILENAME = "demo_manifest.json"
 
-#: What the run ended as. Four values, not two: §11 and §12 can each refuse before §13 runs,
+#: What the run ended as. Five values, not two: §11 and §12 can each refuse before §13 runs,
 #: and folding those into `rejected` would report "the verifier rejected this draft" about a
 #: draft the verifier never saw.
+#:
+#: `provider_failed` is the fifth and was added 2026-08-19 after a live run with a rejected key
+#: came back as `plan_refused`, with a `rejected.json` naming `editorial_planner` as the stage
+#: that refused, for a request that reached no planner and got no answer. That is the same
+#: overclaim the four exist to prevent, one boundary further out: a 401, a closed port and a
+#: timeout are not a model's judgement about anything, and a disposition that says a stage
+#: refused is a claim about what a model answered.
 ACCEPTED = "accepted"
 REJECTED = "rejected"
 PLAN_REFUSED = "plan_refused"
 DRAFT_REFUSED = "draft_refused"
+PROVIDER_FAILED = "provider_failed"
+
+#: The closed set, declared once so every surface that renders it — the demo UI's outcome
+#: payload, its tests, the CLI — reads the list from the module that owns it rather than
+#: restating it and drifting by one value, which is exactly how `provider_failed` could have
+#: shipped to a browser that had never heard of it.
+DISPOSITIONS: tuple[str, ...] = (
+    ACCEPTED, REJECTED, PLAN_REFUSED, DRAFT_REFUSED, PROVIDER_FAILED)
+
+#: The three stages a run can end at, under the names `rejected.json` has always written.
+STAGE_PLANNER = "editorial_planner"
+STAGE_WRITER = "post_writer"
+STAGE_VERIFIER = "deterministic_verifier"
+
+#: Which stage *refused*, per disposition. `PROVIDER_FAILED` is deliberately absent: no stage
+#: refused a provider fault, and which call was in flight when the transport failed is a fact
+#: about the run rather than about the disposition — it travels on `ProviderFault` instead. A
+#: table rather than a chain of conditionals because the demo UI renders the same three names
+#: and reads them from here (see `demo_ui/api.py:_pipeline`).
+REFUSING_STAGE: Mapping[str, str] = {
+    PLAN_REFUSED: STAGE_PLANNER,
+    DRAFT_REFUSED: STAGE_WRITER,
+    REJECTED: STAGE_VERIFIER,
+}
 
 CONFIG_FILENAME = "story.yaml"
 
@@ -151,9 +183,9 @@ class StoryDemoError(RuntimeError):
     """Base of every refusal this path raises. Each names what it refused and why.
 
     A refusal is not a result: nothing is written and no directory is created, so an operator
-    cannot mistake a run that never happened for one that produced no post. The two dispositions
-    that *are* results — a plan or draft §11/§12 refused, and a draft §13 rejected — write their
-    full artifact set instead.
+    cannot mistake a run that never happened for one that produced no post. The dispositions
+    that *are* results — a plan or draft §11/§12 refused, a draft §13 rejected, and a call the
+    provider never answered — write their full artifact set instead.
     """
 
 
@@ -398,13 +430,47 @@ def resolve_demo_inputs(
 
 
 @dataclass(frozen=True)
+class ProviderFault:
+    """Which call went out and did not come back, and what the boundary raised.
+
+    Two fields and no message. `stage` is the call site that was *attempting* — not a stage
+    that judged anything — so a fault during the writer call is distinguishable from one during
+    the planner call without the disposition having to encode it; the run id, the manifest and
+    the panel all keep one `provider_failed`, and this says where. `error_class` is the type
+    name from `providers/public.py`'s taxonomy, which already separates "nothing is listening"
+    from "the budget ran out" from "a response arrived and could not be understood", and is the
+    most specific true thing available without quoting an exception's text — that text names
+    the server's address and stays in `rejected.json` and the log, as it does everywhere else.
+    """
+
+    stage: str
+    error_class: str
+
+    def as_dict(self) -> dict[str, str | bool]:
+        """The fault as every surface renders it, including the fact it exists to record.
+
+        `answer_produced: false` is stated rather than left to be inferred from an absent block:
+        a reader of `rejected.json` looking at a run with no `codes` and no verification has, in
+        every other disposition, been looking at a refusal *of an answer*. This one is not, and
+        that is the sentence the whole disposition exists to make sayable.
+        """
+        return {"stage": self.stage, "error_class": self.error_class,
+                "answer_produced": False}
+
+
+@dataclass(frozen=True)
 class DemoOutcome:
     """What the run produced, named so the CLI has nothing to decide.
 
-    `verified` is `None` exactly when §13 never ran — a plan or a draft §11/§12 refused — and
-    the disposition says which. `ok` is `disposition == ACCEPTED` and nothing else: a rejected
-    draft with a correct structured explanation is a valid demo result and a non-zero exit, and
-    conflating "the run worked" with "the post passed" is how a demo starts overclaiming.
+    `verified` is `None` exactly when §13 never ran — a plan or a draft §11/§12 refused, or a
+    provider fault — and the disposition says which. `ok` is `disposition == ACCEPTED` and
+    nothing else: a rejected draft with a correct structured explanation is a valid demo result
+    and a non-zero exit, and conflating "the run worked" with "the post passed" is how a demo
+    starts overclaiming.
+
+    `fault` is non-`None` **exactly** when the disposition is `PROVIDER_FAILED`, and it is a
+    separate field rather than a fifth value stuffed into `refusal_codes` because a code list
+    is what a model's answer produced and a fault produced no answer at all.
     """
 
     story_run_id: str
@@ -416,6 +482,7 @@ class DemoOutcome:
     verified: VerifiedDraft | None = None
     refusal: str = ""
     refusal_codes: tuple[str, ...] = ()
+    fault: ProviderFault | None = None
     artifacts: Mapping[str, str] = field(default_factory=dict)
 
     @property
@@ -444,6 +511,11 @@ def run_demo(
     twice. §11 and §12's refusals are the same kind of answer and are recorded as dispositions
     rather than retried around.
 
+    **A fault is not an answer, and gets its own disposition rather than a stage's.** The
+    transport *does* retry inside the adapter, within its own bound; what arrives here has
+    exhausted that, and calling it `plan_refused` would say a planner judged something when no
+    planner ever ran. `_provider_failure` draws the line and argues where.
+
     `now` is injectable so the determinism proof can hold the one clock still. It is the only
     clock in the run, and it enters no id: `story_run_id` is derived from versions, digests and
     the selection, exactly as `graph/core/manifest.py:104-139` derives its own.
@@ -468,13 +540,18 @@ def run_demo(
     disposition = ACCEPTED
     refusal = ""
     refusal_codes: tuple[str, ...] = ()
+    fault: ProviderFault | None = None
 
     try:
         planned = plan_story(package, provider=provider,
                              max_tokens=config.planner_max_tokens)
         planner_result = planned.generation
-    except (EditorialPlanRejected, StoryProviderError) as exc:
+    except EditorialPlanRejected as exc:
         disposition, refusal, refusal_codes = PLAN_REFUSED, str(exc), _codes_of(exc)
+        planner_result = _generation_of(exc)
+    except StoryProviderError as exc:
+        disposition, refusal, refusal_codes, fault = _provider_failure(
+            exc, refused=PLAN_REFUSED, stage=STAGE_PLANNER)
         planner_result = _generation_of(exc)
     if planner_result is not None:
         results.append(planner_result)
@@ -485,8 +562,12 @@ def run_demo(
                 package, planned.plan, provider=provider,
                 length_target=config.length_target, max_tokens=config.writer_max_tokens)
             writer_result = written.generation
-        except (DraftRejected, StoryProviderError) as exc:
+        except DraftRejected as exc:
             disposition, refusal, refusal_codes = DRAFT_REFUSED, str(exc), _codes_of(exc)
+            writer_result = _generation_of(exc)
+        except StoryProviderError as exc:
+            disposition, refusal, refusal_codes, fault = _provider_failure(
+                exc, refused=DRAFT_REFUSED, stage=STAGE_WRITER)
             writer_result = _generation_of(exc)
         if writer_result is not None:
             results.append(writer_result)
@@ -509,14 +590,51 @@ def run_demo(
         directory, inputs=inputs, config=config, story_run=story_run,
         disposition=disposition, planned=planned, written=written, verified=verified,
         planner_result=planner_result, writer_result=writer_result,
-        refusal=refusal, refusal_codes=refusal_codes, results=results, provider=provider,
-        live=live, now=now)
+        refusal=refusal, refusal_codes=refusal_codes, fault=fault, results=results,
+        provider=provider, live=live, now=now)
     return DemoOutcome(
         story_run_id=story_run, directory=directory, disposition=disposition,
         manifest=manifest, plan=planned.plan if planned else None,
         draft=written.draft if written else None, verified=verified,
-        refusal=refusal, refusal_codes=refusal_codes,
+        refusal=refusal, refusal_codes=refusal_codes, fault=fault,
         artifacts=manifest.artifacts)
+
+
+def _provider_failure(
+    exc: StoryProviderError, *, refused: str, stage: str,
+) -> tuple[str, str, tuple[str, ...], ProviderFault | None]:
+    """Sort one `StoryProviderError` into "the model answered" or "nothing answered".
+
+    **The line is the class, not the carried result, and the two are not the same line.**
+    `StoryProviderSchemaError` means one thing wherever it is raised: a response arrived, it
+    parsed as JSON, and the JSON does not satisfy the schema the request pinned. That is a
+    model's answer being refused — §15.3's own words, "a schema violation is the model's answer,
+    not a transport fault" — so it keeps the stage's disposition and its `violations` go on as
+    codes, which are real and were emitted by a real answer.
+
+    The subtlety the accounting fix left behind is that **only a stage-raised one carries a
+    `GenerationResult`**: an adapter raises it mid-translation, before the result object exists,
+    so nothing is appended to `results` and the manifest honestly counts no call. Keying the
+    disposition on that absence instead — the obvious alternative, and the one this function
+    exists to reject — would report `provider_failed` for a response the server really sent and
+    the adapter really parsed, which is a fresh falsehood of exactly the kind `provider_failed`
+    was added to remove. The absence belongs to the *accounting*, where it already lives; the
+    disposition belongs to *what happened*.
+
+    Everything else in the taxonomy — configuration, unavailable, timeout, transport, response —
+    is a run that made a request and got no usable answer out of it, including a 401 with a
+    perfectly well-formed error body: an error envelope is not an answer to the question asked.
+    A configuration error is the outlier in that list, since nothing was sent at all, and it is
+    still not worth a sixth disposition: it is *further* from a model's judgement rather than
+    nearer to one, and `error_class` already separates "never sent" from "sent and unanswered"
+    for the one reader who needs the difference.
+    """
+    if isinstance(exc, StoryProviderSchemaError):
+        return refused, str(exc), _codes_of(exc), None
+    # No codes. A fault emitted none, and `_codes_of` would happily read `violations` off a
+    # class that does not have them and hand back an empty tuple that looked like a decision.
+    return PROVIDER_FAILED, str(exc), (), ProviderFault(
+        stage=stage, error_class=type(exc).__name__)
 
 
 def _codes_of(exc: Exception) -> tuple[str, ...]:
@@ -844,6 +962,9 @@ def _write_run(
     writer_result: GenerationResult | None,
     refusal: str,
     refusal_codes: tuple[str, ...],
+    #: Non-`None` exactly on `PROVIDER_FAILED`, and the only thing that knows which call was in
+    #: flight — the disposition deliberately does not encode it.
+    fault: ProviderFault | None,
     results: list[GenerationResult],
     provider: Any,
     live: bool,
@@ -876,7 +997,7 @@ def _write_run(
         write(POST_FILENAME, render_markdown(written.draft))
     if disposition != ACCEPTED:
         write(REJECTED_FILENAME, _render_json(_rejection_payload(
-            inputs, disposition, verified, refusal, refusal_codes)))
+            inputs, disposition, verified, refusal, refusal_codes, fault)))
     store = getattr(provider, "store", None)
     if store is not None and len(store):
         write(GENERATIONS_FILENAME, store.render())
@@ -953,6 +1074,12 @@ def _write_run(
             "verifier_gate_digest": verifier_gate_digest(),
             "verifier_version": None,
             "disposition": disposition,
+            # `null` on every other disposition. Here as well as in `rejected.json` because the
+            # manifest is the file a run directory is *indexed* by — it is the completion marker
+            # and the thing a later reader opens first — and a run reading `provider_failed` with
+            # no other field in this block would be a run whose manifest cannot say which of its
+            # two calls never came back.
+            "provider_fault": None if fault is None else fault.as_dict(),
             "generation_mode": "live" if live else "replay",
             "length_target": config.length_target,
             "writer_max_tokens": config.writer_max_tokens,
@@ -964,23 +1091,34 @@ def _write_run(
 
 
 def _rejection_payload(inputs: DemoInputs, disposition: str, verified: VerifiedDraft | None,
-                       refusal: str, refusal_codes: tuple[str, ...]) -> dict[str, Any]:
-    """Why this run produced no post — one file for all three ways that happens.
+                       refusal: str, refusal_codes: tuple[str, ...],
+                       fault: ProviderFault | None = None) -> dict[str, Any]:
+    """Why this run produced no post — one file for all four ways that happens.
 
     A §13 rejection carries `RejectedDraft` whole, checks included: a rejection that dropped its
     WARNs and ANNOTATEs would report the draft's worst sentence instead of the draft, and the
     `examined` denominators are what say which checks even ran. A §11 or §12 refusal has no
     verification to carry and says so in `stage`, so the two are never read as one another.
+
+    **A provider fault says a different sentence in the same field.** `stage` is read off the
+    fault rather than off the disposition, because it names the call that was *attempted* and
+    not a stage that refused anything — and the `provider_fault` block beside it states, in
+    data, that no answer was produced and what the boundary raised. `codes` stays `[]`: a
+    refusal code is something a model's answer earned, and inventing one here — even a
+    plausible `provider_unavailable` — would put a string into the panel's code catalogue that
+    no stage in this repository declares.
     """
     payload: dict[str, Any] = {
         "candidate_id": inputs.candidate.candidate_id,
         "package_id": inputs.package.package_id,
         "disposition": disposition,
-        "stage": {PLAN_REFUSED: "editorial_planner", DRAFT_REFUSED: "post_writer",
-                  REJECTED: "deterministic_verifier"}.get(disposition, disposition),
+        "stage": (fault.stage if fault is not None
+                  else REFUSING_STAGE.get(disposition, disposition)),
         "codes": list(refusal_codes),
         "detail": refusal,
     }
+    if fault is not None:
+        payload["provider_fault"] = fault.as_dict()
     if verified is not None:
         payload["rejection"] = rejection_for(verified).model_dump(mode="json")
     return payload
@@ -1003,6 +1141,7 @@ def _run_id_input_names() -> tuple[str, ...]:
 __all__ = [
     "ACCEPTED",
     "CANDIDATE_FILENAME",
+    "DISPOSITIONS",
     "DRAFT_FILENAME",
     "DRAFT_REFUSED",
     "GENERATIONS_FILENAME",
@@ -1011,9 +1150,14 @@ __all__ = [
     "PLAN_FILENAME",
     "PLAN_REFUSED",
     "POST_FILENAME",
+    "PROVIDER_FAILED",
+    "REFUSING_STAGE",
     "REJECTED",
     "REJECTED_FILENAME",
     "SELECTION_MODE",
+    "STAGE_PLANNER",
+    "STAGE_VERIFIER",
+    "STAGE_WRITER",
     "VERIFICATION_FILENAME",
     "CandidateNotFound",
     "DemoConfig",
@@ -1021,6 +1165,7 @@ __all__ = [
     "DemoInputs",
     "DemoOutcome",
     "FreshnessRefused",
+    "ProviderFault",
     "StoryDemoError",
     "resolve_demo_inputs",
     "run_demo",

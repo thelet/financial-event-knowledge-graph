@@ -341,6 +341,29 @@ LIVE_UNMEASURED_COST_REASON = (
     "was served from the recorded store. `generation_calls` beside this reason says which. A "
     "zero here would be a fabricated measurement.")
 
+#: The third absence, and the only one that is a *measurement* rather than a gap **(added
+#: 2026-08-19 with the `provider_failed` disposition)**. When the provider answered nothing, the
+#: run really did spend nothing — no request was billed, no row was stored, and the zero is
+#: true. It is still not rendered as a number: `measured` stays false because nothing counted
+#: tokens, and a panel showing `0 / 0 / 0` beside a live run would read as a measured cost of
+#: zero rather than as an absent measurement. The sentence is what changes, because the reason
+#: above hedges between two possibilities and this run is not either of them.
+PROVIDER_FAULT_COST_REASON = (
+    "nothing was spent. The run called the server and the call did not come back, so no answer "
+    "was billed, no token count exists and no row was stored. The rejection panel names the "
+    "call that was attempted. This is a run that cost nothing, not a run whose cost went "
+    "unmeasured — but it is shown as an absence rather than as a zero, because no counter ever "
+    "ran.")
+
+#: Why a provider fault carries no refusal code, said as a fact about the run rather than as an
+#: explanation of a missing field. See `_outcome_payload`.
+PROVIDER_FAULT_CODES_REASON = (
+    "there is no code because there is no answer. A refusal code is something a model's reply "
+    "earned from §11, §12 or §13, and this run never received a reply to judge — so the "
+    "codes list is empty rather than filled with a plausible-looking name no stage in this "
+    "system declares. `provider_fault` beside it says which call was attempted and what the "
+    "provider boundary raised.")
+
 #: The same distinction for the package's retrieval trace.
 RETRIEVAL_TIMING_REASON = (
     "not measured. `retrieval_trace[].elapsed_ms` is pinned to zero inside a package because "
@@ -546,8 +569,10 @@ def _pipeline(request: Request) -> Any:
     """The `story.pipeline` module, from the composition root. See the module docstring.
 
     Read as a module rather than as two functions, so every constant the endpoints render —
-    the four dispositions, the artifact filenames, the refusal classes — comes from the module
-    that declares them instead of being restated here and drifting.
+    `DISPOSITIONS`, `REFUSING_STAGE`, the artifact filenames, the refusal classes — comes from
+    the module that declares them instead of being restated here and drifting. The two named
+    first are tables rather than literals for exactly that reason: this file listed four
+    disposition strings of its own until `provider_failed` made five, 2026-08-19.
     """
     return _service(request, "story_pipeline", error="pipeline_unavailable")
 
@@ -1725,11 +1750,18 @@ def _cost_panel(outcome: Any, *, live: bool) -> dict[str, Any]:
     run was handed the replay sentence and told a reader "not measured on replay" about a run
     that was not a replay. `measured` staying independent of `live` is the original and right
     decision — a run asked for live can still be answered from the store — but *why* nothing was
-    measured is a different question from *whether*, and it has two answers.
+    measured is a different question from *whether*, and it has three answers, not two: the
+    third is a run whose provider never answered, which is the one case where the absence has a
+    known cause instead of a hedge between two. It is taken first, because the other two are
+    written as guesses and this one is not.
     """
     totals = dict(getattr(outcome.manifest, "token_totals", {}) or {})
     total = int(totals.get("total_tokens", 0) or 0)
     measured = total > 0
+    #: A fault at the *writer* call leaves a planner answer already paid for, so the totals are
+    #: real and this is not consulted — which is why it is read after `measured` and not
+    #: instead of it.
+    fault = getattr(outcome, "fault", None)
     panel: dict[str, Any] = {
         "measured": measured,
         "mode": "live" if live else "replay",
@@ -1742,7 +1774,8 @@ def _cost_panel(outcome: Any, *, live: bool) -> dict[str, Any]:
         panel[name] = int(totals.get(name, 0) or 0) if measured else None
     panel["latency_ms"] = None
     if not measured:
-        panel["reason"] = LIVE_UNMEASURED_COST_REASON if live else REPLAY_COST_REASON
+        panel["reason"] = (PROVIDER_FAULT_COST_REASON if fault is not None
+                           else LIVE_UNMEASURED_COST_REASON if live else REPLAY_COST_REASON)
     else:
         panel["reason"] = ("latency is not recorded by this path; the token counts are the "
                            "server's own, summed across the run's generation calls")
@@ -1832,6 +1865,11 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
                             "still an acceptance; what is missing is the rendered file."),
             }
     rejection = None
+    #: Non-`None` on `PROVIDER_FAILED` and nowhere else. Read through `getattr` for the reason
+    #: `pipeline._codes_of` gives about shapes: this module renders `DemoOutcome`, it does not
+    #: construct one, and a test double built before the field existed is still a valid outcome
+    #: to render.
+    fault = getattr(outcome, "fault", None)
     if not accepted:
         family = (code_catalogue.FAMILY_PLANNER
                   if outcome.disposition == pipeline.PLAN_REFUSED
@@ -1850,14 +1888,26 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
         codes = outcome.refusal_codes or blocking_codes
         rejection = {
             "filename": pipeline.REJECTED_FILENAME,
-            "stage": {pipeline.PLAN_REFUSED: "editorial_planner",
-                      pipeline.DRAFT_REFUSED: "post_writer",
-                      pipeline.REJECTED: "deterministic_verifier"}.get(
-                          outcome.disposition, outcome.disposition),
+            # The stage a fault was *attempting*, or the stage that refused. Both come from
+            # `pipeline` — the table by name since the mapping is now declared there, so the
+            # browser and `rejected.json` cannot disagree about what to call a stage.
+            "stage": (fault.stage if fault is not None
+                      else pipeline.REFUSING_STAGE.get(outcome.disposition,
+                                                       outcome.disposition)),
             "codes": _explanations(codes, family),
             "verifier_ran": outcome.verified is not None,
         }
-        if not codes:
+        if fault is not None:
+            # **The panel gets the fact, not an inference from an empty list.** Before
+            # 2026-08-19 this run arrived as `plan_refused` with no codes, and the only hint a
+            # reader had that no model had answered was the word "transport" inside the
+            # absent-codes sentence below — an explanation of a *missing* field standing in for
+            # a statement about the run. `answer_produced: false` is now the payload's own
+            # claim, `stage` is the call that was attempted rather than a stage that judged
+            # anything, and `error_class` is the taxonomy's name for what the boundary raised.
+            rejection["provider_fault"] = fault.as_dict()
+            rejection["codes_absent_reason"] = PROVIDER_FAULT_CODES_REASON
+        elif not codes:
             # **Measured on three live runs, 2026-08-05: a refusal can carry no code at all.**
             # `_codes_of` reads `codes` off §11/§12's rejections and `violations` off a schema
             # error, and a `StoryProviderError` raised by the transport — a 500, a context
@@ -1866,20 +1916,30 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
             # adapter's carries the server's URL), so what is added here is the *shape* of the
             # answer and where the untruncated one lives — which is true, and is more than an
             # empty list.
+            #
+            # **The transport half of that sentence moved out and is not repeated here**
+            # (2026-08-19). Those three runs would now arrive as `provider_failed` with a
+            # `provider_fault` block, and leaving "a provider or transport failure carries
+            # neither" in the branch that no longer sees one would send a reader looking for a
+            # fault in a run that had none. What can still reach here is a §11 or §12 rejection
+            # whose own code list came back empty.
             rejection["codes_absent_reason"] = (
-                "this refusal carried no structured code. §11 and §12's own rejections carry "
-                "codes and a schema violation carries violations; a provider or transport "
-                f"failure carries neither. The run directory's {pipeline.REJECTED_FILENAME} "
-                "holds the full detail, which is not served because it is an exception's text "
-                "and can name the model server's address.")
+                "this refusal carried no structured code, although the stage that raised it "
+                "does carry them: §11 and §12's own rejections carry codes and a schema "
+                "violation carries violations. A call that got no answer at all is a different "
+                f"run and says so in its disposition. The run directory's "
+                f"{pipeline.REJECTED_FILENAME} holds the full detail, which is not served "
+                "because it is an exception's text and can name the model server's address.")
     return {
         "story_run_id": outcome.story_run_id,
         "directory": _relative(directory, root),
         "disposition": outcome.disposition,
         "accepted": accepted,
         "rendered_as": "post" if accepted else "rejection",
-        "dispositions": [pipeline.ACCEPTED, pipeline.REJECTED, pipeline.PLAN_REFUSED,
-                         pipeline.DRAFT_REFUSED],
+        # The whole closed set, read from the module that declares it rather than listed here.
+        # Restated, this list was four values while `pipeline` had five for as long as it took
+        # somebody to notice — which is the drift `_pipeline`'s docstring already argues about.
+        "dispositions": list(pipeline.DISPOSITIONS),
         "selection_mode": pipeline.SELECTION_MODE,
         "generation_mode": "live" if live else "replay",
         "artifacts": dict(outcome.artifacts),

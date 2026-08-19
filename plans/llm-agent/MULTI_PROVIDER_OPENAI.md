@@ -2,8 +2,10 @@
 
 **Status:** implemented. Planned and committed as a checkpoint at `d72ca64`; built at
 `2cbf533`, `4a857fd` and `b1dc8ac`; §10 records the live comparison that followed and the
-one defect it found. Sections 1–9 are the plan **as written before implementation** and are
-corrected in place where reality contradicted them, with the correction marked. *(2026-08-19)*
+defects it found — §10.1 the accounting one, §10.3 the disposition one, which was the single
+finding the adversarial review at `6e1e32c` left open and is now closed. Sections 1–9 are the
+plan **as written before implementation** and are corrected in place where reality contradicted
+them, with the correction marked. *(2026-08-19)*
 
 ## 1. The answer, first
 
@@ -449,7 +451,9 @@ requires the token usage the provider returned and the final disposition both to
 Fixed at packet D: `EditorialPlanRejected` and `DraftRejected` carry the `GenerationResult` they
 refused, and `run_demo` records it whichever way the stage ended. A provider *fault* — transport,
 timeout, an adapter's own schema error — genuinely produced no result, carries none, and still
-records nothing. Re-verified against the two recorded stores above: replayed under `b1dc8ac` the
+records nothing. *(That list is right about the **accounting** and was used one sentence too far
+for the **disposition**; §10.3 draws the second line, and an adapter's schema error falls on the
+other side of it.)* Re-verified against the two recorded stores above: replayed under `b1dc8ac` the
 plan-refused store reports `generation_calls: 0` and an empty planner block, and under the fix
 `1` and a filled one; the draft-refused store reports `1` / empty writer block before and `2` /
 filled after. The accepted Qwen replay is byte-identical across the change, manifest included.
@@ -473,6 +477,66 @@ asserted over a Qwen draft the verifier accepts *and* an OpenAI draft it rejects
 It is deliberately **not** in `config/story.yaml`'s `demo.generation_stores`. The shipped
 configuration having no OpenAI store is what makes the demo UI answer `provider_requires_live`
 for OpenAI honestly, and that answer is itself a tested guarantee. The tests name the path.
+
+### 10.3 A rejected key was reported as a planner refusal — closed *(2026-08-19)*
+
+The one finding the adversarial review at `6e1e32c` left open, named in that commit rather than
+hidden: **an authentication failure finished as `plan_refused`, with a `rejected.json` reading
+`"stage": "editorial_planner"`, for a request that reached no planner.** Reproduced on the tree
+at `6e1e32c` before being touched — `python -m story demo --provider openai --model gpt-5-nano
+--live` with a bogus key in `OPENAI_API_KEY`:
+
+| | at `6e1e32c` | after |
+| --- | --- | --- |
+| `disposition` | `plan_refused` | `provider_failed` |
+| `rejected.json` `stage` | `editorial_planner` — "the planner refused this" | `editorial_planner` — the call that was **attempted** |
+| `rejected.json` `provider_fault` | *absent* | `{answer_produced: false, error_class: StoryProviderResponseError, stage: editorial_planner}` |
+| `codes` | `[]`, explained by a sentence about "a provider or transport failure" | `[]`, explained by "there is no code because there is no answer" |
+| CLI summary | `PLAN_REFUSED — no draft reached the verifier.` | `PROVIDER_FAILED — the editorial_planner call got no answer …` |
+| exit code | 1 | 1 *(unchanged: a run with no post is a failure either way)* |
+| `generations.jsonl` / `generation_calls` | absent / 0 | absent / 0 *(unchanged — the truthful zero)* |
+| `story_run_id` | `story-v1-29c6555b5a92` | `story-v1-29c6555b5a92` *(unchanged — the disposition is not a run-id input)* |
+
+The cause was one `except` clause: `except (EditorialPlanRejected, StoryProviderError)` recorded
+a model's answer that §11 refused and a transport fault that produced no answer as the same
+thing. `run_demo`'s own docstring argues four dispositions exist so a §11 refusal is not reported
+as a verifier rejection; the same argument makes a 401 a fifth. Pre-existing — the clause is
+older than S12 — and S12 is what makes it ordinary, because a second provider makes a bad key an
+everyday state rather than an exotic one.
+
+**Where the line is drawn, and the one case that had to be argued.** `pipeline._provider_failure`
+sorts by **class**, not by whether a `GenerationResult` came with the exception:
+
+| raised | disposition | why |
+| --- | --- | --- |
+| `EditorialPlanRejected` / `DraftRejected` | `plan_refused` / `draft_refused` | unchanged. A stage judged an answer. |
+| `StoryProviderSchemaError` **from a stage** | `plan_refused` / `draft_refused` | unchanged. The model answered and the answer missed the schema. |
+| `StoryProviderSchemaError` **from an adapter** | `plan_refused` / `draft_refused` | **the argued case.** It carries no `GenerationResult` — the adapter refuses mid-translation, before one exists — but the response *did* arrive and *did* parse, and its violations are real. Keying on the missing result would report "the provider produced no answer" about a server that answered with JSON somebody can name the violations of. The absence belongs to the accounting, where it already lived. |
+| configuration, unavailable, timeout, transport, response | `provider_failed` | the run made a request and got no usable answer. An error envelope is not an answer to the question asked. |
+
+**Which call was in flight is data, not a second disposition.** `ProviderFault{stage,
+error_class}` travels on `DemoOutcome`, into `rejected.json`, into the manifest's `demo` block and
+into the outcome payload, so a fault at the writer is distinguishable from one at the planner
+while both stay one value. A writer fault is also the case that stops "a fault spent nothing"
+from being a shortcut: its planner call was made, answered and billed, and the manifest reports
+that call and an empty writer block.
+
+Threaded through, by grep for the constants rather than by list: `pipeline.DISPOSITIONS` and
+`pipeline.REFUSING_STAGE` are now the single declarations, and `demo_ui/api.py` reads both
+instead of restating four strings and a stage table of its own; the cost panel gains a third
+absence sentence, because "no counter ever ran" is a known cause where the live sentence hedges
+between two; `app.js` branches on `rejection.provider_fault`, renders *"No answer · …"* rather
+than *"Refused · …"*, and finally renders the server's `codes_absent_reason`, which it had been
+dropping. Eleven tests were added and one was corrected — `test_a_stage_that_never_got_an_answer_
+records_no_call_at_all` asserted `plan_refused`, which was the defect written down as a contract.
+
+Offline story suite after the change: **3218 passed, 153 deselected** (3197 before; +11 new tests
+and +10 from `test_story_retrieval_cypher`'s per-string-literal parametrisation, which counts one
+more literal in `story/cli.py`). The local path is untouched, checked both ways *(2026-08-19)*:
+the recorded demo replays to `draft.json 526b5d6736e2b262`, `post.md 73a5ec3d87dfb049`,
+`verification_report.json fe31ad41d39a3723`, and a `--live` run against 127.0.0.1:8080 reaches
+the same three hashes and writes a `generations.jsonl` byte-identical to the committed fixture
+(`f59fd4e4f94eb094`).
 
 ## 11. Open decision, with a recommendation — resolved *(2026-08-19)*
 
