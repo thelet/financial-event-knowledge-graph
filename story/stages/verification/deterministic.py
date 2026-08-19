@@ -311,6 +311,13 @@ class DeterministicVerifier:
     `literal_ok` is §13.1's allowlist — ordinals and a metric's own `threshold_value` such as
     *"120 days"*. Empty by default: a numeral nobody declared is `unbound_numeral`, and an
     allowlist that shipped with entries would be a set of numbers the verifier stops looking at.
+
+    **And nothing supplies it** *(2026-08-19, H2's F9)*. It is not read from `config/story.yaml`,
+    the pipeline and the demo UI both construct this class without it, and no test passes one, so
+    it is `()` on every run this repository performs. It is kept because it is the seam a caller
+    with a real `threshold_value` corpus would use and because removing a constructor keyword is
+    a change to the contract rather than to the text; what is **not** kept is the refusal message
+    that offered it as one of four ways to cover a numeral. See `_check_numbers`.
     """
 
     def __init__(
@@ -536,8 +543,15 @@ class DeterministicVerifier:
                     "unbound_numeral",
                     sentence_index=sentence.index,
                     char_start=token.start, char_end=token.end,
-                    expected=("a fact_binding span, a calculation result, a period surface or "
-                              "the literal_ok allowlist"),
+                    # The mechanisms `_covering_spans` actually builds, in its own order. It
+                    # named `the literal_ok allowlist` until H2 and that was a dead remedy: the
+                    # allowlist is constructor-only, is read from no configuration file, and is
+                    # `()` on every pipeline and demo-UI run, so a writer told to reach for it
+                    # had nothing to reach. A refusal that offers four ways out and means three
+                    # spends a reader's attention on the one that does not exist.
+                    expected=("a fact_binding span, a binding period surface some check "
+                              "resolves, either period of a bound derived fact, or a replayed "
+                              "calculation's result_rendered or period_surface"),
                     observed=token.text,
                     explanation=(
                         "§13.1: a numeral nobody declared is a claim nobody checked. Matching a "

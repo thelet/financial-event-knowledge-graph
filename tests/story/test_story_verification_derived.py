@@ -73,6 +73,7 @@ from story.stages.verification.package_index import (
 # asserted rather than hoped for.
 from story.stages.derivation.execute import execute
 from story.stages.derivation.offers import OFFERABLE_OPERATIONS, offers
+from story.stages.derivation.public import DerivationRefusalCode
 from story.stages.detection import detector_config
 
 from conftest import make_candidate
@@ -967,7 +968,7 @@ def _offerable_packages() -> tuple[tuple[StoryEvidencePackage, StoryCandidate], 
     return (usd, percent, one_period)
 
 
-def test_every_operation_the_offer_set_may_print_is_one_a_draft_can_bind():
+def test_every_triple_the_offer_set_may_print_is_one_a_draft_can_bind():
     """§11.4's first defect, closed at the end that moved, and asserted generally.
 
     `offers` printed `trend_direction`, `execute_all` computed it, and §6 refused every draft
@@ -976,16 +977,24 @@ def test_every_operation_the_offer_set_may_print_is_one_a_draft_can_bind():
     not about today's membership: **anything the planner may be shown must be something a draft
     can state**, whatever the two ends come to hold later.
 
+    **The claim is about every offered triple and about every integrity finding, and until H2
+    this test asserted neither** *(2026-08-19)*. It keyed on `request.operation` and asserted
+    only that `derived_operation_not_supported` was absent, discarding every other finding — so
+    the three reversed triples §2's own candidate printed, each of which
+    `_shape_findings` refuses as `derived_fact_orientation_reversed` and no writer could bind,
+    walked straight through a test whose docstring said they could not exist. A test that
+    discards the findings it did not expect is a test of the code it was written against.
+
     Driven rather than declared. The subset assertion alone would pass against a verifier that
     had stopped refusing anything, so every offer of every package below is executed and put
-    through `integrity_findings`, which is the function that answers
-    `derived_operation_not_supported`.
+    through `integrity_findings` whole.
     """
     assert OFFERABLE_OPERATIONS <= derived_rules.RECOMPUTABLE, (
         sorted(operation.value for operation in
                OFFERABLE_OPERATIONS - derived_rules.RECOMPUTABLE))
 
     exercised: set[DerivationOperation] = set()
+    triples = 0
     for package, candidate in _offerable_packages():
         offered = offers(package, candidate)
         for request in offered:
@@ -995,14 +1004,45 @@ def test_every_operation_the_offer_set_may_print_is_one_a_draft_can_bind():
                 f"{request.operation.value} was offered and then refused: "
                 f"{getattr(fact, 'code', None)} {getattr(fact, 'detail', '')}")
             found = derived_rules.integrity_findings(fact, PackageIndex(package, (fact,)))
-            assert "derived_operation_not_supported" not in {item.code for item in found}, (
-                f"{request.operation.value} is offered and unbindable")
+            assert [item.code for item in found] == [], (
+                f"{request.operation.value} {request.from_fact_id} -> {request.to_fact_id} is "
+                f"offered and unbindable: {[item.code for item in found]}")
             exercised.add(request.operation)
+            triples += 1
 
     assert exercised == OFFERABLE_OPERATIONS, (
         "the packages above no longer exercise every offerable operation, so this test proves "
         "less than it says: " + str(sorted(
             operation.value for operation in OFFERABLE_OPERATIONS - exercised)))
+    assert triples >= len(OFFERABLE_OPERATIONS), (
+        "one triple per operation would make the operation-keyed claim again")
+
+
+def test_the_reversed_orientation_is_still_refused_by_the_verifier_that_forced_the_narrowing():
+    """H2's F5, from the other end: the offer set narrowed and the refusal stayed.
+
+    §12.2's shape, for the second time. `offers` no longer prints a backwards two-period triple
+    and `offers.validate` refuses one, so the only way such a fact can now reach §13 is a plan or
+    a `derived_facts.json` replayed from an artifact recorded before the narrowing — and it is
+    still `derived_fact_orientation_reversed` there. Nothing was weakened to close F5: one end
+    stopped offering what the other end always refused.
+
+    The two ends spell it identically, which is what makes a run's refusal read as one fault
+    wherever it is reported.
+    """
+    assert (DerivationRefusalCode.ORIENTATION_REVERSED.value
+            == "derived_fact_orientation_reversed")
+
+    backwards = make_derived(
+        from_fact_id=Q3_ID, to_fact_id=Q2_ID,
+        from_period="2022Q3", to_period="2022Q2",
+        from_value=110_000_000.0, to_value=556_000_000.0,
+        result=446_000_000.0,
+        display_semantics=DisplaySemantics.INCREASED_BY,
+        period_surface_hint="the second quarter of 2022")
+    found = derived_rules.integrity_findings(
+        backwards, PackageIndex(make_package(), (backwards,)))
+    assert [item.code for item in found] == ["derived_fact_orientation_reversed"]
 
 
 def test_the_withdrawn_operation_is_still_refused_by_the_verifier_that_forced_the_withdrawal():
@@ -1302,18 +1342,49 @@ def test_a_crossed_zero_sentence_that_states_what_the_tool_computed_passes():
     **And a measurement H1 did not expect, recorded rather than smoothed over.** The *most*
     natural true wording — *"did not cross zero"* — is refused, and not by this rule: `"did
     not"` is a §13.14 `ABSENCE_TERMS` member and the sentence earns `unsupported_absence_claim`,
-    a check that predates S13 and that H1 may not weaken. So on the `did_not_cross` branch the
-    writable surfaces are the ones that state the fact positively — *"remained positive"*,
-    *"stayed positive"*, *"on the same side of zero"* — and every negated spelling collides with
-    §13.14. That is a real narrowing of what a `crossed_zero` derivation can say, it is the
-    conservative direction, and it is a reason to ask whether the operation earns its place in
-    the offer set at all rather than a reason to loosen either rule.
+    a check that predates S13 and that H1 may not weaken. So on the `did_not_cross` branch every
+    negated spelling collides with §13.14, and the writable surfaces are the ones that state the
+    fact without a negation. That is a real narrowing, in the conservative direction.
     """
     fact = _crossing_fact()
     text = ("Adjusted gross profit remained positive between the second quarter of 2022 and "
             "the third quarter of 2022.")
     assert codes(make_draft(sentences=(_bound(fact, text, "remained positive"),)),
                  derived=(fact,)) == set()
+
+
+#: The `did_not_cross` phrases that assert **only** what the operation computed — that the two
+#: readings sit on one side of zero — and name no polarity of their own. See the test below for
+#: why the distinction is load-bearing.
+POLARITY_NEUTRAL_CROSSING_PHRASES = (
+    "on the same side of zero", "held its sign", "kept its sign", "without crossing zero")
+
+
+@pytest.mark.parametrize("phrase", POLARITY_NEUTRAL_CROSSING_PHRASES)
+def test_the_did_not_cross_branch_has_wordings_that_are_legal_and_wholly_checked(phrase):
+    """H2's decision on `crossed_zero`: **kept**, and this is what a writer may legally say.
+
+    §12.2 withdrew `trend_direction` because the verifier could never accept a binding to one —
+    the word is a sibling stage's stored sign convention and `RECOMPUTABLE` excludes it. That
+    argument does not transfer. `_result_findings` re-derives `crossed`/`did_not_cross` from the
+    package's own two values, so plan §4.1's criterion — *"each operation exists only because an
+    existing verification rule can already check its result"* — is met in the strong sense, and
+    H1 gave the prose a guard in both directions. The repository's own answer to unguarded prose
+    is a guard, not a withdrawal (`_crossing_findings`' docstring), and withdrawing an operation
+    the verifier accepts and checks would be routing around a lexicon with an offer set.
+
+    Each phrase here is legal on three counts at once: §13.14 sees no absence term, H1's
+    `_crossing_findings` sees a phrase agreeing with the computed word, and the phrase asserts
+    nothing the derivation did not compute. That last clause is what separates them from
+    *"remained positive"*, and `test_a_crossed_zero_polarity_claim_is_unchecked` measures why
+    it matters.
+    """
+    fact = _crossing_fact()
+    text = (f"Adjusted gross profit {phrase} between the second quarter of 2022 and the third "
+            "quarter of 2022.")
+
+    assert codes(make_draft(sentences=(_bound(fact, text, phrase),)), derived=(fact,)) == set()
+    assert language.crossing_direction(phrase) is False
 
 
 def test_the_crossing_lexicon_states_a_polarity_for_every_phrase_it_scans():

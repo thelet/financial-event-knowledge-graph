@@ -30,7 +30,6 @@ from story.core.models import (
     DisplaySemantics,
     EvidenceRole,
     EvidenceScopeFact,
-    FactLedgerEntry,
     IdentityFact,
     PackageBudget,
     PackagedPassage,
@@ -413,25 +412,85 @@ def test_the_evidence_scope_row_is_a_claim_about_the_evidence_and_not_about_the_
         group["rows"][0]["evidence_handle_absent_because"])
 
 
-def test_whether_the_final_draft_bound_a_derived_fact_is_read_from_the_ledger():
+def test_whether_the_final_draft_bound_a_derived_fact_is_read_from_the_draft():
     """§8's last column, and `false` is a real answer.
 
-    The derivation stage can say what it computed and cannot say what the post stated; only
-    `VerifiedDraft.fact_ledger` can, and the panel did not read it before today. A row that
-    defaulted to *"used"* would report every offered derivation as having reached the page.
+    The derivation stage can say what it computed and cannot say what the post stated; only the
+    draft can. A row that defaulted to *"used"* would report every offered derivation as having
+    reached the page.
     """
-    ledger = (FactLedgerEntry(
-        fact_id=DERIVED.fact_id, metric_id="adjusted_gross_profit", period_key="2022Q3",
-        value=-446000000.0, unit="USD", rendered="$446 million", sentence_index=2),)
-
     unused = package_view.derived_fact_group(derived_document(), display=display)
-    used = package_view.derived_fact_group(derived_document(), display=display,
-                                           fact_ledger=ledger)
+    used = package_view.derived_fact_group(
+        derived_document(), display=display, bindings=((DERIVED.fact_id, 2),))
 
     assert unused["rows"][0]["used_by_draft"] is False
     assert unused["rows"][0]["used_in_sentence_indexes"] == []
     assert used["rows"][0]["used_by_draft"] is True
     assert used["rows"][0]["used_in_sentence_indexes"] == [2]
+
+
+#: A `crossed_zero` derivation: `result=None`, a word instead, and unit `boolean`. `-556M ->
+#: -110M` is two readings on one side of zero, so the tool answers `did_not_cross`.
+WORD_VALUED = DERIVED.model_copy(update={
+    "fact_id": ("fact:derived:crossed-zero:opendoor:adjusted-gross-profit"
+                ":2022Q2-2022Q3:11aa22bb33cc"),
+    "operation": DerivationOperation.CROSSED_ZERO,
+    "result": None, "result_word": "did_not_cross",
+    "unit": "boolean", "currency": None,
+    "display_semantics": DisplaySemantics.DID_NOT_CROSS_ZERO,
+    "reused_detector_signal": "crosses_zero",
+})
+
+
+@pytest.mark.parametrize("fact_id", [WORD_VALUED.fact_id, SCOPE.fact_id])
+def test_a_bound_fact_carrying_no_numeral_still_reads_as_bound_by_the_draft(fact_id):
+    """H2's F7: the column answered *"was a numeral bound to it"*, and §8 words it *"whether the
+    final draft bound it"*.
+
+    `DeterministicVerifier._derived_number_findings` returns **before**
+    `ledgers.facts.append` when the unit is `boolean` or `direction`, and
+    `_scope_number_findings` never appends at all — both correctly, because `FactLedgerEntry`
+    requires a `value` and `story recheck` re-resolves that value against the graph. So an
+    accepted draft binding a `crossed_zero` fact, or §7's evidence-scope fact, showed
+    `used_by_draft = False`: the panel reporting *"the post did not state this"* about a
+    sentence the post contains.
+
+    The repair is to ask the artifact that holds the answer. Nothing is invented for the ledger
+    and no verification rule moved — this is a panel reading the draft's own `fact_bindings`.
+    """
+    document = derived_document(facts=[DERIVED.model_dump(mode="json"),
+                                       WORD_VALUED.model_dump(mode="json")])
+
+    group = package_view.derived_fact_group(document, display=display,
+                                            bindings=((fact_id, 1),))
+
+    bound = [row for row in group["rows"] if row["fact_id"] == fact_id]
+    assert len(bound) == 1
+    assert bound[0]["used_by_draft"] is True
+    assert bound[0]["used_in_sentence_indexes"] == [1]
+    # And the fact the draft did *not* bind still reads as unbound, so this is not a default.
+    assert [row["used_by_draft"] for row in group["rows"]
+            if row["fact_id"] != fact_id] == [False, False]
+
+
+def test_the_draft_bindings_helper_reads_every_binding_of_every_sentence():
+    """The composition root's one call, and the reason the panel takes pairs rather than a
+    `Draft`: this module projects values and imports no model."""
+    class _Binding:
+        def __init__(self, fact_id: str) -> None:
+            self.fact_id = fact_id
+
+    class _Sentence:
+        def __init__(self, index: int, *fact_ids: str) -> None:
+            self.index = index
+            self.fact_bindings = tuple(_Binding(fact_id) for fact_id in fact_ids)
+
+    class _Draft:
+        sentences = (_Sentence(0, "obs:a"), _Sentence(2, "fact:derived:x", "obs:b"))
+
+    assert package_view.draft_bindings(_Draft()) == (
+        ("obs:a", 0), ("fact:derived:x", 2), ("obs:b", 2))
+    assert package_view.draft_bindings(None) == ()
 
 
 def test_a_stage_that_never_ran_is_not_a_stage_that_computed_nothing():

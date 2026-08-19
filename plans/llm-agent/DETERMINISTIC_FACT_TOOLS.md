@@ -234,10 +234,11 @@ from the closed `counts`/`status` vocabulary as every stage already is; **no fre
 `Facts sent to the model` → the existing `derived_facts` group is populated. Each row shows
 operation, input fact ids, result, unit, from/to periods, comparability rule ids, a
 `deterministic · tool-generated` badge, and whether the final draft bound it (from
-`VerifiedDraft.fact_ledger`, which the panel does not read today). Clicking an input id calls the
-existing `revealFact`, so a derived fact links back to its inputs and through them to the table
-cell — the derived row itself registers in `state.factRows` under its own id so the click target
-exists.
+~~`VerifiedDraft.fact_ledger`, which the panel does not read today~~ **the draft's own
+`fact_bindings` — see §14.4, which measures why the ledger answered a different question**).
+Clicking an input id calls the existing `revealFact`, so a derived fact links back to its inputs
+and through them to the table cell — the derived row itself registers in `state.factRows` under
+its own id so the click target exists.
 
 ## 9. What this costs, stated plainly
 
@@ -708,3 +709,253 @@ deselected** (3397 before H1; **+25** from H1 and one from a concurrent
 `ead0290`). The `live` and
 `neo4j` marks were run separately against both real servers: **152 passed, 1 skipped**.
 Repository-wide offline: **6146 passed**.
+
+---
+
+## 14. Packet H2 — the offer set and the verifier made one rule, and a candidate that stopped being accepted *(2026-08-19)*
+
+**The answer, first.** An adversarial review reproduced five findings and all five are closed,
+each with a test that fails against `fc62f21`. Two of them were the same fault seen twice: the
+offer set printed triples the verifier refuses unconditionally, and the general test written to
+forbid exactly that discarded every finding it did not expect. **No verification rule was
+weakened** — nothing in `story/stages/verification/` changed except one refusal *message* and
+one ledger question the panel was asking of the wrong artifact.
+
+**And a disposition moved backwards, which is reported rather than repaired.** §2's driving
+candidate went from **accepted** at `fc62f21` to **rejected**, one blocking finding, and §14.6
+measures the whole chain: a shorter offer list, a planner that then requested two derivations
+instead of one, and a 9B model rendering `446 million USD` where the prompt handed it
+`$446 million`. Repairing that one span and nothing else accepts.
+
+**No fixture was re-recorded and the proof is a hash.** The demo candidate is a
+`cross_metric_divergence` whose offers are all `compare_levels` and `ratio` — same-period
+operations, which §14.2 does not touch — so its planner prompt hashes to
+`79d91152d996be1d…` before and after, and the committed stores replay unchanged. The live demo
+run returned `generations.jsonl` at `8645d1a95a533b29…`, byte-for-byte §12.5's store for the
+third packet running.
+
+### 14.1 The five findings and where each was closed
+
+| # | finding | closed in |
+| --- | --- | --- |
+| F5 | the offer set printed both orientations; `_shape_findings` refuses the reversed one unconditionally | `offers.validate`, and the test that was supposed to catch it |
+| F6 | `max_derivations` sliced an operation-major enumeration, so at full budget one operation took the whole budget | `offers._capped` |
+| — | whether `crossed_zero` earns its place in the offer set | decided: **kept**, §14.3 |
+| F7 | `used_by_draft` answered *"was a numeral bound to it"* | `package_view._binding_use` |
+| F9 | `unbound_numeral` advertised a dead mechanism; `OFFERABLE_OPERATIONS`' comment claimed a rule it did not hold | `deterministic._check_numbers`, `offers.OFFERABLE_OPERATIONS` |
+
+### 14.2 F5 — one rule, stated at both ends, and a test that was asserting one code
+
+`offers()`' docstring said `derived_fact_orientation_reversed` is *"a check on the draft — whether
+the prose runs the way the fact does — and not a reason to withhold the fact"*. Half of that is
+true: `orientation_findings` is the prose half. The other half is
+`derived_facts._shape_findings`, which raises the **same code on the fact**, unconditionally, for
+every two-period operation whose `from` anchors later than its `to`. Measured on §2's candidate at
+`fc62f21`, every offered triple driven through `integrity_findings`:
+
+```
+absolute_change   2022Q2->2022Q3  OK      absolute_change   2022Q3->2022Q2  ['derived_fact_orientation_reversed']
+percentage_change 2022Q2->2022Q3  OK      percentage_change 2022Q3->2022Q2  ['derived_fact_orientation_reversed']
+crossed_zero      2022Q2->2022Q3  OK      crossed_zero      2022Q3->2022Q2  ['derived_fact_orientation_reversed']
+```
+
+Three of six unbindable whatever the writer did. `validate` now refuses a reversed two-period
+request with `DerivationRefusalCode.ORIENTATION_REVERSED`, spelled `derived_fact_orientation_reversed`
+— the sixth member spelled the way §6 spells the verifier's `GATE` code, so one fault reads as one
+string wherever it is reported. A same-period operation has no chronological orientation, so
+`compare_levels` and `ratio` keep both orderings and the writer keeps choosing which metric is the
+subject.
+
+**Nothing was weakened.** `_shape_findings` is untouched and still refuses a backwards fact
+arriving from a replayed artifact, which is now the only way one can arrive —
+`test_the_reversed_orientation_is_still_refused_by_the_verifier_that_forced_the_narrowing`, §12.2's
+shape for the second time.
+
+**The test named for this agreement was passing while it was false, and that is the second half
+of F5.** `test_every_operation_the_offer_set_may_print_is_one_a_draft_can_bind` keyed on
+`request.operation` and asserted `"derived_operation_not_supported" not in {codes}` — discarding
+every other integrity finding. Its docstring's claim, *"anything the planner may be shown must be
+something a draft can state"*, was not what it checked. It is now
+`test_every_triple_the_offer_set_may_print_is_one_a_draft_can_bind`: every offered **triple**,
+executed, driven through `integrity_findings`, and the finding list required to be **empty**. It
+fails against `fc62f21` on the first reversed triple. A test that discards the findings it did not
+expect is a test of the code it was written against.
+
+### 14.3 The `crossed_zero` question, decided: kept
+
+§12.2 withdrew `trend_direction` because the verifier could **never** accept a binding to one —
+the word is `detector_config.quantity_direction`'s answer over a sibling stage's stored sign
+convention, and `RECOMPUTABLE` excludes it. **That argument does not transfer.**
+`_result_findings` re-derives `crossed`/`did_not_cross` from the package's own two values, so
+§4.1's criterion — *"each operation exists only because an existing verification rule can already
+check its result"* — is met in the strong sense, and H1 gave the prose a guard in both directions
+(`_crossing_findings`). Withdrawing an operation the verifier accepts and checks would be routing
+around a lexicon with an offer set; the repository's own answer to unguarded prose is a guard.
+
+**What a writer may legally say, measured rather than asserted.** §13.4 reported the collision:
+*"did not cross zero"* earns `unsupported_absence_claim`, a pre-S13 check H1 could not weaken. It
+is not the only true wording. Four phrases pass all three gates at once — §13.14 sees no absence
+term, `_crossing_findings` sees a phrase agreeing with the computed word, and the phrase asserts
+**nothing the derivation did not compute**:
+
+| phrase | disposition over `did_not_cross` |
+| --- | --- |
+| `on the same side of zero` | accepted, no findings |
+| `held its sign` | accepted, no findings |
+| `kept its sign` | accepted, no findings |
+| `without crossing zero` | accepted, no findings |
+| `did not cross zero` | `unsupported_absence_claim` |
+
+Each is now a parametrised test.
+
+**A hole this decision found, reported and not repaired — it is outside this packet's scope.**
+`_crossing_findings` checks the *crossing* axis and nothing else, and eight of `CROSSING_TERMS`'
+twelve `False` members assert a **polarity** as well: `remained positive`, `stayed negative` and
+their kin. Nothing checks that half. Reproduced over a `did_not_cross` fact whose two readings are
+`-556,000,000 → -110,000,000` — both **negative**:
+
+```
+remained positive            ACCEPTED
+stayed positive              ACCEPTED
+remained negative            ACCEPTED
+on the same side of zero     ACCEPTED
+```
+
+A false polarity claim, accepted with zero findings, over a fact whose result is right. `crossed_zero`
+carries no numeral, so §13.1 reaches nothing in that sentence. The repair is a second lexicon —
+phrase → asserted polarity, `None` for the neutral four — checked against the sign of `from_value`
+and `to_value` in `_crossing_findings`, which is a **new** refusal and weakens nothing. It belongs
+to whichever packet owns that function; H2 was scoped out of it and says so here rather than
+leaving it to be found again.
+
+### 14.4 F6 — the cap selects, and what the slice was doing at full budget
+
+`offers()` enumerates operation-major and used to slice `[:max_derivations]`, so the budget went
+to whichever operation §4.1 lists first. Measured on a full-budget package — twelve facts, one USD
+metric, twelve adjacent quarters, `max_derivations` 12:
+
+| | before | after |
+| --- | --- | --- |
+| valid triples | `absolute_change` 20, `percentage_change` 20, `crossed_zero` 20 | 10 / 10 / 10 (F5 removed the reversed half) |
+| **printed** | `absolute_change` **12**, and nothing else | `absolute_change` 4, `percentage_change` 4, `crossed_zero` 4 |
+
+A planner asking for a percentage change on such a package earned `derivation_not_offered` →
+`plan_refused`. It failed closed, which is why this was a defect and not an incident, and the run
+died for a request that would have been correct. The cap is now spent **round-robin** — the first
+triple of each operation, then the second of each — and the selection is sorted back into
+`(operation, from_fact_id, to_fact_id)` so the printed order is still the documented one. Every
+operation with a valid triple is represented while the cap allows, and no operation takes more
+than one slot more than another.
+
+**Within one operation the choice is still positional**, and preferring the candidate's own
+`anchor_observation_ids` was considered and rejected: it would make the offer list depend on a
+second field of the candidate, which `validate` reads none of today, and on both live candidates
+the cap does not bind at all — three and four triples against a budget of twelve. Recorded in
+`_capped`'s docstring as the thing to revisit if the cap or `max_facts` moves.
+
+### 14.5 F7 — the column now answers §8's question
+
+§8 words the last column *"whether the final draft bound it"*. It read `VerifiedDraft.fact_ledger`,
+and the ledger is appended to only where a **numeral** was compared:
+`_derived_number_findings` returns before `ledgers.facts.append` when the unit is `boolean` or
+`direction`, and `_scope_number_findings` never appends. Both correctly —
+`FactLedgerEntry.value` is a required `float` and `story recheck` re-resolves it against the
+graph, so a word-valued fact has no row to have and minting one would mean inventing a number.
+The ledger was answering its own true and different question.
+
+Reproduced end to end at `fc62f21`: an **accepted** draft binding a `crossed_zero` fact,
+zero findings, and
+
+```
+fact_ledger ids  []
+via fact_ledger  used_by_draft = False
+```
+
+— the panel reporting *"the post did not state this"* about a sentence the post contains. The
+question is now asked of the artifact that holds the answer: `package_view.draft_bindings(draft)`
+hands `(fact_id, sentence_index)` pairs to `_binding_use`, and the same run reads
+`used_by_draft = True [0]`. Nothing was invented for the ledger and no verification rule moved.
+§8's sentence naming the ledger is struck through above rather than quietly rewritten.
+
+### 14.6 F9 — two stale strings, and what replaced them
+
+* `unbound_numeral`'s `expected` offered *"the `literal_ok` allowlist"* as one of four ways out.
+  `literal_ok` is constructor-only, is read from no configuration file, and is `()` on every
+  pipeline, demo-UI and test run — a remedy with nothing behind it, spending a reader's attention
+  on the one mechanism that does not exist. The message now names what `_covering_spans` actually
+  builds, including the derived fact's **two** periods §12.1 added and the old message never
+  mentioned. The keyword stays, because removing a constructor argument is a change to the
+  contract rather than to the text, and `DeterministicVerifier`'s docstring now records that
+  nothing supplies it.
+* `OFFERABLE_OPERATIONS`' comment — *"the offer set and the verifier are one contract with two
+  ends, and the end that moved is this one"* — was a claim about one operation dressed as a rule,
+  and it shipped beside the function that broke it. It now names F5 as the second application of
+  the same rule and points at the test that holds both ends.
+
+`story/core/numerals.tokenize_numerals`' docstring still recites the four pre-S13 covering
+mechanisms including `literal_ok`. It is a statement about §13.1's rule rather than a refusal
+offered to a reader, and that module is outside this packet; named here so it is not found twice.
+
+### 14.7 Both candidates, live under Qwen — and the one that changed
+
+| | H1 | H2 |
+| --- | --- | --- |
+| `cand:cross-metric-divergence:…:9682f1c1c85a` | accepted, `story-v1-79fd9ddc03fe` | **accepted**, `story-v1-79fd9ddc03fe`, `generations.jsonl` `8645d1a95a533b29…` |
+| `cand:metric-move:…:86ba9e13455d` | accepted, `story-v1-cf084bb0eb87` | **rejected**, 1 blocking finding |
+
+**The whole chain of the change, measured, with a control run made today against the same
+server.** With this packet's changes stashed, the same candidate on the same server is still
+**accepted** (`draft.json` `cb3fd19912b01c87`); with them applied it is rejected, twice, with a
+byte-identical `generations.jsonl` (`33d7496772f6514e`) — so this is a different answer to a
+different prompt, not sampling noise.
+
+| | control (`fc62f21`) | H2 |
+| --- | --- | --- |
+| offers printed | 6 | 3 |
+| derivations requested | `absolute_change` | `absolute_change`, `percentage_change` |
+| sentences | 3 | 4 |
+| the money sentence | *"…decreased by **$446 million** from…"* | *"…decreased by **446 million USD** from…"* |
+| disposition | accepted | rejected, `derived_unit_mismatch` (sentence 2) |
+
+The DERIVED FACTS row handed the model `figure: write exactly "$446 million" - those characters,
+never "446000000.0 USD"`. It obeyed that instruction for the percentage row —
+`80.215827338%`, exactly as printed — and on the money row wrote a **third** spelling the prompt
+did not name, the one its own FACTS sentences use: *"Adjusted Gross Profit of 556 million USD"*.
+That spelling is legal against an observation (`_check_units` refuses a *claimed* unit that
+disagrees, and `446 million USD` claims none) and illegal against a derivation
+(`DERIVED_SURFACES["USD"]` is `{USD}` and only a `$` mints that surface). The model copied a
+spelling from one section of its prompt into a row governed by a stricter rule.
+
+**Repairing that one span and touching nothing else accepts**: the four-sentence draft, both
+derivations, all ten numerals, every citation and every period pass with zero findings once
+`446 million USD` becomes `$446 million`. So the number, the direction, the metric, the periods
+and the evidence are all right, and one dollar sign is the whole of what a 9B model got wrong on a
+draft carrying twice the derivations it carried yesterday.
+
+**Not repaired here, and the reason is scope rather than judgement.** The repair is in
+`prompts.py` — teach the FACTS section and the DERIVED FACTS section to print money the same way,
+or name this spelling beside the other refused one — which is a `WRITER_PROMPT_VERSION` bump and a
+live re-record of both stores. This packet owns neither. §9's line still holds: *"the target is
+not an accepted post"*, and no numeral in this rejected draft is the model's arithmetic.
+
+### 14.8 Suite
+
+`python -m pytest tests/story -m 'not live and not neo4j' -o addopts='' -q` → **3434 passed, 153
+deselected** (3423 before H2; **+11**). The `live` and `neo4j` marks were run separately against
+both real servers: **152 passed, 1 skipped**. Repository-wide offline: **6156 passed, 250
+deselected** (6146 before).
+
+**Fourteen tests fail against `fc62f21`'s `story/` with this packet's tests in place**, and the
+distinction between them is worth stating rather than counting them all as repro. Nine demonstrate
+the defect itself: six in `test_story_derivation.py` (the reversed triples are offered, the count
+is six, the cap truncates), two in `test_story_planner.py` (the prompt prints six lines and the
+reversed triple is a member), and
+`test_every_triple_the_offer_set_may_print_is_one_a_draft_can_bind`, which is the F5 half that was
+passing while false. The other five fail on a symbol or a keyword H2 introduces —
+`DerivationRefusalCode.ORIENTATION_REVERSED` and `derived_fact_group(bindings=…)`. F7's defect is
+demonstrated by a run instead, in §14.5: an accepted draft, zero findings,
+`used_by_draft = False`.
+
+`tests/story/test_story_planner.py` moved and is outside the packet's named scope: two of its
+tests asserted the six-line offer set F5 narrowed, and one of them now asserts the narrowing
+instead — a planner spelling an offered triple backwards is `derivation_not_offered`.

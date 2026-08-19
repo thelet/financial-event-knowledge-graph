@@ -1769,8 +1769,10 @@ function sectionLedgerLine(ledger) {
  *    reveals the observed fact and, through it, the cell it was read from.
  * 3. **It is deterministic**, which is a claim about provenance and is the server's badge.
  * 4. **Whether the final draft bound it is a different question from whether it was computed.**
- *    `used_by_draft` comes from `VerifiedDraft.fact_ledger`, and `false` is a real answer: code
- *    computed a quantity the post did not state.
+ *    `used_by_draft` is read off the draft's own `fact_bindings`, and `false` is a real answer:
+ *    code computed a quantity the post did not state. It came from `VerifiedDraft.fact_ledger`
+ *    until H2, which holds a row only where a numeral was compared and so reported a bound
+ *    `crossed_zero` or evidence-scope fact as unused.
  *
  * The row is registered in `state.factRows` under its own id, which is what makes a draft
  * binding chip clickable at all — a derived fact has no `passage_id` by design, so the sources

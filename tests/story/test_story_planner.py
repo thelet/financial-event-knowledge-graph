@@ -1081,7 +1081,10 @@ def test_the_offer_set_reaches_the_prompt_spelled_exactly_as_it_must_be_requeste
     offered = offers(package, candidate)
     prompt = planner_prompt(package, offered=offered)
 
-    assert len(offered) == 6, [o.operation.value for o in offered]
+    # Three, one orientation of the one pair for each of the three operations this package's
+    # unit admits. It was six until H2's F5 withdrew the reversed half of every two-period
+    # pair, each of which the verifier refused as `derived_fact_orientation_reversed`.
+    assert len(offered) == 3, [o.operation.value for o in offered]
     assert f"DERIVATIONS OFFERED ({len(offered)} available" in prompt
     for request in offered:
         assert offer_line(request) in prompt
@@ -1142,10 +1145,14 @@ def test_a_requested_derivation_outside_the_offer_set_is_refused_before_the_writ
 def test_reversing_the_two_ids_of_an_offered_triple_is_a_different_derivation_and_not_the_same():
     """Orientation is part of the triple, so membership is equality and never a set of parts.
 
-    Both orientations *are* offered here — they are two different derivations, `-446,000,000`
-    against `+446,000,000` — which is why the check has to be an equality on the whole request:
-    a membership test over ids and operations separately would accept a triple assembled from
-    three offers it was never shown together.
+    The two orientations are two different derivations — `-446,000,000` against `+446,000,000`,
+    two ids, two `display_semantics` — which is why the check has to be an equality on the whole
+    request: a membership test over ids and operations separately would accept a triple
+    assembled from three offers it was never shown together.
+
+    **Only the forward one is offered, since H2's F5**, and this test is where the membership
+    rule and that narrowing meet: a planner spelling an offered triple backwards is
+    `derivation_not_offered`, exactly as one naming an unoffered operation is.
     """
     package, candidate = agp_package(), agp_candidate()
     offered = offers(package, candidate)
@@ -1154,8 +1161,13 @@ def test_reversing_the_two_ids_of_an_offered_triple_is_a_different_derivation_an
     reversed_pair = DerivationRequest(operation=DerivationOperation.ABSOLUTE_CHANGE,
                                       from_fact_id=AGP_Q3_ID, to_fact_id=AGP_Q2_ID)
 
-    assert forward in offered and reversed_pair in offered
+    assert forward in offered and reversed_pair not in offered
     assert forward != reversed_pair
+    plan = editorial_plan_from(agp_answer([as_request(forward)]), package,
+                               model_id="Qwen3.5-9B-Q4_K_M.gguf", offered=offered)
+    assert [v.code for v in plan_violations(
+        plan.model_copy(update={"requested_derivations": (reversed_pair,)}), package,
+        offered=offered)] == [DERIVATION_NOT_OFFERED]
     # …and a triple assembled out of the offer set's *parts* rather than copied from a line of
     # it is refused: `ratio` is offered for no pair of this package at all.
     invented = DerivationRequest(operation=DerivationOperation.RATIO,

@@ -580,21 +580,49 @@ def _period_label(row: Mapping[str, Any]) -> str:
     return end if start == end else f"{start} → {end}"
 
 
-def _ledger_use(fact_ledger: Sequence[Any], fact_id: str) -> tuple[bool, list[int]]:
-    """Whether the accepted draft bound this fact, and in which sentences.
+def draft_bindings(draft: Any) -> tuple[tuple[str, int], ...]:
+    """Every `(fact_id, sentence_index)` a draft declares, in sentence order.
+
+    The composition root calls this and hands the result to `derived_fact_group`, so this module
+    stays free of the `Draft` type while `_binding_use` gets the one artifact that can answer
+    its question. A pair rather than the sentences themselves, for the same reason the group
+    takes `Mapping` rows: the panel reads values, never models.
+    """
+    return tuple(
+        (binding.fact_id, int(sentence.index))
+        for sentence in getattr(draft, "sentences", ())
+        for binding in getattr(sentence, "fact_bindings", ()))
+
+
+def _binding_use(bindings: Sequence[Any], fact_id: str) -> tuple[bool, list[int]]:
+    """Whether the final draft bound this fact, and in which sentences.
 
     §8's last column, and the one thing on a derived row that no artifact of the derivation
-    stage can answer: the stage computed the fact, and whether the *draft* used it is
-    `VerifiedDraft.fact_ledger`'s to say. `False` here means the tool computed a quantity the
-    post did not state — which is an ordinary outcome and worth showing, because the alternative
-    reading is that every offered derivation reached the page.
+    stage can answer: the stage computed the fact, and whether the *draft* used it is the
+    draft's to say. `False` here means the tool computed a quantity the post did not state —
+    which is an ordinary outcome and worth showing, because the alternative reading is that
+    every offered derivation reached the page.
+
+    **It read `VerifiedDraft.fact_ledger` until H2, and that answered a different question**
+    *(2026-08-19)*. §8 words the column as *"whether the final draft bound it"*; the ledger is
+    appended to by `_binding_number_findings` and `_derived_number_findings` **only where a
+    numeral was compared**, so `_derived_number_findings` returns before the append for a
+    `boolean` or `direction` unit and `_scope_number_findings` never appends at all. An accepted
+    draft binding a `crossed_zero` fact, or §7's evidence-scope fact, therefore showed
+    `used_by_draft = False` — the panel reporting *"the post did not state this"* about a
+    sentence the post contains. The ledger was answering *"was a numeral bound to it"*, which is
+    its own true and different claim: `story recheck` re-resolves ledger rows against the graph
+    and a row needs a `value` to re-resolve, which is why a word-valued fact has none and why
+    minting one would have meant inventing a number for a fact that has none.
+
+    So the question is asked of the artifact that holds the answer. §8's sentence naming the
+    ledger is corrected in the plan rather than left standing beside code that disagrees.
     """
-    used = sorted({int(entry.sentence_index) for entry in fact_ledger
-                   if getattr(entry, "fact_id", None) == fact_id})
+    used = sorted({index for bound_id, index in bindings if bound_id == fact_id})
     return bool(used), used
 
 
-def _derived_row(row: Mapping[str, Any], *, display: Any, fact_ledger: Sequence[Any],
+def _derived_row(row: Mapping[str, Any], *, display: Any, bindings: Sequence[Any],
                  handle_absent_because: str) -> dict[str, Any]:
     """One `DerivedFact` as the panel reads it (§8).
 
@@ -605,7 +633,7 @@ def _derived_row(row: Mapping[str, Any], *, display: Any, fact_ledger: Sequence[
     value = row.get("result")
     word = row.get("result_word") or ""
     shown = word if value is None else display(value)
-    used, sentences = _ledger_use(fact_ledger, str(row.get("fact_id", "")))
+    used, sentences = _binding_use(bindings, str(row.get("fact_id", "")))
     inputs = [row.get("from_fact_id", ""), row.get("to_fact_id", "")]
     return {
         "fact_id": row.get("fact_id", ""),
@@ -667,7 +695,7 @@ def _derived_row(row: Mapping[str, Any], *, display: Any, fact_ledger: Sequence[
 
 
 def _evidence_scope_row(row: Mapping[str, Any], *,
-                        fact_ledger: Sequence[Any]) -> dict[str, Any]:
+                        bindings: Sequence[Any]) -> dict[str, Any]:
     """One `EvidenceScopeFact` as the panel reads it (§7).
 
     **Labelled as a claim about the evidence and never about the world**, which is the whole
@@ -677,7 +705,7 @@ def _evidence_scope_row(row: Mapping[str, Any], *,
     `claim_about` is on the row, the statement is the tool's own and is printed verbatim, and
     `evidence_handle` is `None` — this fact cites nothing because there is nothing to cite.
     """
-    used, sentences = _ledger_use(fact_ledger, str(row.get("fact_id", "")))
+    used, sentences = _binding_use(bindings, str(row.get("fact_id", "")))
     return {
         "fact_id": row.get("fact_id", ""),
         "fact_kind": row.get("fact_kind", "evidence_scope"),
@@ -721,7 +749,7 @@ def derived_fact_group(
     derived: Mapping[str, Any] | None,
     *,
     display: Any,
-    fact_ledger: Sequence[Any] = (),
+    bindings: Sequence[Any] = (),
     handle_absent_because: str = "",
 ) -> dict[str, Any]:
     """§4 S6's derived group, built from a run's `derived_facts.json` rather than from a package.
@@ -739,9 +767,9 @@ def derived_fact_group(
     facts = list((derived or {}).get("facts") or ())
     scope = list((derived or {}).get("evidence_scope_facts") or ())
     refusals = list((derived or {}).get("refusals") or ())
-    rows = [_derived_row(row, display=display, fact_ledger=fact_ledger,
+    rows = [_derived_row(row, display=display, bindings=bindings,
                          handle_absent_because=handle_absent_because) for row in facts]
-    rows += [_evidence_scope_row(row, fact_ledger=fact_ledger) for row in scope]
+    rows += [_evidence_scope_row(row, bindings=bindings) for row in scope]
     group, label = DERIVED_GROUP
     return {
         "group": group,

@@ -2081,12 +2081,14 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
                          else _verification_payload(outcome.verified)),
         # §8's *"the existing `derived_facts` group is populated"*, composed by the same mapper
         # `model_facts` uses, so the group this run adds to the facts panel and the four the
-        # package sent it are one vocabulary. The ledger is passed because *"did the final draft
-        # bind this"* is a question only `VerifiedDraft.fact_ledger` can answer, and the panel
-        # did not read it before today.
+        # package sent it are one vocabulary. The draft's own bindings are passed because *"did
+        # the final draft bind this"* is a question only the draft can answer:
+        # `VerifiedDraft.fact_ledger` was read here until H2 and holds a row only where a
+        # **numeral** was compared, so a bound `crossed_zero` or evidence-scope fact showed as
+        # unused. See `package_view._binding_use`.
         "derived_facts": package_view.derived_fact_group(
             derived, display=_display_number,
-            fact_ledger=() if outcome.verified is None else outcome.verified.fact_ledger,
+            bindings=package_view.draft_bindings(outcome.draft),
             handle_absent_because=DERIVED_HANDLE_ABSENT_REASON),
         #: `null` on every coherent run, like `post_error`. Non-null means the manifest listed
         #: the artifact and the file did not read back.

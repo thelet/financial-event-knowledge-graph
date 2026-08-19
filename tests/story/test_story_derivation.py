@@ -52,7 +52,12 @@ from story.stages.derivation.execute import (
     execute,
     execute_all,
 )
-from story.stages.derivation.offers import offers, validate
+from story.stages.derivation.offers import (
+    OFFERABLE_OPERATIONS,
+    TWO_PERIOD_OPERATIONS,
+    offers,
+    validate,
+)
 from story.stages.derivation.operations import CROSSED, period_surface_hint, round_delta
 from story.stages.derivation.public import (
     DerivationRefusal,
@@ -212,12 +217,19 @@ def test_every_quarter_hint_this_stage_mints_resolves_back_through_the_grammar(p
     assert period_grammar.resolve(hint).key == period_key
 
 
-def test_reversing_the_two_periods_flips_the_sign_the_word_and_the_id():
-    """A reversed request is a different derivation, not the same one read backwards.
+def test_a_reversed_two_period_request_is_refused_before_any_arithmetic_runs():
+    """H2's F5, at the end that moved: a backwards step is refused here, not computed here.
 
-    The id has to say so, which is why the digest labels its two operands `from=` and `to=`
-    rather than sorting them — see `keys.derived_fact_id`, which records that §4.4's own
-    "sorted input fact ids" mints one digest for both orientations.
+    A reversed request **is** a different derivation — the id says so, and
+    `keys.derived_fact_id` labels its operands `from=` and `to=` rather than sorting them for
+    exactly that reason — but it is not a derivation any draft may bind.
+    `derived_facts._shape_findings` raises `derived_fact_orientation_reversed` on the fact
+    itself, unconditionally, for every two-period operation whose `from` anchors later than its
+    `to`. So computing one was producing a fact whose only possible fate was a refusal, and
+    §4.3's *"offered and valid are one predicate"* required the refusal to be here.
+
+    The two ends spell the fault the same way, which is the property the code carries and this
+    line asserts.
     """
     package, candidate = agp_package(), agp_candidate()
 
@@ -225,11 +237,78 @@ def test_reversing_the_two_periods_flips_the_sign_the_word_and_the_id():
     backward = one(package, candidate, DerivationOperation.ABSOLUTE_CHANGE, AGP_Q3, AGP_Q2)
 
     assert forward.result == -446_000_000.0
-    assert backward.result == 446_000_000.0
     assert forward.display_semantics is DisplaySemantics.DECREASED_BY
-    assert backward.display_semantics is DisplaySemantics.INCREASED_BY
-    assert forward.fact_id != backward.fact_id
-    assert forward.fact_id.split(":")[-1] != backward.fact_id.split(":")[-1]
+
+    assert isinstance(backward, DerivationRefusal)
+    assert backward.code is DerivationRefusalCode.ORIENTATION_REVERSED
+    assert backward.code.value == "derived_fact_orientation_reversed"
+    assert "backwards" in backward.detail
+
+    # The ids of the two orientations still differ, which is what made the reversed one a fact
+    # in its own right rather than a re-reading of the forward one. Asserted against the key
+    # function directly, because the stage no longer mints the second.
+    digest_arguments = dict(
+        operation="absolute_change", package_id=package.package_id, tool_version=TOOL_VERSION,
+        subject_entity_id=package.subject.entity_id, metric_ids=("adjusted_gross_profit",),
+        period_keys=("2022Q2", "2022Q3"))
+    assert (derived_fact_id(**{**digest_arguments, "from_fact_id": AGP_Q2,
+                               "to_fact_id": AGP_Q3})
+            != derived_fact_id(**{**digest_arguments, "from_fact_id": AGP_Q3,
+                                  "to_fact_id": AGP_Q2}))
+
+
+def test_every_reversed_two_period_triple_is_refused_and_every_forward_one_is_offered():
+    """The rule is about the *shape*, not about `absolute_change`.
+
+    Measured on §2's candidate before this packet: three of the six printed triples —
+    `absolute_change`, `percentage_change` and `crossed_zero`, each `2022Q3 → 2022Q2` — were
+    unbindable whatever the writer did. A same-period operation has no chronological orientation
+    and keeps both orderings, which `test_both_orderings_of_a_same_period_pair_stay_offered`
+    holds from the other side.
+    """
+    package, candidate = agp_package(), agp_candidate()
+    offered = offers(package, candidate)
+
+    # Every two-period operation this package's unit admits — the three that are offered
+    # forward. `percentage_point_change` is refused by the unit clause before the orientation
+    # one on a USD package, which is `validate`'s documented clause order and not an omission.
+    forward = {request.operation for request in offered}
+    assert forward == TWO_PERIOD_OPERATIONS & OFFERABLE_OPERATIONS - {
+        DerivationOperation.PERCENTAGE_POINT_CHANGE}
+    for operation in forward:
+        backward = DerivationRequest(operation=operation, from_fact_id=AGP_Q3,
+                                     to_fact_id=AGP_Q2)
+        answer = validate(backward, package, candidate)
+        assert isinstance(answer, DerivationRefusal), f"{operation.value} reversed was permitted"
+        assert answer.code is DerivationRefusalCode.ORIENTATION_REVERSED
+        assert backward not in offered
+
+    assert {(request.operation, request.from_fact_id, request.to_fact_id)
+            for request in offered} == {
+        (DerivationOperation.ABSOLUTE_CHANGE, AGP_Q2, AGP_Q3),
+        (DerivationOperation.PERCENTAGE_CHANGE, AGP_Q2, AGP_Q3),
+        (DerivationOperation.CROSSED_ZERO, AGP_Q2, AGP_Q3),
+    }
+
+
+def test_both_orderings_of_a_same_period_pair_stay_offered():
+    """`compare_levels` and `ratio` compare two readings of one period, so neither has a
+    chronological orientation to run backwards. Which metric is the subject is the writer's
+    editorial choice and the offer set keeps making it available — F5 narrowed the two-period
+    operations and nothing else."""
+    left = fact("obs:agm:2022Q3", "adjusted_gross_margin", "Adjusted Gross Margin", "2022Q3",
+                3.3, unit="percent", currency=None, scale="units", row=3)
+    right = fact("obs:ggm:2022Q3", "gaap_gross_margin", "Gross Margin", "2022Q3",
+                 -12.6, unit="percent", currency=None, scale="units", row=4)
+    package = make_package(facts=(left, right))
+    candidate = make_candidate(story_type="cross_metric_divergence", signals={})
+
+    offered = offers(package, candidate)
+
+    pairs = {(request.from_fact_id, request.to_fact_id) for request in offered
+             if request.operation is DerivationOperation.COMPARE_LEVELS}
+    assert pairs == {("obs:agm:2022Q3", "obs:ggm:2022Q3"),
+                     ("obs:ggm:2022Q3", "obs:agm:2022Q3")}
 
 
 def test_the_relative_change_is_the_detectors_own_number_to_the_ninth_decimal():
@@ -581,13 +660,23 @@ def test_a_planted_disagreement_with_the_detector_is_a_refusal_and_not_a_prefere
     assert repr(planted) in refusal.detail or str(planted) in refusal.detail
 
 
-def test_the_reversed_orientation_records_no_signal_rather_than_negating_the_detectors():
-    """`delta` is `later − earlier`; `delta_pct` does not negate symmetrically at all."""
+def test_the_reversed_orientation_had_no_second_opinion_to_be_checked_against():
+    """Why the detector could never have caught a backwards derivation, which is half of F5's
+    argument for refusing it at §4.2.
+
+    `delta` is `later − earlier` and `delta_pct` does not negate symmetrically at all — the
+    reversed relative change of `556 → 110` is `+405.45%`, not `+80.22%` — so a reversed request
+    matched **no** signal and `_detector_agreement` recorded none. The stage was computing a
+    quantity nothing else in the run had an opinion about, and shipping it to a verifier that
+    refuses every one. Since F5 the request does not reach the arithmetic at all.
+    """
     backward = one(agp_package(), agp_candidate(),
                    DerivationOperation.PERCENTAGE_CHANGE, AGP_Q3, AGP_Q2)
 
-    assert backward.result == round((556_000_000.0 - 110_000_000.0) / 110_000_000.0 * 100, 9)
-    assert backward.reused_detector_signal == ""
+    assert isinstance(backward, DerivationRefusal)
+    assert backward.code is DerivationRefusalCode.ORIENTATION_REVERSED
+    assert agp_candidate().signals["delta_pct"] == -80.215827338
+    assert round((556_000_000.0 - 110_000_000.0) / 110_000_000.0 * 100, 9) == 405.454545455
 
 
 def test_a_signal_for_another_pair_of_quarters_is_not_asserted_against_this_one():
@@ -768,8 +857,9 @@ def test_the_offer_set_is_exactly_the_operations_this_package_can_support():
         DerivationOperation.PERCENTAGE_CHANGE,
         DerivationOperation.CROSSED_ZERO,
     }
-    # Both orientations of the one pair, for each of the three.
-    assert len(offered) == 6
+    # One orientation of the one pair, for each of the three. It was six until H2's F5: the
+    # reversed half of every two-period pair was printed and every one of them was unbindable.
+    assert len(offered) == 3
 
 
 def test_a_valid_triple_that_was_not_offered_is_refused_rather_than_executed():
@@ -786,12 +876,89 @@ def test_a_valid_triple_that_was_not_offered_is_refused_rather_than_executed():
 def test_the_offer_set_is_capped_by_the_budget_parameter_and_the_cap_is_the_packages_own():
     package = agp_package(budget=PackageBudget(
         artifact_token_estimate=536, prompt_token_estimate=402,
-        section_counts={"facts": 2}, parameters=BudgetParameters(max_derivations=3)))
+        section_counts={"facts": 2}, parameters=BudgetParameters(max_derivations=2)))
 
     offered = offers(package, agp_candidate())
 
-    assert len(offered) == 3
-    assert offered == offers(agp_package(), agp_candidate())[:3]
+    assert len(offered) == 2
+    # The cap **selects**, and the property is that it spreads across the operations rather
+    # than spending the budget on whichever §4.1 lists first. Two slots, three operations with
+    # one triple each: the two taken are the first two operations in §4.1's order, and the list
+    # is still printed in that order.
+    assert [request.operation for request in offered] == [
+        DerivationOperation.ABSOLUTE_CHANGE, DerivationOperation.PERCENTAGE_CHANGE]
+    assert offers(package, agp_candidate()) == offered, "the selection must be deterministic"
+
+
+def _twelve_quarters_of_one_metric() -> tuple[PackagedFact, ...]:
+    """Twelve adjacent quarters of one USD metric — a package at the default budget's ceiling.
+
+    `max_facts` and `max_derivations` are both 12, so this is the shape a full-budget package
+    takes and the shape F6 was measured on. The values rise monotonically so no pair crosses
+    zero and R8's tolerance floor is cleared by every step.
+    """
+    quarters = [(f"{year}Q{quarter}", start, end)
+                for year in (2020, 2021, 2022)
+                for quarter, (start, end) in enumerate(
+                    (("01-01", "03-31"), ("04-01", "06-30"),
+                     ("07-01", "09-30"), ("10-01", "12-31")), 1)]
+    QUARTERS.update({key: (f"{key[:4]}-{start}", f"{key[:4]}-{end}")
+                     for key, start, end in quarters})
+    return tuple(
+        fact(f"obs:adjusted-gross-profit:opendoor:{key}:normalized-table:{index:012x}",
+             "adjusted_gross_profit", "Adjusted Gross Profit", key,
+             float(100_000_000 + index * 10_000_000), row=index + 3)
+        for index, (key, _start, _end) in enumerate(quarters))
+
+
+def test_the_cap_selects_across_the_operations_rather_than_truncating_the_first_one():
+    """H2's F6, measured on the package the cap was never measured on.
+
+    The enumeration is operation-major, so the old `found[:max_derivations]` spent the whole
+    budget on §4.1's first operation. On a full-budget package the valid set held ten forward
+    triples of each of three operations and the printed list held **twelve `absolute_change`
+    and nothing else** — so a planner requesting a percentage change on such a package earned
+    `derivation_not_offered`, and the run died for a request that would have been correct. It
+    failed closed, which is why this is a defect and not an incident.
+
+    The property asserted is about the *sets*: every operation with a valid triple is offered
+    at least one while the cap allows, and no operation takes more than one slot more than
+    another.
+    """
+    package = make_package(facts=_twelve_quarters_of_one_metric())
+    candidate = agp_candidate()
+    assert package.budget.parameters.max_derivations == 12
+
+    offered = offers(package, candidate)
+
+    valid: dict[DerivationOperation, int] = {}
+    for left in package.facts:
+        for right in package.facts:
+            for operation in DerivationOperation:
+                request = DerivationRequest(operation=operation,
+                                            from_fact_id=left.observation_id,
+                                            to_fact_id=right.observation_id)
+                if validate(request, package, candidate):
+                    valid[operation] = valid.get(operation, 0) + 1
+    assert valid == {DerivationOperation.ABSOLUTE_CHANGE: 10,
+                     DerivationOperation.PERCENTAGE_CHANGE: 10,
+                     DerivationOperation.CROSSED_ZERO: 10}
+
+    counts = {operation: sum(1 for request in offered if request.operation is operation)
+              for operation in valid}
+    assert set(counts) == set(valid), (
+        "an operation with valid triples was never shown: " + str(sorted(
+            operation.value for operation in set(valid) - set(counts))))
+    assert max(counts.values()) - min(counts.values()) <= 1
+    assert len(offered) == 12
+
+    # Deterministic, and printed in §4.1's documented order — the round-robin decides which
+    # triples, never the order they are read in.
+    assert offers(package, candidate) == offered
+    order = list(DerivationOperation)
+    assert offered == tuple(sorted(
+        offered, key=lambda request: (order.index(request.operation),
+                                      request.from_fact_id, request.to_fact_id)))
 
 
 def test_max_derivations_reaches_both_digests():

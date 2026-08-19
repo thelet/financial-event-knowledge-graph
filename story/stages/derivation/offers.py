@@ -113,6 +113,18 @@ SAME_PERIOD_OPERATIONS: frozenset[DerivationOperation] = frozenset({
 #: was refused for choosing something it had been shown. The offer set and the verifier are one
 #: contract with two ends, and the end that moved is this one.
 #:
+#: **That sentence was a claim about one operation dressed as a rule, and H2 made it the rule**
+#: *(2026-08-19)*. It was written here and left false one function below: `offers` printed both
+#: orientations of every two-period pair while `derived_facts._shape_findings` refused every
+#: reversed one, so on §2's own candidate three of six printed triples were unbindable whatever
+#: the writer did — the same fault as `trend_direction`'s, on a different axis, shipping beside
+#: the paragraph that named it. `validate`'s orientation clause is the other half, and
+#: `test_every_triple_the_offer_set_may_print_is_one_a_draft_can_bind` is what now holds both:
+#: it drives every offered **triple** through `integrity_findings` and requires the finding list
+#: to be empty. Until H2 it keyed on the operation and asserted the absence of one code, which
+#: is why the offer set could disagree with the verifier under a passing test named for their
+#: agreement.
+#:
 #: **Withdrawn rather than made checkable, and the reason is what the verifier would have to be
 #: given.** The word is `detector_config.quantity_direction`'s answer over a metric's stored sign
 #: convention — `direct_selling_costs` is negative on 46 of 46 canonical values, so a fall in the
@@ -165,17 +177,23 @@ def offers(
     into the planner prompt, `request_identity` digests that prompt, and a set iterated in hash
     order would re-key the replay store on a run that changed nothing.
 
-    **Both orientations of a pair are offered.** `2022Q2 → 2022Q3` and `2022Q3 → 2022Q2` are
-    different derivations with different results, different `display_semantics` and different
-    ids; a planner that may only request one of them has had an editorial decision made for it
-    by an enumeration order. §6's `derived_fact_orientation_reversed` is a check on the *draft* —
-    whether the prose runs the way the fact does — and not a reason to withhold the fact.
+    **Only the forward orientation of a two-period pair is offered, and that is a correction**
+    *(2026-08-19)*. This docstring used to say both orientations were printed because
+    `derived_fact_orientation_reversed` is *"a check on the draft — whether the prose runs the
+    way the fact does — and not a reason to withhold the fact"*. Half of that was false:
+    `derived_facts._shape_findings` raises the same code on the **fact**, unconditionally, for
+    every backwards two-period derivation. Measured on §2's candidate, three of the six triples
+    printed here — `absolute_change`, `percentage_change` and `crossed_zero`, each `2022Q3 →
+    2022Q2` — were unbindable whatever the writer did. `validate` now refuses them with the
+    verifier's own code, so the two ends state one rule. A same-period operation has no
+    chronological orientation, so `compare_levels` and `ratio` are still offered both ways round
+    and the writer picks which metric is the subject.
 
     An offer is *the request that would be granted*, so the type is `DerivationRequest` and not a
     parallel one. §4.3's *"the planner may request only a triple from that list"* is then a
     membership test on one type rather than an agreement between two.
     """
-    found: list[DerivationRequest] = []
+    by_operation: dict[DerivationOperation, list[DerivationRequest]] = {}
     for operation in DerivationOperation:
         for from_fact in sorted(package.facts, key=lambda fact: fact.observation_id):
             for to_fact in sorted(package.facts, key=lambda fact: fact.observation_id):
@@ -185,8 +203,54 @@ def offers(
                     to_fact_id=to_fact.observation_id,
                 )
                 if validate(request, package, candidate, authority=authority):
-                    found.append(request)
-    return tuple(found[: max(0, package.budget.parameters.max_derivations)])
+                    by_operation.setdefault(operation, []).append(request)
+    return _capped(by_operation, package.budget.parameters.max_derivations)
+
+
+def _capped(
+    by_operation: Mapping[DerivationOperation, Sequence[DerivationRequest]], cap: int
+) -> tuple[DerivationRequest, ...]:
+    """`max_derivations` as a **selection** over the operations, not a slice off the front.
+
+    **The slice was measured and it silenced whole operations** *(2026-08-19)*. The enumeration
+    above is operation-major, so `found[:cap]` spends the budget on whichever operation §4.1
+    lists first. On a full-budget package — twelve facts, one USD metric, twelve adjacent
+    quarters, `max_derivations` 12 — the valid set held ten forward `absolute_change`, ten
+    `percentage_change` and ten `crossed_zero` triples, and the printed list held **twelve
+    `absolute_change` and nothing else**. A planner asking for a percentage change on such a
+    package is `derivation_not_offered` and the run dies for a request that would have been
+    correct. It failed closed, which is why it was a defect and not an incident.
+
+    So the cap is spent round-robin: the first triple of each operation, then the second of
+    each, until the budget runs out. Every operation with any valid triple is represented while
+    the cap is at least the number of such operations, which is the property the slice could not
+    hold, and no operation takes more than one more slot than another.
+
+    **Deterministic and stably ordered, both halves asserted by test.** The round-robin decides
+    *which* triples; the result is then sorted back into `(operation as §4.1 lists it,
+    from_fact_id, to_fact_id)`, so the list the planner is shown reads in the documented order
+    and a change to the selection cannot reorder the prompt behind it.
+
+    **Within one operation the choice is still positional, and that is left standing.** The
+    alternative considered was preferring triples over the candidate's own
+    `anchor_observation_ids` — the pair the story is about. It was rejected here because it
+    makes the offer list depend on a second field of the candidate for the first time (`validate`
+    reads none today), and because on both live candidates the cap does not bind at all: they
+    offer three and four triples against a budget of twelve. A packet that raises the cap or
+    widens `max_facts` should revisit it, and this paragraph is the note to revisit.
+    """
+    if cap <= 0:
+        return ()
+    ranked = [(operation, by_operation.get(operation, ()))
+              for operation in DerivationOperation]
+    chosen: list[tuple[int, DerivationRequest]] = []
+    for slot in range(max((len(found) for _op, found in ranked), default=0)):
+        for order, (_operation, found) in enumerate(ranked):
+            if slot < len(found):
+                chosen.append((order, found[slot]))
+    chosen = chosen[:cap]
+    return tuple(request for _order, request in sorted(
+        chosen, key=lambda pair: (pair[0], pair[1].from_fact_id, pair[1].to_fact_id)))
 
 
 def validate(
@@ -270,6 +334,16 @@ def validate(
             request, DerivationRefusalCode.PERIOD_ALIGNMENT,
             f"{request.operation.value} compares two readings of one period and these are "
             f"{from_fact.period_key} and {to_fact.period_key}")
+    if request.operation in TWO_PERIOD_OPERATIONS and not _anchor(from_fact) < _anchor(to_fact):
+        return _refuse(
+            request, DerivationRefusalCode.ORIENTATION_REVERSED,
+            f"{request.operation.value} is `to - from` and states a step forward in time; "
+            f"{from_fact.observation_id} anchors at {_anchor(from_fact) or '(none)'} and "
+            f"{to_fact.observation_id} at {_anchor(to_fact) or '(none)'}, so this request runs "
+            "backwards. `derived_facts._shape_findings` refuses every fact of that shape as "
+            "`derived_fact_orientation_reversed`, and a triple only this end permitted would be "
+            "one the planner was shown and no draft could bind. The rise is the forward "
+            "derivation, which is offered")
 
     from_point = _point(from_fact, package.subject.entity_id)
     to_point = _point(to_fact, package.subject.entity_id)
@@ -329,6 +403,20 @@ def _claim_kind(
         return ClaimKind.MOVEMENT
     return (ClaimKind.DIVERGENCE if from_fact.metric_id != to_fact.metric_id
             else ClaimKind.LEVEL)
+
+
+def _anchor(fact: PackagedFact) -> str:
+    """The date a fact's period ends on, as `derived_facts._shape_findings` reads it.
+
+    Spelled `period_end or instant_date` in both places rather than derived from
+    `story_period`, because the verifier's rule is the one this clause has to agree with and an
+    agreement stated in two different vocabularies is an agreement waiting to drift. Both ends
+    are driven over a reversed `2022Q3 -> 2022Q2` pair —
+    `test_every_reversed_two_period_triple_is_refused_and_every_forward_one_is_offered` here and
+    `test_the_reversed_orientation_is_still_refused_by_the_verifier_that_forced_the_narrowing`
+    there — so a drift shows up as two tests disagreeing rather than as a triple nothing catches.
+    """
+    return fact.period_end or fact.instant_date or ""
 
 
 def _point(fact: PackagedFact, subject_entity_id: str) -> CanonicalPoint:

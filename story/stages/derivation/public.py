@@ -98,10 +98,11 @@ class DerivationRefusalCode(str, Enum):
     name which clause failed and that nothing fall through to a computed value, and a taxonomy
     where two checks shared a code could not answer the first half.
 
-    Five members are spelled the way §6 spells the verifier's new `GATE` codes —
+    Six members are spelled the way §6 spells the verifier's `GATE` codes —
     `derivation_not_offered`, `derived_operation_not_supported`, `derived_inputs_incomparable`,
-    `derived_unit_mismatch`, `derived_result_mismatch` — so a refusal here and the finding a
-    later packet raises for the same fault are one string and not two.
+    `derived_unit_mismatch`, `derived_result_mismatch`, `derived_fact_orientation_reversed` — so
+    a refusal here and the finding the verifier raises for the same fault are one string and not
+    two.
     """
 
     #: The planner named a triple `offers()` did not put in front of it (§4.3).
@@ -121,6 +122,11 @@ class DerivationRefusalCode(str, Enum):
     UNIT_NOT_ADMITTED = "derived_unit_mismatch"
     #: A two-period operation given one period, or a same-period operation given two.
     PERIOD_ALIGNMENT = "derivation_period_alignment"
+    #: A two-period operation whose `from` is the **later** reading. Spelled the way §6 spells
+    #: the verifier's finding, because it is the same fault: `derived_facts._shape_findings`
+    #: refuses every backwards two-period derivation, so a triple this clause let through would
+    #: be one the offer set printed and no draft could ever bind.
+    ORIENTATION_REVERSED = "derived_fact_orientation_reversed"
     #: §13.3's third gate: `(v2 − v1)/|v1|` across zero is defined and rhetorically meaningless.
     RELATIVE_CHANGE_ACROSS_ZERO = "derived_relative_change_across_zero"
     #: `ratio` with a zero denominator.
