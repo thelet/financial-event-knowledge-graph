@@ -15,6 +15,7 @@ signature without a row in `DIGEST_INPUTS` fails `test_every_story_run_id_parame
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -42,6 +43,7 @@ RUN = dict(
     ontology_definition_hash="bb94f522ba122470" + "0" * 48,
     config_hash="cfg0123456789ab",
     prompt_version="story-planner-1.0.0",
+    provider_id="local_openai_compatible",
     model_id="qwen3.5-9b",
     provider_model_id="/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf",
     temperature=0.0,
@@ -256,6 +258,9 @@ DIGEST_INPUTS: dict[str, Any] = {
     "ontology_definition_hash": "e" * 64,
     "config_hash": "cfgffffffffffff",
     "prompt_version": "story-planner-1.1.0",
+    # The whole of MULTI_PROVIDER_OPENAI F2 in one row: everything else about these two runs is
+    # identical, and before 2026-08-19 they minted one id and one directory.
+    "provider_id": "openai",
     "model_id": "qwen3.5-14b",
     "provider_model_id": "/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q5_K_M.gguf",
     "temperature": 0.2,
@@ -340,6 +345,37 @@ def test_swapping_the_model_id_and_the_provider_model_id_changes_the_id():
     assert keys.story_run_id(**swapped) != keys.story_run_id(**RUN)
 
 
+def test_two_runs_alike_in_everything_but_the_provider_get_two_ids_and_two_directories():
+    """MULTI_PROVIDER_OPENAI F2, stated as the failure it was rather than as a field.
+
+    Every other input is held identical — one graph, one config, one prompt pair, **one model
+    string** — and only the adapter moves. Before 2026-08-19 that minted one `story-v1-…`, and
+    §1.6's atomic finalisation would have `os.replace`d the OpenAI run's directory over the
+    Qwen run's. The directory half is asserted here rather than assumed, because the id *is* the
+    directory name (`<out_root>/<story_run_id>/`) and "two ids" only matters for that reason.
+
+    `model_id` is deliberately not varied with it: a local llama.cpp server answers to any model
+    string, so telling the two apart by name is a defence the runtime does not provide.
+    """
+    qwen = keys.story_run_id(**RUN)
+    openai = keys.story_run_id(**replacing(RUN, provider_id="openai"))
+
+    assert qwen != openai
+    assert (Path("data/story_demo") / qwen) != (Path("data/story_demo") / openai)
+    # The readable half is unchanged; the digest is what moved, which is this module's rule.
+    assert qwen.rsplit("-", 1)[0] == openai.rsplit("-", 1)[0]
+
+
+def test_swapping_the_provider_id_and_the_model_id_changes_the_id():
+    """Labelled parts again, for the input added on 2026-08-19.
+
+    `provider_id=openai, model_id=gpt-5-nano` and `provider_id=gpt-5-nano, model_id=openai` are
+    two nonsense configurations, and a positional join would digest them alike.
+    """
+    swapped = replacing(RUN, provider_id=RUN["model_id"], model_id=RUN["provider_id"])
+    assert keys.story_run_id(**swapped) != keys.story_run_id(**RUN)
+
+
 def test_the_story_run_id_reads_no_clock():
     """Derived, never stamped — `graph/core/manifest.py:104-139`'s rule. Two calls a second
     apart are the same call."""
@@ -352,8 +388,8 @@ def test_the_story_run_id_reads_no_clock():
 
 @pytest.mark.parametrize(
     "blank", ["graph_run_id", "run_complete_sha256", "ontology_definition_hash", "config_hash",
-              "prompt_version", "model_id", "provider_model_id", "policy_version",
-              "ranking_policy_version"])
+              "prompt_version", "provider_id", "model_id", "provider_model_id",
+              "policy_version", "ranking_policy_version"])
 def test_a_story_run_id_is_refused_when_a_required_input_is_blank(blank):
     with pytest.raises(EmptyIdentityError):
         keys.story_run_id(**replacing(RUN, **{blank: ""}))

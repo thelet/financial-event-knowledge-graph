@@ -51,6 +51,8 @@ from story.providers.public import (
     ENV_API_KEY,
     ENV_BASE_URL,
     ENV_MODEL,
+    PROVIDER_LOCAL,
+    PROVIDER_OPENAI,
     RETRYABLE_STATUSES,
 )
 
@@ -419,6 +421,15 @@ def test_reasoning_content_is_recorded_but_never_returned_as_content():
     assert result.metadata["reasoning_characters"] == 27
 
 
+def test_the_local_adapter_names_itself_in_the_digest_the_replay_store_keys_on():
+    """S12 made the provider a digest input to `request_identity` and to `story_run_id`. A local
+    server answers to *any* model string, so without this property two providers configured with
+    one name would share a replay row — the silently-wrong replay the store exists to prevent."""
+    provider, _ = provider_on(answering())
+    assert provider.provider_id == "local_openai_compatible"
+    assert provider.provider_id == provider.config.provider_id
+
+
 def test_the_provider_is_usable_through_the_story_generation_provider_protocol():
     """Driven, not `isinstance`-checked. An isinstance assertion against a runtime-checkable
     Protocol verifies method presence and proves almost nothing."""
@@ -548,10 +559,18 @@ def test_a_boolean_is_not_a_number_even_though_bool_subclasses_int():
 
 
 def test_an_unrecognised_provider_kind_is_refused_rather_than_defaulted():
-    """`config.provider.kind` exists upstream and is never dispatched on (§15.1)."""
+    """`config.provider.kind` exists upstream and is never dispatched on (§15.1).
+
+    **The value this test refuses moved at S12, and the reason is worth recording.** It used to
+    be `"openai"`, which was an unrecognised kind when there was one adapter and is a supported
+    one now (MULTI_PROVIDER_OPENAI §4.2). The rule under test is unchanged — an unrecognised
+    kind raises rather than silently selecting the local server — so the needle is a kind the
+    package genuinely does not implement, and the line below states the fact that moved.
+    """
     with pytest.raises(StoryProviderConfigurationError) as raised:
-        StoryProviderConfig.from_config({"provider": {"kind": "openai"}})
+        StoryProviderConfig.from_config({"provider": {"kind": "anthropic_messages"}})
     assert "kind" in str(raised.value)
+    assert StoryProviderConfig.from_config({"provider": {"kind": "openai"}}).kind == "openai"
 
 
 def test_a_secret_in_a_configuration_file_is_refused_rather_than_read():
@@ -599,7 +618,8 @@ def test_a_temperature_cannot_be_configured_at_all():
 
 def identity(**overrides) -> str:
     call = dict(system=PLANNER_SYSTEM, prompt=PROMPT, schema=PLAN_SCHEMA,
-                schema_name="story_editorial_plan", model_id="Qwen3.5-9B-Q4_K_M.gguf",
+                schema_name="story_editorial_plan", provider_id=PROVIDER_LOCAL,
+                model_id="Qwen3.5-9B-Q4_K_M.gguf",
                 temperature=PINNED_TEMPERATURE, max_tokens=512)
     call.update(overrides)
     return request_identity(**call)
@@ -614,6 +634,7 @@ def test_the_same_request_produces_the_same_identity():
     ("system", WRITER_SYSTEM),
     ("prompt", "a different package"),
     ("schema_name", "story_draft"),
+    ("provider_id", PROVIDER_OPENAI),
     ("model_id", "Qwen3.5-9B-Q8_0.gguf"),
     ("temperature", 0.2),
     ("max_tokens", 513),
@@ -634,7 +655,8 @@ def test_two_personas_asking_the_same_question_do_not_collide_on_one_row():
     """The store-level proof of the digest property above: three call sites, one package."""
     store = GenerationStore()
     provider, _ = provider_on(answering())
-    replaying = ReplayingStoryGenerationProvider(store, provider, model_id="test-model")
+    replaying = ReplayingStoryGenerationProvider(store, provider, provider_id=PROVIDER_LOCAL,
+                                              model_id="test-model")
 
     generate(replaying, system=PLANNER_SYSTEM, schema_name="story_editorial_plan")
     generate(replaying, system=WRITER_SYSTEM, schema_name="story_draft")
@@ -651,6 +673,7 @@ def stored(**overrides) -> StoredGeneration:
     fields = dict(
         request_sha256=identity(),
         content_sha256="c" * 64,
+        provider_id=PROVIDER_LOCAL,
         model_id="Qwen3.5-9B-Q4_K_M.gguf",
         provider_model_id="/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf",
         schema_name="story_editorial_plan",
@@ -686,7 +709,8 @@ def test_a_replayed_result_invents_no_token_count_and_no_latency():
     from a generated one in exactly the place a reader wants to tell them apart."""
     store = GenerationStore()
     store.put(stored())
-    result = generate(ReplayingStoryGenerationProvider(store, model_id="Qwen3.5-9B-Q4_K_M.gguf"))
+    result = generate(ReplayingStoryGenerationProvider(
+        store, provider_id=PROVIDER_LOCAL, model_id="Qwen3.5-9B-Q4_K_M.gguf"))
     assert (result.prompt_tokens, result.completion_tokens, result.total_tokens) == (0, 0, 0)
     assert (result.latency_ms, result.attempts, result.raw_sha256) == (0.0, 0, "")
 
@@ -695,7 +719,8 @@ def test_a_miss_with_no_inner_provider_raises_and_names_the_digest_it_missed_on(
     """A replay that quietly reaches for a server is not a replay, and every miss has to be
     recorded with the request it would have issued."""
     store = GenerationStore()
-    replaying = ReplayingStoryGenerationProvider(store, model_id="Qwen3.5-9B-Q4_K_M.gguf")
+    replaying = ReplayingStoryGenerationProvider(
+        store, provider_id=PROVIDER_LOCAL, model_id="Qwen3.5-9B-Q4_K_M.gguf")
     with pytest.raises(MissingGenerationError) as raised:
         generate(replaying)
     assert raised.value.request_sha256 == identity()
@@ -777,10 +802,91 @@ def test_a_store_whose_rows_disagree_about_the_model_states_no_identity():
         ReplayingStoryGenerationProvider(store)
 
 
+def test_a_store_whose_rows_disagree_about_the_provider_states_no_identity():
+    """`identity_model_id`'s argument, for the input added on 2026-08-19.
+
+    A file holding an OpenAI row beside a Qwen row cannot be replayed under one identity, and
+    answering with either would turn every row of the other into a miss — the silently-wrong
+    replay this store exists to prevent.
+    """
+    store = GenerationStore()
+    store.put(stored())
+    store.put(stored(request_sha256="f" * 64, provider_id=PROVIDER_OPENAI,
+                     model_id="gpt-5-nano"))
+
+    assert store.identity_provider_id() is None
+    with pytest.raises(ValueError) as raised:
+        ReplayingStoryGenerationProvider(store)
+    assert "provider" in str(raised.value)
+
+
+def test_a_row_recorded_under_one_provider_is_a_miss_under_another_and_never_a_silent_hit():
+    """MULTI_PROVIDER_OPENAI F1, driven rather than argued.
+
+    The two requests are **identical in every other digest input** — same system, same prompt,
+    same schema, same schema name, same `model_id`, same temperature, same `max_tokens` — and
+    the model string is deliberately held equal because a local llama.cpp server answers to any
+    of them, so distinct names are not the defence. Before `story-generation-v2` the second
+    lookup hit the first's row and a Qwen answer was replayed as OpenAI's.
+
+    A miss and not a wrong answer is asserted two ways: the digests differ, and the replay-only
+    provider raises rather than returning content.
+    """
+    store = GenerationStore()
+    store.put(stored())
+    assert store.get(identity()) is not None
+
+    as_openai = ReplayingStoryGenerationProvider(
+        store, provider_id=PROVIDER_OPENAI, model_id="Qwen3.5-9B-Q4_K_M.gguf")
+    with pytest.raises(MissingGenerationError) as raised:
+        generate(as_openai)
+
+    assert identity(provider_id=PROVIDER_OPENAI) != identity()
+    assert raised.value.request_sha256 == identity(provider_id=PROVIDER_OPENAI)
+    assert store.get(raised.value.request_sha256) is None
+
+
+def test_a_written_store_states_which_provider_its_rows_were_keyed_under(tmp_path):
+    """The file has to be sufficient on its own, and since v2 that includes the adapter.
+
+    Without `provider_id` on the row, a `story rebuild` over a committed file would have to be
+    *told* which adapter produced it — and being told wrong is exactly a silent miss.
+    """
+    store = GenerationStore()
+    store.put(stored())
+    reloaded = GenerationStore(store.write(tmp_path / "generations.jsonl"))
+
+    assert reloaded.identity_provider_id() == PROVIDER_LOCAL
+    # No `provider_id` and no `model_id` passed: both are read off the rows.
+    assert ReplayingStoryGenerationProvider(reloaded).provider_id == PROVIDER_LOCAL
+
+
+def test_a_replayed_result_names_the_provider_the_row_came_from():
+    """`GenerationResult` has no provider field, so the row's own value is carried in metadata.
+
+    A reader looking at a replayed result must be able to tell whose answer it is without
+    reopening the store, for the same reason `schema_name` is already there.
+    """
+    store = GenerationStore()
+    store.put(stored())
+    result = generate(ReplayingStoryGenerationProvider(
+        store, provider_id=PROVIDER_LOCAL, model_id="Qwen3.5-9B-Q4_K_M.gguf"))
+    assert result.metadata["provider_id"] == PROVIDER_LOCAL
+
+
+def test_a_blank_provider_id_is_refused_rather_than_digested():
+    """`""` is not a provider. It is what a decorator that forgot to forward the value produces,
+    and hashing it would mint a key that looks like an identity and separates nothing."""
+    with pytest.raises(ValueError) as raised:
+        identity(provider_id="   ")
+    assert "provider_id" in str(raised.value)
+
+
 def test_a_replay_only_provider_reports_health_without_a_server():
     """A replay-only run is fully able to proceed; reporting it unhealthy would make the
     freshness gate refuse the one configuration that provably needs nothing running."""
-    status = ReplayingStoryGenerationProvider(GenerationStore(), model_id="m").health()
+    status = ReplayingStoryGenerationProvider(
+        GenerationStore(), provider_id=PROVIDER_LOCAL, model_id="m").health()
     assert status.ok is True and status.status == "replay"
 
 
@@ -788,7 +894,7 @@ def test_the_replaying_provider_is_usable_through_the_protocol():
     store = GenerationStore()
     store.put(stored())
     port: StoryGenerationProvider = ReplayingStoryGenerationProvider(
-        store, model_id="Qwen3.5-9B-Q4_K_M.gguf")
+        store, provider_id=PROVIDER_LOCAL, model_id="Qwen3.5-9B-Q4_K_M.gguf")
     result = port.generate(system=PLANNER_SYSTEM, prompt=PROMPT, schema=PLAN_SCHEMA,
                            schema_name="story_editorial_plan", max_tokens=512,
                            temperature=PINNED_TEMPERATURE)

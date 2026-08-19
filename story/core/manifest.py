@@ -93,11 +93,36 @@ class StoryRunManifest:
     #: Who generated, and under what. `prompt_versions` is per call site — the planner, the
     #: writer and the advisory verifier are three prompts and §15.1 wants each recorded.
     prompt_versions: dict[str, str]
+    #: Which adapter ran — `local_openai_compatible` or `openai`. **Added 2026-08-19**
+    #: (MULTI_PROVIDER_OPENAI §5.2, finding F2): before it, the manifest had no provider field
+    #: at all and the four scalars below described a model without saying who was asked for it.
+    #: It is also a `story_run_id` input, so two providers over one graph are two directories.
+    provider_id: str
     model_id: str
     provider_model_id: str
     temperature: float
     max_tokens: int
     schema_digests: dict[str, str]
+
+    #: Provenance **per call site**, because the brief asks for the planner's and the writer's
+    #: separately and the four scalars above cover both with one pair. Each block carries
+    #: `{provider_id, model_id, provider_model_id, prompt_version, schema_name, max_tokens}`
+    #: and is filled from that call's own `GenerationResult` — `provider_model_id` is what the
+    #: server reported for *that* request, not what the other one reported and not what was
+    #: configured. A block is **empty exactly when the call site produced no result**: a run
+    #: whose planner refused never built a writer request, and filling the block from
+    #: configuration would record a request that was never made.
+    planner_provider_model: dict[str, Any]
+    writer_provider_model: dict[str, Any]
+
+    #: What the request was actually parameterised with — `{temperature, temperature_sent,
+    #: reasoning_effort, max_output_tokens, store_responses}`. **Added 2026-08-19** because
+    #: `temperature` alone is a claim rather than a record: OpenAI's reasoning models refuse the
+    #: parameter (measured, MULTI_PROVIDER_OPENAI §3 — `gpt-5-nano` returns 400 `Unsupported
+    #: parameter`), so a manifest reading `temperature: 0.0` for such a run would state a value
+    #: that was never sent. `temperature_sent` comes from the adapter, and is `null` when
+    #: nothing sent anything — which is the truthful answer for a replayed run.
+    provider_settings: dict[str, Any]
 
     #: What decided the candidates, and — `ranking_policy_version` — what decided which of them
     #: could become a post. §6.10's score is behaviour-changing and had no version of its own
@@ -141,11 +166,17 @@ def build_manifest(
     ontology_version: str,
     ontology_definition_hash: str,
     prompt_versions: dict[str, str],
+    provider_id: str,
     model_id: str,
     provider_model_id: str,
     temperature: float,
     max_tokens: int,
     schema_digests: dict[str, str],
+    # Required rather than defaulted: there is one caller, and a block that silently defaulted
+    # to `{}` would read as "the planner never ran" on a run where it did.
+    planner_provider_model: dict[str, Any],
+    writer_provider_model: dict[str, Any],
+    provider_settings: dict[str, Any],
     detector_versions: dict[str, str],
     policy_version: str,
     ranking_policy_version: str,
@@ -181,11 +212,15 @@ def build_manifest(
         ontology_version=ontology_version,
         ontology_definition_hash=ontology_definition_hash,
         prompt_versions=dict(prompt_versions),
+        provider_id=provider_id,
         model_id=model_id,
         provider_model_id=provider_model_id,
         temperature=float(temperature),
         max_tokens=int(max_tokens),
         schema_digests=dict(schema_digests),
+        planner_provider_model=dict(planner_provider_model),
+        writer_provider_model=dict(writer_provider_model),
+        provider_settings=dict(provider_settings),
         detector_versions=dict(detector_versions),
         policy_version=policy_version,
         ranking_policy_version=ranking_policy_version,

@@ -74,7 +74,8 @@ EXIT_FAILED = 1
 EXIT_USAGE = 2
 
 
-def _provider(config: DemoConfig, *, live: bool):
+def _provider(config: DemoConfig, *, live: bool, provider_id: str | None = None,
+              model_id: str | None = None):
     """The composition root for the model side, and the only place a transport is named.
 
     Both modes are the same object: `ReplayingStoryGenerationProvider` over a store, with an
@@ -85,21 +86,47 @@ def _provider(config: DemoConfig, *, live: bool):
 
     `httpx` enters `sys.modules` only on the live path: the adapter is imported inside the
     branch that needs it, the way `extraction/providers/__init__.py` resolves its adapters.
+
+    **`provider_id` and `model_id` are `None` by default and that is load-bearing** (S12 §4.2).
+    `load_provider_config` called without them resolves `provider.default`, which is what it
+    resolved before there was a second adapter — so `python -m story demo --candidate-id …`
+    builds exactly the object it built yesterday, against exactly the same server. The two
+    flags are a selection, not a reconfiguration: no URL and no key comes from the command line.
+
+    The replay store is chosen **per provider** and never shared. Since `story-generation-v2` a
+    row is keyed on the adapter that produced it, so another provider's file would not answer a
+    single request; the refusal below names the provider rather than letting the run die later
+    on a `MissingGenerationError` about a digest.
     """
-    provider_config = load_provider_config(config.raw)
+    provider_config = load_provider_config(config.raw, provider_id=provider_id,
+                                           model_id=model_id)
+    resolved_provider = provider_config.provider_id
     if live:
         from .providers.openai_compatible import StoryOpenAICompatibleProvider
+        from .providers.openai_responses import StoryOpenAIResponsesProvider
+        from .providers.public import PROVIDER_OPENAI
 
+        inner = (StoryOpenAIResponsesProvider(provider_config)
+                 if resolved_provider == PROVIDER_OPENAI
+                 else StoryOpenAICompatibleProvider(provider_config))
         return ReplayingStoryGenerationProvider(
-            GenerationStore(), StoryOpenAICompatibleProvider(provider_config),
+            GenerationStore(), inner, provider_id=resolved_provider,
             model_id=provider_config.model)
-    store = GenerationStore(config.resolved_path(config.generation_store))
+    path = config.generation_store_for(resolved_provider)
+    if path is None:
+        raise StoryDemoError(
+            f"no recorded answer store is configured for provider {resolved_provider!r}; "
+            "`demo.generation_stores` in config/story.yaml names one store per provider, and a "
+            "row recorded under one provider is a miss under another by design — pass --live to "
+            "call it instead of replaying somebody else's rows")
+    store = GenerationStore(path)
     if not len(store):
         raise StoryDemoError(
-            f"the recorded answer store {config.resolved_path(config.generation_store)} holds "
+            f"the recorded answer store {path} for provider {resolved_provider!r} holds "
             "no generation; the deterministic demo replays what the model produced and cannot "
             "invent it — pass --live to call the server instead")
-    return ReplayingStoryGenerationProvider(store, model_id=provider_config.model)
+    return ReplayingStoryGenerationProvider(store, provider_id=resolved_provider,
+                                            model_id=provider_config.model)
 
 
 def cmd_demo(args) -> int:
@@ -126,8 +153,9 @@ def cmd_demo(args) -> int:
           f"{len(inputs.package.primary_passages)} primary passages")
 
     outcome = run_demo(
-        inputs, provider=_provider(config, live=args.live), config=config,
-        out_dir=Path(args.out) if args.out else None, live=args.live)
+        inputs, provider=_provider(config, live=args.live, provider_id=args.provider,
+                                   model_id=args.model),
+        config=config, out_dir=Path(args.out) if args.out else None, live=args.live)
 
     print(f"story run      {outcome.story_run_id}")
     print(f"directory      {outcome.directory}")
@@ -243,6 +271,15 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--live", action="store_true",
                       help="call the model server instead of replaying the recorded store. "
                            "May fail, and a failure is not retried (§15.3)")
+    # No `default=` and no `choices=`: the default lives in `config/story.yaml`'s
+    # `provider.default` and the catalogue of ids lives in `providers/public.py`, and repeating
+    # either here would be a second place to look for an answer that has not changed. An
+    # unknown id is refused by `load_provider_config` with a message naming what is configured.
+    demo.add_argument("--provider", help="which adapter to run (default: the configured "
+                                         "provider.default). A row recorded under one provider "
+                                         "never replays under another")
+    demo.add_argument("--model", help="which model to ask (default: the selected provider's "
+                                      "configured default model)")
     demo.set_defaults(handler=cmd_demo)
 
     ui = sub.add_parser(

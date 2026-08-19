@@ -26,17 +26,27 @@ that §15.1 asks not to reproduce:
   an unrecognised value is a typed raise at construction, the pattern
   `extraction/context.py:93-103` uses for `build_scope`.
 
-There is **no `config/story.yaml` yet** — S11 owns it (plan §23). So the defaults below are
-constants, `from_config` reads a `provider:` block for the day that file exists, and
-`load_provider_config` layers `.env` and the process environment over them. Nothing here
-opens a YAML file: `config/graph.yaml` has no provider block, and inventing one now would give
-a reader two answers to "which server?".
+The defaults below are constants, `from_config` reads the `provider:` block of a parsed
+`config/story.yaml` — S11 minted that file — and `load_provider_config` layers `.env` and the
+process environment over them. Nothing here opens a YAML file: the caller that parsed the
+document passes the mapping in, so this module stays free of a file format as well as of a
+transport.
+
+**S12 added a second provider and no second concept.** `kind` was already dispatched on, so it
+*is* the provider id (`provider_id` is a property returning it, not a parallel field), and the
+OpenAI block is nested inside `provider:` rather than sitting beside it — one place to look for
+"which server?", and every key of it is a `config_hash` input exactly as the local keys are.
+Three fields join the config for the settings that differ between the two — `supports_temperature`,
+`reasoning_effort`, `store_responses` — and `validated()` **refuses** the combinations that mean
+nothing (a `reasoning_effort` on the local server, a local server that claims it cannot take the
+pinned temperature) rather than ignoring them, which is the same argument the `kind` dispatch
+already makes.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -46,10 +56,23 @@ from pydantic import SecretStr
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_PATH = REPO_ROOT / ".env"
 
-#: The one transport this package knows how to build. Not a free-text label: `from_config`
+#: The two transports this package knows how to build. Not a free-text label: `from_config`
 #: refuses anything else rather than falling through to a default.
+#:
+#: `PROVIDER_LOCAL` is an alias and not a second string — the kind *is* the provider id, and
+#: minting `provider_id = "local"` beside `kind = "local_openai_compatible"` would put two
+#: names on one concept in the digest that keys the replay store.
 KIND_LOCAL_OPENAI_COMPATIBLE = "local_openai_compatible"
-SUPPORTED_KINDS = frozenset({KIND_LOCAL_OPENAI_COMPATIBLE})
+PROVIDER_LOCAL = KIND_LOCAL_OPENAI_COMPATIBLE
+PROVIDER_OPENAI = "openai"
+SUPPORTED_KINDS = frozenset({PROVIDER_LOCAL, PROVIDER_OPENAI})
+
+#: What a person sees. Deliberately not the base URL: the catalogue below is rendered by the
+#: demo UI, and §6 allows it a provider label and a model id and nothing else.
+PROVIDER_LABELS = {
+    PROVIDER_LOCAL: "Local llama.cpp server",
+    PROVIDER_OPENAI: "OpenAI",
+}
 
 # The validated runtime, from LOCAL_RUNTIME_VALIDATED.md §1 as `extraction/providers/public.py`
 # records it (measured 2026-08-01). Restated rather than imported; if the machine's server
@@ -90,6 +113,45 @@ ENV_MAX_OUTPUT_TOKENS = "STORY_LLM_MAX_OUTPUT_TOKENS"
 ENV_CONTEXT_TOKENS = "STORY_LLM_CONTEXT_TOKENS"
 ENV_NAMES = (ENV_BASE_URL, ENV_MODEL, ENV_API_KEY, ENV_TIMEOUT_SECONDS, ENV_MAX_RETRIES,
              ENV_MAX_OUTPUT_TOKENS, ENV_CONTEXT_TOKENS)
+
+#: OpenAI's two, and they break the `STORY_LLM_*` convention on purpose. `OPENAI_API_KEY` is
+#: the name the whole ecosystem already exports and the one the brief names; a story-prefixed
+#: alias would mean an operator with a working key still has an unavailable provider. The model
+#: override *is* prefixed, because `OPENAI_MODEL` is not an ecosystem name and an unprefixed one
+#: in a shared `.env` would be ambiguous the day the extraction lane wants its own.
+ENV_OPENAI_API_KEY = "OPENAI_API_KEY"
+ENV_OPENAI_MODEL = "STORY_OPENAI_MODEL"
+OPENAI_ENV_NAMES = (ENV_OPENAI_API_KEY, ENV_OPENAI_MODEL)
+
+# The OpenAI defaults, from plan §4.4. Constants beside the config for the same reason the
+# local ones are: a config file is a digest input a run may not have, and a package that could
+# not build a provider without one would be a package no test can construct in three lines.
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_OPENAI_MODEL = "gpt-5-nano"
+DEFAULT_OPENAI_CONTEXT_TOKENS = 128000
+DEFAULT_OPENAI_MAX_OUTPUT_TOKENS = 4096
+DEFAULT_OPENAI_TIMEOUT_SECONDS = 180.0
+DEFAULT_OPENAI_MAX_RETRIES = 2
+
+#: The model list `config/story.yaml` names, restated so a caller with no config file resolves
+#: the same two models. `supports_temperature` is **measured, not guessed** (plan §3, probed
+#: 2026-08-19): `gpt-5-nano` answers `temperature: 0.0` with HTTP 400 `Unsupported parameter`,
+#: `gpt-4.1-mini` accepts it. Sending it to find out would spend a 400 per run on a static fact.
+DEFAULT_OPENAI_MODELS: tuple[Mapping[str, Any], ...] = (
+    {"id": "gpt-5-nano", "supports_temperature": False, "reasoning_effort": "minimal"},
+    {"id": "gpt-4.1-mini", "supports_temperature": True},
+)
+
+#: The four values the Responses API accepts for `reasoning.effort`. Refused rather than passed
+#: through, because a misspelt effort is a 400 at the far end of a request that carries a whole
+#: evidence package.
+REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high"})
+
+#: §4.3's sentence, verbatim and in one place: the catalogue renders it and the provider raises
+#: it, and two spellings of the same fact would be two things to keep in step.
+OPENAI_KEY_MISSING_REASON = (
+    f"{ENV_OPENAI_API_KEY} is not set in the environment or in the repository-root "
+    f"{DEFAULT_ENV_PATH.name}")
 
 
 class StoryProviderError(RuntimeError):
@@ -175,24 +237,60 @@ class StoryProviderConfig:
     #: `SecretStr` because a frozen dataclass prints its fields in every assertion dump.
     api_key: SecretStr | None = field(default=None, repr=False)
 
-    @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "StoryProviderConfig":
-        """The `provider:` block of a parsed `config/story.yaml`, for when S11 mints one.
+    # -- S12: what differs between the two providers, with local-safe defaults ---------------
+    #
+    #: Whether `temperature` may be sent at all. A *capability of the model*, not a preference:
+    #: `gpt-5-nano` answers a `temperature` with HTTP 400 (plan §3). `PINNED_TEMPERATURE` is
+    #: unchanged and still a constant — this field decides whether it reaches the wire, and the
+    #: adapter records in `metadata` that it did not, so the manifest cannot claim a value that
+    #: was never sent.
+    supports_temperature: bool = True
+    #: `reasoning.effort` for a reasoning model, `None` for every other. Refused on the local
+    #: kind rather than ignored.
+    reasoning_effort: str | None = None
+    #: Whether the provider may retain the request. **False everywhere**, and a field rather
+    #: than a literal so the manifest can state it: a story request carries the whole evidence
+    #: package, and OpenAI's default is to keep it.
+    store_responses: bool = False
 
-        A secret in that mapping is **refused**, not read: the file is tracked, and a
-        configuration that can hold a key is one that will eventually hold a committed key.
+    @property
+    def provider_id(self) -> str:
+        """The kind, under the name the rest of the system calls it by.
+
+        A property and not an eighth field: two spellings of one value in a frozen dataclass is
+        two things that can disagree, and this one is a digest input to every stored generation.
         """
-        provider = config.get("provider") or {}
-        if not isinstance(provider, Mapping):
-            raise StoryProviderConfigurationError(
-                f"provider: must be a mapping, got {type(provider).__name__}")
-        for secret_name in ("api_key", "api_token", "authorization", "token"):
-            if secret_name in provider:
-                raise StoryProviderConfigurationError(
-                    f"provider.{secret_name} must not appear in a configuration file; set "
-                    f"{ENV_API_KEY} in the environment or in {DEFAULT_ENV_PATH.name}")
+        return self.kind
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Mapping[str, Any],
+        *,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+    ) -> "StoryProviderConfig":
+        """The `provider:` block of a parsed `config/story.yaml`, dispatched on the provider id.
+
+        A secret in that mapping is **refused**, not read — at the top level and inside the
+        nested `openai:` block alike: the file is tracked, and a configuration that can hold a
+        key is one that will eventually hold a committed key.
+
+        Both new arguments are keyword-only and default to `None`, so the call this method has
+        always taken — one positional mapping — resolves the local server exactly as before.
+        `provider_id` omitted means `provider.default`, then `provider.kind`, then the local
+        constant; that chain is what keeps the CLI, the demo API and every existing test on the
+        local path with no edit.
+        """
+        provider = _provider_block(config)
+        resolved = provider_id or default_provider_id(config)
+        if resolved == PROVIDER_OPENAI:
+            return cls._from_openai_block(provider, model_id)
         loaded = cls(
-            kind=str(provider.get("kind", DEFAULT_KIND)),
+            # `resolved`, not `provider["kind"]`: with no argument the two are the same value
+            # by construction, and with one the caller's choice is the one `validated()` must
+            # judge — otherwise an unsupported id would be refused as a typo in the file.
+            kind=resolved,
             base_url=str(provider.get("base_url", DEFAULT_BASE_URL)).rstrip("/"),
             model=str(provider.get("model", DEFAULT_MODEL)),
             context_tokens=_as_int(provider.get("context_tokens"), DEFAULT_CONTEXT_TOKENS,
@@ -206,6 +304,53 @@ class StoryProviderConfig:
                                 "provider.max_retries"),
         )
         return loaded.validated()
+
+    @classmethod
+    def _from_openai_block(
+        cls, provider: Mapping[str, Any], model_id: str | None
+    ) -> "StoryProviderConfig":
+        """`provider.openai:`, with the chosen model's declared capabilities folded in.
+
+        The model is looked up in the configured list rather than passed through, because
+        `supports_temperature` is the whole reason the list exists: a model nobody declared has
+        no measured answer to "may this request carry a temperature?", and guessing is how a run
+        discovers a static fact through a 400 (§9's last rejected option).
+        """
+        block = provider.get("openai") or {}
+        if not isinstance(block, Mapping):
+            raise StoryProviderConfigurationError(
+                f"provider.openai: must be a mapping, got {type(block).__name__}")
+        _refuse_secrets(block, "provider.openai")
+
+        models = openai_model_options(provider)
+        name = str(model_id or block.get("default_model", DEFAULT_OPENAI_MODEL))
+        chosen = next((option for option in models if option.model_id == name), None)
+        if chosen is None:
+            raise StoryProviderConfigurationError(
+                f"provider.openai model {name!r} is not one of "
+                f"{[option.model_id for option in models]}; a model reaches the wire only if "
+                "its `supports_temperature` was measured against the API, and an undeclared "
+                "one would have to be guessed at")
+        return cls(
+            kind=PROVIDER_OPENAI,
+            base_url=str(block.get("base_url", DEFAULT_OPENAI_BASE_URL)).rstrip("/"),
+            model=name,
+            context_tokens=_as_int(block.get("context_tokens"), DEFAULT_OPENAI_CONTEXT_TOKENS,
+                                   "provider.openai.context_tokens"),
+            max_output_tokens=_as_int(block.get("max_output_tokens"),
+                                      DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
+                                      "provider.openai.max_output_tokens"),
+            timeout_seconds=_as_float(block.get("timeout_seconds"),
+                                      DEFAULT_OPENAI_TIMEOUT_SECONDS,
+                                      "provider.openai.timeout_seconds"),
+            max_retries=_as_int(block.get("max_retries"), DEFAULT_OPENAI_MAX_RETRIES,
+                                "provider.openai.max_retries"),
+            supports_temperature=chosen.supports_temperature,
+            reasoning_effort=chosen.reasoning_effort,
+            # Not read from the block, and there is no key that could turn it on: a story
+            # request carries the whole evidence package, and OpenAI's default is to retain it.
+            store_responses=False,
+        ).validated()
 
     def validated(self) -> "StoryProviderConfig":
         """Reject a configuration that cannot produce constrained output. Idempotent.
@@ -235,6 +380,30 @@ class StoryProviderConfig:
             raise StoryProviderConfigurationError(
                 f"provider.max_output_tokens ({self.max_output_tokens}) leaves no room for a "
                 f"prompt in provider.context_tokens ({self.context_tokens})")
+
+        # Dispatch on the kind rather than tolerate a setting that means nothing to it. A
+        # `reasoning_effort` the local transport silently drops is the same class of defect as
+        # a schema keyword llama.cpp silently drops — it looks configured and is not.
+        if self.kind == PROVIDER_LOCAL:
+            if self.reasoning_effort is not None:
+                raise StoryProviderConfigurationError(
+                    f"provider.reasoning_effort {self.reasoning_effort!r} means nothing to "
+                    f"{PROVIDER_LOCAL}: the local server has no such parameter, so the value "
+                    "would be recorded in the manifest as a setting that never reached a wire")
+            if not self.supports_temperature:
+                raise StoryProviderConfigurationError(
+                    f"{PROVIDER_LOCAL} always accepts a temperature, and PINNED_TEMPERATURE is "
+                    "a digest input to every stored generation; declaring it unsupported would "
+                    "drop that input from the request while leaving it in the key")
+            if self.store_responses:
+                raise StoryProviderConfigurationError(
+                    f"provider.store_responses means nothing to {PROVIDER_LOCAL}: nothing is "
+                    "retained beyond the process that answered")
+        elif self.reasoning_effort is not None and self.reasoning_effort not in REASONING_EFFORTS:
+            raise StoryProviderConfigurationError(
+                f"provider.reasoning_effort {self.reasoning_effort!r} is not one of "
+                f"{sorted(REASONING_EFFORTS)}; a misspelt effort is a 400 at the far end of a "
+                "request carrying a whole evidence package")
         return self
 
     @property
@@ -274,6 +443,8 @@ def read_env_file(path: Path) -> dict[str, str]:
 def load_provider_config(
     config: Mapping[str, Any] | None = None,
     *,
+    provider_id: str | None = None,
+    model_id: str | None = None,
     env_path: Path = DEFAULT_ENV_PATH,
     environ: Mapping[str, str] | None = None,
 ) -> StoryProviderConfig:
@@ -285,16 +456,37 @@ def load_provider_config(
 
     An environment variable set to the empty string is an override *to empty*, not an absence,
     so `STORY_LLM_BASE_URL=` fails `validated()` rather than quietly restoring the default.
-    """
-    base = StoryProviderConfig.from_config(config or {})
 
+    **`provider_id` and `model_id` are keyword-only and default to `None`, and that is a hard
+    compatibility requirement rather than a style choice.** Called as it has always been called
+    — one positional mapping — this resolves `provider.default` (the local server) and returns
+    what it returned before S12, so the CLI, the demo API and every existing test keep their
+    behaviour with no edit.
+
+    An explicit `model_id` outranks `STORY_OPENAI_MODEL`, which outranks the file. That inverts
+    the "machine wins" order above on purpose: the environment is an operator's default for a
+    machine, while the argument is a selection the server itself offered from
+    `provider_catalogue` and a person then made.
+    """
     layered: dict[str, str] = {}
     for source in (read_env_file(env_path),
                    dict(environ if environ is not None else os.environ)):
-        for name in ENV_NAMES:
+        for name in ENV_NAMES + OPENAI_ENV_NAMES:
             if name in source:
                 layered[name] = source[name]
 
+    resolved = provider_id or default_provider_id(config or {})
+    if resolved == PROVIDER_OPENAI:
+        base = StoryProviderConfig.from_config(
+            config or {}, provider_id=PROVIDER_OPENAI,
+            model_id=model_id or layered.get(ENV_OPENAI_MODEL))
+        # Blank is absent, not an override to empty: §4.3 makes availability turn on a
+        # *non-empty* key, and an exported-but-empty `OPENAI_API_KEY` is the shape a shell
+        # profile leaves behind, not a credential anyone meant to supply.
+        key = (layered.get(ENV_OPENAI_API_KEY) or "").strip()
+        return replace(base, api_key=SecretStr(key) if key else None).validated()
+
+    base = StoryProviderConfig.from_config(config or {}, provider_id=resolved)
     key = layered.get(ENV_API_KEY)
     return StoryProviderConfig(
         kind=base.kind,
@@ -309,6 +501,182 @@ def load_provider_config(
         max_retries=_as_int(layered.get(ENV_MAX_RETRIES), base.max_retries, ENV_MAX_RETRIES),
         api_key=None if key is None else SecretStr(key),
     ).validated()
+
+
+# -- the registry the demo UI renders ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ModelOption:
+    """One model a person may pick, and the two facts that change how it is called.
+
+    `supports_temperature` is measured against the API rather than inferred from a name (plan
+    §3): `gpt-5-nano` refuses `temperature` with a 400 and `gpt-4.1-mini` accepts it, and there
+    is nothing in either string that says so.
+    """
+
+    model_id: str
+    label: str
+    supports_temperature: bool
+    reasoning_effort: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "model_id": self.model_id,
+            "label": self.label,
+            "supports_temperature": self.supports_temperature,
+            "reasoning_effort": self.reasoning_effort,
+        }
+
+
+@dataclass(frozen=True)
+class ProviderOption:
+    """What a browser is allowed to know about a provider (§6).
+
+    **No base URL, no key, no environment value, no timeout.** `as_dict` is the payload and it
+    is written out field by field rather than derived from the dataclass, which is the rule
+    `ComposedPrompts.as_dict` already follows: a field added here must be added there
+    deliberately, so a URL cannot arrive in a response by being added to a config object.
+
+    `unavailable_reason` names an environment *variable* and never its value — "OpenAI is
+    missing" and "OpenAI does not exist" are different facts and the interface has to be able
+    to tell them apart.
+    """
+
+    provider_id: str
+    label: str
+    available: bool
+    unavailable_reason: str
+    models: tuple[ModelOption, ...]
+    default_model_id: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider_id": self.provider_id,
+            "label": self.label,
+            "available": self.available,
+            "unavailable_reason": self.unavailable_reason,
+            "models": [model.as_dict() for model in self.models],
+            "default_model_id": self.default_model_id,
+        }
+
+
+def provider_catalogue(
+    config: Mapping[str, Any] | None = None,
+    *,
+    env_path: Path = DEFAULT_ENV_PATH,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[ProviderOption, ...]:
+    """Every provider this build knows, whether or not it can be used right now.
+
+    **Never raises**, which is the same argument `health()` makes: an unconfigured provider is
+    an ordinary state for an interface to render, and a catalogue that threw would leave the
+    page with nothing to say about the provider that *is* configured. A configuration error is
+    reported as an unavailable option carrying its own message, not as an exception.
+
+    The local server is reported available whenever its configuration resolves. Whether the
+    process is actually listening is `health()`'s question and needs an HTTP client, which this
+    module is defined by not importing.
+    """
+    return tuple(
+        _provider_option(provider_id, config, env_path=env_path, environ=environ)
+        for provider_id in (PROVIDER_LOCAL, PROVIDER_OPENAI)
+    )
+
+
+def default_provider_id(config: Mapping[str, Any] | None = None) -> str:
+    """`provider.default`, then `provider.kind`, then the local constant.
+
+    Two keys and not one, because they answer different questions: `kind` describes the block
+    it sits in — the local server — while `default` says which provider a call site that made
+    no choice gets. Falling back to `kind` is what makes a pre-S12 config file resolve exactly
+    as it did.
+    """
+    provider = _provider_block(config or {})
+    for key in ("default", "kind"):
+        value = provider.get(key)
+        if value:
+            return str(value)
+    return DEFAULT_KIND
+
+
+def openai_model_options(provider: Mapping[str, Any]) -> tuple[ModelOption, ...]:
+    """`provider.openai.models`, or the measured defaults when the block names none."""
+    block = provider.get("openai") or {}
+    declared = block.get("models") if isinstance(block, Mapping) else None
+    rows = declared if isinstance(declared, (list, tuple)) and declared else DEFAULT_OPENAI_MODELS
+
+    options: list[ModelOption] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise StoryProviderConfigurationError(
+                f"provider.openai.models[{index}] must be a mapping, got {type(row).__name__}")
+        model_id = str(row.get("id") or "")
+        if not model_id:
+            raise StoryProviderConfigurationError(
+                f"provider.openai.models[{index}] must declare an id")
+        effort = row.get("reasoning_effort")
+        options.append(ModelOption(
+            model_id=model_id,
+            label=str(row.get("label") or model_id),
+            supports_temperature=bool(row.get("supports_temperature", True)),
+            reasoning_effort=None if effort is None else str(effort),
+        ))
+    return tuple(options)
+
+
+def _provider_option(
+    provider_id: str,
+    config: Mapping[str, Any] | None,
+    *,
+    env_path: Path,
+    environ: Mapping[str, str] | None,
+) -> ProviderOption:
+    label = PROVIDER_LABELS.get(provider_id, provider_id)
+    try:
+        resolved = load_provider_config(
+            config, provider_id=provider_id, env_path=env_path, environ=environ)
+    except StoryProviderConfigurationError as exc:
+        return ProviderOption(provider_id, label, False, str(exc), (), "")
+
+    if provider_id == PROVIDER_OPENAI:
+        models = openai_model_options(_provider_block(config or {}))
+        has_key = resolved.api_key is not None and bool(resolved.api_key.get_secret_value())
+        reason = "" if has_key else OPENAI_KEY_MISSING_REASON
+        return ProviderOption(provider_id, label, has_key, reason, models, resolved.model)
+
+    # One model, and it is the one a run would use — the file's value with the environment
+    # layered over it, not the file's value alone.
+    model = ModelOption(resolved.model, resolved.model, resolved.supports_temperature,
+                        resolved.reasoning_effort)
+    return ProviderOption(provider_id, label, True, "", (model,), resolved.model)
+
+
+def _provider_block(config: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The `provider:` mapping, with a committed secret refused wherever it is read.
+
+    The refusal lives here rather than in `from_config` so that every reader of the block —
+    the loader, the catalogue, the default-id lookup — is covered by it. A key in a tracked
+    file must fail on the first read, not on the first *request*.
+    """
+    provider = config.get("provider") or {}
+    if not isinstance(provider, Mapping):
+        raise StoryProviderConfigurationError(
+            f"provider: must be a mapping, got {type(provider).__name__}")
+    _refuse_secrets(provider, "provider")
+    nested = provider.get("openai")
+    if isinstance(nested, Mapping):
+        _refuse_secrets(nested, "provider.openai")
+    return provider
+
+
+def _refuse_secrets(block: Mapping[str, Any], path: str) -> None:
+    env_name = ENV_OPENAI_API_KEY if path.endswith("openai") else ENV_API_KEY
+    for secret_name in ("api_key", "api_token", "authorization", "token"):
+        if secret_name in block:
+            raise StoryProviderConfigurationError(
+                f"{path}.{secret_name} must not appear in a configuration file; set "
+                f"{env_name} in the environment or in {DEFAULT_ENV_PATH.name}")
 
 
 def _as_int(value: Any, fallback: int, name: str) -> int:

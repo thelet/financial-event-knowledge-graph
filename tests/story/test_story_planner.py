@@ -58,6 +58,7 @@ from story.providers.generation_store import GenerationStore, ReplayingStoryGene
 from story.providers.portable_schema import PORTABLE_KEYWORDS, validate_portable_schema
 from story.providers.public import (
     PINNED_TEMPERATURE,
+    PROVIDER_LOCAL,
     StoryProviderResponseError,
     StoryProviderSchemaError,
     load_provider_config,
@@ -284,10 +285,15 @@ class FakePlanProvider:
     """
 
     def __init__(self, content: Mapping[str, Any] | None = None,
-                 raises: Exception | None = None, model_id: str = "Qwen3.5-9B-Q4_K_M.gguf"):
+                 raises: Exception | None = None, model_id: str = "Qwen3.5-9B-Q4_K_M.gguf",
+                 provider_id: str = PROVIDER_LOCAL):
         self.content = dict(content if content is not None else valid_answer())
         self.raises = raises
         self.model_id = model_id
+        # On the protocol since MULTI_PROVIDER_OPENAI §4.1, and defaulted to the boundary's own
+        # constant rather than to a retyped string: the replay store keys on it, so a fake that
+        # named a provider `providers/public.py` does not would key rows nothing can find.
+        self.provider_id = provider_id
         self.calls: list[dict[str, Any]] = []
 
     def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
@@ -805,9 +811,11 @@ def test_the_plan_replays_from_a_recorded_generation_with_no_server_running():
     recording = ReplayingStoryGenerationProvider(
         store, FakePlanProvider(), prompt_version=PLANNER_PROMPT_VERSION)
     first = plan_with(recording, package).plan
+    assert store.identity_provider_id() == PROVIDER_LOCAL
 
-    replaying: StoryGenerationProvider = ReplayingStoryGenerationProvider(
-        store, model_id="Qwen3.5-9B-Q4_K_M.gguf")
+    # Neither identifier is passed: both are read back off the rows the recording wrote, which
+    # is the property that makes a written store sufficient to replay from on its own.
+    replaying: StoryGenerationProvider = ReplayingStoryGenerationProvider(store)
     second = plan_with(replaying, package).plan
     assert second == first
     assert len(store) == 1

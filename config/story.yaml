@@ -2,8 +2,10 @@
 #
 # NON-SECRET DEFAULTS ONLY, the same rule `config/graph.yaml` states. There is no credential
 # here and there must never be one: `story/providers/public.py:from_config` **refuses** a
-# `provider.api_key`, `api_token`, `authorization` or `token` key rather than reading it, and
-# `STORY_LLM_API_KEY` in the gitignored repository-root `.env` is the only place one may live.
+# `provider.api_key`, `api_token`, `authorization` or `token` key rather than reading it —
+# inside the nested `provider.openai:` block as well as at the top level — and the gitignored
+# repository-root `.env` is the only place one may live: `STORY_LLM_API_KEY` for the local
+# server (which needs none) and `OPENAI_API_KEY` for OpenAI.
 #
 # This file is a digest input. `story/pipeline.py` hashes it into `config_hash`, which is a
 # `story_run_id` input (§14), so every key below — including one this loader does not read —
@@ -38,6 +40,16 @@ version: v1
 # at the call site because it is a digest input to every stored generation, and a value that
 # could be edited here would silently re-key the whole replay store.
 provider:
+  # Which provider a call site that made no choice gets (MULTI_PROVIDER_OPENAI §4.2). `kind`
+  # below still describes *this* block, the local server; `default` says which of the two
+  # blocks is reached for. They are the same value today, and that is what keeps every existing
+  # call site — the CLI, the demo API, every test — resolving Qwen with no edit.
+  #
+  # §11's open decision resolved: the *pipeline* default stays local, because the demo replays
+  # a committed Qwen store and a default that missed it would need a live run to say anything.
+  # `provider.openai.default_model` below is the other half of that decision.
+  default: local_openai_compatible
+
   kind: local_openai_compatible
   base_url: http://127.0.0.1:8080
   model: Qwen3.5-9B-Q4_K_M.gguf
@@ -48,6 +60,44 @@ provider:
   max_output_tokens: 2048
   timeout_seconds: 120
   max_retries: 2
+
+  # MULTI_PROVIDER_OPENAI §4.4. **No key, ever** — `from_config` refuses `api_key`, `api_token`,
+  # `authorization` and `token` here exactly as it does above; `OPENAI_API_KEY` lives in `.env`.
+  # `STORY_OPENAI_MODEL` overrides `default_model` from the environment, and an explicit
+  # selection made through the interface overrides both.
+  #
+  # There is no `store_responses` key and no `temperature` key. `store: false` is unconditional
+  # in the adapter (a request carries the whole evidence package, and this API's default is to
+  # retain), and the temperature is `PINNED_TEMPERATURE` at the call site for the same reason it
+  # is absent from the local block.
+  openai:
+    base_url: https://api.openai.com/v1
+    default_model: gpt-5-nano
+    timeout_seconds: 180
+    max_retries: 2
+
+    # 4096 and 128000 are this API's headroom rather than the local server's 2048/8192. Both
+    # call sites still ask for 2048; the ceiling only has to be a ceiling.
+    max_output_tokens: 4096
+    context_tokens: 128000
+
+    # `supports_temperature` is **measured, not inferred from the name** *(probed against the
+    # live API 2026-08-19)*: `gpt-5-nano` answers `temperature: 0.0` with HTTP 400 `Unsupported
+    # parameter: 'temperature' is not supported with this model`, while `gpt-4.1-mini` accepts
+    # it. A model absent from this list cannot be selected — its answer to that question has
+    # never been measured, and discovering it costs a failed request per run.
+    #
+    # `gpt-5-nano` is the default and it is a reasoning model, so determinism is weaker than the
+    # pinned local path's: no temperature reaches the wire and the manifest records
+    # `temperature_sent: false` rather than a number nothing sent. `gpt-4.1-mini` is the
+    # temperature-pinned alternative for a determinism-sensitive comparison. Reversing this is
+    # one key.
+    models:
+      - id: gpt-5-nano          # verified present on the account 2026-08-19
+        supports_temperature: false
+        reasoning_effort: minimal
+      - id: gpt-4.1-mini        # verified present on the account 2026-08-19
+        supports_temperature: true
 
 # §11 and §12's two call sites. `planner_max_tokens` and `writer_max_tokens` are digest inputs
 # to `request_identity`, so changing one re-keys that stage's stored generations by design.
@@ -96,14 +146,33 @@ demo:
   # `data/extraction_runs/`, in `data/graph_runs/` and in Neo4j.
   out_root: data/story_demo
 
-  # The recorded answer store the deterministic path replays — real Qwen responses, re-captured
-  # **2026-08-18** from the server named above under `PACKAGE_VERSION` 1.3.0 and
-  # `WRITER_PROMPT_VERSION` 1.4.0. (The 2026-08-04 capture this comment used to name was
-  # superseded at TABLE_CELL_CITATIONS S7a: the citation contract changed, so every request
-  # digest moved.) Tracked, because §14 keeps `tests/story/fixtures/`
-  # and "a small committed answer store for replay tests" in git; the pattern is
-  # `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores it and calls the server.
-  generation_store: tests/story/fixtures/story_demo/generations.jsonl
+  # The recorded answer stores the deterministic path replays, **one per provider** — real Qwen
+  # responses, re-captured **2026-08-18** from the server named above under `PACKAGE_VERSION`
+  # 1.3.0 and `WRITER_PROMPT_VERSION` 1.4.0. (The 2026-08-04 capture this comment used to name
+  # was superseded at TABLE_CELL_CITATIONS S7a: the citation contract changed, so every request
+  # digest moved.) Tracked, because §14 keeps `tests/story/fixtures/` and "a small committed
+  # answer store for replay tests" in git; the pattern is
+  # `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores them and calls the server.
+  #
+  # **This mapping is authoritative** (MULTI_PROVIDER_OPENAI §5.3). A store is a *provider's*:
+  # since `story-generation-v2` (2026-08-19) `request_identity` digests the adapter, so one
+  # provider's rows are a guaranteed miss for another and there is no store that serves both.
+  # The files moved into `local_openai_compatible/` in the same change and were **re-keyed, not
+  # re-recorded** — every `raw_content` and `content_sha256` is byte-identical to the 2026-08-18
+  # capture, and only `request_sha256` moved.
+  #
+  # There is deliberately **no `openai:` row yet.** The OpenAI fixture is captured from the live
+  # run in §10 or it does not exist; naming a path to a file nothing has written would be a
+  # claim. Until then, selecting `openai` on the replay path fails loudly and names the
+  # provider, which is the correct answer rather than a fall-through to Qwen's rows.
+  generation_stores:
+    local_openai_compatible: tests/story/fixtures/story_demo/local_openai_compatible/generations.jsonl
+
+  # The pre-2026-08-19 scalar, kept readable for one release and **not** authoritative. It is
+  # consulted only for `local_openai_compatible`, and only when the mapping above names no store
+  # for it. It stays because `story/demo_ui/api.py` still reads the field directly; when that
+  # call site moves to `DemoConfig.generation_store_for`, this key goes.
+  generation_store: tests/story/fixtures/story_demo/local_openai_compatible/generations.jsonl
 
 # §10.2's bounds are **not restated here.** `story/core/models.py:BudgetParameters` holds them,
 # every field of it is already a digest input to both `package_id` and `story_run_id` through

@@ -48,6 +48,7 @@ from story.providers.portable_schema import schema_violations, validate_portable
 from story.providers.public import (
     HEALTH_TIMEOUT_CEILING_SECONDS,
     PINNED_TEMPERATURE,
+    PROVIDER_LOCAL,
     RETRYABLE_STATUSES,
     StoryProviderConfig,
     StoryProviderConfigurationError,
@@ -94,6 +95,13 @@ class StoryOpenAICompatibleProvider:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+    @property
+    def provider_id(self) -> str:
+        """Which adapter answered. A digest input to `request_identity` and to `story_run_id`
+        from S12: a local server answers to any model string, so two providers configured with
+        one name would otherwise share a replay row."""
+        return PROVIDER_LOCAL
 
     @property
     def model_id(self) -> str:

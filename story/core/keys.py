@@ -217,6 +217,7 @@ def story_run_id(
     ontology_definition_hash: str,
     config_hash: str,
     prompt_version: str,
+    provider_id: str,
     model_id: str,
     provider_model_id: str,
     temperature: float,
@@ -237,7 +238,7 @@ def story_run_id(
     list is the thing that drifted in the first draft, so asserting it directly would assert
     the drift.
 
-    Four inputs are here because leaving them out was a measured defect rather than an
+    Five inputs are here because leaving them out was a measured defect rather than an
     oversight:
 
     * `selection` — `--limit 3` and `--limit 20` minted one id, and §1.6's atomic
@@ -246,6 +247,14 @@ def story_run_id(
     * `provider_model_id` — the extraction data shows it is a filesystem path
       (`…/Qwen3.5-9B-Q4_K_M.gguf`). Swapping the GGUF behind an unchanged `model_id` changes
       every generation, and without this nothing would notice.
+    * `provider_id` — **added 2026-08-19** (MULTI_PROVIDER_OPENAI §5.2, finding F2). The digest
+      already covered both model identifiers and nothing about *which adapter* produced them,
+      so a Qwen run and an OpenAI run over one graph, one config and one candidate minted one
+      `story-v1-…` and §1.6's finalisation would have replaced one with the other. It is not
+      implied by `model_id`: a local llama.cpp server answers to any model string, so two
+      providers can be configured with one name and the run id would not notice. Beside it,
+      `StoryRunManifest.provider_id` records the same value so a reader holding two directories
+      can see why they are two.
     * `ranking_policy_version` — §6.10's score decides which candidate becomes a post, and
       neither `detector_versions` nor `policy_version` moves when a scoring term does. Founder
       gate G2 changed the units term with nothing in the id to show for it, which is the
@@ -264,6 +273,7 @@ def story_run_id(
         ontology_definition_hash=ontology_definition_hash,
         config_hash=config_hash,
         prompt_version=prompt_version,
+        provider_id=provider_id,
         model_id=model_id,
         provider_model_id=provider_model_id,
         policy_version=policy_version,
@@ -278,6 +288,7 @@ def story_run_id(
         f"ontology_definition_hash={ontology_definition_hash}",
         f"config_hash={config_hash}",
         f"prompt_version={prompt_version}",
+        f"provider_id={provider_id}",
         f"model_id={model_id}",
         f"provider_model_id={provider_model_id}",
         # Rendered with `repr`-stable formatting: `0.0` and `0` are the same temperature and

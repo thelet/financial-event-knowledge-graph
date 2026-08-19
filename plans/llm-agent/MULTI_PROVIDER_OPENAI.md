@@ -59,6 +59,12 @@ Read from the tree at `6a84426`, not from memory:
 | top level | `status` (`completed`/`incomplete`), `incomplete_details`, `model` (dated id, e.g. `gpt-4.1-nano-2025-04-14`), `id`, `created_at` |
 | `store: false` | accepted — the default is to retain; we opt out, since a run's prompts carry evidence text |
 
+**This repository's own two schemas were posted to the real API and accepted unmodified**
+*(verified 2026-08-19)*: `writer_schema()` and both variants of `planner_schema(causal_language=…)`
+(`forbidden`, `reported_only`) each returned `200 completed` under `strict: true` with no edit of
+any kind. That is the strongest form of the §2 claim about the portable subset — not "the rules
+coincide" but "these exact objects are accepted by both servers."
+
 Two facts drive the design: **`usage` names differ**, so translation is the adapter's job; and
 **`temperature` is model-dependent**, so it is a declared per-model capability rather than a guess.
 

@@ -163,7 +163,20 @@ class StoryGenerationProvider(Protocol):
     retried either. Only transport faults are retryable — one axis, six error classes.
     `health` returns a value rather than raising, because a local server that is not running
     is an ordinary state for a caller to branch on.
+
+    **`provider_id` is on the protocol and `model_id` is not**, which is a judgment worth
+    recording rather than an oversight. S12 made the provider a digest input to
+    `request_identity` and to `story_run_id`: two providers answering to one model string are
+    two different requests, so every implementation — the local adapter, the OpenAI adapter,
+    the replaying store and the demo's decorators — must be able to say which one it is, and a
+    decorator that forgot to forward it would silently key a run under the provider it wraps.
+    `model_id` stays implicit because a replaying provider can be constructed without one and
+    infers it from the rows it holds; widening the protocol to demand it would make that
+    legitimate state unrepresentable.
     """
+
+    @property
+    def provider_id(self) -> str: ...
 
     def generate(
         self,

@@ -65,7 +65,14 @@ from story.core.models import (
     canonical_json,
 )
 from story.core.series import build_series
-from story.providers.public import PINNED_TEMPERATURE, StoryProviderError
+from story.providers.public import (
+    # The local adapter's id, under the name it has carried since it was the only one. Packet A
+    # aliases `PROVIDER_LOCAL` onto it; imported under the stable name so this module does not
+    # depend on which of the two the boundary happens to export.
+    KIND_LOCAL_OPENAI_COMPATIBLE as PROVIDER_LOCAL,
+    PINNED_TEMPERATURE,
+    StoryProviderError,
+)
 from story.stages.detection import (
     POLICY_VERSION,
     canonicalize,
@@ -199,7 +206,13 @@ class DemoConfig:
     raw: dict[str, Any]
     graph_run_id: str
     out_root: str
+    #: `demo.generation_store` — the **scalar** key, and the local provider's store when the
+    #: mapping below does not name one. It is kept for one release rather than deleted because
+    #: it is what `story/demo_ui/api.py` still reads; `generation_stores` is authoritative and
+    #: `generation_store_for` is the accessor every new call site uses.
     generation_store: str
+    #: `demo.generation_stores` — provider id -> path (MULTI_PROVIDER_OPENAI §5.3). Authoritative.
+    generation_stores: dict[str, str]
     length_target: int
     planner_max_tokens: int
     writer_max_tokens: int
@@ -218,6 +231,11 @@ class DemoConfig:
                                          f"{type(document).__name__}")
         generation = document.get("generation") or {}
         demo = document.get("demo") or {}
+        stores = demo.get("generation_stores") or {}
+        if not isinstance(stores, Mapping):
+            raise DemoConfigurationError(
+                f"{path}: demo.generation_stores must be a mapping of provider id to path, not "
+                f"a {type(stores).__name__}")
         try:
             return cls(
                 root=Path(root),
@@ -225,6 +243,7 @@ class DemoConfig:
                 graph_run_id=str(demo["graph_run_id"]),
                 out_root=str(demo.get("out_root", "data/story_demo")),
                 generation_store=str(demo.get("generation_store", "")),
+                generation_stores={str(key): str(value) for key, value in stores.items()},
                 length_target=int(generation.get("length_target",
                                                  DEFAULT_LENGTH_TARGET)),
                 planner_max_tokens=int(generation.get("planner_max_tokens",
@@ -260,6 +279,27 @@ class DemoConfig:
         """
         path = Path(configured)
         return path if path.is_absolute() else self.root / path
+
+    def generation_store_for(self, provider_id: str) -> Path | None:
+        """The recorded store for one adapter, or `None` when none is recorded for it.
+
+        `demo.generation_stores` is **authoritative** (MULTI_PROVIDER_OPENAI §5.3): a store is a
+        provider's, because since `story-generation-v2` a row is keyed on the adapter that
+        produced it and one provider's rows are a guaranteed miss for another. The scalar
+        `demo.generation_store` is read only for the local provider and only when the mapping
+        does not name one — it is the pre-2026-08-19 key, kept readable for one release because
+        `story/demo_ui/api.py` still reads the field directly, and it is not consulted for any
+        other provider id.
+
+        `None` and not a fallback. Falling through to another provider's file would produce a
+        run whose every request missed, reported as a `MissingGenerationError` about a digest
+        rather than as "OpenAI has no recorded store" — so the caller raises and names the
+        provider instead.
+        """
+        configured = self.generation_stores.get(provider_id)
+        if configured is None and provider_id == PROVIDER_LOCAL:
+            configured = self.generation_store
+        return self.resolved_path(configured) if configured else None
 
 
 # -- the graph half ----------------------------------------------------------------------------
@@ -542,6 +582,7 @@ def _mint_run_id(inputs: DemoInputs, config: DemoConfig, *, provider: Any,
         config_hash=config.config_hash(),
         prompt_version=(f"planner={PLANNER_PROMPT_VERSION};"
                         f"writer={WRITER_PROMPT_VERSION}"),
+        provider_id=_provider_id(provider),
         model_id=_model_id(provider),
         provider_model_id=_provider_model_id(provider, results),
         temperature=PINNED_TEMPERATURE,
@@ -560,6 +601,22 @@ def _model_id(provider: Any) -> str:
     return str(getattr(provider, "model_id", "") or "")
 
 
+def _provider_id(provider: Any) -> str:
+    """Which adapter ran. Read defensively; a blank one is refused where the id is minted.
+
+    `getattr` and not an attribute access, for the reason `_model_id` uses it: the object here
+    may be a decorator (`ObservedProvider`, `EditedSystemProvider`) or a test double, and a
+    protocol Python does not enforce at runtime is not a guarantee that the attribute exists.
+
+    Nothing is defaulted. `mint_story_run_id` refuses a blank `provider_id` through `_require`,
+    and that refusal is the point: a decorator that forgot to forward the value would otherwise
+    mint a run id and a directory that claim the run had no provider, and — worse — a Qwen run
+    and an OpenAI run through two forgetful decorators would collide on one id again, which is
+    exactly the defect (F2) the input was added to close.
+    """
+    return str(getattr(provider, "provider_id", "") or "")
+
+
 def _provider_model_id(provider: Any, results: list[GenerationResult]) -> str:
     """What the server called itself, or the configured name when nothing answered.
 
@@ -572,6 +629,72 @@ def _provider_model_id(provider: Any, results: list[GenerationResult]) -> str:
         if result.model_id:
             return result.model_id
     return _model_id(provider)
+
+
+def _call_site_provenance(provider: Any, result: GenerationResult | None, *,
+                          prompt_version: str, schema_name: str, max_tokens: int
+                          ) -> dict[str, Any]:
+    """One call site's provenance, read off **that call's own result** (§5.2).
+
+    The planner and the writer are two requests and the brief asks for them separately; the
+    manifest's four scalars describe one model and cover both. `provider_model_id` is the value
+    *this* request came back with — on a replay, the row's recorded wire value — rather than the
+    first result's or the configured name, because the whole reason that field exists is to
+    notice a model swapped behind an unchanged `model_id`, and reading one call's answer for
+    another's would defeat it.
+
+    `{}` when the call site produced no result. A run whose planner refused never built a writer
+    request, and a block assembled from configuration would record a request that was never
+    made — the same argument `_token_totals` makes for reporting zeroes instead of remembered
+    numbers.
+    """
+    if result is None:
+        return {}
+    return {
+        "provider_id": _provider_id(provider),
+        "model_id": _model_id(provider),
+        "provider_model_id": result.model_id or _model_id(provider),
+        "prompt_version": prompt_version,
+        "schema_name": schema_name,
+        "max_tokens": int(max_tokens),
+    }
+
+
+def _provider_settings(provider: Any, results: list[GenerationResult]) -> dict[str, Any]:
+    """What the request was actually parameterised with — §5.2's third manifest addition.
+
+    `temperature` is the value the call site pins (§15.1). `temperature_sent` is whether it
+    reached the wire, and it is a **separate** field because the two genuinely differ: OpenAI's
+    reasoning models refuse the parameter — `gpt-5-nano` answers a `temperature: 0.0` with
+    `400 Unsupported parameter` (measured 2026-08-19, MULTI_PROVIDER_OPENAI §3) — so a manifest
+    that printed only `temperature: 0.0` would be making a claim about a value never sent.
+
+    `null` rather than a guess wherever the adapter states nothing. A replay-only run sent no
+    request at all, so `temperature_sent` is `null` and the three adapter settings are `null`
+    with it; that is the truthful record, and inventing `true` from the fact that the *recorded*
+    row carried a temperature would be recording the original run's parameters as this one's.
+    The settings are read off the provider's own `StoryProviderConfig` through `getattr`, for
+    `_provider_id`'s reason: the object may be a decorator or a double.
+    """
+    config = getattr(provider, "config", None)
+    sent: bool | None = None
+    for result in results:
+        # The adapter's own report, and the first place looked: it is the only thing that knows
+        # what it put in the body, and a per-model capability flag can be right about the model
+        # while the request that was actually built was different.
+        if "temperature_sent" in (result.metadata or {}):
+            sent = bool(result.metadata["temperature_sent"])
+            break
+    if sent is None:
+        declared = getattr(config, "supports_temperature", None)
+        sent = None if declared is None else bool(declared)
+    return {
+        "temperature": float(PINNED_TEMPERATURE),
+        "temperature_sent": sent,
+        "reasoning_effort": getattr(config, "reasoning_effort", None),
+        "max_output_tokens": getattr(config, "max_output_tokens", None),
+        "store_responses": getattr(config, "store_responses", None),
+    }
 
 
 def _token_totals(results: list[GenerationResult], package: StoryEvidencePackage
@@ -690,11 +813,21 @@ def _write_run(
         ontology_definition_hash=inputs.identity.ontology_definition_hash,
         prompt_versions={PLANNER_SCHEMA_NAME: PLANNER_PROMPT_VERSION,
                          WRITER_SCHEMA_NAME: WRITER_PROMPT_VERSION},
+        provider_id=_provider_id(provider),
         model_id=_model_id(provider),
         provider_model_id=_provider_model_id(provider, results),
         temperature=PINNED_TEMPERATURE,
         max_tokens=config.planner_max_tokens,
         schema_digests=schema_digests_for(inputs.package),
+        planner_provider_model=_call_site_provenance(
+            provider, planned.generation if planned is not None else None,
+            prompt_version=PLANNER_PROMPT_VERSION, schema_name=PLANNER_SCHEMA_NAME,
+            max_tokens=config.planner_max_tokens),
+        writer_provider_model=_call_site_provenance(
+            provider, written.generation if written is not None else None,
+            prompt_version=WRITER_PROMPT_VERSION, schema_name=WRITER_SCHEMA_NAME,
+            max_tokens=config.writer_max_tokens),
+        provider_settings=_provider_settings(provider, results),
         detector_versions=dict(inputs.detector_versions),
         policy_version=inputs.policy_version,
         ranking_policy_version=RANKING_POLICY_VERSION,
@@ -769,7 +902,7 @@ def _run_id_input_names() -> tuple[str, ...]:
     """
     return (
         "story_layout_version", "graph_run_id", "run_complete_sha256",
-        "ontology_definition_hash", "config_hash", "prompt_version", "model_id",
+        "ontology_definition_hash", "config_hash", "prompt_version", "provider_id", "model_id",
         "provider_model_id", "temperature", "max_tokens", "schema_digests",
         "detector_versions", "policy_version", "ranking_policy_version", "selection", "budget",
     )

@@ -9,7 +9,8 @@ than by importing anything here.
 **Nothing is imported eagerly by this file, and that rule is the point.** Python runs a
 package's `__init__` before any submodule of it, so a single eager `from .neo4j_connection
 import …` would put `neo4j` into `sys.modules` for a stage that names only
-`providers.public`, and `from .openai_compatible import …` would do the same for `httpx`.
+`providers.public`, and `from .openai_compatible import …` — or, since S12, `from
+.openai_responses import …` — would do the same for `httpx`.
 `extraction/providers/__init__.py:44-56` records the measurement that forced the indirection
 upstream: an eager re-export made "no HTTP client is reachable from a lane" true in the source
 and false in the interpreter, where the import-graph test could not see it. §15.2 requires
@@ -32,10 +33,15 @@ from typing import Any
 __all__ = [
     "GenerationStore",
     "MissingGenerationError",
+    "ModelOption",
     "PINNED_TEMPERATURE",
+    "PROVIDER_LOCAL",
+    "PROVIDER_OPENAI",
+    "ProviderOption",
     "ReplayingStoryGenerationProvider",
     "StoredGeneration",
     "StoryOpenAICompatibleProvider",
+    "StoryOpenAIResponsesProvider",
     "StoryProviderConfig",
     "StoryProviderConfigurationError",
     "StoryProviderError",
@@ -44,7 +50,9 @@ __all__ = [
     "StoryProviderTimeout",
     "StoryProviderTransportError",
     "StoryProviderUnavailable",
+    "default_provider_id",
     "load_provider_config",
+    "provider_catalogue",
     "request_identity",
     "schema_violations",
     "validate_portable_schema",
@@ -60,7 +68,15 @@ _LAZY = {
     "StoredGeneration": ".generation_store",
     "request_identity": ".generation_store",
     "StoryOpenAICompatibleProvider": ".openai_compatible",
+    # The OpenAI adapter is routed exactly like the local one — a name here and no import until
+    # it is asked for. Eagerly importing either would put `httpx` in `sys.modules` for a stage
+    # that named only `providers.public`, which is the measurement below the docstring records.
+    "StoryOpenAIResponsesProvider": ".openai_responses",
+    "ModelOption": ".public",
     "PINNED_TEMPERATURE": ".public",
+    "PROVIDER_LOCAL": ".public",
+    "PROVIDER_OPENAI": ".public",
+    "ProviderOption": ".public",
     "StoryProviderConfig": ".public",
     "StoryProviderConfigurationError": ".public",
     "StoryProviderError": ".public",
@@ -69,7 +85,9 @@ _LAZY = {
     "StoryProviderTimeout": ".public",
     "StoryProviderTransportError": ".public",
     "StoryProviderUnavailable": ".public",
+    "default_provider_id": ".public",
     "load_provider_config": ".public",
+    "provider_catalogue": ".public",
     "schema_violations": ".portable_schema",
     "validate_portable_schema": ".portable_schema",
 }
