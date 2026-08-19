@@ -50,9 +50,11 @@ from story.core.models import (
     Calculation,
     CalculationLedgerEntry,
     CheckResult,
+    DerivedFact,
     Draft,
     DraftSentence,
     EditorialPlan,
+    EvidenceScopeFact,
     FactBinding,
     FactLedgerEntry,
     PackagedFact,
@@ -84,11 +86,16 @@ from story.core.periods import classify_shape
 # reads that as the cycle it is.
 import story.stages.verification.citations as citation_rules
 import story.stages.verification.claims as claim_rules
+import story.stages.verification.derived_facts as derived_rules
 import story.stages.verification.language as language
 import story.stages.verification.period_grammar as period_grammar
 from story.stages.verification.codes import finding
 from story.stages.verification.metric_surfaces import MetricAliasIndex
-from story.stages.verification.package_index import PackageIndex
+from story.stages.verification.package_index import (
+    DERIVED_FACT_PREFIX,
+    EVIDENCE_SCOPE_PREFIX,
+    PackageIndex,
+)
 
 #: §13.2's map, closed and total over the corpus's four units. `contracts` is deliberately
 #: absent: both contract metrics carry `unit: "homes"` (S9a's finding against §13.2's
@@ -104,6 +111,16 @@ SURFACE_UNITS: Mapping[SurfaceUnit, str] = {
 #: Surfaces a *change* carries. §13.3's second gate: no observation in the package is a change
 #: — the extraction refused all 186 it saw — so a fact binding rendering one of these is
 #: binding a derived quantity to a reported row.
+#:
+#: **DETERMINISTIC_FACT_TOOLS §6 stops this being a blanket refusal and makes it a refusal
+#: *against a level*, and the distinction is the whole of what S13 changed about §13.2.** These
+#: three surfaces are refused wherever they render an **observation**, exactly as before, because
+#: the measurement behind that refusal has not moved: 174 `DERIVED_CHANGE_COLUMN` and 12
+#: `DERIVED_COMPARISON` rows were refused at extraction and no observation in any package is a
+#: change. What is new is that a `DerivedFact` *may* be `percentage_points` or `multiple` — those
+#: are precisely the quantities §4.1 exists to compute — so a numeral bound to one is checked
+#: against `derived_facts.DERIVED_SURFACES` instead. `basis_points` is in neither map: the same
+#: quantity at a hundred times the number is not a rendering, it is a different claim.
 CHANGE_SURFACES: frozenset[SurfaceUnit] = frozenset(
     {SurfaceUnit.PERCENTAGE_POINTS, SurfaceUnit.BASIS_POINTS, SurfaceUnit.MULTIPLE})
 
@@ -251,6 +268,16 @@ _CHANGE_VERB = re.compile(
 #: `Calculation.period_surface` instead; that **nothing refuses a binding on a calculated
 #: sentence** is a separate hole, recorded rather than closed here, because closing it is a
 #: §13.9 rule and not a grounding rule.
+#:
+#: **DETERMINISTIC_FACT_TOOLS §6 voided the `calculated` exemption's premise and the exemption
+#: goes with it — for a derived binding only.** A `calculated` sentence now carries
+#: `fact_bindings` to derived facts and `Calculation` is retired, so *"its period is grounded
+#: through `Calculation.period_surface` instead"* is no longer true of it. Period grounding
+#: therefore runs for **every** derived binding whatever the sentence's kind
+#: (`_derived_period_findings`), which is a strengthening: the demo's original refusal was a
+#: period the model forgot to declare, and this is the rule that reads the one it wrote instead.
+#: The set below is unchanged, because it governs the *metric* rule as well and a `calculated`
+#: sentence's metric grounding is a separate question nobody has measured.
 GROUNDED_SENTENCE_KINDS: frozenset[SentenceKind] = frozenset(
     {SentenceKind.REPORTED, SentenceKind.EXPLANATORY})
 
@@ -297,9 +324,22 @@ class DeterministicVerifier:
     # -- the contract -------------------------------------------------------------------
 
     def verify(
-        self, draft: Draft, package: StoryEvidencePackage, plan: EditorialPlan
+        self,
+        draft: Draft,
+        package: StoryEvidencePackage,
+        plan: EditorialPlan,
+        derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
     ) -> VerifiedDraft:
-        index = PackageIndex(package)
+        """§13.1-§13.15 over a draft, the package it was written from, and what code derived.
+
+        `derived_facts` is DETERMINISTIC_FACT_TOOLS §3's separate artifact — the `DerivedFact`
+        rows the derivation stage computed for this run and §7's `EvidenceScopeFact`s — and it
+        defaults to empty so `story.contracts.DraftVerifier`'s three-argument signature still
+        describes this method. **The default is not a fallback.** A draft binding a derived id
+        against an empty tuple is `derived_fact_not_in_run`, a REFUSE: a run that lost its
+        derivations refuses the post rather than passing the numerals it can still resolve.
+        """
+        index = PackageIndex(package, derived_facts)
         aliases = MetricAliasIndex.from_package(package)
         ledgers = _Ledgers()
         # Both places a draft may declare a period: on a binding, and on a calculation — the
@@ -427,7 +467,33 @@ class DeterministicVerifier:
                             "`charge_amount: \"approximately $15 million\"` is not a typed "
                             "value. The only permitted use is quoting the string verbatim."),
                     ))
-                elif index.fact(binding.fact_id) is None:
+                elif index.bound(binding.fact_id) is not None:
+                    continue
+                elif binding.fact_id.startswith(
+                        (DERIVED_FACT_PREFIX, EVIDENCE_SCOPE_PREFIX)):
+                    # §6: a derived id resolves in the run's `derived_facts.json` and nowhere
+                    # else. §3 forbids one entering `package.facts`, so "not in the package" is
+                    # the wrong sentence for it — it names a computation this run did not make,
+                    # or made against another package.
+                    found.append(finding(
+                        "derived_fact_not_in_run",
+                        sentence_index=sentence.index,
+                        char_start=binding.char_start, char_end=binding.char_end,
+                        fact_ids=(binding.fact_id,),
+                        expected=("a fact_id in this run's derived facts: "
+                                  + (", ".join(sorted({*index.derived_facts,
+                                                       *index.evidence_scope}))
+                                     or "(the run carried none)")),
+                        observed=binding.fact_id,
+                        explanation=(
+                            "§3: a derived fact may not live in `package.facts` — a package "
+                            "whose contents depended on a model call would put the planner's "
+                            "selection inside `package_content_digest`, which is a "
+                            "`story_run_id` input — so it travels as a separate artifact and "
+                            "resolves there or nowhere."),
+                        suggested_fact_ids=sorted(index.derived_facts),
+                    ))
+                else:
                     found.append(finding(
                         "fact_not_in_package",
                         sentence_index=sentence.index,
@@ -487,7 +553,17 @@ class DeterministicVerifier:
         found: list[VerificationFinding] = []
         fact = index.fact(binding.fact_id)
         if fact is None:
-            return found  # already refused as fact_not_in_package or event_property_bound_as_fact
+            # §6: a derived or evidence-scope binding is checked here too, by the same rules
+            # read against a different row. Anything that resolves as neither has already been
+            # refused as `fact_not_in_package`, `derived_fact_not_in_run` or
+            # `event_property_bound_as_fact`.
+            derived = index.derived_fact(binding.fact_id)
+            if derived is not None:
+                return self._derived_number_findings(sentence, binding, derived, ledgers)
+            scope = index.scope_fact(binding.fact_id)
+            if scope is not None:
+                return self._scope_number_findings(sentence, binding, scope)
+            return found
 
         if sentence.text[binding.char_start:binding.char_end] != binding.rendered:
             found.append(finding(
@@ -572,6 +648,151 @@ class DeterministicVerifier:
         ))
         return found
 
+    def _derived_number_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        derived: DerivedFact,
+        ledgers: _Ledgers,
+    ) -> list[VerificationFinding]:
+        """§13.1 over a numeral bound to a derived fact — **the same rules, not lighter ones**.
+
+        The span must hold what it says it holds, the rendering must be one numeral, the numeral
+        must sit inside §13.1's printed-precision window around `DerivedFact.result`, and a
+        written sign must agree with it. Every one of those is `compare_token_to_fact`, the same
+        function `_binding_number_findings` calls against an observation, so *"a numeral bound to
+        a derived fact is no more trusted and no less checked"* is one shared implementation
+        rather than a claim.
+
+        **`over_precision` cannot fire and the reason is structural, not an omission.** That
+        signal compares the draft's significant figures against the fact's own `quoted_text` —
+        a *printed* form, from an `EVIDENCED_BY` edge — and a derived fact has no printed form
+        because nobody printed it. `compare_token_to_fact` reports
+        `over_precise=False, fact_significant_figures=None` when the argument is absent, which
+        its own docstring is explicit is *"not a pass"*.
+
+        **A word-valued fact has no numeral and may not carry one.** `crossed_zero` and
+        `trend_direction` answer in `result_word`; a span rendering `1.0` for *"it crossed"* is
+        the exact state `DerivedFact`'s own validator forbids at the producing end, and it is
+        refused here at the consuming end under `derived_unit_mismatch`.
+        """
+        found: list[VerificationFinding] = []
+        if sentence.text[binding.char_start:binding.char_end] != binding.rendered:
+            return [finding(
+                "binding_span_does_not_match_text",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected=binding.rendered,
+                observed=sentence.text[binding.char_start:binding.char_end],
+                explanation=(
+                    "§12: the binding declares which span of its own text states the fact, and "
+                    "a derived fact binds through an ordinary `FactBinding` precisely so this "
+                    "rule reaches it."),
+            )]
+
+        if derived.unit in derived_rules.NON_NUMERIC_UNITS or derived.result is None:
+            numerals = tokenize_numerals(binding.rendered)
+            if not numerals:
+                return found
+            return [finding(
+                "derived_unit_mismatch",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected=f"no numeral for a {derived.unit} result "
+                         f"({derived.result_word or '(no word)'})",
+                observed=binding.rendered,
+                explanation=(
+                    "§4.4: `crossed_zero` answers a boolean and `trend_direction` a direction "
+                    "word, and neither is a numeral any draft may print with a unit. A boolean "
+                    "rendered as `1.0` is a number §13.1 would then compare against the prose."),
+            )]
+
+        token = self._sole_numeral(binding.rendered)
+        if token is None:
+            return [finding(
+                "binding_rendering_is_not_one_numeral",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected="exactly one numeral in the rendered span",
+                observed=binding.rendered,
+                explanation=(
+                    "§13.1 compares the draft's numeral against the fact at the draft's own "
+                    "precision, and `d` is undefined for a span holding none or two."),
+            )]
+
+        verdict = compare_token_to_fact(token, derived.result)
+        if not verdict.within_window:
+            found.append(finding(
+                "number_outside_tolerance",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected=(f"{derived.result!r} ({derived.operation.value} "
+                          f"{derived.from_period}->{derived.to_period})"),
+                observed=(f"{binding.rendered} reads {token.value!r}; "
+                          f"||draft|-|fact|| = {verdict.difference!r} > {verdict.window!r}"),
+                explanation=(
+                    "§13.1: printed-precision half-ulp on magnitudes, "
+                    "0.5 x 10^(e - d + 1) with d = "
+                    f"{verdict.draft_significant_figures} as the draft wrote it. The value "
+                    "compared against is the derivation tool's, never the draft's arithmetic."),
+            ))
+        if verdict.sign_explicit and not verdict.sign_agrees:
+            found.append(finding(
+                "sign_disagreement",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected=("negative" if derived.result < 0 else "positive")
+                         + f" ({derived.result!r})",
+                observed=binding.rendered,
+                explanation=(
+                    "§13.1: sign is a separate check and applies because this numeral carried "
+                    "its own sign. On a derived change the sign is the direction of the move — "
+                    "$556M -> $110M is -$446M — so a written `+` is the opposite claim."),
+            ))
+
+        ledgers.facts.append(FactLedgerEntry(
+            fact_id=derived.fact_id, metric_id=derived.metric_id,
+            period_key=derived.to_period, value=derived.result, unit=derived.unit,
+            rendered=binding.rendered, sentence_index=sentence.index,
+        ))
+        # The derivation panel row. `expression` is a free string on this type and the honest
+        # content for a code-computed quantity is the call that produced it — there is no
+        # writer-authored formula to record any more.
+        ledgers.calculations.append(CalculationLedgerEntry(
+            sentence_index=sentence.index,
+            operation=derived.operation.value,
+            input_observation_ids=(derived.from_fact_id, derived.to_fact_id),
+            expression=(f"{derived.operation.value}({derived.from_fact_id}, "
+                        f"{derived.to_fact_id})"),
+            recomputed_value=derived.result,
+            rendered=binding.rendered,
+        ))
+        return found
+
+    def _scope_number_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        scope: EvidenceScopeFact,
+    ) -> list[VerificationFinding]:
+        """§7's bounded-uncertainty claim: the span must say what the fact says and no more."""
+        if sentence.text[binding.char_start:binding.char_end] != binding.rendered:
+            return [finding(
+                "binding_span_does_not_match_text",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(scope.fact_id,),
+                expected=binding.rendered,
+                observed=sentence.text[binding.char_start:binding.char_end],
+                explanation="§12, on an evidence-scope binding.",
+            )]
+        return derived_rules.scope_findings(sentence, binding, scope)
+
     def _covering_spans(
         self, sentence: DraftSentence
     ) -> tuple[language.LexicalMatch, ...]:
@@ -628,6 +849,10 @@ class DeterministicVerifier:
             for binding in sentence.fact_bindings:
                 fact = index.fact(binding.fact_id)
                 if fact is None:
+                    derived = index.derived_fact(binding.fact_id)
+                    if derived is not None:
+                        examined += 1
+                        found.extend(self._derived_unit_findings(sentence, binding, derived))
                     continue
                 examined += 1
                 if fact.unit == "USD" and fact.currency is None:
@@ -681,6 +906,65 @@ class DeterministicVerifier:
                         explanation="§13.2: the corpus has four units and the map is closed.",
                     ))
         return CheckResult(name="units", examined=examined, findings=tuple(found))
+
+    def _derived_unit_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        derived: DerivedFact,
+    ) -> list[VerificationFinding]:
+        """§13.2 over a numeral bound to a derived fact.
+
+        **This is where `CHANGE_SURFACES` stops being a blanket refusal.** Above, a numeral
+        rendering `percentage_points`, `basis_points` or `multiple` against an **observation** is
+        `unit_mismatch` and still is: no observation in any package is a change, the extraction
+        refused all 186 it saw, and a change surface on a reported row is a derived quantity
+        wearing a citation. Here the bound row *is* the derived quantity, so the same three
+        surfaces are judged against what §4.1 says the operation produced — and two of them are
+        legal exactly where they are the answer.
+
+        `basis_points` is legal nowhere, in either map. §13.3's own words: the same quantity in
+        basis points is a hundred times the number, so admitting the surface would require
+        scaling the recomputation by the rendering.
+        """
+        if derived.unit in derived_rules.NON_NUMERIC_UNITS:
+            return []  # `_derived_number_findings` refuses a numeral there at all
+        token = self._sole_numeral(binding.rendered)
+        if token is None:
+            return []  # already refused as binding_rendering_is_not_one_numeral
+        found: list[VerificationFinding] = []
+        if token.currency_symbol and derived.unit != "USD":
+            found.append(finding(
+                "currency_symbol_on_non_monetary_unit",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected=f"no currency symbol on a {derived.unit} result",
+                observed=binding.rendered,
+                explanation=(
+                    "§13.2: a percentage, a percentage-point gap and a multiple are "
+                    "dimensionless. A `$` on one is a currency that survived a division that "
+                    "should have cancelled it."),
+            ))
+        allowed = derived_rules.DERIVED_SURFACES.get(derived.unit, frozenset())
+        if token.unit not in allowed:
+            found.append(finding(
+                "derived_unit_mismatch",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected=(f"a result in "
+                          f"{' | '.join(sorted(surface.value for surface in allowed))} for a "
+                          f"{derived.unit} derivation"),
+                observed=f"{binding.rendered} renders {token.unit.value}",
+                explanation=(
+                    "§13.3: a gap between two percent levels is in percentage points. The same "
+                    "number in percent is the confusion §13.3 calls the single most likely "
+                    "factual error this package can make — 45.5x apart on the metric it "
+                    "measures — in basis points it is a hundred times too small, and in `x` it "
+                    "is a ratio nobody computed."),
+            ))
+        return found
 
     # -- §13.3 percentages ---------------------------------------------------------------
 
@@ -845,6 +1129,11 @@ class DeterministicVerifier:
             for binding in sentence.fact_bindings:
                 fact = index.fact(binding.fact_id)
                 if fact is None:
+                    derived = index.derived_fact(binding.fact_id)
+                    if derived is not None:
+                        examined += 1
+                        found.extend(self._derived_period_findings(
+                            sentence, binding, derived, index))
                     continue
                 examined += 1
                 if sentence.kind in GROUNDED_SENTENCE_KINDS:
@@ -897,6 +1186,80 @@ class DeterministicVerifier:
             examined += calculation_examined
             found.extend(calculation_findings)
         return CheckResult(name="periods", examined=examined, findings=tuple(found))
+
+    def _derived_period_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        derived: DerivedFact,
+        index: PackageIndex,
+    ) -> list[VerificationFinding]:
+        """§13.4 over a derived binding: the surface must resolve to **`to_period`**.
+
+        **`to_period` and not both, and that is §2's repair rather than a choice made here.** A
+        two-period derivation computes over two windows and can name neither with one surface;
+        `_calculation_period_findings` refused that outright, which is why the demo's
+        `calculated` sentence had to leave `Calculation.period_surface` empty and why its
+        *"in the third quarter of 2022"* became `unbound_numeral` on the literal `2022`. A
+        derived fact resolves it by naming the period the claim is *about* — the later one, the
+        one `display_semantics` is stated against — and code fills the surface from
+        `period_surface_hint`. The model cannot forget a field it no longer writes, and the
+        verifier still reads the field it was handed rather than guessing one.
+
+        The prose grounding runs whatever the sentence's kind, unlike an observation binding.
+        `GROUNDED_SENTENCE_KINDS` exempts `calculated` because such a sentence used to carry no
+        bindings; it now carries these, so the exemption's premise is gone. Its rule is an
+        *any* rule — a sentence legitimately naming both endpoints passes on the one that agrees
+        — so *"fell from $556M in the second quarter to $110M in the third"* grounds.
+        """
+        to_fact = index.fact(derived.to_fact_id)
+        if to_fact is None:
+            return []  # already refused as derivation_not_offered
+        found = self._period_grounding_findings(
+            sentence, (to_fact,), binding.period_surface,
+            char_start=binding.char_start, char_end=binding.char_end,
+            suggested=self._suggestions(index, to_fact))
+        resolved = period_grammar.resolve(binding.period_surface)
+        if not resolved.resolved:
+            found.append(finding(
+                "period_unresolvable",
+                sentence_index=sentence.index,
+                char_start=binding.char_start, char_end=binding.char_end,
+                fact_ids=(derived.fact_id,),
+                expected="a surface in §13.4's closed grammar",
+                observed=binding.period_surface or "(empty)",
+                explanation=(
+                    "§13.4: resolved through a closed grammar, never a free date parser. This "
+                    "is the field §2 measured the original refusal on — the model left it "
+                    "empty on a `Calculation` while its own text read \"in the third quarter "
+                    "of 2022\" — and code now fills it from the derivation's `to_period`."),
+            ))
+            return found
+        if _endpoints_agree(resolved, to_fact):
+            return found
+        conflated = _same_anchor(resolved, to_fact)
+        found.append(finding(
+            "period_shape_conflated" if conflated else "period_mismatch",
+            sentence_index=sentence.index,
+            char_start=binding.char_start, char_end=binding.char_end,
+            fact_ids=(derived.fact_id, to_fact.observation_id),
+            expected=(f"{derived.to_period} "
+                      f"({to_fact.period_start or to_fact.instant_date}"
+                      f"..{to_fact.period_end or to_fact.instant_date})"),
+            observed=(f"{binding.period_surface!r} resolves to {resolved.key} "
+                      f"({resolved.period_start or resolved.instant_date}"
+                      f"..{resolved.period_end or resolved.instant_date})"),
+            explanation=(
+                "§13.4: exact equality on both endpoints and on kind, against the derivation's "
+                "`to_period`. adjusted_ebitda ending 2022-09-30 is +$183M for the nine-month "
+                "YTD and -$211M for the quarter, so a surface matching the anchor alone would "
+                "name a different number."
+                if conflated else
+                "§13.4: exact equality on both endpoints and on kind, against the derivation's "
+                "own `to_period` — the period the claim is about."),
+            suggested_fact_ids=self._suggestions(index, to_fact),
+        ))
+        return found
 
     def _calculation_period_findings(
         self, sentence: DraftSentence, index: PackageIndex
@@ -1060,6 +1423,11 @@ class DeterministicVerifier:
             for binding in sentence.fact_bindings:
                 fact = index.fact(binding.fact_id)
                 if fact is None:
+                    derived = index.derived_fact(binding.fact_id)
+                    if derived is not None:
+                        examined += 1
+                        found.extend(self._derived_metric_findings(
+                            sentence, binding, derived, aliases))
                     continue
                 examined += 1
                 resolution = aliases.resolve(binding.metric_surface)
@@ -1183,6 +1551,72 @@ class DeterministicVerifier:
                 "+3.3 and −12.6 in 2022Q3."),
         )], 1
 
+    def _derived_metric_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        derived: DerivedFact,
+        aliases: MetricAliasIndex,
+    ) -> list[VerificationFinding]:
+        """§13.5 over a derived binding: the declared surface must name a metric the fact is of.
+
+        **Two metrics are admissible and only for the operations that have two.** R2 permits a
+        second metric only under a `DIVERGENCE` claim, which is `compare_levels` and `ratio`;
+        everywhere else `from_metric_id` equals `metric_id` and the pair collapses to one. So a
+        writer may call the demo's gap either *"adjusted gross margin"* or *"GAAP gross
+        margin"* — both are what it is a comparison of — and may call it neither of them at its
+        peril, which is `metric_binding_mismatch` exactly as for an observation.
+
+        The three surface refusals above it — unresolved, declared-ambiguous, and two metrics
+        sharing a `mutually_distinct_group` — are the same checks over the same alias index,
+        because *"gross margin"* is ambiguous whether it names a level or a gap between two.
+        """
+        resolution = aliases.resolve(binding.metric_surface)
+        common = dict(
+            sentence_index=sentence.index,
+            char_start=binding.char_start, char_end=binding.char_end,
+            fact_ids=(derived.fact_id,),
+        )
+        if not resolution.resolved:
+            return [finding(
+                "metric_surface_unresolved", **common,
+                expected="a surface in the alias index",
+                observed=binding.metric_surface or "(empty)",
+                explanation="§13.5: a surface that resolves to nothing is refused.")]
+        if resolution.declared_ambiguous:
+            return [finding(
+                "metric_surface_ambiguous", **common,
+                expected="a surface naming one metric",
+                observed=(f"{binding.metric_surface!r} resolves through "
+                          f"{resolution.matched!r} to {', '.join(resolution.metric_ids)}"),
+                explanation=(
+                    "§13.5: gaap_gross_margin's own label *is* \"Gross Margin\", so the surface "
+                    "a writer would naturally reach for is the ambiguous one — and a derived "
+                    "gap between the two margins is the sentence most likely to reach for it."))]
+        if resolution.shared_groups:
+            return [finding(
+                "mutually_distinct_group_ambiguity", **common,
+                expected="metrics from different mutually_distinct_groups",
+                observed=(f"{', '.join(resolution.metric_ids)} share "
+                          f"{', '.join(resolution.shared_groups)}"),
+                explanation="§13.5's third refusal.")]
+        named = set(resolution.metric_ids)
+        if named & {derived.metric_id, derived.from_metric_id}:
+            return []
+        return [finding(
+            "metric_binding_mismatch", **common,
+            expected=(f"the surface to resolve to {derived.metric_id}"
+                      + (f" or {derived.from_metric_id}"
+                         if derived.from_metric_id != derived.metric_id else "")),
+            observed=(f"{binding.metric_surface!r} resolves through {resolution.matched!r} to "
+                      f"{', '.join(resolution.metric_ids)}"),
+            explanation=(
+                "§13.5 with longest match: \"gross margin\" is inside \"adjusted gross "
+                "margin\", so one word moves the sentence to the other metric while every "
+                "declared field stays valid. Both margins are in this package and they read "
+                "+3.3 and -12.6 in 2022Q3."),
+        )]
+
     # -- §13.6 / §13.11 subject ----------------------------------------------------------
 
     def _check_subject_identity(self, draft: Draft, index: PackageIndex) -> CheckResult:
@@ -1241,9 +1675,31 @@ class DeterministicVerifier:
             for key, use in citation_rules.index_uses(uses).items():
                 seen.setdefault(key, use)
 
+            # §6: a `calculated` sentence used to cite nothing, because its number was the
+            # model's arithmetic and no passage said it. It now binds derived facts whose
+            # inputs are packaged observations, and *"cites its inputs"* is half of what
+            # replaces `calculated_sentence_cites_passage` — the other half being
+            # `_calculated_citation_findings`, which bounds *which* citations are permitted.
+            #
+            # A sentence binding only §7 evidence-scope facts is exempt and the exemption is
+            # the design: that fact carries no citation field, mints no handle and is a claim
+            # about what the evidence does *not* contain. Requiring a citation there is the
+            # failure §7 names — the "no explanation was disclosed" sentence reaching for a
+            # financial-table citation as though the table had said it.
+            binds_evidence = any(index.derived_fact(binding.fact_id) is not None
+                                 or index.fact(binding.fact_id) is not None
+                                 for binding in sentence.fact_bindings)
+            # The exemption is `scope_only` and not `not binds_evidence`, which would also
+            # exempt a sentence whose bindings resolve to **nothing** — already a refusal, and
+            # not a reason to stop asking for a citation as well.
+            scope_only = (
+                bool(sentence.fact_bindings) and not binds_evidence
+                and any(index.scope_fact(binding.fact_id) is not None
+                        for binding in sentence.fact_bindings))
             needs_citation = (
-                sentence.kind is SentenceKind.EXPLANATORY
+                (sentence.kind is SentenceKind.EXPLANATORY and not scope_only)
                 or (sentence.kind is SentenceKind.REPORTED and sentence.fact_bindings)
+                or (sentence.kind is SentenceKind.CALCULATED and binds_evidence)
             )
             if needs_citation and not sentence.citations:
                 examined += 1
@@ -1264,49 +1720,139 @@ class DeterministicVerifier:
     def _check_reported_vs_calculated(
         self, draft: Draft, index: PackageIndex, ledgers: _Ledgers
     ) -> CheckResult:
+        """§13.9, in the form DETERMINISTIC_FACT_TOOLS §6 leaves it. **Three expectations moved
+        and each is named here rather than left to be discovered.**
+
+        1. **`reported_sentence_carries_calculation` now fires under every sentence kind.** It
+           fired only on `reported` because `calculated` was the kind a `Calculation` belonged
+           to; §6 retires the writer's `Calculation` entirely — the number is code's now, and a
+           writer-declared operation is the model doing arithmetic with code checking its
+           homework, which is the arrangement §1 replaces. The code's name reads slightly wrong
+           under a `calculated` sentence and it is kept anyway, for the reason `codes.py`
+           records about `ADD_CONFLICT_DISCLOSURE`: renaming a gate entry to improve a sentence
+           costs more than it buys.
+        2. **`calculated_sentence_without_calculation` now asks for a derived-fact binding.**
+           §6 lists it as *"replaced"*; the replacement is the same refusal about the same
+           absence — a `calculated` sentence with nothing behind its number.
+        3. **`calculated_sentence_cites_passage` narrows from *"no citation"* to *"no citation
+           the derivation did not rest on"*.** This is the one place a check changed shape, so
+           the argument in full: it existed because a calculated number was the model's own and
+           any passage citation beside it claimed the filing said something it did not. Under
+           §6 the number is code's, computed from two packaged observations, and §6 requires the
+           table citation to *stay attached to those observations* — so the sentence must cite
+           them, and refusing all citations would forbid the evidence the plan requires. What it
+           still refuses is unchanged in force: a citation whose handle names anything other
+           than an input of a derived fact this sentence binds, which for a sentence binding no
+           derived fact is **every** citation, exactly as before.
+
+        The §13.9 machinery below is untouched and still runs on any `Calculation` a draft
+        carries: the refusal in point 1 is raised *beside* it, not instead of it, so
+        `calculation_does_not_recompute`, `calculation_inputs_incomparable` and the rest stay
+        reachable and stay tested against a corpus that can still produce a stored draft with
+        one.
+        """
         found: list[VerificationFinding] = []
         examined = 0
+        seen_derived: set[str] = set()
         for sentence in draft.sentences:
             calculation = sentence.calculation
+            derived_bindings = [
+                (binding, derived)
+                for binding in sentence.fact_bindings
+                if (derived := index.derived_fact(binding.fact_id)) is not None
+            ]
             # A sentence is examined here when the reported/calculated distinction applies to
-            # it at all: it declared one of the two kinds, or it carries a derivation. A
-            # `connective` sentence with neither is not examined, and the denominator says so.
+            # it at all: it declared one of the two kinds, or it carries a derivation — a
+            # `Calculation` or a binding to a derived fact. A `connective` sentence with none
+            # of the three is not examined, and the denominator says so.
             if (sentence.kind in (SentenceKind.REPORTED, SentenceKind.CALCULATED)
-                    or calculation is not None):
+                    or calculation is not None or derived_bindings):
                 examined += 1
             if sentence.kind is SentenceKind.CALCULATED:
-                if calculation is None:
+                if not derived_bindings:
                     found.append(finding(
                         "calculated_sentence_without_calculation",
                         sentence_index=sentence.index,
-                        expected="a Calculation", observed="none",
-                        explanation="§13.9."))
-                if any(isinstance(c, PassageCitation) for c in sentence.citations):
-                    found.append(finding(
-                        "calculated_sentence_cites_passage",
-                        sentence_index=sentence.index,
-                        citation_ids=tuple(citation_rules.citation_id(c)
-                                           for c in sentence.citations),
-                        expected="no passage citation",
-                        observed=f"{len(sentence.citations)} citation(s)",
+                        expected="at least one fact_binding to a derived fact",
+                        observed=(f"{len(sentence.fact_bindings)} binding(s), none derived"
+                                  if sentence.fact_bindings else "no bindings"),
                         explanation=(
-                            "§13.9: claims.yaml gives `calculated` optional_fields: [] — no "
-                            "filed-passage field is permitted. A calculated value that cites a "
-                            "passage is claiming the filing said something it did not. It is "
-                            "enforced three times over upstream; this is the fourth."),
+                            "§6: a `calculated` sentence carries derived-fact bindings and "
+                            "cites its inputs. A calculated number with nothing behind it is "
+                            "the model's own arithmetic, which is the one thing S13 exists to "
+                            "make unrepresentable."),
+                        suggested_fact_ids=sorted(index.derived_facts),
                     ))
-            elif sentence.kind is SentenceKind.REPORTED and calculation is not None:
+                found.extend(
+                    self._calculated_citation_findings(sentence, index, derived_bindings))
+            if calculation is not None:
                 found.append(finding(
                     "reported_sentence_carries_calculation",
                     sentence_index=sentence.index,
-                    expected="no Calculation on a reported sentence",
-                    observed=calculation.operation,
-                    explanation="§13.9."))
-
-            if calculation is not None:
+                    expected="no Calculation on any sentence",
+                    observed=f"kind={sentence.kind.value}, operation={calculation.operation}",
+                    explanation=(
+                        "§6: the writer no longer declares arithmetic — `calculation` left the "
+                        "writer schema and `WRITER_OPERATIONS` with it. The type survives in "
+                        "`story/core/models.py` so a stored draft from an earlier run still "
+                        "reads back, and a draft carrying one is refused rather than silently "
+                        "accepted: its number rests on the model."),
+                ))
                 found.extend(self._calculation_findings(sentence, calculation, index, ledgers))
+
+            for binding, derived in derived_bindings:
+                if derived.fact_id not in seen_derived:
+                    seen_derived.add(derived.fact_id)
+                    found.extend(derived_rules.integrity_findings(
+                        derived, index, sentence_index=sentence.index))
+                found.extend(derived_rules.orientation_findings(sentence, binding, derived))
         return CheckResult(name="reported_vs_calculated", examined=examined,
                            findings=tuple(found))
+
+    def _calculated_citation_findings(
+        self,
+        sentence: DraftSentence,
+        index: PackageIndex,
+        derived_bindings: Sequence[tuple[FactBinding, DerivedFact]],
+    ) -> list[VerificationFinding]:
+        """§13.9's citation rule, narrowed to *"the inputs and nothing else"* (§6).
+
+        The permitted set is the evidence handles this package minted for the **observations**
+        the sentence's derived facts were computed from — never a handle for a derived fact,
+        because §6 forbids minting one and `DerivedFact` has no field to hold one. A sentence
+        binding no derived fact has an empty permitted set, so every passage citation on it
+        refuses exactly as it did before this rule existed.
+        """
+        cited = [citation for citation in sentence.citations
+                 if isinstance(citation, PassageCitation)]
+        if not cited:
+            return []
+        permitted = {
+            fact.evidence_handle
+            for _binding, derived in derived_bindings
+            for fact in index.derived_inputs(derived.fact_id)
+            if fact.evidence_handle is not None
+        }
+        offending = [citation for citation in cited
+                     if citation.evidence_handle not in permitted]
+        if not offending:
+            return []
+        return [finding(
+            "calculated_sentence_cites_passage",
+            sentence_index=sentence.index,
+            citation_ids=tuple(citation_rules.citation_id(c) for c in offending),
+            fact_ids=tuple(derived.fact_id for _binding, derived in derived_bindings),
+            expected=("a citation for an input of a bound derived fact: "
+                      + (", ".join(sorted(permitted)) if permitted else
+                         "this sentence binds no derived fact, so none is permitted")),
+            observed=", ".join(sorted(citation.evidence_handle for citation in offending)),
+            explanation=(
+                "§13.9 and §6: a calculated sentence cites the observations its number was "
+                "computed from and nothing else. claims.yaml gave `calculated` "
+                "`optional_fields: []` when the number was the model's; now that code computes "
+                "it, the filing is cited for the two readings that went in — and a citation to "
+                "any other passage is still claiming the filing said something it did not."),
+        )]
 
     def _calculation_findings(
         self,
@@ -1626,6 +2172,26 @@ class DeterministicVerifier:
             for binding in sentence.fact_bindings:
                 fact = index.fact(binding.fact_id)
                 if fact is None:
+                    derived = index.derived_fact(binding.fact_id)
+                    if derived is not None and derived.warning_codes:
+                        examined += 1
+                        # §10.1's disclosure channel, carrying what §4.1 could not decide.
+                        # `metric_sign_convention_unverified` is the live one: the quantity is
+                        # real and citable and only the word describing its direction is
+                        # unavailable, so the fact is bound with the warning beside it rather
+                        # than dropped — which is `quantity_direction`'s own call, surfaced.
+                        found.append(finding(
+                            "warned_observation_used",
+                            sentence_index=sentence.index,
+                            char_start=binding.char_start, char_end=binding.char_end,
+                            fact_ids=(derived.fact_id,),
+                            expected="the warning surfaced in the evidence panel",
+                            observed=", ".join(derived.warning_codes),
+                            explanation=(
+                                "§13.13, over a derived fact: R9's disclosure codes and the "
+                                "unmeasured sign conventions travel on the row and must reach "
+                                "the reader beside the claim they qualify."),
+                        ))
                     continue
                 examined += 1
                 if fact.warning_codes:

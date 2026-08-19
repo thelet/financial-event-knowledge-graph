@@ -213,6 +213,32 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
         "The derived result is rendered in the wrong unit — basis points, a multiple or a plain "
         "percent where the calculation produced percentage points.",
 
+    # DETERMINISTIC_FACT_TOOLS §6. Seven codes, and every one of them is about a fact **code
+    # computed**: the model chose which derivation to ask for and how to word the answer, and
+    # nothing else. A refusal here therefore never means "the model did the arithmetic wrong" —
+    # it means the words do not match the arithmetic that was done for it.
+    "derivation_not_offered":
+        "The plan asked for a calculation that was not among the ones offered for this "
+        "candidate. Only comparisons the package can actually support are on that list.",
+    "derived_fact_not_in_run":
+        "A sentence bound a calculated fact that this run never produced. A derived fact exists "
+        "only if a requested derivation passed validation and was computed.",
+    "derived_fact_orientation_reversed":
+        "The sentence reads the calculation backwards — it names the later period as the "
+        "starting point, or states the change in the opposite direction to the one computed.",
+    "derived_result_mismatch":
+        "The figure written does not match the figure the calculation produced.",
+    "derived_inputs_incomparable":
+        "The two readings the calculation was built from cannot be compared — a different "
+        "subject, metric, unit, currency, period shape or formula version.",
+    "derived_operation_not_supported":
+        "The calculation is of a kind this verifier cannot recompute, so its result would rest "
+        "on nothing that was checked here.",
+    "derived_unit_mismatch":
+        "The unit written for a calculated figure is not the unit that calculation produces — a "
+        "gap between two percentages stated as a percent rather than in percentage points, or a "
+        "ratio stated as money.",
+
     # §13.4 periods
     "period_unresolvable":
         "The period the sentence names cannot be resolved to a specific quarter, year or date by "
@@ -594,6 +620,9 @@ PLANNER_DESCRIPTIONS: Mapping[str, str] = {
     "causal_language_not_computed":
         "The plan claims a level of causal language the code does not compute from this "
         "package's cited text.",
+    "derivation_not_offered":
+        "The plan asked code to compute a quantity that was not on the list of derivations it "
+        "was shown - a different operation, or the two facts the other way round.",
     "thesis_empty":
         "The plan states no thesis.",
     "no_key_points":
@@ -634,8 +663,6 @@ WRITER_DESCRIPTIONS: Mapping[str, str] = {
     "citation_quote_ambiguous_in_passage":
         "The package's own quote for a fact read out of prose occurs more than once inside its "
         "passage, so the citation resolves to no single span.",
-    "more_than_one_calculation":
-        "A sentence declares more than one calculation; a sentence is allowed one derivation.",
     "thesis_abandoned":
         "The draft binds different facts from the ones the plan's key points rest on — the "
         "writer changed the thesis.",
@@ -686,15 +713,15 @@ def declared_codes(family: str) -> frozenset[str]:
 _PLANNER_CODE_NAMES: tuple[str, ...] = (
     "UNRESOLVABLE_FACT_ID", "UNRESOLVABLE_PASSAGE_ID", "COUNTERPOINT_MISSING",
     "COUNTERPOINT_UNGROUNDED", "COUNTER_EVIDENCE_UNACCOUNTED", "UNKNOWN_WARNING_CODE",
-    "UNKNOWN_UNUSABLE_ID", "CAUSAL_LANGUAGE_NOT_COMPUTED", "THESIS_EMPTY", "NO_KEY_POINTS",
-    "PLAN_NOT_CONSTRUCTIBLE",
+    "UNKNOWN_UNUSABLE_ID", "CAUSAL_LANGUAGE_NOT_COMPUTED", "DERIVATION_NOT_OFFERED",
+    "THESIS_EMPTY", "NO_KEY_POINTS", "PLAN_NOT_CONSTRUCTIBLE",
 )
 
 _WRITER_CODE_NAMES: tuple[str, ...] = (
     "UNRESOLVABLE_FACT_ID", "UNRESOLVABLE_PASSAGE_ID", "BINDING_RENDERING_NOT_IN_TEXT",
     "BINDING_RENDERING_AMBIGUOUS", "UNRESOLVABLE_EVIDENCE_HANDLE",
     "EVIDENCE_HANDLE_OUT_OF_BOUNDS", "CITATION_QUOTE_NOT_IN_PASSAGE",
-    "CITATION_QUOTE_AMBIGUOUS", "MORE_THAN_ONE_CALCULATION", "THESIS_ABANDONED", "NO_SENTENCES",
+    "CITATION_QUOTE_AMBIGUOUS", "THESIS_ABANDONED", "NO_SENTENCES",
     "PLAN_NAMES_ANOTHER_PACKAGE", "DRAFT_NOT_CONSTRUCTIBLE",
 )
 

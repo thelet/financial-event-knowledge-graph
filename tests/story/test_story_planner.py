@@ -33,7 +33,10 @@ from story.core.models import (
     Conflict,
     ConflictCluster,
     Counterpoint,
+    DerivationOperation,
+    DerivationRequest,
     EditorialPlan,
+    EvidenceRequest,
     EvidenceRole,
     GenerationResult,
     HealthStatus,
@@ -48,6 +51,7 @@ from story.core.models import (
     PackagedWarning,
     Severity,
     StatementClass,
+    StoryCandidate,
     StoryEvidencePackage,
     UnusableEvidence,
     UnusableReason,
@@ -66,6 +70,7 @@ from story.providers.public import (
 from story.stages.generation.planner import (
     CAUSAL_LANGUAGE_NOT_COMPUTED,
     COUNTER_EVIDENCE_UNACCOUNTED,
+    DERIVATION_NOT_OFFERED,
     COUNTERPOINT_MISSING,
     COUNTERPOINT_UNGROUNDED,
     NO_KEY_POINTS,
@@ -91,6 +96,7 @@ from story.stages.generation.prompts import (
     planner_prompt,
     planner_schema,
 )
+from story.stages.derivation.offers import offers
 from story.stages.packaging.counter_evidence import MATCH_BASIS_SAME_DOCUMENT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -265,6 +271,7 @@ def valid_answer(**overrides: Any) -> dict[str, Any]:
              "required_fact_ids": [],
              "required_citation_passage_ids": [COUNTER_PASSAGE_ID]},
         ],
+        "requested_derivations": [],
         "required_warnings": ["filing_date_unknown"],
         "causal_language": "forbidden",
         "uncertainty": "Only one filing backs both figures.",
@@ -321,10 +328,105 @@ class FakePlanProvider:
         return HealthStatus(ok=True, status="ok", detail="fake")
 
 
-def plan_with(provider: StoryGenerationProvider, package: StoryEvidencePackage):
+def plan_with(provider: StoryGenerationProvider, package: StoryEvidencePackage,
+              offered: tuple[DerivationRequest, ...] = ()):
     """Every test goes through this, annotated with the protocol, so the surface under test is
-    the contract rather than the concrete fake."""
-    return plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS)
+    the contract rather than the concrete fake.
+
+    `offered` defaults to none, which is the honest default rather than a convenience: a planner
+    shown no derivation may request none, and every test above this line is about a plan that
+    requests none.
+    """
+    return plan_story(package, provider=provider, offered=offered,
+                      max_tokens=PLANNER_MAX_TOKENS)
+
+
+# -- §2's candidate: the one package in this file that supports a *change* --------------------
+#
+# The divergence package is two metrics in one period, so the only derivations it can support
+# are `compare_levels` and `ratio`. DETERMINISTIC_FACT_TOOLS §2's measured failure is a change
+# over two periods — `adjusted_gross_profit` from `556,000,000.0` in 2022Q2 to `110,000,000.0`
+# in 2022Q3 — and an offer-set test run against a package that cannot express it would be
+# testing the wrong shape. Built without table coordinates, because nothing in the planner's
+# prompt or its rules resolves a cell: §11 shows the planner ids, values and excerpts.
+
+AGP_PACKAGE_ID = "pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:7c1d0a5b93ef"
+AGP_CANDIDATE_ID = ("cand:metric-move:adjusted-gross-profit:opendoor:"
+                    "2022Q2_2022Q3:86ba9e13455d")
+AGP_Q2_ID = "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+AGP_Q3_ID = "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+
+
+def agp_package(**overrides: Any) -> StoryEvidencePackage:
+    def fact(observation_id: str, key: str, start: str, end: str, value: float) -> PackagedFact:
+        return PackagedFact(
+            observation_id=observation_id, metric_id="adjusted_gross_profit",
+            metric_label="Adjusted Gross Profit", period_key=key,
+            period_start=start, period_end=end, shape="quarter",
+            value=value, unit="USD", currency="USD", scale="millions",
+            printed_form=str(int(value / 1e6)), source_lane="normalized_table",
+            validation_state="clean", passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+            quoted_text=str(int(value / 1e6)))
+
+    fields: dict[str, Any] = dict(
+        package_id=AGP_PACKAGE_ID, candidate_id=AGP_CANDIDATE_ID,
+        detector_id="detector:metric_move", detector_version="1.0.0",
+        policy_version="canon-policy:1.0.0", graph_run_id="graph-v1-0483dc6b4b10",
+        graph_projection_version="1.2.0", extraction_run_id="extract-v1-lexical-833f7bcfbce9",
+        run_complete_sha256="1cc8f7b01c040531" + "0" * 48,
+        ontology_id="real_estate_marketplace_v1",
+        ontology_definition_hash=(
+            "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34"),
+        ontology_semantic_version="2.0.0",
+        subject=PackagedSubject(entity_id="opendoor",
+                                entity_text="Opendoor Technologies Inc.",
+                                resolved=True, labels=("Entity", "PublicCompany")),
+        facts=(fact(AGP_Q2_ID, "2022Q2", "2022-04-01", "2022-06-30", 556_000_000.0),
+               fact(AGP_Q3_ID, "2022Q3", "2022-07-01", "2022-09-30", 110_000_000.0)),
+        metrics=(PackagedMetric(metric_id="adjusted_gross_profit",
+                                label="Adjusted Gross Profit", unit="USD",
+                                period_type="duration"),),
+        primary_passages=(PackagedPassage(
+            passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=PASSAGE_TEXT,
+            char_count=2564, passage_kind="table", role=EvidenceRole.PRIMARY_SUPPORT),),
+        documents=(PackagedDocument(document_id=DOCUMENT_ID, form="8-K"),),
+        budget=PackageBudget(artifact_token_estimate=700, prompt_token_estimate=500,
+                             section_counts={"facts": 2}, parameters=BudgetParameters()),
+    )
+    fields.update(overrides)
+    return StoryEvidencePackage(**fields)
+
+
+def agp_candidate() -> StoryCandidate:
+    """The four signals `candidate.json` actually records for §2's candidate."""
+    return StoryCandidate(
+        candidate_id=AGP_CANDIDATE_ID, detector_id="detector:metric_move",
+        detector_version="1.0.0", policy_version="canon-policy:1.0.0",
+        graph_run_id="graph-v1-0483dc6b4b10", subject_entity_id="opendoor",
+        story_type="metric_move", metric_ids=("adjusted_gross_profit",),
+        anchor_period_keys=("2022Q2", "2022Q3"),
+        anchor_observation_ids=(AGP_Q2_ID, AGP_Q3_ID),
+        signals={"crosses_zero": False, "delta": -446_000_000.0, "delta_pct": -80.215827338,
+                 "direction": "decrease", "period_shape": "quarter", "polarity": "revenue"},
+        evidence_request=EvidenceRequest(
+            metric_ids=("adjusted_gross_profit",), period_keys=("2022Q2", "2022Q3"),
+            observation_ids=(AGP_Q2_ID, AGP_Q3_ID)))
+
+
+def agp_answer(requested: list[dict[str, str]], **overrides: Any) -> dict[str, Any]:
+    """A plan over §2's package, with whatever derivations a test wants it to request."""
+    content = valid_answer(
+        thesis="Adjusted gross profit fell between the second and third quarters of 2022.",
+        why_it_matters="It is the largest quarter-over-quarter fall in the series.",
+        key_points=[{"claim": "Adjusted gross profit was $110 million in 2022Q3.",
+                     "required_fact_ids": [AGP_Q3_ID],
+                     "required_citation_passage_ids": [PASSAGE_ID],
+                     "statement_class": "reported"}],
+        counterpoints=[],
+        requested_derivations=requested,
+        required_warnings=[])
+    content.update(overrides)
+    return content
 
 
 # -- rule: no graph, no retrieval, no tools ---------------------------------------------------
@@ -358,7 +460,11 @@ def test_the_planner_takes_a_package_a_provider_and_a_token_budget_and_nothing_e
     import inspect
 
     parameters = inspect.signature(plan_story).parameters
-    assert list(parameters) == ["package", "provider", "max_tokens"]
+    # `offered` is the one addition and it does not weaken the claim: it is a pure function of
+    # the package and the candidate, computed before this call by a stage with no model in it,
+    # so it is one more thing the plan cannot influence rather than a channel through which it
+    # could. There is still no `terms`, no retriever and no configuration parameter.
+    assert list(parameters) == ["package", "provider", "max_tokens", "offered"]
     assert parameters["max_tokens"].default is inspect.Parameter.empty
     assert "temperature" not in parameters
 
@@ -926,3 +1032,167 @@ def test_the_real_model_plans_this_candidate_and_the_rules_judge_what_comes_back
     assert planned.generation.finish_reason == "stop"
     assert planned.generation.attempts == 1
     assert planned.generation.prompt_tokens + planned.generation.completion_tokens < 8192
+
+
+# ---------------------------------------------------------------------------------------
+# DETERMINISTIC_FACT_TOOLS §4.3 and §5 — the offer set, and what may be requested from it
+# ---------------------------------------------------------------------------------------
+
+
+def offer_line(request: DerivationRequest) -> str:
+    """One offer, spelled the way the prompt must print it and the answer must spell it back."""
+    return (f'  operation "{request.operation.value}"  '
+            f'from_fact_id "{request.from_fact_id}"  to_fact_id "{request.to_fact_id}"')
+
+
+def as_request(request: DerivationRequest) -> dict[str, str]:
+    return {"operation": request.operation.value, "from_fact_id": request.from_fact_id,
+            "to_fact_id": request.to_fact_id}
+
+
+def test_the_derivation_enum_is_exactly_the_seven_operations_and_nothing_else():
+    """§4.1: seven, and there is no eighth. A closed `enum` rather than a `pattern`, because
+    §15.3's portable subset can express one and not the other — so both providers constrain the
+    field identically instead of one of them silently accepting a free string."""
+    schema = planner_schema(causal_language=CausalLanguage.FORBIDDEN)
+    item = schema["properties"]["requested_derivations"]["items"]
+
+    assert item["properties"]["operation"]["enum"] == [
+        "absolute_change", "percentage_change", "percentage_point_change", "compare_levels",
+        "ratio", "crossed_zero", "trend_direction"]
+    assert item["properties"]["operation"]["enum"] == [
+        member.value for member in DerivationOperation]
+    # Three fields, all required, nothing else admitted: no expression, no formula, no result.
+    assert item["required"] == ["operation", "from_fact_id", "to_fact_id"]
+    assert set(item["properties"]) == set(item["required"])
+    assert item["additionalProperties"] is False
+    validate_portable_schema(schema)
+
+
+def test_the_offer_set_reaches_the_prompt_spelled_exactly_as_it_must_be_requested():
+    """§4.3: the planner may request only a triple from the list it was shown.
+
+    That promise is a string comparison — `plan_violations` compares whole `DerivationRequest`s
+    against the same tuple — so the rendering is checked the way the existing id rule is: every
+    offer appears under the three field names it must be spelled back with, and every one of
+    them parses back out of the prompt into the object it came from.
+    """
+    package, candidate = agp_package(), agp_candidate()
+    offered = offers(package, candidate)
+    prompt = planner_prompt(package, offered=offered)
+
+    assert len(offered) == 8, [o.operation.value for o in offered]
+    assert f"DERIVATIONS OFFERED ({len(offered)} available" in prompt
+    for request in offered:
+        assert offer_line(request) in prompt
+    # The gloss beside each triple carries the two readings and no id, so a 9B model can tell
+    # two offers apart without parsing a digest and cannot read a figure out of the section.
+    assert "adjusted_gross_profit 2022Q2 (556000000.0 USD) -> " \
+           "adjusted_gross_profit 2022Q3 (110000000.0 USD)" in prompt
+
+    printed = [line for line in prompt.splitlines() if line.startswith('  operation "')]
+    assert printed == [offer_line(request) for request in offered]
+
+
+def test_a_package_that_supports_no_derivation_says_so_rather_than_printing_nothing():
+    """An absent section reads as an omission; a section that says none is an instruction."""
+    prompt = planner_prompt(divergence_package())
+    assert "DERIVATIONS OFFERED (none; this package supports no derivation" in prompt
+    assert "  (none)" in prompt.split("DERIVATIONS OFFERED")[1]
+
+
+def test_the_offered_triples_are_granted_and_reach_the_plan_unchanged():
+    """The accepting half, so the refusal below is a statement about the offer set and not
+    about `requested_derivations` being unusable."""
+    package, candidate = agp_package(), agp_candidate()
+    offered = offers(package, candidate)
+    wanted = [request for request in offered
+              if request.operation is DerivationOperation.ABSOLUTE_CHANGE
+              and request.from_fact_id == AGP_Q2_ID]
+
+    planned = plan_with(FakePlanProvider(agp_answer([as_request(r) for r in wanted])),
+                        package, offered)
+
+    assert planned.plan.requested_derivations == tuple(wanted)
+    assert planned.plan.requested_derivations[0].operation is (
+        DerivationOperation.ABSOLUTE_CHANGE)
+    assert plan_violations(planned.plan, package, offered=offered) == ()
+
+
+def test_a_requested_derivation_outside_the_offer_set_is_refused_before_the_writer_runs():
+    """§4.3's refusal, and it fires at §11 rather than at the executor.
+
+    `percentage_point_change` over two USD readings would be refused by §4.2's unit clause too,
+    so the plan names a quantity nothing will compute — and discovering that after a writer call
+    has been paid for helps nobody. `derivation_not_offered` is spelled the way §6 spells the
+    verifier's own gate code, so one fault reads as one string wherever it is reported.
+    """
+    package, candidate = agp_package(), agp_candidate()
+    offered = offers(package, candidate)
+    answer = agp_answer([{"operation": "percentage_point_change",
+                          "from_fact_id": AGP_Q2_ID, "to_fact_id": AGP_Q3_ID}])
+
+    with pytest.raises(EditorialPlanRejected) as raised:
+        plan_with(FakePlanProvider(answer), package, offered)
+
+    assert DERIVATION_NOT_OFFERED in raised.value.codes
+    assert "percentage_point_change" in str(raised.value)
+
+
+def test_reversing_the_two_ids_of_an_offered_triple_is_a_different_derivation_and_not_the_same():
+    """Orientation is part of the triple, so membership is equality and never a set of parts.
+
+    Both orientations *are* offered here — they are two different derivations, `-446,000,000`
+    against `+446,000,000` — which is why the check has to be an equality on the whole request:
+    a membership test over ids and operations separately would accept a triple assembled from
+    three offers it was never shown together.
+    """
+    package, candidate = agp_package(), agp_candidate()
+    offered = offers(package, candidate)
+    forward = DerivationRequest(operation=DerivationOperation.ABSOLUTE_CHANGE,
+                                from_fact_id=AGP_Q2_ID, to_fact_id=AGP_Q3_ID)
+    reversed_pair = DerivationRequest(operation=DerivationOperation.ABSOLUTE_CHANGE,
+                                      from_fact_id=AGP_Q3_ID, to_fact_id=AGP_Q2_ID)
+
+    assert forward in offered and reversed_pair in offered
+    assert forward != reversed_pair
+    # …and a triple assembled out of the offer set's *parts* rather than copied from a line of
+    # it is refused: `ratio` is offered for no pair of this package at all.
+    invented = DerivationRequest(operation=DerivationOperation.RATIO,
+                                 from_fact_id=AGP_Q2_ID, to_fact_id=AGP_Q3_ID)
+    plan = editorial_plan_from(agp_answer([as_request(forward)]), package,
+                               model_id="Qwen3.5-9B-Q4_K_M.gguf", offered=offered)
+    codes = [v.code for v in plan_violations(
+        plan.model_copy(update={"requested_derivations": (invented,)}), package,
+        offered=offered)]
+    assert codes == [DERIVATION_NOT_OFFERED]
+
+
+def test_a_plan_requesting_a_derivation_when_none_was_offered_is_refused():
+    """The default is empty and it refuses, which is the honest reading rather than a lenient
+    one: a plan cannot legitimately request from a list it was never given."""
+    package = agp_package()
+    answer = agp_answer([{"operation": "absolute_change",
+                          "from_fact_id": AGP_Q2_ID, "to_fact_id": AGP_Q3_ID}])
+
+    with pytest.raises(EditorialPlanRejected) as raised:
+        plan_with(FakePlanProvider(answer), package)
+
+    assert raised.value.codes == (DERIVATION_NOT_OFFERED,)
+
+
+def test_an_operation_outside_the_seven_fails_as_a_schema_error_and_not_as_a_plan_rejection():
+    """A closed vocabulary is a statement about the *runtime*, so it fails as a schema error.
+
+    The distinction is §11's and this module's docstring argues it: which ids exist is a fact
+    about this package and is checked after the call; which words name an operation is the same
+    in every package and belongs in the grammar.
+    """
+    package, candidate = agp_package(), agp_candidate()
+    answer = agp_answer([{"operation": "evaluate", "from_fact_id": AGP_Q2_ID,
+                          "to_fact_id": AGP_Q3_ID}])
+
+    with pytest.raises(StoryProviderSchemaError) as raised:
+        plan_with(FakePlanProvider(answer), package, offers(package, candidate))
+
+    assert any("evaluate" in violation for violation in raised.value.violations)

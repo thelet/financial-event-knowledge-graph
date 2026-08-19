@@ -28,13 +28,21 @@ path a custom profile reaches the model inside the system text while `draft.styl
 still records the stage's default — a mismatch `api.py` reports rather than smooths over.
 
 *Fixed, because editing it silently desynchronises the prompt from the deterministic verifier:*
-`PLANNER_SYSTEM`'s seven rules, `WRITER_SYSTEM`'s seventeen, `WRITER_OPERATIONS` (narrower than
-the verifier's `OPERATION_INPUTS` by four, with measured reasons in that module's docstring), and
-`WARNING_QUALIFIER_PHRASES` — whose byte-identity with the verifier's
+`PLANNER_SYSTEM`'s rules, `WRITER_SYSTEM`'s rules, and `WARNING_QUALIFIER_PHRASES` — whose
+byte-identity with the verifier's
 `REQUIRED_WARNING_QUALIFIERS` is already asserted by
 `test_the_writer_is_shown_the_same_warning_phrases_the_verifier_requires`. Editing one side of
 that pair alone makes the writer unsatisfiable: it would be refused for silence nobody told it
-how to break. **None of the four is reachable from the request body**, which is a property of
+how to break.
+
+**The `writer_operations` section is gone, and its removal is a fact about the writer rather
+than a UI simplification** (DETERMINISTIC_FACT_TOOLS §5, 2026-08-19). It rendered
+`WRITER_OPERATIONS` under the title *"the operations a calculation may declare"*, and the writer
+now declares no calculation at all: `calculation` left the schema, the constant went with it,
+and a panel still offering that list would describe a system this is not. What the writer may
+state is now `DERIVED FACTS`, printed into its prompt from an artifact this module does not
+render. **None of the three remaining fixed sections is reachable from the request body**, which
+is a property of
 `PromptRequest.from_payload` — it projects an allowlist of five keys out of the payload and
 reports every other key back as ignored — rather than a promise made here.
 
@@ -93,6 +101,7 @@ from story.contracts import GenerationResult, HealthStatus, StoryGenerationProvi
 from story.core.models import canonical_json
 from story.stages.generation.planner import (
     COUNTER_EVIDENCE_UNACCOUNTED,
+    DERIVATION_NOT_OFFERED,
     COUNTERPOINT_MISSING,
     COUNTERPOINT_UNGROUNDED,
     NO_KEY_POINTS,
@@ -110,7 +119,6 @@ from story.stages.generation.prompts import (
     PLANNER_SCHEMA_NAME,
     PLANNER_SYSTEM,
     WARNING_QUALIFIER_PHRASES,
-    WRITER_OPERATIONS,
     WRITER_PROMPT_VERSION,
     WRITER_SCHEMA_NAME,
     WRITER_SYSTEM,
@@ -256,61 +264,62 @@ def persona_text(system_text: str) -> str:
 #: have more than one, and none of them is the whole of §13.
 _WRITER_RULE_CODES: Mapping[int, tuple[str, ...]] = {
     1: ("unbound_numeral", "fact_not_in_package", "unit_mismatch"),
-    2: ("calculated_sentence_without_calculation", "reported_sentence_carries_calculation",
-        "connective_sentence_carries_a_claim"),
+    2: ("reported_sentence_carries_calculation", "connective_sentence_carries_a_claim"),
     3: ("binding_span_does_not_match_text", "binding_rendering_is_not_one_numeral",
         "unbound_numeral"),
     4: ("metric_surface_ambiguous", "metric_surface_unresolved", "metric_binding_mismatch"),
-    5: ("calculated_sentence_cites_passage", "period_surface_absent_from_text",
-        "calculation_inputs_incomparable"),
-    6: ("calculation_does_not_recompute", "sign_disagreement"),
-    7: ("formula_version_not_valid_for_period",),
-    # Rule 8 became the **evidence-id** rule at TABLE_CELL_CITATIONS S4 and this mapping was
-    # left naming the two quote codes, which the rule can no longer produce: the model writes
-    # no quote and no offset, so nothing it types can put a substring in the wrong place. What
-    # it *can* do is omit the citation, or write an `evidence_id` no fact printed — and §13.7
-    # then judges the cell that id names. `citation_quote_not_in_passage` stays reachable, but
-    # only on the narrative lane where code searches for the package's own quote (14 of 2,704
-    # observations); it is not a consequence of a model breaking this rule, and listing it here
-    # would tell a reader to check their typing.
-    8: ("uncited_factual_sentence", "unresolvable_evidence_handle",
+    # Rule 5 became the **derived-fact** rule at DETERMINISTIC_FACT_TOOLS §5, and the three
+    # calculation rules that stood at 5, 6 and 7 are gone: the writer declares no operation, no
+    # input order and no formula version, so `calculation_does_not_recompute`,
+    # `sign_disagreement` and `formula_version_not_valid_for_period` are no longer things a
+    # model can cause by breaking a prompt rule. What it can still do is write the wrong number
+    # for a row it was shown, or write a period that is not the row's.
+    5: ("number_outside_tolerance", "period_surface_absent_from_text", "fact_not_in_package"),
+    6: ("uncited_factual_sentence", "unresolvable_evidence_handle",
         "evidence_handle_out_of_bounds", "evidence_cell_value_mismatch",
         "evidence_row_label_mismatch", "evidence_column_label_mismatch",
         "evidence_cell_span_mismatch"),
-    # `evidence_handle_not_for_fact` is rule 9's, not rule 8's: rule 8 says a sentence must
-    # carry an evidence id the FACTS section printed, and rule 9 says it must be *the id of a
-    # fact that sentence binds*. §3.4 check 7 is exactly the second sentence, and it is the
+    # `evidence_handle_not_for_fact` is rule 7's, not rule 6's: rule 6 says a sentence must
+    # carry an evidence id the FACTS section printed, and rule 7 says it must be *the id of a
+    # fact that sentence rests on*. §3.4 check 7 is exactly the second sentence, and it is the
     # check that catches a sentence citing a neighbouring cell in the same passage — 90 of
     # which were measured constructible, 88 raising no other finding at all.
-    # `uncited_factual_sentence` is on **both** rules, and that is not a duplicate: rule 8 is
-    # broken by a sentence carrying no citation, and rule 9 by a sentence carrying one evidence
-    # id while binding two facts. §13.7 raises the same code for both, because a figure with no
-    # evidence behind it is one defect however the sentence got there.
-    9: ("citation_reused_for_unrelated_claim", "citation_does_not_support_fact",
+    # `uncited_factual_sentence` is on **both** rules, and that is not a duplicate: rule 6 is
+    # broken by a sentence carrying no citation, and rule 7 by a sentence carrying one evidence
+    # id while resting on two facts. §13.7 raises the same code for both, because a figure with
+    # no evidence behind it is one defect however the sentence got there.
+    7: ("citation_reused_for_unrelated_claim", "citation_does_not_support_fact",
         "evidence_handle_not_for_fact", "uncited_factual_sentence"),
-    10: ("percent_change_ambiguous", "percentage_point_surface_missing",
-         "percent_change_reported_not_calculated"),
-    11: ("unsupported_superlative", "unsupported_absence_claim",
-         "unsupported_temporal_ordering"),
-    12: ("unsupported_comparative", "comparative_recomputation_failed",
+    8: ("percent_change_ambiguous", "percentage_point_surface_missing",
+        "percent_change_reported_not_calculated"),
+    9: ("unsupported_superlative", "unsupported_absence_claim",
+        "unsupported_temporal_ordering"),
+    10: ("unsupported_comparative", "comparative_recomputation_failed",
          "comparative_not_supported_by_text"),
-    13: ("forward_looking_language",),
-    14: ("foreign_subject_named", "unresolved_entity_named"),
-    15: ("required_warning_absent", "required_warning_has_no_declared_qualifier"),
-    16: ("required_counterpoint_absent",),
-    17: ("unbound_numeral", "unsupported_superlative", "causal_construction_forbidden",
+    11: ("forward_looking_language",),
+    12: ("foreign_subject_named", "unresolved_entity_named"),
+    13: ("required_warning_absent", "required_warning_has_no_declared_qualifier"),
+    14: ("required_counterpoint_absent",),
+    15: ("unbound_numeral", "unsupported_superlative", "causal_construction_forbidden",
          "forward_looking_language", "foreign_subject_named"),
+    # Rule 16 (the ontology sections) and rule 17 (evidence scope) map to nothing here. The
+    # first never did; the second is §7's, whose gate codes are the verifier's to declare, and
+    # naming one before it exists would put a string in the panel that nothing emits — which is
+    # the single thing this mapping is checked against.
 }
 
 _PLANNER_RULE_CODES: Mapping[int, tuple[str, ...]] = {
     1: (UNRESOLVABLE_FACT_ID, UNRESOLVABLE_PASSAGE_ID),
     2: (THESIS_EMPTY, NO_KEY_POINTS),
-    3: ("causal_construction_forbidden", "causal_marker_not_in_cited_span"),
-    4: (COUNTERPOINT_MISSING, COUNTERPOINT_UNGROUNDED, COUNTER_EVIDENCE_UNACCOUNTED,
+    3: (DERIVATION_NOT_OFFERED,),
+    4: ("causal_construction_forbidden", "causal_marker_not_in_cited_span"),
+    5: (COUNTERPOINT_MISSING, COUNTERPOINT_UNGROUNDED, COUNTER_EVIDENCE_UNACCOUNTED,
         UNKNOWN_UNUSABLE_ID),
-    5: (UNKNOWN_WARNING_CODE, "required_warning_absent"),
-    6: ("calculated_sentence_without_calculation", "reported_sentence_carries_calculation"),
-    7: (NO_KEY_POINTS,),
+    6: (UNKNOWN_WARNING_CODE, "required_warning_absent"),
+    # Rule 7 is `statement_class`, and the two §13.9 codes that stood here named a
+    # `Calculation` the writer can no longer emit. Left unmapped rather than pointed at a
+    # replacement this module would be guessing at.
+    8: (NO_KEY_POINTS,),
 }
 
 
@@ -349,7 +358,7 @@ def fixed_sections() -> list[dict[str, Any]]:
         {
             "section_id": "planner_rules",
             "stage": "planner",
-            "title": "Planner rules 1-7 (§11)",
+            "title": f"Planner rules 1-{len(PLANNER_RULES)} (§11)",
             "source": "story/stages/generation/prompts.py:PLANNER_SYSTEM",
             "text": "",
             "rules": [rule.as_dict() for rule in PLANNER_RULES],
@@ -371,27 +380,16 @@ def fixed_sections() -> list[dict[str, Any]]:
         {
             "section_id": "writer_rules",
             "stage": "writer",
-            "title": "Writer rules 1-17 (§12, in the order §13 applies them)",
+            "title": (f"Writer rules 1-{len(WRITER_RULES)} "
+                      "(§12, in the order §13 applies them)"),
             "source": "story/stages/generation/prompts.py:WRITER_SYSTEM",
             "text": "",
             "rules": [rule.as_dict() for rule in WRITER_RULES],
             "editable": False,
-            "note": "Rules 5, 6, 7 and 9 were added after a live run, each closing a defect "
-                    "that run made. Rule 6 states the input order values[1] - values[0]: the "
-                    "first wording never stated it and the sign inverted.",
-        },
-        {
-            "section_id": "writer_operations",
-            "stage": "writer",
-            "title": "The operations a calculation may declare",
-            "source": "story/stages/generation/prompts.py:WRITER_OPERATIONS",
-            "text": ", ".join(WRITER_OPERATIONS),
-            "rules": [],
-            "editable": False,
-            "note": "Narrower than the verifier's OPERATION_INPUTS by four. extremum and "
-                    "absence need a full comparison set the twelve-fact cap cannot guarantee, "
-                    "temporal_order needs two dated items the package does not carry, and "
-                    "delta_relative is arithmetically defined but meaningless across zero.",
+            "note": "Rules 5 and 7 are what is left of four rules about arithmetic the writer "
+                    "used to declare. It declares none now: code computes every derived "
+                    "quantity and the writer binds the result, so the operation, the input "
+                    "order and the formula version are no longer things a model can get wrong.",
         },
         {
             "section_id": "warning_qualifiers",
@@ -1396,7 +1394,7 @@ def gate_codes() -> frozenset[str]:
 PLANNER_VIOLATION_CODES: frozenset[str] = frozenset({
     UNRESOLVABLE_FACT_ID, UNRESOLVABLE_PASSAGE_ID, COUNTERPOINT_MISSING, COUNTERPOINT_UNGROUNDED,
     COUNTER_EVIDENCE_UNACCOUNTED, UNKNOWN_WARNING_CODE, UNKNOWN_UNUSABLE_ID, THESIS_EMPTY,
-    NO_KEY_POINTS,
+    NO_KEY_POINTS, DERIVATION_NOT_OFFERED,
 })
 
 

@@ -390,6 +390,7 @@ PLANNER_ANSWER = {
                     "required_citation_passage_ids": ["psg:1"],
                     "statement_class": "reported"}],
     "counterpoints": [],
+    "requested_derivations": [],
     "required_warnings": [],
     "causal_language": CausalLanguage.FORBIDDEN.value,
     "uncertainty": "",
@@ -407,7 +408,6 @@ WRITER_ANSWER = {
                            "rendered": "negative $211 million",
                            "metric_surface": "Adjusted EBITDA",
                            "period_surface": "the third quarter of 2022"}],
-        "calculation": [],
         # TABLE_CELL_CITATIONS S4: a citation is the handle the package minted, not a retyped
         # quote. `conftest.make_package`'s fact carries no `cell` — it is narrative evidence —
         # so its handle is the `:span:<metric>:<period>` form.
@@ -443,7 +443,7 @@ def test_the_planner_request_on_the_wire_carries_every_semantic_identity_and_com
     assert "METRIC SEMANTICS" in prompt
     assert "COMPANY IDENTITY" in prompt
     assert "COMPARISON RULES" in prompt
-    assert planned.plan.prompt_version == PLANNER_PROMPT_VERSION == "1.1.0"
+    assert planned.plan.prompt_version == PLANNER_PROMPT_VERSION == "1.2.0"
 
 
 def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim():
@@ -458,12 +458,13 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.statement in prompt, fact.fact_id
-    # 1.4.0 since TABLE_CELL_CITATIONS S4 replaced the retyped citation quote with an evidence
-    # handle — a change to the schema, the rules and the FACTS rendering, all three of which are
-    # digest inputs. 1.3.0 was S6's warning phrases; S4's own bump was 1.2.0. The literal is kept
-    # beside the constant so a version that stops moving is as loud as one that moves for the
-    # wrong reason.
-    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "1.4.0"
+    # 2.0.0 since DETERMINISTIC_FACT_TOOLS §5 removed `calculation` from the writer's schema —
+    # the first version to *remove* a field, so a draft recorded under 1.4.0 carries an object
+    # the grammar no longer admits and those rows are unreachable in both directions. 1.4.0 was
+    # TABLE_CELL_CITATIONS S4's evidence handle; 1.3.0 was S6's warning phrases. The literal is
+    # kept beside the constant so a version that stops moving is as loud as one that moves for
+    # the wrong reason.
+    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "2.0.0"
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])

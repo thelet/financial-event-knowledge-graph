@@ -101,6 +101,21 @@ recorded below as an addition to it.
    the span from the handle, so this cannot come from a model; it is the same class of defect as
    check 2 and is refused rather than assumed away.
 
+**S13's seven, and the one thing they change about the table's shape.** DETERMINISTIC_FACT_TOOLS
+§6 adds `derivation_not_offered`, `derived_fact_not_in_run`, `derived_fact_orientation_reversed`,
+`derived_result_mismatch`, `derived_inputs_incomparable`, `derived_operation_not_supported` and
+`derived_unit_mismatch`, all REFUSE. Five of the seven are spelled exactly as
+`story/stages/derivation/public.py:DerivationRefusalCode` spells them, on purpose: the
+derivation stage refuses a request it will not execute and this stage refuses a fact whose
+result it cannot re-derive, and a fault that can arise on both sides has one name and not two.
+
+12. Nothing in §13.17's tiering changes: the WARN pair and the ANNOTATE four are what they
+   were, so `test_every_code_in_the_gate_is_a_refusal_except_the_five_the_plan_names` holds
+   unedited. What did change is the *meaning* of two §13.9 codes, and both are argued at the
+   check rather than here — `calculated_sentence_without_calculation` now asks for a
+   derived-fact binding, and `reported_sentence_carries_calculation` now fires on a
+   `Calculation` under any sentence kind. See `deterministic._check_reported_vs_calculated`.
+
 **Two remedies §13.17's enum cannot express**, recorded because the enum lives in
 `story/core/models.py`, which this step does not own: a dropped `required_warning` and an
 absent counterpoint both want *"put the disclosure back"*, and the nearest member is
@@ -247,6 +262,32 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("calculation_operation_not_supported", Remedy.RESTATE_AS_CALCULATION, "13.9"),
     _refuse("operation_not_recomputable", Remedy.RESTATE_AS_CALCULATION, "13.9"),
     _refuse("formula_version_not_valid_for_period", Remedy.RESTATE_AS_CALCULATION, "13.9"),
+
+    # -- DETERMINISTIC_FACT_TOOLS §6 and §7: derived facts ---------------------------------
+    #
+    # Seven, and the plan names all seven as REFUSE. They are §13.9's family under a different
+    # authority: §13.9 recomputed a quantity the *writer* declared, and these recompute one
+    # **code** computed and the draft merely bound. The remedies differ across the seven for
+    # that reason — a draft can cause three of them by binding the wrong row, and the other
+    # four say the derived-facts artifact and the package disagree, which no rebinding reaches.
+    #
+    # `derived_operation_not_supported` carries DROP_SENTENCE rather than
+    # RESTATE_AS_CALCULATION, which is the remedy every §13.9 sibling carries. Restating as a
+    # `Calculation` is no longer a repair: §6 retires the writer's `Calculation` and this
+    # module now refuses one wherever it appears, so instructing a repair loop to write one
+    # would be instructing it to produce a second refusal.
+    #
+    # `derived_unit_mismatch` carries ADD_PERCENTAGE_POINT_QUALIFIER, joining the two §13.3
+    # codes, because the case it exists for is the percent-versus-percentage-point confusion —
+    # §13.3's *"single most likely factual error this package can make"* — reaching the draft
+    # through a derived result instead of through a `Calculation`.
+    _refuse("derivation_not_offered", Remedy.REBUILD_PACKAGE, "6"),
+    _refuse("derived_fact_not_in_run", Remedy.REBIND_TO_FACT, "6"),
+    _refuse("derived_fact_orientation_reversed", Remedy.REBIND_TO_FACT, "6"),
+    _refuse("derived_result_mismatch", Remedy.REBUILD_PACKAGE, "6"),
+    _refuse("derived_inputs_incomparable", Remedy.REBIND_TO_FACT, "6"),
+    _refuse("derived_operation_not_supported", Remedy.DROP_SENTENCE, "6"),
+    _refuse("derived_unit_mismatch", Remedy.ADD_PERCENTAGE_POINT_QUALIFIER, "6"),
 
     # -- §13.10 causation ------------------------------------------------------------------
     _refuse("causal_construction_forbidden", Remedy.REMOVE_CAUSAL_CONSTRUCTION, "13.10"),

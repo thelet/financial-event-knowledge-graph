@@ -59,33 +59,39 @@ three** (§2's line: the model chooses words, code chooses facts).
   phrases would be refused for silence it was never told how to break. A test asserts the two
   copies are identical, so the duplication is checked rather than hoped over.
 
-**`WRITER_OPERATIONS` is narrower than the verifier's `OPERATION_INPUTS`, and it is narrower by
-four rather than by five.** `extremum` and `absence` need a full comparison set that §10.2's
-twelve-fact cap cannot guarantee, and `temporal_order` needs two dated items where all three
-`executive_change` events carry `occurred_on: null`; a writer able to declare them would be
-half-supporting a claim §13.14 then refuses anyway. **`compare_levels` is here, and its absence
-was a defect.** §13.14 requires a comparative to be expressed as `compare_levels` or
-`compare_deltas`, and with neither in the grammar the construction could not be declared at all
-— so *"the GAAP gross margin was 15.9 percentage points lower than the adjusted gross margin"*,
-which is true, correctly bound and the whole content of the demo candidate, was refused with
-`unsupported_comparative` for a reason no rewrite could fix *(measured 2026-08-04, the recorded
-Qwen run)*. It is recomputed three ways — the direction against the values, the size against the
-gap, and the metric named on each side of the comparing word against the input it was declared
-as — so a comparison the sentence does not support refuses rather than passing.
+**The writer no longer declares arithmetic at all, and `WRITER_OPERATIONS` is gone with the
+field it constrained** (DETERMINISTIC_FACT_TOOLS §5). Until this version a `calculated` sentence
+carried a `calculation` — an operation from a six-member enum, two input observation ids, an
+expression string, a rendered result, a formula version and a period surface — and the number in
+the prose was the model's arithmetic with the verifier checking its homework. It is now code's:
+the planner *requests* a derivation, `story/stages/derivation/` validates and executes it, and
+the writer binds the result with an ordinary `FactBinding` naming the derived fact's id.
 
-**What `compare_levels` still cannot say, and the prompt does not promise it can**: one metric
-against itself in two periods. §13.14 reads the two sides out of the sentence through §13.5's
-alias index, so two sides carrying one metric are two sides nothing can tell apart, and the
-verifier refuses them rather than checking half of the claim. Rule 12's *"name each figure's
-metric on its own side"* is that requirement stated the writing way; the demo candidate is
-cross-metric and never meets the case.
+**The measurement that forced the change is not the one the brief predicted, and it is worth
+stating precisely because it decides the shape.** §2 of the plan re-read the two recorded runs
+of `cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d`: `$446 million`
+was **covered** — `Calculation.result_rendered` is §13.1's third covering mechanism — and the
+arithmetic **recomputed cleanly** (`calculation_ledger[0].recomputed_value = 446000000.0`). What
+refused the draft was `unbound_numeral` on the literal **`2022`**, because a `calculated`
+sentence carries no `fact_bindings` and the model had left `Calculation.period_surface` empty
+while its own text read *"in the third quarter of 2022"*. So the failure was never the
+arithmetic: it was one optional-looking string the model had to remember to fill, and the note
+that used to sit at rule 5 records the same defect being half-repaired once already — the first
+wording told the writer *not to name the period*, which that note itself calls *"the wrong end
+to fix it from"*. A derived fact bound as an ordinary `FactBinding` carries `period_surface`
+**per binding**, and `_derived_fact_lines` prints the surface code minted from the derivation's
+own `to_period`. The model cannot forget a field it no longer writes.
 
-`compare_deltas` stays out and the writer is not taught it: a side of it is a *change of one
-metric*, so it needs four bound observations forming two same-metric deltas over the same pair
-of periods, and every fact in the demo package is 2022Q3. The verifier recomputes it if a
-hand-written draft declares one; the grammar does not offer a branch the prompt cannot teach.
-`delta_relative` stays out for §13.3's third gate: the demo's own inputs straddle zero, where a
-relative change is arithmetically defined and rhetorically meaningless.
+**What that removes from this module, and what it does not.** The `calculation` object, its
+operation enum, the FORMULA WINDOWS section and rules 5, 6, 7 and 12's expression clause are all
+gone: nothing in the writer's grammar names an operation, an input order, an expression or a
+formula version any more, so none of them can be got wrong. `Calculation` stays in
+`story/core/models.py` for artifact back-compatibility and §13 refuses a draft that carries one.
+What survives unchanged is the *comparison* the demo candidate is about — *"the GAAP gross
+margin was 15.9 percentage points lower than the adjusted gross margin"* — because
+`compare_levels` is one of §4.1's seven operations, the derivation stage computes the gap and
+its direction word, and the writer binds it. §13.14's three-way recomputation still applies to
+what the sentence says; it simply no longer applies to a number the model worked out.
 """
 
 from __future__ import annotations
@@ -96,7 +102,11 @@ from typing import Any, Mapping, Sequence
 
 from story.core.models import (
     CausalLanguage,
+    DerivationOperation,
+    DerivationRequest,
+    DerivedFact,
     EditorialPlan,
+    EvidenceScopeFact,
     PackagedFact,
     PackagedPassage,
     SentenceKind,
@@ -114,7 +124,15 @@ from story.core.models import (
 #: figure *means*, which of them may be set against which, and an explicit statement that no
 #: description of the company exists. Every generation recorded under 1.0.0 answered a prompt
 #: that carried none of it.
-PLANNER_PROMPT_VERSION = "1.1.0"
+#:
+#: **1.2.0**: DETERMINISTIC_FACT_TOOLS §5. The schema gained `requested_derivations[]`, the
+#: rendering gained the DERIVATIONS OFFERED section, and rule 2 stopped being *"do not compute a
+#: new one"* and became *"do not compute one — ask for it"*. The question genuinely changed: a
+#: planner under 1.1.0 was never shown a derivation it could request and had no field to request
+#: one in, so every generation recorded under it answers a prompt with no offer set. Bumped
+#: rather than re-keyed, which is §9's whole point — S12's two re-keys were valid precisely
+#: because the request was unchanged, and this one is not.
+PLANNER_PROMPT_VERSION = "1.2.0"
 
 #: Reaches the wire and the store. `extraction`'s provider hard-codes one schema name for every
 #: call; three story personas against one package would be indistinguishable in a capture.
@@ -172,21 +190,30 @@ FACTS section. `required_citation_passage_ids` holds only passage ids, from the 
 EXCERPTS and COUNTER-EVIDENCE sections. Putting a passage id in `required_fact_ids` is a \
 rejection.
 2. Introduce no number, no period and no entity that is not in the package. Do not restate a \
-figure in different units. Do not compute a new one.
-3. Say why something happened only if a quoted span in the package says so. The \
+figure in different units, and never work one out yourself - not a change, not a percentage, \
+not a gap, not a ratio. To use a figure that is not in FACTS, ask for it: put a line from \
+DERIVATIONS OFFERED into `requested_derivations` and code computes it for you.
+3. `requested_derivations` holds only lines copied from DERIVATIONS OFFERED, with `operation`, \
+`from_fact_id` and `to_fact_id` exactly as that section spells them. A triple that is not on \
+that list is rejected and the plan never reaches the writer, so do not adjust one, do not swap \
+the two ids around, and do not invent an operation. Ask only for what a key point actually \
+needs; an empty list is a correct answer for a plan that states levels and nothing else. Each \
+requested derivation becomes one fact the writer may state, and the writer may state no \
+computed figure you did not ask for.
+4. Say why something happened only if a quoted span in the package says so. The \
 `causal_language` field is fixed for you and you may not choose it.
-4. If the package carries counter-evidence, every counterpoint you write must rest on at least \
+5. If the package carries counter-evidence, every counterpoint you write must rest on at least \
 one id drawn from it, and every counter-evidence item you do not use must appear in \
 `unusable_evidence` with one of the five listed reasons. A counterpoint grounded in nothing is \
 not a counterpoint.
-5. `required_warnings` may name only warning codes listed in the package's WARNINGS section. \
+6. `required_warnings` may name only warning codes listed in the package's WARNINGS section. \
 The writer is refused if it drops one.
-6. `statement_class` is `reported` for a figure quoted from a filing, `calculated` for a \
-figure derived from two of them, and `explanatory` for a claim resting on a passage rather \
-than a number.
-7. `prohibited_claims` are claims the writer must not make even though the evidence is nearby \
+7. `statement_class` is `reported` for a figure quoted from a filing, `calculated` for a \
+figure code computed from two of them under rule 3, and `explanatory` for a claim resting on a \
+passage rather than a number.
+8. `prohibited_claims` are claims the writer must not make even though the evidence is nearby \
 - name them plainly.
-8. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
+9. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
 each figure means and which figures may be set against which. They are definitions: they carry \
 no figure and no id you may name. Where a line says NOT AVAILABLE, the corpus does not hold \
 that answer and neither do you - plan no claim that needs it.
@@ -205,15 +232,33 @@ def planner_schema(*, causal_language: CausalLanguage) -> dict[str, Any]:
     `causal_language`'s enum holds exactly one member — the value code computed from the
     package. §15.3 permits `enum` and prohibits everything that could express a range, so a
     single-member enum is the only way to say "this field is not yours to choose" in a grammar.
+
+    **`requested_derivations[]` is package-independent and its enum is all seven operations**
+    (DETERMINISTIC_FACT_TOOLS §4.1), which looks like an exception to this module's rule and is
+    not one. The rule is that a *package-dependent* answer must be checked by code so that one
+    wrong answer does not mean two different things in two packages; `operation` is a closed
+    vocabulary the same in every package, exactly like `statement_class`. Whether a given
+    **triple** is available here is package-dependent, and that is checked by code —
+    `planner.plan_violations` refuses `derivation_not_offered` against the list the prompt
+    printed. Pinning the enum per package to the operations this offer set happens to contain
+    would have made the two providers' grammars differ per candidate for no gain: it still
+    could not constrain the ids, which are the half a model gets wrong.
+
+    **Three fields and no fourth, deliberately.** No expression string — §10 rejects a generic
+    `evaluate(expression)` as *"arbitrary Python by another name"*. No result: a request
+    carrying one would be the model doing the arithmetic with code checking its homework, which
+    is the arrangement §1 replaces. And no native tool-calling on either provider, because two
+    tool protocols keyed under one replay store is a request shape that would differ per
+    provider while `request_identity` already digests this schema.
     """
     id_array = {"type": "array", "items": {"type": "string"}}
     return {
         "type": "object",
         "additionalProperties": False,
         "required": [
-            "thesis", "why_it_matters", "key_points", "counterpoints", "required_warnings",
-            "causal_language", "uncertainty", "structure", "prohibited_claims",
-            "unusable_evidence",
+            "thesis", "why_it_matters", "key_points", "counterpoints", "requested_derivations",
+            "required_warnings", "causal_language", "uncertainty", "structure",
+            "prohibited_claims", "unusable_evidence",
         ],
         "properties": {
             "thesis": {"type": "string"},
@@ -250,6 +295,22 @@ def planner_schema(*, causal_language: CausalLanguage) -> dict[str, Any]:
                     },
                 },
             },
+            "requested_derivations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["operation", "from_fact_id", "to_fact_id"],
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "enum": [member.value for member in DerivationOperation],
+                        },
+                        "from_fact_id": {"type": "string"},
+                        "to_fact_id": {"type": "string"},
+                    },
+                },
+            },
             "required_warnings": {"type": "array", "items": {"type": "string"}},
             "causal_language": {"type": "string", "enum": [causal_language.value]},
             "uncertainty": {"type": "string"},
@@ -274,12 +335,27 @@ def planner_schema(*, causal_language: CausalLanguage) -> dict[str, Any]:
     }
 
 
-def planner_prompt(package: StoryEvidencePackage) -> str:
+def planner_prompt(
+    package: StoryEvidencePackage,
+    *,
+    offered: Sequence[DerivationRequest] = (),
+) -> str:
     """The package as the planner sees it. Deterministic, and it says what it cut.
 
     Every id is printed exactly as it will have to be spelled back, because the code check
     after the call compares strings and a rendering that prettified an id would make the model
-    fail a rule it was never shown.
+    fail a rule it was never shown. The offer set is printed under the same rule and it is the
+    reason the rule now has teeth twice: `planner.plan_violations` compares a requested triple
+    against this list field by field, so a rendering that abbreviated an operation or tidied an
+    id would refuse the model for copying back what it was shown.
+
+    **`offered` is an argument and is not computed here** (DETERMINISTIC_FACT_TOOLS §4.3).
+    `offers(package, candidate)` lives in `story/stages/derivation/`, which this stage may not
+    import (`test_no_stage_imports_another_stage`), and the composition root passes the same
+    tuple to this function and to the executor. That is not only an import rule: a list computed
+    twice is a list that can drift, and §4.3's promise is that the planner may request only from
+    *the list it was shown*. Defaulted to empty so a caller with no candidate — a rendering
+    test, a package with no derivable pair — renders a section that says so.
     """
     lines: list[str] = [
         "CANDIDATE  " + package.candidate_id,
@@ -291,6 +367,8 @@ def planner_prompt(package: StoryEvidencePackage) -> str:
     lines.extend(_identity_lines(package))
     lines += ["", "FACTS"]
     lines.extend(_fact_lines(package.facts))
+    lines += ["", _offer_heading(offered)]
+    lines.extend(_offer_lines(offered, package))
     lines += ["", "METRICS"]
     lines.extend(_metric_lines(package))
     lines += ["", SEMANTICS_HEADING]
@@ -348,6 +426,73 @@ def _fact_lines(facts: Sequence[PackagedFact]) -> list[str]:
         elif fact.evidence_source_id:
             lines.append(f"      evidenced by {fact.evidence_source_id} (no filed passage)")
     return lines
+
+
+# ---------------------------------------------------------------------------------------
+# DETERMINISTIC_FACT_TOOLS §4.3 — the offer set, printed
+#
+# **This section can be printed at all because `offers(package, candidate)` takes no model
+# input.** It is a pure function of the package and the candidate, so the list is the same on
+# every build of one package, `request_identity` digests it stably, and the run replays. A
+# calculator the model described in words could not be printed, checked or replayed, which is
+# §10's argument against one restated from the rendering end.
+#
+# **Each triple is printed as the three field names it must be spelled back under.** The check
+# after the call is `is_offered`, an equality over `DerivationRequest`, so `operation`,
+# `from_fact_id` and `to_fact_id` are the words the model has to produce and they are the words
+# it is shown. This is `planner_prompt`'s existing rule — every id printed exactly as it will
+# have to be spelled back — applied to the one field where a *triple* rather than a single id is
+# the unit of comparison.
+#
+# The second line of each entry is a **gloss and carries no id**, for the reason the METRIC
+# SEMANTICS section carries none: it exists so a 9B model can tell two offers apart without
+# parsing two 70-character digests, and a value it could copy out of would be a second place to
+# read a figure from. Values are the package's own, printed as FACTS prints them.
+# ---------------------------------------------------------------------------------------
+
+OFFER_HEADING = "DERIVATIONS OFFERED"
+
+
+def _offer_heading(offered: Sequence[DerivationRequest]) -> str:
+    count = len(offered)
+    if not count:
+        return (f"{OFFER_HEADING} (none; this package supports no derivation, so "
+                "requested_derivations must be empty)")
+    return (f"{OFFER_HEADING} ({count} available; copy a line into requested_derivations "
+            "exactly as it is written, or ask for none)")
+
+
+def _offer_lines(
+    offered: Sequence[DerivationRequest], package: StoryEvidencePackage
+) -> list[str]:
+    if not offered:
+        return ["  (none)"]
+    by_id = {fact.observation_id: fact for fact in package.facts}
+    lines: list[str] = []
+    for request in offered:
+        operation = getattr(request.operation, "value", request.operation)
+        lines.append(f'  operation "{operation}"  from_fact_id "{request.from_fact_id}"  '
+                     f'to_fact_id "{request.to_fact_id}"')
+        gloss = _offer_gloss(by_id.get(request.from_fact_id), by_id.get(request.to_fact_id))
+        if gloss:
+            lines.append("      " + gloss)
+    return lines
+
+
+def _offer_gloss(from_fact: PackagedFact | None, to_fact: PackagedFact | None) -> str:
+    """Which two readings a triple is over, in `(from, to)` order and with no id in it.
+
+    Empty when either side is not in this package. That is unreachable through a real offer set
+    — `offers` enumerates the package's own facts — and the branch exists because this function
+    is also handed whatever a *replayed* plan named, where the ids came from another package.
+    """
+    if from_fact is None or to_fact is None:
+        return ""
+    return f"{_offer_side(from_fact)} -> {_offer_side(to_fact)}"
+
+
+def _offer_side(fact: PackagedFact) -> str:
+    return f"{fact.metric_id} {fact.period_key} ({fact.value} {fact.unit})"
 
 
 # ---------------------------------------------------------------------------------------
@@ -529,7 +674,18 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: refused exactly the string the prompt asked for. No generation recorded under 1.3.0 answers
 #: this question, and every one of them is unreachable by construction — the system message, the
 #: prompt and the schema are all digest inputs to `request_identity`.
-WRITER_PROMPT_VERSION = "1.4.0"
+#:
+#: **2.0.0**: DETERMINISTIC_FACT_TOOLS §5 — the writer stopped declaring arithmetic. `calculation`
+#: is gone from the schema and `WRITER_OPERATIONS` with it; the FORMULA WINDOWS section is gone;
+#: rules 5, 6 and 7 are gone, and rule 12's expression clause with them. A derived value is now
+#: bound by an ordinary `FactBinding` naming a `DerivedFact` code computed, and its
+#: `period_surface` is printed for the writer to copy rather than remembered. **A major bump and
+#: not a minor one**, because this is the first version to *remove* a field: a draft recorded
+#: under 1.4.0 carries an object the schema no longer admits, so those rows are unreachable in
+#: both directions rather than only forward. §9 re-records both fixtures live for exactly this
+#: reason — the recorded answers are answers to a different question, and re-keying them would
+#: be a lie about what was asked.
+WRITER_PROMPT_VERSION = "2.0.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -546,11 +702,6 @@ WRITER_MAX_TOKENS = 2048
 #: How many sentences a call site asks for unless it says otherwise. §12 takes a *length target*
 #: as an input, so it is an argument to `writer_prompt` and this is only the demo's value.
 DEFAULT_LENGTH_TARGET = 5
-
-#: The `Calculation.operation`s the grammar admits. Narrower than the verifier's table, and the
-#: narrowing is the point — see this module's docstring.
-WRITER_OPERATIONS: tuple[str, ...] = (
-    "delta_pp", "delta_bps", "difference", "ratio", "sum", "compare_levels")
 
 #: What counts as having stated a required warning (§13's *"required qualifiers present"*).
 #: **Restated from `story/stages/verification/deterministic.py`'s
@@ -615,7 +766,7 @@ PLAIN_INVESTOR_STYLE = StyleProfile(
 #: *"a difference between two percentages is measured in percentage points, never in percent"*
 #: has been told what the check is.
 #:
-#: Rules 3 and 8 are what make the draft checkable at all, and they are no longer the same kind
+#: Rules 3 and 6 are what make the draft checkable at all, and they are no longer the same kind
 #: of rule. §12 specifies `char_start`/`char_end` on every binding and citation, and asking a 9B
 #: model to count characters would fail on every call, so neither asks for an offset.
 #:
@@ -623,7 +774,7 @@ PLAIN_INVESTOR_STYLE = StyleProfile(
 #:   sentence, `writer.draft_from` locates it there, and a rendering occurring twice is refused
 #:   rather than chosen between. The declaration is the model's and the verifier never guesses
 #:   one, which is what §12 protects. Table flattening does not touch it.
-#: * **Rule 8 was a substring rule and it was unsatisfiable** (TABLE_CELL_CITATIONS §1.2). It
+#: * **Rule 6 was a substring rule and it was unsatisfiable** (TABLE_CELL_CITATIONS §1.2). It
 #:   asked for a `quote` occurring in the cited passage *exactly once*, and the string the prompt
 #:   handed the model was `EVIDENCED_BY.quoted_text` — a bare cell value of median 4 characters,
 #:   occurring more than once in its own passage for **523 of 2,704** observations and 27 times
@@ -634,30 +785,35 @@ PLAIN_INVESTOR_STYLE = StyleProfile(
 #:   coordinates behind it through `story.core.table_cells`. The model is never asked to
 #:   reproduce source text, which is the whole of the repair.
 #:
-#: **Rules 5, 6, 7 and 9 were added after a live run, and each closes a defect that run made
-#: rather than one this text predicted** *(measured 2026-08-04, Qwen3.5-9B-Q4_K_M, this package,
-#: three identical attempts: 1,698 prompt tokens, 937 completion tokens, `finish_reason: stop`,
-#: ~12.8 s, byte-identical answers)*. The first wording produced a §12-clean draft that §13
-#: refused five times over:
+#: **Rules 4, 5, 7 and 15 exist because of measured failures, and two of them are what
+#: DETERMINISTIC_FACT_TOOLS §5 replaced the arithmetic rules with.** The 2026-08-04 live run
+#: *(Qwen3.5-9B-Q4_K_M, this package, three identical attempts: 1,698 prompt tokens, 937
+#: completion tokens, `finish_reason: stop`, ~12.8 s, byte-identical answers)* produced a
+#: §12-clean draft that §13 refused five times over. Three of those five findings are now
+#: **unreachable by construction rather than by instruction**, which is the point of the change:
 #:
-#: * `calculation_does_not_recompute`, expected `-15.9`. The model listed
-#:   `(adjusted, gaap)` and `_recompute` is `values[1] - values[0]`, so the sign inverted. **Input
-#:   order was never stated** — rule 6 now states it, and this is the defect most likely to have
-#:   reached a published post, because the numeral it produces is right and its sign is not.
-#: * `formula_version_not_valid_for_period`. The model filled the field with the package id.
-#:   §15.3 has no null, so an unused string field is a box a model fills; rule 7 and the FORMULA
-#:   WINDOWS section give it the answer *"empty"* and something to check it against.
-#: * `unbound_numeral` on `"2022"` in the calculated sentence. **This is a §12 finding, not a
-#:   model error**: a `calculated` sentence carries no `fact_binding`, a period surface was only
-#:   declarable *on* a binding, and §13.1 covers a numeral by binding span, calculation result,
-#:   period surface or allowlist. So a calculated sentence naming its own period was
-#:   unverifiable by construction. The first wording told the writer not to name the period;
-#:   **that was the wrong end to fix it from**, and `Calculation.period_surface` is the right
-#:   one — rule 5 now asks for the period rather than forbidding it, and §13.4 resolves the
-#:   declared surface and requires it to agree with every input observation.
-#: * `citation_reused_for_unrelated_claim`, twice. The model re-cited both table spans in an
-#:   explanatory sentence that bound nothing. Rule 9 states §13.7's predicate — reuse *and*
-#:   non-support — rather than banning reuse, which a two-column table legitimately needs.
+#: * `calculation_does_not_recompute`, expected `-15.9`, because the model listed
+#:   `(adjusted, gaap)` and `_recompute` is `values[1] - values[0]`. Input order was a rule the
+#:   first wording never stated; it is now not a rule at all, because the model no longer lists
+#:   inputs. `DerivedFact.from_fact_id`/`to_fact_id` are the planner's request and code's answer.
+#: * `formula_version_not_valid_for_period`, because §15.3 has no null and an unused string
+#:   field is a box a model fills — it filled it with the package id. There is no such field now,
+#:   and the FORMULA WINDOWS section that existed to give it something to check against is gone
+#:   with it.
+#: * `unbound_numeral` on `"2022"` in the calculated sentence. **This is the finding the whole
+#:   change is for.** A `calculated` sentence carried no `fact_binding`, so the only place it
+#:   could declare a period was `Calculation.period_surface` — one optional-looking string —
+#:   and the model left it empty while writing *"in the third quarter of 2022"*. The first
+#:   wording told the writer not to name the period, and the note that stood here called that
+#:   *"the wrong end to fix it from"*; the second repair asked for the period on the calculation,
+#:   which still rested on the model remembering a field. Rule 5 is the third: a derived fact
+#:   binds like any other, `FactBinding.period_surface` is per binding, and DERIVED FACTS prints
+#:   the exact words to copy. There is no field left to forget.
+#:
+#: The two findings that were never about arithmetic are unchanged and still stated:
+#: `citation_reused_for_unrelated_claim`, twice, when the model re-cited both table spans in an
+#: explanatory sentence that bound nothing — rule 7 states §13.7's predicate, reuse *and*
+#: non-support, rather than banning reuse, which a two-column table legitimately needs.
 WRITER_SYSTEM = """\
 You are the writer for an investor post about one company's reported figures.
 
@@ -668,68 +824,67 @@ Follow the plan; you did not choose it.
 Write the post as a list of sentences, each one carrying the evidence for what it says.
 
 Rules:
-1. Introduce no number, no date, no period and no company that is not in the FACTS or PASSAGES \
-sections. Do not restate a figure in different units.
-2. `kind` is `reported` for a figure quoted from a filing, `calculated` for a figure you derive \
-from two of them, `explanatory` for a claim resting on a passage rather than a number, and \
+1. Introduce no number, no date, no period and no company that is not in the FACTS, DERIVED \
+FACTS or PASSAGES sections. Do not restate a figure in different units. **Work nothing out \
+yourself**: you do no arithmetic here, and there is nowhere in your answer to declare any. \
+Every figure you write is one this prompt prints.
+2. `kind` is `reported` for a figure quoted from a filing, `calculated` for a figure from the \
+DERIVED FACTS section, `explanatory` for a claim resting on a passage rather than a number, and \
 `connective` for a sentence that carries no claim at all - no figure, no comparison, no \
 characterisation.
-3. Every numeral in a sentence must be declared. A `reported` sentence lists one \
-`fact_bindings` entry per figure: `fact_id` exactly as FACTS spells it, `rendered` the exact \
-run of characters in your own `text` that holds the figure, and `metric_surface` and \
-`period_surface` copied from the surfaces that fact offers. `rendered` must appear in `text` \
-exactly once, character for character. An undeclared numeral is refused.
+3. Every numeral in a sentence must be declared. List one `fact_bindings` entry per figure: \
+`fact_id` exactly as FACTS or DERIVED FACTS spells it, `rendered` the exact run of characters \
+in your own `text` that holds the figure, and `metric_surface` and `period_surface` copied from \
+the surfaces that fact offers. `rendered` must appear in `text` exactly once, character for \
+character. An undeclared numeral is refused.
 4. Use a metric surface exactly as it is offered. A shorter one names two metrics and is \
 refused - write "GAAP gross margin" or "adjusted gross margin", never "gross margin".
-5. A `calculated` sentence carries exactly one `calculation` and **no citation**: it states \
-something you computed, not something the filing said. It carries no fact binding, so write no \
-figure in it other than the calculation's own result. Name the period in it and put those exact \
-words in the calculation's `period_surface` - every input must be from that one period, and a \
-calculation over two different periods must name neither.
-6. In `input_observation_ids` the **base comes first and the subject second**, and every \
-operation is computed as second minus first (or second divided by first). To say that the \
-second figure stands 15.9 points above the first, list the lower one first.
-7. `formula_version_id` is "" unless the FORMULA WINDOWS section names a window for this \
-metric. An arithmetic difference between two figures has no formula version, and inventing one \
-is refused.
-8. A `reported` or `explanatory` sentence carries no calculation and at least one citation. A \
-citation is one field, `evidence_id`, and it is the `evidence id` string printed under a fact \
-in FACTS, copied character for character. Never write a passage id, a character position, or \
-any run of text taken out of a passage: the evidence id already names the exact cell the figure \
-was read from, and code turns it into a span. An evidence id no fact above prints is refused.
-9. Give a sentence the evidence id of a fact it binds. Do not carry an evidence id another \
-sentence already used into a sentence that binds nothing - a citation repeated to decorate a \
-second claim is provenance the evidence does not supply.
-10. A difference between two percentages is measured in **percentage points**, never in \
+5. A figure in DERIVED FACTS was computed by code from two figures in FACTS, and you state it \
+the same way you state any other: bind it by its `fact:derived:` id, write the result as the \
+row prints it, and copy that row's metric surface and period surface. Do not name the \
+operation, do not write the two figures it was computed from unless a sentence binds those \
+figures too, and do not restate the result in another unit or another direction: the row's \
+`says` line is the direction, and reversing it makes the sentence false about a number code \
+computed.
+6. Every `reported` and `explanatory` sentence carries at least one citation. A citation is one \
+field, `evidence_id`, and it is the `evidence id` string printed under a fact in FACTS, copied \
+character for character. Never write a passage id, a character position, or any run of text \
+taken out of a passage: the evidence id already names the exact cell the figure was read from, \
+and code turns it into a span. An evidence id no fact above prints is refused.
+7. Give a sentence the evidence id of a fact it binds. A `calculated` sentence has no evidence \
+of its own - a derived fact was computed, not filed - so cite the evidence ids of the two \
+FACTS rows the DERIVED FACTS row names as its inputs, and cite nothing else. Do not carry an \
+evidence id another sentence already used into a sentence that binds nothing: a citation \
+repeated to decorate a second claim is provenance the evidence does not supply.
+8. A difference between two percentages is measured in **percentage points**, never in \
 percent: write "15.9 percentage points", never "15.9%". A `%` figure beside a word like rose, \
 fell, up or down is refused as unresolvable.
-11. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
+9. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
 worst, best, largest, smallest, record), an absence claim (has not, did not, no longer), or an \
 ordering of two items (before, after, until, since). Nothing you have been shown can support \
 one.
-12. One comparison between two figures (higher, lower, better, worse, more, less) is allowed, \
-in a `calculated` sentence and nowhere else. Set `operation` to `compare_levels`, list the two \
-`input_observation_ids` **in the order the sentence names them**, and set `expression` to \
-`left < right` when the sentence says the first is lower and `left > right` when it says the \
-first is higher. Name each figure's metric on its own side of the comparing word, use one \
-comparing word in the sentence, and make `result_rendered` the size of the gap. \
-"GAAP gross margin was 15.9 percentage points lower than adjusted gross margin" lists GAAP \
-first, then adjusted, with `left < right`.
-13. Never write about the future: no expectation, guidance, outlook, forecast, target or plan.
-14. Write about the subject and no one else. No competitor, no index, no "the market", no "the \
+10. One comparison between two figures (higher, lower, better, worse, more, less) is allowed, \
+and only where a DERIVED FACTS row supports it. Name each figure's metric on its own side of \
+the comparing word, use one comparing word in the sentence, and let the row's own words say \
+which way round it is. "GAAP gross margin was 15.9 percentage points lower than adjusted gross \
+margin" states a `compare_levels` row whose `says` line reads "lower than".
+11. Never write about the future: no expectation, guidance, outlook, forecast, target or plan.
+12. Write about the subject and no one else. No competitor, no index, no "the market", no "the \
 industry", no "peers".
-15. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists.
-16. Write every counterpoint the plan lists, resting on the same ids the plan names.
-17. The title states no claim of its own: no figure, no superlative, no comparison, no cause. \
+13. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists.
+14. Write every counterpoint the plan lists, resting on the same ids the plan names.
+15. The title states no claim of its own: no figure, no superlative, no comparison, no cause. \
 It may name the period the post is about, written in the compact form the candidate id uses \
 (2022Q3). That compact form belongs in the title only - inside a sentence, a period is written \
-with the period surface the FACTS section gives you.
-18. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
+with the period surface the FACTS or DERIVED FACTS section gives you.
+16. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
 each figure means and which figures may be set against which. They are definitions, not \
 evidence: they carry no figure you may write and no passage you may cite, and a sentence that \
 states one of them still needs its own citation like any other. Where a line says NOT \
 AVAILABLE, the corpus does not hold that answer and neither do you - write nothing that needs \
 it. In particular, write nothing about what the company does, sells, or competes in.
+17. EVIDENCE SCOPE, where it appears, states what this package's evidence does not contain. It \
+is a limit on what you may write and never a sentence to write: obey it and do not report it.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
@@ -760,14 +915,16 @@ def writer_system(style: StyleProfile) -> str:
 def writer_schema() -> dict[str, Any]:
     """§12's draft shape, inside §15.3's portable subset.
 
-    **`calculation` is an array of zero or one, and that is a workaround stated rather than
-    hidden.** §15.3 permits no `null` type and no `anyOf`, and requires every property, so
-    *"a calculation or nothing"* cannot be expressed as a nullable object. An empty array is the
-    only portable spelling of absence, and `writer.draft_from` refuses a second element rather
-    than picking one. `formula_version_id` is a string for the same reason and `""` means null —
-    an arithmetic derivation the ontology declares no formula for. `period_surface` is required
-    and may be `""`: §15.3 requires every property, and a derivation whose sentence names no
-    period declares none, which §13.1 then refuses if a period word is in the text after all.
+    **`calculation` is gone, and with it every field a model could get arithmetic wrong in**
+    (DETERMINISTIC_FACT_TOOLS §5). It used to be an array of zero or one — §15.3 has no `null`
+    type and no `anyOf`, so an empty array was the only portable spelling of "or nothing" — and
+    inside it sat an operation, two input observation ids, an expression, a rendered result, a
+    formula version and a period surface. Six fields the model filled and code then checked. A
+    derived value is now stated by an ordinary `fact_bindings` entry naming a `DerivedFact` id,
+    which means the *same* four fields carry it that carry a reported figure, and
+    `period_surface` — the one §2 measured the writer forgetting — is printed for it to copy.
+    `additionalProperties: false` is what makes the removal a refusal rather than a hope: a
+    model that emits a `calculation` anyway fails `schema_violations` before a draft is built.
 
     **A citation is one string, `evidence_id`, and the passage id and the quote are gone**
     (TABLE_CELL_CITATIONS §3.2). Character offsets are still absent by design — a 9B model
@@ -792,7 +949,7 @@ def writer_schema() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["text", "kind", "fact_bindings", "calculation", "citations"],
+                    "required": ["text", "kind", "fact_bindings", "citations"],
                     "properties": {
                         "text": {"type": "string"},
                         "kind": {
@@ -810,28 +967,6 @@ def writer_schema() -> dict[str, Any]:
                                     "fact_id": {"type": "string"},
                                     "rendered": {"type": "string"},
                                     "metric_surface": {"type": "string"},
-                                    "period_surface": {"type": "string"},
-                                },
-                            },
-                        },
-                        "calculation": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["operation", "input_observation_ids", "expression",
-                                             "result_rendered", "formula_version_id",
-                                             "period_surface"],
-                                "properties": {
-                                    "operation": {
-                                        "type": "string",
-                                        "enum": list(WRITER_OPERATIONS),
-                                    },
-                                    "input_observation_ids": {
-                                        "type": "array", "items": {"type": "string"}},
-                                    "expression": {"type": "string"},
-                                    "result_rendered": {"type": "string"},
-                                    "formula_version_id": {"type": "string"},
                                     "period_surface": {"type": "string"},
                                 },
                             },
@@ -946,13 +1081,21 @@ def writer_prompt(
     plan: EditorialPlan,
     passages: Sequence[PackagedPassage],
     *,
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
     length_target: int = DEFAULT_LENGTH_TARGET,
 ) -> str:
-    """The plan, the facts and the writer's own passage slice, rendered deterministically.
+    """The plan, the facts, the derived facts and the writer's own passage slice.
 
     `passages` is an argument because §10.2.1 point 3 makes the slice a rule rather than a
     rendering choice — `writer.writer_passages` owns it, and a prompt that derived its own would
     be a second answer to *"what may this model cite?"*.
+
+    `derived_facts` is an argument for a stronger version of the same reason: they are §3's
+    *separate artifact*, minted by `story/stages/derivation/` from the plan's own requests, and
+    they may not enter `StoryEvidencePackage.facts` at all — a package whose contents depended
+    on a model call would put a model's selection inside `package_content_digest`, which is a
+    `story_run_id` input. So there is nowhere in the package for this function to read them
+    from, and that is deliberate rather than inconvenient.
 
     The style profile is **not** a parameter. §12 requires it to be a separate system-prompt
     section, and a signature with nowhere to put it is what makes that structural.
@@ -971,12 +1114,21 @@ def writer_prompt(
     lines.extend(_required_warning_lines(plan, package))
     lines += ["", "FACTS"]
     lines.extend(_writer_fact_lines(package))
+    derived = [row for row in derived_facts if isinstance(row, DerivedFact)]
+    lines += ["", _derived_heading(derived)]
+    lines.extend(_derived_fact_lines(derived, package))
+    scope = [row for row in derived_facts if isinstance(row, EvidenceScopeFact)]
+    if scope:
+        # Printed only when there is one, unlike every other section here. The rest of this
+        # prompt renders "(none)" because an absent section would be read as an omission; §7's
+        # fact is the opposite case — a *heading* with nothing under it would be an invitation
+        # to write a sentence about a limit that was never established.
+        lines += ["", "EVIDENCE SCOPE (what this package's evidence does not contain)"]
+        lines.extend(_evidence_scope_lines(scope))
     lines += ["", SEMANTICS_HEADING]
     lines.extend(_semantic_lines(package))
     lines += ["", COMPARISON_HEADING]
     lines.extend(_comparability_lines(package))
-    lines += ["", "FORMULA WINDOWS (the only version ids a calculation may name)"]
-    lines.extend(_formula_window_lines(package))
     count = len(passages)
     # The heading no longer says "a citation may name no other", because a citation no longer
     # names a passage at all — it names an evidence id, and code resolves which passage that is
@@ -1096,21 +1248,104 @@ def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
     return lines
 
 
-def _formula_window_lines(package: StoryEvidencePackage) -> list[str]:
-    """§10's `formula_windows[]`, and *"(none)"* is the load-bearing case.
+# ---------------------------------------------------------------------------------------
+# DETERMINISTIC_FACT_TOOLS §4.4 and §7 — what code computed, rendered for the writer
+#
+# **Printed in the same shape as FACTS, and the sameness is the design.** The whole change is
+# that a derived value stops being a special sentence the model declares arithmetic in and
+# becomes an ordinary figure it binds; a section that rendered it differently would teach the
+# opposite. So each row prints an id to bind, a value to write, a metric surface and a period
+# surface — the same four things `_writer_fact_lines` prints, in the same order.
+#
+# **Three differences from FACTS, each of them §6's requirement rather than a rendering choice.**
+#
+# * **No evidence id.** No handle is ever minted for a derived fact, because a citation must stay
+#   attached to the observed facts a claim rests on. The row instead names the two FACTS rows it
+#   was computed from, and rule 7 tells the writer to cite *their* evidence ids.
+# * **A `says` line rather than a sign to read.** `DisplaySemantics` is a closed vocabulary code
+#   chose, and it exists because the sign of `result` does not settle the direction: 46 of 46
+#   canonical `direct_selling_costs` values are stored negative, so a fall in the number is a
+#   rise in the cost. A writer inferring "decreased" from a minus sign would be right about this
+#   candidate and wrong about that one.
+# * **The period surface is `to_period`'s.** §13.4 requires a binding to a derived fact to resolve
+#   a period surface agreeing with the period the claim is *about*, which is the later one — and
+#   this is the line that would have prevented the `unbound_numeral` on `2022` that §2 measured.
+# ---------------------------------------------------------------------------------------
 
-    §13.9 checks `formula_version_id` against this section and refuses a version it does not
-    hold; the demo package holds none, because a cross-metric gap is arithmetic rather than an
-    ontology identity. Rendering the empty section is what makes rule 7's *"write ''"*
-    checkable by the model rather than a rule about a section it cannot see.
+
+def _derived_heading(derived: Sequence[DerivedFact]) -> str:
+    count = len(derived)
+    if not count:
+        return ("DERIVED FACTS (none; the plan requested no derivation, so write no figure "
+                "that is not in FACTS)")
+    return (f"DERIVED FACTS ({count}; code computed each one from two FACTS rows - bind them "
+            "exactly as you bind a fact above)")
+
+
+def _derived_fact_lines(
+    derived: Sequence[DerivedFact], package: StoryEvidencePackage
+) -> list[str]:
+    """One derived fact per block, with everything a `FactBinding` for it needs and nothing else.
+
+    The metric surface is taken through `metric_surfaces_for` rather than off
+    `DerivedFact.metric_surfaces`, and the difference matters on exactly the demo candidate.
+    That field carries the two inputs' own `metric_label`s in `(from, to)` order, and one of
+    them is `"Gross Margin"` — the surface §13.5 refuses, because `"gross margin"` is a
+    sub-phrase of `"adjusted gross margin"` and the alias index resolves by longest match. The
+    package-local filter is the same one every FACTS row is rendered through, so a derived fact
+    and the observation it came from are offered the same words.
     """
-    if not package.formula_windows:
-        return ["  (none - every calculation here is arithmetic, so write \"\")"]
-    return [
-        f"  {window.version_id}  for {window.metric_id}  "
-        f"valid {window.valid_from or 'always'}..{window.valid_to or 'now'}"
-        for window in package.formula_windows
-    ]
+    if not derived:
+        return ["  (none)"]
+    lines: list[str] = []
+    for fact in derived:
+        lines.append(f"  [{fact.fact_id}]")
+        lines.append(f"      {fact.metric_id}  {_derived_result(fact)}")
+        lines.append(f"      says: {fact.display_semantics.value}, "
+                     f"{fact.from_period} -> {fact.to_period}")
+        surfaces = metric_surfaces_for(package, fact.metric_id)
+        if surfaces:
+            lines.append("      metric surface: write one of "
+                         + ", ".join(f'"{surface}"' for surface in surfaces))
+        else:
+            lines.append("      metric surface: no surface names this metric uniquely in this "
+                         "package - do not write about this fact")
+        if fact.period_surface_hint:
+            lines.append(f'      period surface: write exactly "{fact.period_surface_hint}"')
+        else:
+            lines.append("      period surface: this period has no permitted surface - do not "
+                         "write about this fact")
+        # Named rather than resolved to their values: the writer needs them to know which two
+        # evidence ids to cite (rule 7), and a value printed here would be a second place to
+        # read a figure the FACTS section already prints with its own surfaces.
+        lines.append(f"      computed from {fact.from_fact_id} and {fact.to_fact_id} - cite "
+                     "both of their evidence ids and no others")
+        if fact.warning_codes:
+            lines.append("      warnings " + ", ".join(fact.warning_codes))
+    return lines
+
+
+def _derived_result(fact: DerivedFact) -> str:
+    """The answer as the writer must write it: a number with its unit, or a closed word.
+
+    `crossed_zero` and `trend_direction` produce no numeral at all — a boolean rendered as `1.0`
+    would be a number §13.1 then compares against the prose — so the word is printed on its own
+    and no unit is offered for it.
+    """
+    if fact.result is None:
+        return fact.result_word
+    return f"{fact.result} {fact.unit}"
+
+
+def _evidence_scope_lines(scope: Sequence[EvidenceScopeFact]) -> list[str]:
+    """§7's claim, as the sentence code minted and with no id to bind.
+
+    The `fact_id` is deliberately not printed. It is not bindable — the row carries no result,
+    no unit and no period — and printing an id beside every other bindable row would invite a
+    binding the schema would then have nowhere to resolve. What the writer needs from this
+    section is the constraint, and the constraint is the statement.
+    """
+    return ["  " + fact.statement for fact in scope]
 
 
 def _writer_passage_lines(passages: Sequence[PackagedPassage]) -> list[str]:

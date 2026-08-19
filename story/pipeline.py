@@ -26,9 +26,15 @@ Model-assisted factual authority: §13's deterministic layer is the only authori
 
     resolve_demo_inputs(...)   the graph half: freshness gate, detection, packaging.
                                Needs Neo4j and a projected run on disk. Deterministic.
-    run_demo(inputs, ...)      the model half: planner, writer, verifier, artifacts.
-                               A pure function of its inputs and its provider — no database,
-                               no filesystem read, one directory written.
+    run_demo(inputs, ...)      the model half: planner, derivation, writer, verifier,
+                               artifacts. A pure function of its inputs and its provider — no
+                               database, no filesystem read, one directory written.
+
+The derivation stage sits between the plan and the draft and has no model in it at all
+(DETERMINISTIC_FACT_TOOLS §5). It is here rather than inside either generation stage for this
+module's stated reason: it owns the order, and *"code computes every quantity and the model only
+words it"* is an ordering claim — the offer set must be built before the planner is asked, and
+the facts must exist before the writer is.
 
 Everything downstream of the package is therefore drivable from a committed package and a
 committed answer store with nothing running, which is what makes the determinism proof a test
@@ -55,8 +61,10 @@ from story.core.graph_identity import GraphIdentity, read_graph_identity
 from story.core.keys import story_run_id as mint_story_run_id
 from story.core.manifest import StoryRunManifest, build_manifest
 from story.core.models import (
+    DerivedFact,
     Draft,
     EditorialPlan,
+    EvidenceScopeFact,
     GenerationResult,
     RunSelection,
     StoryCandidate,
@@ -74,6 +82,10 @@ from story.providers.public import (
     StoryProviderError,
     StoryProviderSchemaError,
 )
+from story.stages.derivation.execute import execute_all
+from story.stages.derivation.offers import offers
+from story.stages.derivation.public import TOOL_VERSION as DERIVATION_TOOL_VERSION
+from story.stages.derivation.public import DerivationResult
 from story.stages.detection import (
     POLICY_VERSION,
     canonicalize,
@@ -89,6 +101,7 @@ from story.stages.detection import (
 from story.stages.detection import (
     acceleration,
     cross_metric_divergence,
+    detector_config,
     metric_move,
     trend_reversal,
 )
@@ -106,6 +119,7 @@ from story.stages.generation import (
     PlannedStory,
     WrittenStory,
     causal_language_for,
+    causal_marker_hits,
     plan_story,
     planner_schema,
     render_markdown,
@@ -143,6 +157,14 @@ REJECTED_FILENAME = "rejected.json"
 #: §14's replay mechanism, written so a `--live` run can be replayed afterwards. Not in §8b's
 #: artifact list, and written anyway: without it a live run is a result nobody can reproduce.
 GENERATIONS_FILENAME = "generations.jsonl"
+#: DETERMINISTIC_FACT_TOOLS §3 — every quantity code computed for this run, and §7's
+#: evidence-scope facts beside them. **A separate artifact and not a section of
+#: `evidence_package.json`**, because the planner selects the derivations and §2's line is that
+#: nothing a model produced may enter a package: `package_content_digest` is a `story_run_id`
+#: input, so a package whose contents depended on a model call would make the run id depend on
+#: the model's output. Written whenever the derivation stage ran at all, refusals included —
+#: a file recording only the successes could not answer *"what did the plan ask for?"*.
+DERIVED_FACTS_FILENAME = "derived_facts.json"
 MANIFEST_FILENAME = "demo_manifest.json"
 
 #: What the run ended as. Five values, not two: §11 and §12 can each refuse before §13 runs,
@@ -155,9 +177,20 @@ MANIFEST_FILENAME = "demo_manifest.json"
 #: overclaim the four exist to prevent, one boundary further out: a 401, a closed port and a
 #: timeout are not a model's judgement about anything, and a disposition that says a stage
 #: refused is a claim about what a model answered.
+#: `derivation_refused` is the sixth and was added 2026-08-19 with DETERMINISTIC_FACT_TOOLS §5.
+#: It is **not** reachable from a model's answer, and that is exactly why it is not folded into
+#: `plan_refused`: a triple outside the offer set is refused by `plan_violations` before the
+#: writer runs and ends the run as `plan_refused`, and everything still inside the offer set has
+#: already passed every clause of §4.2 by construction. What is left is §4.4's detector-signal
+#: assertion — the candidate's own `delta` or `gap` disagreeing with what the operation computed
+#: — which is *"two code paths computing one number and differing"*, a defect in one of them and
+#: never a judgement about a plan. Recording it as `plan_refused` would blame the model for a
+#: disagreement between two deterministic computations, and dropping the derivation and writing
+#: anyway would hand the writer a plan resting on a quantity that does not exist.
 ACCEPTED = "accepted"
 REJECTED = "rejected"
 PLAN_REFUSED = "plan_refused"
+DERIVATION_REFUSED = "derivation_refused"
 DRAFT_REFUSED = "draft_refused"
 PROVIDER_FAILED = "provider_failed"
 
@@ -166,10 +199,11 @@ PROVIDER_FAILED = "provider_failed"
 #: restating it and drifting by one value, which is exactly how `provider_failed` could have
 #: shipped to a browser that had never heard of it.
 DISPOSITIONS: tuple[str, ...] = (
-    ACCEPTED, REJECTED, PLAN_REFUSED, DRAFT_REFUSED, PROVIDER_FAILED)
+    ACCEPTED, REJECTED, PLAN_REFUSED, DERIVATION_REFUSED, DRAFT_REFUSED, PROVIDER_FAILED)
 
-#: The three stages a run can end at, under the names `rejected.json` has always written.
+#: The four stages a run can end at, under the names `rejected.json` has always written.
 STAGE_PLANNER = "editorial_planner"
+STAGE_DERIVATION = "derivation_tool"
 STAGE_WRITER = "post_writer"
 STAGE_VERIFIER = "deterministic_verifier"
 
@@ -180,6 +214,7 @@ STAGE_VERIFIER = "deterministic_verifier"
 #: and reads them from here (see `demo_ui/api.py:_pipeline`).
 REFUSING_STAGE: Mapping[str, str] = {
     PLAN_REFUSED: STAGE_PLANNER,
+    DERIVATION_REFUSED: STAGE_DERIVATION,
     DRAFT_REFUSED: STAGE_WRITER,
     REJECTED: STAGE_VERIFIER,
 }
@@ -581,9 +616,18 @@ def run_demo(
         raise FreshnessRefused(inputs.freshness)
 
     package = inputs.package
+    # DETERMINISTIC_FACT_TOOLS §4.3 — computed **before** the planner, from the package and the
+    # candidate and nothing else, and passed to the planner and to the executor as one tuple.
+    # This module is the composition root for the derivation stage in the same way it already is
+    # for the two model calls: `offers` lives in a stage the generation stage may not import, and
+    # a second list computed downstream is the one way the printed offers and the checked offers
+    # could disagree.
+    offered = offers(package, inputs.candidate)
     results: list[GenerationResult] = []
     planned: PlannedStory | None = None
     written: WrittenStory | None = None
+    derived: tuple[DerivedFact | EvidenceScopeFact, ...] = ()
+    derivation: DerivationResult | None = None
     #: The two call sites' own results, kept **separately from the disposition** because a
     #: refused stage still made a call. `planned`/`written` are `None` on a refusal by
     #: definition — there is no plan and no draft — and reading the manifest's accounting off
@@ -597,7 +641,7 @@ def run_demo(
     fault: ProviderFault | None = None
 
     try:
-        planned = plan_story(package, provider=provider,
+        planned = plan_story(package, provider=provider, offered=offered,
                              max_tokens=config.planner_max_tokens)
         planner_result = planned.generation
     except EditorialPlanRejected as exc:
@@ -611,9 +655,31 @@ def run_demo(
         results.append(planner_result)
 
     if planned is not None:
+        # §5's stage, between plan and draft. No provider, no clock, no network: the plan's
+        # requests in, `DerivedFact`s out, and §7's evidence-scope facts minted from the package
+        # alone beside them. It cannot raise a `StoryProviderError` and has no `try` around it
+        # for that reason — every refusal it produces is a value on the result.
+        derivation = execute_all(
+            planned.plan.requested_derivations, package, inputs.candidate,
+            # The composition root's three arguments, each one a thing the derivation stage
+            # needs and may not import: a sibling stage owns the sign convention, and another
+            # owns what counts as causal language. `public.DirectionOracle` argues why passing
+            # the real function beats restating its 26-row table.
+            direction=detector_config.quantity_direction,
+            causal_language=causal_language_for(package),
+            causal_marker_fact_ids=_causal_marker_fact_ids(package),
+            offered=offered)
+        derived = (*derivation.facts, *derivation.evidence_scope_facts)
+        if derivation.refusals:
+            disposition = DERIVATION_REFUSED
+            refusal = "; ".join(
+                f"{item.code.value}: {item.detail}" for item in derivation.refusals)
+            refusal_codes = tuple(item.code.value for item in derivation.refusals)
+
+    if planned is not None and disposition != DERIVATION_REFUSED:
         try:
             written = write_story(
-                package, planned.plan, provider=provider,
+                package, planned.plan, provider=provider, derived_facts=derived,
                 length_target=config.length_target, max_tokens=config.writer_max_tokens)
             writer_result = written.generation
         except DraftRejected as exc:
@@ -634,7 +700,7 @@ def run_demo(
             graph_run_id=inputs.identity.graph_run_id,
             run_complete_sha256=inputs.identity.run_complete_sha256,
             ontology_definition_hash=inputs.identity.ontology_definition_hash,
-        ).verify(written.draft, package, planned.plan)
+        ).verify(written.draft, package, planned.plan, derived_facts=derived)
         disposition = ACCEPTED if verified.passed else REJECTED
 
     story_run = _mint_run_id(inputs, config, provider=provider, results=results)
@@ -643,6 +709,7 @@ def run_demo(
     manifest = _write_run(
         directory, inputs=inputs, config=config, story_run=story_run,
         disposition=disposition, planned=planned, written=written, verified=verified,
+        derivation=derivation, offered=offered,
         planner_result=planner_result, writer_result=writer_result,
         refusal=refusal, refusal_codes=refusal_codes, fault=fault, results=results,
         provider=provider, live=live, now=now)
@@ -652,6 +719,24 @@ def run_demo(
         draft=written.draft if written else None, verified=verified,
         refusal=refusal, refusal_codes=refusal_codes, fault=fault,
         artifacts=manifest.artifacts)
+
+
+def _causal_marker_fact_ids(package: StoryEvidencePackage) -> tuple[str, ...]:
+    """Which of this package's facts carry a §13.10 causal marker, negated ones included.
+
+    §7's third minting condition, and it is **not** redundant with the second. `causal_language`
+    is `FORBIDDEN` when no cited span carries a marker its own clause does not negate; this asks
+    the narrower question of whether a fact carries one *at all*, because a package whose table
+    quote reads *"was not driven by"* is forbidden and still carries a marker, and the sentence
+    *"this package supplies no explanation"* would be false about it. So the negated hits are
+    kept here where `causal_language_for` drops them.
+
+    Intersected with the package's own facts because `causal_marker_hits` also reports hits in
+    passage excerpts, whose `source_id` is a passage id — §7's condition is about facts, and
+    `explanatory_passages` being empty is the condition that covers the passages.
+    """
+    fact_ids = {fact.observation_id for fact in package.facts}
+    return tuple(sorted({hit.source_id for hit in causal_marker_hits(package)} & fact_ids))
 
 
 def _provider_failure(
@@ -968,7 +1053,20 @@ def _token_totals(results: list[GenerationResult], package: StoryEvidencePackage
 
 
 def _counts(inputs: DemoInputs, written: WrittenStory | None,
-            verified: VerifiedDraft | None) -> dict[str, Any]:
+            verified: VerifiedDraft | None, derivation: DerivationResult | None,
+            offered: Sequence[Any]) -> dict[str, Any]:
+    """What the run held, counted. The four derivation rows answer four different questions.
+
+    `derivations_offered` is what code put in front of the planner, `derivations_requested` is
+    what the plan asked for, `derived_facts` is what came back and `derivation_refusals` is what
+    did not. Three of the four would be derivable from the artifacts and the fourth would not:
+    the offer set is not written anywhere, and a run that recorded only *"one derived fact"*
+    could not say whether the planner chose one of twelve or one of one.
+
+    `evidence_scope_facts` is counted separately from `derived_facts` for `DerivationResult`'s
+    own reason: §7's kind is minted by code from the package and is never requested, so folding
+    it into the derived count would let a reader ask which plan request produced it.
+    """
     package = inputs.package
     counts: dict[str, Any] = {
         "facts": len(package.facts),
@@ -978,6 +1076,13 @@ def _counts(inputs: DemoInputs, written: WrittenStory | None,
         "package_warnings": len(package.warnings),
         "freshness_checks": len(inputs.freshness.checks),
         "sentences": len(written.draft.sentences) if written else 0,
+        "derivations_offered": len(offered),
+        "derivations_requested": 0 if derivation is None else (
+            len(derivation.facts) + len(derivation.refusals)),
+        "derived_facts": 0 if derivation is None else len(derivation.facts),
+        "derivation_refusals": 0 if derivation is None else len(derivation.refusals),
+        "evidence_scope_facts": (
+            0 if derivation is None else len(derivation.evidence_scope_facts)),
     }
     if verified is not None:
         counts["verification_checks"] = len(verified.checks)
@@ -1008,6 +1113,15 @@ def _write_run(
     planned: PlannedStory | None,
     written: WrittenStory | None,
     verified: VerifiedDraft | None,
+    #: `None` exactly when the derivation stage never ran — a planner refusal or a provider
+    #: fault. An empty `DerivationResult` is a different thing and says so: the stage ran, the
+    #: plan requested nothing, and §7 established no absence either.
+    derivation: DerivationResult | None,
+    #: What `offers` put in front of the planner. Counted rather than written: the offer set is
+    #: a pure function of the package and the candidate, both of which are artifacts here, so a
+    #: reader can rebuild it exactly — and a run that also wrote it out would be storing a
+    #: derivable list beside the two inputs it derives from.
+    offered: Sequence[Any],
     #: Each call site's own result, and **not** `planned.generation`/`written.generation`: those
     #: exist only when the stage was accepted, and a refused stage still made a request whose
     #: provenance §5.2 asks for. `None` means no request came back, which is the only thing
@@ -1042,6 +1156,8 @@ def _write_run(
     write(PACKAGE_FILENAME, _render_json(inputs.package.model_dump(mode="json")))
     if planned is not None:
         write(PLAN_FILENAME, _render_json(planned.plan.model_dump(mode="json")))
+    if derivation is not None:
+        write(DERIVED_FACTS_FILENAME, _render_json(_derived_facts_payload(derivation)))
     if written is not None:
         write(DRAFT_FILENAME, _render_json(written.draft.model_dump(mode="json")))
     if verified is not None:
@@ -1106,7 +1222,7 @@ def _write_run(
             "selection_mode": SELECTION_MODE,
         },
         budget=inputs.package.budget.parameters.model_dump(mode="json"),
-        counts=_counts(inputs, written, verified),
+        counts=_counts(inputs, written, verified, derivation, offered),
         token_totals=_token_totals(results, inputs.package),
         artifacts=artifacts,
         story_run_id_inputs=list(_run_id_input_names()),
@@ -1127,6 +1243,13 @@ def _write_run(
             "graph_input_content_digest": inputs.identity.input_content_digest,
             "verifier_gate_digest": verifier_gate_digest(),
             "verifier_version": None,
+            # The one derivation version there is, and it has a real home rather than a derived
+            # stand-in: `derivation/public.py` declares `TOOL_VERSION`, every `fact:derived:` id
+            # digests it, and a redefinition therefore mints new facts instead of silently
+            # re-meaning existing ones. That is precisely what `verifier_version: None` above
+            # records the verifier as **not** having, so the two sit beside each other on
+            # purpose.
+            "derivation_tool_version": DERIVATION_TOOL_VERSION,
             "disposition": disposition,
             # `null` on every other disposition. Here as well as in `rejected.json` because the
             # manifest is the file a run directory is *indexed* by — it is the completion marker
@@ -1142,6 +1265,33 @@ def _write_run(
     }
     (directory / MANIFEST_FILENAME).write_text(_render_json(payload), encoding="utf-8")
     return manifest
+
+
+def _derived_facts_payload(derivation: DerivationResult) -> dict[str, Any]:
+    """§3's artifact: the facts, §7's facts, the refusals, and the version that computed them.
+
+    Three lists rather than one, for the reason `DerivationResult` keeps three fields. A derived
+    fact was requested and granted; an evidence-scope fact was never requested at all, because
+    absence is not a calculation; a refusal was requested and not granted. One list carrying all
+    three would leave a reader unable to ask which plan request produced a row, and that
+    question has a different answer for each kind.
+
+    `tool_version` is written at the top level as well as on every row. The rows carry it because
+    it is a digest input to their ids; the file carries it because a run whose plan requested
+    nothing has no row to read it off, and *"which tool version did this run have"* is still a
+    question about that run.
+    """
+    return {
+        "tool_version": DERIVATION_TOOL_VERSION,
+        "facts": [fact.model_dump(mode="json") for fact in derivation.facts],
+        "evidence_scope_facts": [
+            fact.model_dump(mode="json") for fact in derivation.evidence_scope_facts],
+        "refusals": [
+            {"code": refusal.code.value, "operation": refusal.operation,
+             "from_fact_id": refusal.from_fact_id, "to_fact_id": refusal.to_fact_id,
+             "rule_id": refusal.rule_id, "detail": refusal.detail}
+            for refusal in derivation.refusals],
+    }
 
 
 def _rejection_payload(inputs: DemoInputs, disposition: str, verified: VerifiedDraft | None,
@@ -1196,6 +1346,8 @@ __all__ = [
     "ACCEPTED",
     "CANDIDATE_FILENAME",
     "DISPOSITIONS",
+    "DERIVATION_REFUSED",
+    "DERIVED_FACTS_FILENAME",
     "DRAFT_FILENAME",
     "DRAFT_REFUSED",
     "GENERATIONS_FILENAME",
@@ -1209,6 +1361,7 @@ __all__ = [
     "REJECTED",
     "REJECTED_FILENAME",
     "SELECTION_MODE",
+    "STAGE_DERIVATION",
     "STAGE_PLANNER",
     "STAGE_VERIFIER",
     "STAGE_WRITER",

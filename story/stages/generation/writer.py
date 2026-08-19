@@ -38,21 +38,34 @@ The consequence is worth stating plainly: a draft that leaves this module can ne
 `binding_span_does_not_match_text` or §13.7's `citation_span_not_in_passage`, because a draft
 that would have is refused here first.
 
-**Six rules are code after the call, not instructions in the prompt** — §15.3 can express none
+**Five rules are code after the call, not instructions in the prompt** — §15.3 can express none
 of them, since it has no `pattern`, no `minItems` and no way to say "this string must occur in
 that string":
 
-1. every `fact_id`, in a binding or in a calculation's inputs, resolves in the package;
+1. every binding's `fact_id` resolves — in the package, or in **this run's derived facts**;
 2. every `rendered` occurs exactly once in its own sentence's `text`;
 3. every `evidence_id` is a handle **this package minted**, its fact's passage is in the
    writer's own slice, and its coordinates resolve inside that passage's text;
-4. a sentence carries at most one calculation — the schema's array is how §15.3 spells
-   "optional", not a licence to declare two derivations for one sentence;
-5. the draft rests on the plan: it binds at least one fact the plan's key points named. A draft
+4. the draft rests on the plan: it binds at least one fact the plan's key points named. A draft
    that shares no fact with the plan it was given is a different story, which is §12's *"the
    writer must not change the thesis"* in the only form the draft contract can express — there
    is no `thesis` field on a `Draft` to compare;
-6. the draft has at least one sentence.
+5. the draft has at least one sentence.
+
+**It was six, and the sixth is gone with the field it guarded** (DETERMINISTIC_FACT_TOOLS §5).
+*"A sentence carries at most one calculation"* existed because the schema spelled an optional
+object as an array of zero or one, and a model could put two in it. There is no `calculation` in
+the writer's schema now: `additionalProperties: false` refuses one before a draft is built, and
+`more_than_one_calculation` was retired rather than kept as a code nothing can raise. `draft_from`
+also no longer resolves a calculation's `input_observation_ids`, because there are none — the
+inputs of a derived quantity are `DerivedFact.from_fact_id`/`to_fact_id`, which code chose.
+
+**`derived_facts` is what rule 1 grew, and it is a `Sequence` this stage is handed rather than
+anything it computes.** §3 forbids a derived fact from entering `StoryEvidencePackage.facts` —
+that would put a model's selection inside `package_content_digest`, a `story_run_id` input — so
+the writer's universe is now two lists, and neither is derivable from the other here. The
+default is empty, which makes a binding to a derived id `unresolvable_fact_id`: the honest
+answer for a caller that ran no derivation stage.
 
 **What this module deliberately does not check.** Percentage-point surfaces, causal language,
 superlatives, period grammar, metric ambiguity, calculation recomputation, required warnings and
@@ -76,10 +89,11 @@ from pydantic import ValidationError
 
 from story.contracts import StoryGenerationProvider
 from story.core.models import (
-    Calculation,
+    DerivedFact,
     Draft,
     DraftSentence,
     EditorialPlan,
+    EvidenceScopeFact,
     FactBinding,
     GenerationResult,
     PackagedFact,
@@ -128,7 +142,13 @@ UNRESOLVABLE_EVIDENCE_HANDLE = "unresolvable_evidence_handle"
 EVIDENCE_HANDLE_OUT_OF_BOUNDS = "evidence_handle_out_of_bounds"
 CITATION_QUOTE_NOT_IN_PASSAGE = "citation_quote_not_in_passage"
 CITATION_QUOTE_AMBIGUOUS = "citation_quote_ambiguous_in_passage"
-MORE_THAN_ONE_CALCULATION = "more_than_one_calculation"
+#: `more_than_one_calculation` stood here and was **retired**, not renamed. It refused a
+#: `calculation` array holding two objects — the array being how §15.3 spelled an optional field
+#: — and DETERMINISTIC_FACT_TOOLS §5 removed the field from the writer's schema entirely. There
+#: is no answer this module can now receive that would raise it. `_quote_violation`'s rule is
+#: that deleting a *reachable* code is worse than keeping one that has not fired; the converse
+#: is what applies here, since a catalogue offering a refusal no stage can produce is a
+#: catalogue that describes a system this is not.
 THESIS_ABANDONED = "thesis_abandoned"
 NO_SENTENCES = "no_sentences"
 PLAN_NAMES_ANOTHER_PACKAGE = "plan_names_another_package"
@@ -225,6 +245,7 @@ def draft_violations(
     plan: EditorialPlan,
     *,
     passages: Sequence[PackagedPassage] | None = None,
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
 ) -> tuple[DraftViolation, ...]:
     """Every reason this draft may not reach the verifier. Empty means accepted.
 
@@ -233,10 +254,15 @@ def draft_violations(
 
     `passages` defaults to the slice this module would have built, so a caller cannot widen the
     citable set by passing a longer list than the writer was shown.
+
+    `derived_facts` does **not** default to anything computable, for the opposite half of the
+    same reason: there is no way to derive this run's derived facts from the package, so an
+    empty default cannot be a silently-widened set — it can only be a narrower one, and a
+    binding to an id nothing in this run minted is exactly what `unresolvable_fact_id` is for.
     """
     slice_ids = {passage.passage_id
                  for passage in (writer_passages(package) if passages is None else passages)}
-    fact_ids = {fact.observation_id for fact in package.facts}
+    fact_ids = _bindable_ids(package, derived_facts)
     found: list[DraftViolation] = []
 
     if not draft.sentences:
@@ -248,7 +274,8 @@ def draft_violations(
             if binding.fact_id not in fact_ids:
                 found.append(DraftViolation(
                     UNRESOLVABLE_FACT_ID,
-                    f"{where} binds fact {binding.fact_id!r}, which the package does not hold"))
+                    f"{where} binds fact {binding.fact_id!r}, which is neither a fact of "
+                    f"{package.package_id} nor a derived fact of this run"))
             occurrences = _occurrences(sentence.text, binding.rendered)
             if len(occurrences) != 1:
                 found.append(_rendering_violation(where, binding.rendered, occurrences))
@@ -258,12 +285,6 @@ def draft_violations(
                     f"{where} declares {binding.rendered!r} at "
                     f"[{binding.char_start}, {binding.char_end}), which holds "
                     f"{sentence.text[binding.char_start:binding.char_end]!r}"))
-        if sentence.calculation is not None:
-            for fact_id in sentence.calculation.input_observation_ids:
-                if fact_id not in fact_ids:
-                    found.append(DraftViolation(
-                        UNRESOLVABLE_FACT_ID,
-                        f"{where} computes over {fact_id!r}, which the package does not hold"))
         found.extend(_citation_violations(where, sentence, slice_ids, package))
 
     bound = {binding.fact_id for sentence in draft.sentences
@@ -275,6 +296,22 @@ def draft_violations(
             f"the plan's key points rest on {sorted(planned)} and the draft binds "
             f"{sorted(bound) or 'no fact at all'}; §12 — the writer may not change the thesis"))
     return tuple(found)
+
+
+def _bindable_ids(
+    package: StoryEvidencePackage,
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact],
+) -> set[str]:
+    """Every id a `FactBinding` may name: the package's observations, plus this run's derived.
+
+    **`EvidenceScopeFact` is deliberately not in the set.** §7's row carries no result, no unit
+    and no period, so there is nothing for a binding's `rendered` to be a rendering *of*; it is
+    a limit on what may be written and never a figure to write. Including it would make
+    `FactBinding(fact_id="fact:evidence-scope:…")` resolvable here and unresolvable at §13.1,
+    which is the shape of disagreement between two stages this module exists to avoid.
+    """
+    return ({fact.observation_id for fact in package.facts}
+            | {row.fact_id for row in derived_facts if isinstance(row, DerivedFact)})
 
 
 def _rendering_violation(
@@ -373,6 +410,7 @@ def draft_from(
     plan: EditorialPlan,
     *,
     passages: Sequence[PackagedPassage] | None = None,
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
     model_id: str,
     style_profile_id: str = PLAIN_INVESTOR_STYLE.profile_id,
     prompt_version: str = WRITER_PROMPT_VERSION,
@@ -419,7 +457,8 @@ def draft_from(
             f"the model's draft cannot be constructed: {exc}",
             (DraftViolation(DRAFT_NOT_CONSTRUCTIBLE, str(exc)),)) from exc
 
-    found = draft_violations(draft, package, plan, passages=shown)
+    found = draft_violations(draft, package, plan, passages=shown,
+                             derived_facts=derived_facts)
     if found:
         raise DraftRejected(
             "the writer's draft is refused before verification (§12): "
@@ -458,16 +497,6 @@ def _sentence_from(
         where, row.get("citations") or (), passages, handles)
     violations.extend(found)
 
-    declared_calculations = list(row.get("calculation") or ())
-    calculation: Calculation | None = None
-    if len(declared_calculations) > 1:
-        violations.append(DraftViolation(
-            MORE_THAN_ONE_CALCULATION,
-            f"{where} declares {len(declared_calculations)} calculations; §12 gives a sentence "
-            "one derivation, and the array is only how §15.3 spells an optional field"))
-    elif declared_calculations:
-        calculation = _calculation_from(declared_calculations[0])
-
     if violations:
         return None, violations
     try:
@@ -476,34 +505,15 @@ def _sentence_from(
             text=text,
             kind=SentenceKind(str(row.get("kind") or "")),
             fact_bindings=tuple(bindings),
-            calculation=calculation,
+            # No `calculation`, and there is nowhere left to read one from: the writer's schema
+            # holds no such property, so a sentence this module builds carries `None` always.
+            # `DraftSentence.calculation` survives on the type for the artifacts already written
+            # under prompt version 1.4.0, and §13 refuses a draft that arrives carrying one.
             citations=tuple(citations),
         )
     except (ValidationError, ValueError, TypeError) as exc:
         return None, [DraftViolation(DRAFT_NOT_CONSTRUCTIBLE, f"{where}: {exc}")]
     return sentence, []
-
-
-def _calculation_from(declared: Mapping[str, Any]) -> Calculation:
-    """One derivation, with `""` read as *no declared formula*.
-
-    §15.3 has no null, so the schema's `formula_version_id` is a string; an empty one is an
-    arithmetic derivation the ontology declares no formula for — a cross-metric gap — and §13.9's
-    window check abstains on it rather than failing to find a version nobody claimed.
-
-    `period_surface` is carried through exactly as the model wrote it and is **not** normalised
-    here. §13.4 resolves it through the closed grammar and §13.1 locates it in the sentence's
-    own characters; a surface tidied on the way past would be checked against words the draft
-    does not contain.
-    """
-    return Calculation(
-        operation=str(declared.get("operation") or ""),
-        input_observation_ids=tuple(declared.get("input_observation_ids") or ()),
-        expression=str(declared.get("expression") or ""),
-        result_rendered=str(declared.get("result_rendered") or ""),
-        formula_version_id=str(declared.get("formula_version_id") or "") or None,
-        period_surface=str(declared.get("period_surface") or ""),
-    )
 
 
 def _citations_from(
@@ -658,9 +668,17 @@ def render_markdown(draft: Draft) -> str:
     character some `DraftSentence.text` or the `Draft.title` already carried and §13 already
     judged; this function adds punctuation, headings and the two panels, and invents no numeral.
 
-    The evidence and derivation panels are rendered because they are the artifact's whole point:
-    §13.17's `fact_ledger` and `calculation_ledger` are the verifier's copy of the same thing,
-    and a post that hid its citations would be a post nobody could check.
+    The evidence panel is rendered because it is the artifact's whole point: §13.17's
+    `fact_ledger` is the verifier's copy of the same thing, and a post that hid its citations
+    would be a post nobody could check.
+
+    **The Derivations panel is kept and no draft this module builds can now fill it.** It reads
+    `DraftSentence.calculation`, and the writer's schema no longer has one
+    (DETERMINISTIC_FACT_TOOLS §5) — a derived quantity is an ordinary binding, so it renders
+    through the sentence and the Sources panel like every other figure. What still reaches this
+    branch is a `Draft` read back from an artifact written under prompt version 1.4.0, which is
+    the reason `Calculation` stays on the type at all, and rendering one as it was written is
+    better than a panel that silently dropped it.
     """
     lines: list[str] = []
     if draft.title:
@@ -718,11 +736,21 @@ def write_story(
     style: StyleProfile = PLAIN_INVESTOR_STYLE,
     length_target: int,
     max_tokens: int,
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
 ) -> WrittenStory:
     """§12's whole stage: an accepted plan and its package in, a structured draft out.
 
     There is no `retriever`, no `terms` and no passage argument: the slice is computed here from
     the package's own fact bindings, which is §10.2.1 point 3 as a signature.
+
+    `derived_facts` **is** an argument, and the asymmetry with `passages` is the point. A passage
+    slice is a rule about the package and this stage owns it, so it may not be passed in. A
+    derived fact is a quantity a *different stage* computed from a plan this stage was handed,
+    and there is nothing in the package to recompute it from — §3 keeps it out of
+    `StoryEvidencePackage.facts` so a model's selection stays outside `package_content_digest`.
+    Passing it is therefore the only honest shape, and defaulting it to empty means a caller who
+    ran no derivation stage writes a post with no derived figure in it rather than one with a
+    figure nothing computed.
 
     `max_tokens` and `length_target` are keyword-only with no default because both enter the
     request identity §14 keys on — the first directly, the second through the prompt text.
@@ -749,7 +777,8 @@ def write_story(
 
     result = provider.generate(
         system=writer_system(style),
-        prompt=writer_prompt(package, plan, passages, length_target=length_target),
+        prompt=writer_prompt(package, plan, passages, derived_facts=derived_facts,
+                             length_target=length_target),
         schema=schema,
         schema_name=WRITER_SCHEMA_NAME,
         max_tokens=max_tokens,
@@ -771,6 +800,7 @@ def write_story(
         draft = draft_from(
             result.content, package, plan,
             passages=passages,
+            derived_facts=derived_facts,
             # The *configured* identity where the provider states one, not the `.gguf` path the
             # server reports back — the distinction `generation_store` keeps as two fields.
             model_id=getattr(provider, "model_id", "") or result.model_id,
@@ -789,7 +819,6 @@ __all__ = [
     "CITATION_QUOTE_NOT_IN_PASSAGE",
     "DRAFT_NOT_CONSTRUCTIBLE",
     "EVIDENCE_HANDLE_OUT_OF_BOUNDS",
-    "MORE_THAN_ONE_CALCULATION",
     "NO_SENTENCES",
     "PLAN_NAMES_ANOTHER_PACKAGE",
     "THESIS_ABANDONED",

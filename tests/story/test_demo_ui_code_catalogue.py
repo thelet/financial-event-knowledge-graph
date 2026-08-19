@@ -54,15 +54,25 @@ PACKAGE = pathlib.Path(code_catalogue.__file__).resolve().parents[2]
 #: seven are new obligations — the verifier gained checks in the change that removed one from
 #: §12.
 EXPECTED_SIZES = {
-    FAMILY_VERIFICATION: 92,
+    # 92 until DETERMINISTIC_FACT_TOOLS §6 added the seven `derived_*` codes plus
+    # `derivation_not_offered`, which §13 raises on a draft as well as §11 on a plan. They are
+    # the price of the writer no longer declaring its own arithmetic: what used to be checked as
+    # `calculation_does_not_recompute` against the model's own expression is now checked against
+    # a fact code computed, and a fact code computed can be misquoted in seven distinct ways.
+    FAMILY_VERIFICATION: 99,
     FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
-    FAMILY_PLANNER: 11,
+    # 11 until DETERMINISTIC_FACT_TOOLS §5 gave §11 `derivation_not_offered` — the plan asking
+    # code for a quantity that was not on the list of derivations the prompt printed.
+    FAMILY_PLANNER: 12,
     # 11 until TABLE_CELL_CITATIONS S4 added `unresolvable_evidence_handle` and
     # `evidence_handle_out_of_bounds` — the two ways a citation can fail once it is a handle
     # rather than a retyped quote. Neither quote code was removed; a table-backed fact no longer
-    # reaches them and a narrative one still does.
-    FAMILY_WRITER: 13,
+    # reaches them and a narrative one still does. 13 → 12 at DETERMINISTIC_FACT_TOOLS §5, which
+    # retired `more_than_one_calculation`: it refused a `calculation` array of two, and the
+    # writer's schema has no `calculation` at all now, so nothing can raise it. A family that
+    # *shrinks* is what this table exists to make loud, and this is the shrink being declared.
+    FAMILY_WRITER: 12,
 }
 
 
@@ -209,7 +219,7 @@ def test_no_description_is_reused_across_two_codes_in_one_family():
 # -- lookup --------------------------------------------------------------------------------------
 
 
-def test_eight_codes_are_shared_between_two_families_and_the_lookup_says_which():
+def test_nine_codes_are_shared_between_two_families_and_the_lookup_says_which():
     """Measured, not assumed: a shared code means two different things at two stages.
 
     Six until TABLE_CELL_CITATIONS S5 gave §13.7 the two handle failures §12 already had. Both
@@ -217,12 +227,22 @@ def test_eight_codes_are_shared_between_two_families_and_the_lookup_says_which()
     in a rejection should not have to learn that the writer and the verifier spell it
     differently — so both need their own sentence here, and the assertion below is what makes a
     copied description fail the build.
+
+    Eight until DETERMINISTIC_FACT_TOOLS §5 and §6 both raise `derivation_not_offered`. §11
+    raises it about a **plan** — the model asked for a derivation the prompt never offered, and
+    nothing was computed. §13 raises it about a **draft** — a sentence bound a derived fact whose
+    request was not on the offer list, which is the same name for a failure one stage later and
+    with a computed value already in hand. Two stages, two sentences, as `graph_run_id_mismatch`
+    already required.
     """
     shared = sorted({code for (_family, code) in CATALOGUE if len(families_of(code)) > 1})
     assert shared == [
-        "citation_quote_not_in_passage", "event_review_flag", "evidence_handle_out_of_bounds",
-        "graph_run_id_mismatch", "plan_names_another_package", "unresolvable_evidence_handle",
-        "unresolvable_fact_id", "unresolvable_passage_id"]
+        "citation_quote_not_in_passage", "derivation_not_offered", "event_review_flag",
+        "evidence_handle_out_of_bounds", "graph_run_id_mismatch", "plan_names_another_package",
+        "unresolvable_evidence_handle", "unresolvable_fact_id", "unresolvable_passage_id"]
+    assert families_of("derivation_not_offered") == (FAMILY_VERIFICATION, FAMILY_PLANNER)
+    assert (explain("derivation_not_offered", FAMILY_PLANNER).description
+            != explain("derivation_not_offered", FAMILY_VERIFICATION).description)
     # `graph_run_id_mismatch` is the sharpest: §7 raises it about the loaded database and
     # §13.13 raises it about a package, and the two want different sentences.
     assert families_of("graph_run_id_mismatch") == (FAMILY_VERIFICATION, FAMILY_FRESHNESS)

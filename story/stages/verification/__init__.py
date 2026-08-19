@@ -16,17 +16,18 @@ to be recorded and cannot be lost by a verifier that raises. `rejection_for` is 
 of §13.17: a `RejectedDraft` carries the same checks and refuses to be constructed unless
 something in them blocks, so an acceptance cannot be filed as a rejection or the reverse.
 
-Eight modules, split where a concern is genuinely separate rather than to make the directory
+Nine modules, split where a concern is genuinely separate rather than to make the directory
 look uniform:
 
-    codes.py           §13.17's gate — severity and remedy per code, in one table      264
-    period_grammar.py  §13.4's closed grammar for a period surface                     203
-    metric_surfaces.py §13.5's alias index, longest match wins                         204
-    language.py        the closed lexicons §13.6, §13.10, §13.14, §13.15 refuse on     337
-    package_index.py   the lookups over one package, incl. §13.7.1's column census     183
-    citations.py       §13.7's three rules — reconstruction, containment, Rule C       490
-    claims.py          §13.10, §13.14, §13.15 — what a sentence may assert             636
-    deterministic.py   ten of the twelve checks, and the assembly                    1,417
+    codes.py           §13.17's gate — severity and remedy per code, in one table      392
+    period_grammar.py  §13.4's closed grammar for a period surface                     328
+    metric_surfaces.py §13.5's alias index, longest match wins                         256
+    language.py        the closed lexicons §13.6, §13.10, §13.14, §13.15 refuse on     459
+    package_index.py   the lookups over one package, incl. §13.7.1's column census     263
+    derived_facts.py   S13 §6 and §7 — a derived fact, re-derived; evidence scope      728
+    citations.py       §13.7's three rules — reconstruction, containment, Rule C     1,019
+    claims.py          §13.10, §13.14, §13.15 — what a sentence may assert             833
+    deterministic.py   ten of the twelve checks, and the assembly                    2,372
 
 `deterministic.py` reached 1,804 lines before `claims.py` was split out of it, and the split is
 a boundary rather than a size target: *"does this number match this fact"* and *"may this
@@ -34,6 +35,15 @@ sentence say this at all"* share nothing but the package index — one reaches f
 `story/core/numerals.py`, the other for a closed lexicon, and neither calls the other. The six
 small modules are each a vocabulary that `deterministic.py` and `claims.py` both apply; folding
 any of them back in would put the vocabulary inside one of its two consumers.
+
+`derived_facts.py` is the same kind of boundary and not a fourth pile. Its question is *"is this
+derived fact what the derivation tool would have produced"*, and answering it means re-deriving
+§4.1's operation table, §4.2's comparability call and §4.4's arithmetic over `story/core/` — a
+second opinion the producing stage may not be asked for, because a stage may not import a
+sibling stage and because a verifier that asked the producer would be asking the defendant. The
+**per-binding** rules stay in `deterministic.py` beside the check each extends: a numeral bound
+to a derived fact goes through §13.1's window, §13.2's surface map, §13.4's grammar and §13.5's
+alias index, and splitting those four out would put half of each check in another file.
 """
 
 from __future__ import annotations
@@ -44,8 +54,16 @@ from story.stages.verification.deterministic import (
     REQUIRED_WARNING_QUALIFIERS,
     DeterministicVerifier,
 )
+from story.stages.verification.derived_facts import (
+    DERIVED_SURFACES,
+    RECOMPUTABLE,
+)
 from story.stages.verification.metric_surfaces import MetricAliasIndex
-from story.stages.verification.package_index import PackageIndex
+from story.stages.verification.package_index import (
+    DERIVED_FACT_PREFIX,
+    EVIDENCE_SCOPE_PREFIX,
+    PackageIndex,
+)
 
 
 class DraftAccepted(ValueError):
@@ -79,7 +97,11 @@ def rejection_for(verified: VerifiedDraft) -> RejectedDraft:
 
 
 __all__ = [
+    "DERIVED_FACT_PREFIX",
+    "DERIVED_SURFACES",
+    "EVIDENCE_SCOPE_PREFIX",
     "GATE",
+    "RECOMPUTABLE",
     "REQUIRED_WARNING_QUALIFIERS",
     "DeterministicVerifier",
     "DraftAccepted",

@@ -37,12 +37,15 @@ from story.contracts import StoryGenerationProvider
 from story.core.keys import package_content_digest
 from story.core.models import (
     BudgetParameters,
-    Calculation,
     CausalLanguage,
     Counterpoint,
+    DerivationOperation,
+    DerivationRequest,
+    DerivedFact,
     Draft,
     DraftSentence,
     EditorialPlan,
+    EvidenceRequest,
     EvidenceRole,
     FactBinding,
     GenerationResult,
@@ -59,6 +62,7 @@ from story.core.models import (
     SentenceKind,
     Severity,
     StatementClass,
+    StoryCandidate,
     StoryEvidencePackage,
     TableCellRef,
 )
@@ -75,7 +79,6 @@ from story.stages.generation.prompts import (
     PLAIN_INVESTOR_STYLE,
     WARNING_QUALIFIER_PHRASES,
     WRITER_MAX_TOKENS,
-    WRITER_OPERATIONS,
     WRITER_PROMPT_VERSION,
     WRITER_SCHEMA_NAME,
     WRITER_SYSTEM,
@@ -92,7 +95,6 @@ from story.stages.generation.writer import (
     CITATION_QUOTE_AMBIGUOUS,
     CITATION_QUOTE_NOT_IN_PASSAGE,
     EVIDENCE_HANDLE_OUT_OF_BOUNDS,
-    MORE_THAN_ONE_CALCULATION,
     NO_SENTENCES,
     PLAN_NAMES_ANOTHER_PACKAGE,
     THESIS_ABANDONED,
@@ -109,6 +111,9 @@ from story.stages.generation.writer import (
 # The verifier is a *different stage*, and `writer.py` may not import it —
 # `test_the_writer_module_reaches_no_graph_no_retrieval_and_no_verifier` asserts that. A test
 # may, and must: the demo claim is that these two meet.
+from story.stages.derivation.execute import execute
+from story.stages.derivation.offers import offers
+from story.stages.detection import detector_config
 from story.stages.verification import DeterministicVerifier
 from story.stages.verification.deterministic import REQUIRED_WARNING_QUALIFIERS
 from story.stages.verification.period_grammar import resolve as resolve_period
@@ -321,14 +326,28 @@ def citation(evidence_id: str) -> dict[str, Any]:
 
 
 def sentence(text: str, kind: str, **overrides: Any) -> dict[str, Any]:
-    row: dict[str, Any] = {"text": text, "kind": kind, "fact_bindings": [],
-                           "calculation": [], "citations": []}
+    """One sentence row, with the three fields §12's schema now has and no fourth.
+
+    `calculation` left the schema at prompt version 2.0.0 (DETERMINISTIC_FACT_TOOLS §5), and
+    this helper is where its absence is enforced for every test below: a row built here cannot
+    carry one, so no test can accidentally assert against a shape the grammar refuses.
+    """
+    row: dict[str, Any] = {"text": text, "kind": kind, "fact_bindings": [], "citations": []}
     row.update(overrides)
     return row
 
 
 def valid_answer(**overrides: Any) -> dict[str, Any]:
-    """What a conformant model returns for `make_package()` under `make_plan()`."""
+    """What a conformant model returns for `make_package()` under `make_plan()`.
+
+    **Three sentences where there were four, and the missing one is the gap.** It used to be a
+    `calculated` sentence carrying a `Calculation` the model declared — an operation, two input
+    ids, an expression and a rendered result — and there is no such field any more. The gap is
+    now a `DerivedFact` code computes, which needs a derivation stage to have run; that path has
+    its own package and its own fixture below (`derived_answer`), because it is a different
+    claim about a different candidate and folding it in here would have made every test in this
+    file depend on a stage the writer does not call.
+    """
     content: dict[str, Any] = {
         "title": "Two gross margins in one quarter",
         "sentences": [
@@ -338,14 +357,164 @@ def valid_answer(**overrides: Any) -> dict[str, Any]:
             sentence(GGM_TEXT, "reported",
                      fact_bindings=[binding(GGM_ID, "-12.6%", "GAAP gross margin")],
                      citations=[citation(GGM_HANDLE)]),
-            sentence(GAP_TEXT, "calculated", calculation=[{
-                "operation": "delta_pp",
-                "input_observation_ids": [GGM_ID, AGM_ID],
-                "expression": "adjusted_gross_margin - gaap_gross_margin",
-                "result_rendered": "15.9 percentage points",
-                "formula_version_id": "",
-                "period_surface": ""}]),
             sentence(WARNING_TEXT, "connective"),
+        ],
+    }
+    content.update(overrides)
+    return content
+
+
+# -- §2's candidate, and the derived facts the writer now binds -------------------------------
+#
+# **A second package, and it earns its place.** Every other test in this file runs on the
+# cross-metric divergence candidate, whose two facts are one period apart in metric and zero
+# periods apart in time — so it supports `compare_levels` and `ratio` and no operation that
+# states a *change*. The failure DETERMINISTIC_FACT_TOOLS §2 measured is a change:
+# `adjusted_gross_profit` from `556,000,000.0` in 2022Q2 to `110,000,000.0` in 2022Q3, whose
+# `$446 million` recomputed cleanly and whose draft was still refused, on the literal `2022`,
+# because the model left `Calculation.period_surface` empty. Testing the repair against a
+# package that cannot express the failure would be testing something else.
+#
+# **The derived fact is built by the real derivation stage rather than typed in.** `execute`
+# with `detector_config.quantity_direction` through the `DirectionOracle` seam and the package's
+# own offer set — the same three arguments `pipeline.run_demo` passes — so what the writer is
+# handed here is what the pipeline would hand it, digest and all. A hand-written `DerivedFact`
+# would be this file inventing an id the writer then binds, which proves the binding and nothing
+# about the fact.
+
+AGP_PASSAGE_ID = DOCUMENT_ID + "#p24"
+AGP_Q2_ID = "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+AGP_Q3_ID = "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+
+#: A table with the two readings in one column, so both facts carry real grid coordinates and
+#: mint the handle form §3.1 gives a table fact. Values are the filing's own, in millions.
+AGP_TABLE = (
+    "| (in millions) |  | Three Months Ended |\n"
+    "| Adjusted Gross Profit, second quarter |  | 556 |\n"
+    "| Adjusted Gross Profit, third quarter |  | 110 |"
+)
+
+
+def agp_fact(observation_id: str, period_key: str, start: str, end: str,
+             value: float, row: int) -> PackagedFact:
+    return PackagedFact(
+        observation_id=observation_id, metric_id="adjusted_gross_profit",
+        metric_label="Adjusted Gross Profit", period_key=period_key,
+        period_start=start, period_end=end, shape="quarter",
+        value=value, unit="USD", currency="USD", scale="millions",
+        printed_form=str(int(value / 1e6)), row_label="Adjusted Gross Profit",
+        source_lane="normalized_table", validation_state="clean",
+        passage_id=AGP_PASSAGE_ID, document_id=DOCUMENT_ID,
+        quoted_text=str(int(value / 1e6)),
+        cell=TableCellRef(row_index=row, value_column_index=2,
+                          period_header_row_index=0, period_header_column_index=2))
+
+
+def agp_package(**overrides: Any) -> StoryEvidencePackage:
+    fields: dict[str, Any] = dict(
+        package_id="pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:7c1d0a5b93ef",
+        candidate_id=("cand:metric-move:adjusted-gross-profit:opendoor:"
+                      "2022Q2_2022Q3:86ba9e13455d"),
+        detector_id="detector:metric_move", detector_version="1.0.0",
+        policy_version="canon-policy:1.0.0", graph_run_id=GRAPH_RUN_ID,
+        graph_projection_version="1.2.0", extraction_run_id=EXTRACTION_RUN_ID,
+        run_complete_sha256=RUN_COMPLETE_SHA256,
+        ontology_id="real_estate_marketplace_v1",
+        ontology_definition_hash=ONTOLOGY_DEFINITION_HASH,
+        ontology_semantic_version="2.0.0",
+        subject=PackagedSubject(entity_id="opendoor",
+                                entity_text="Opendoor Technologies Inc.",
+                                resolved=True, labels=("Entity", "PublicCompany")),
+        facts=(agp_fact(AGP_Q2_ID, "2022Q2", "2022-04-01", "2022-06-30", 556_000_000.0, 1),
+               agp_fact(AGP_Q3_ID, "2022Q3", "2022-07-01", "2022-09-30", 110_000_000.0, 2)),
+        metrics=(PackagedMetric(metric_id="adjusted_gross_profit",
+                                label="Adjusted Gross Profit", unit="USD",
+                                period_type="duration"),),
+        primary_passages=(PackagedPassage(
+            passage_id=AGP_PASSAGE_ID, document_id=DOCUMENT_ID, text=AGP_TABLE,
+            char_count=len(AGP_TABLE), passage_kind="table",
+            role=EvidenceRole.PRIMARY_SUPPORT),),
+        documents=(PackagedDocument(document_id=DOCUMENT_ID, form="8-K"),),
+        budget=PackageBudget(artifact_token_estimate=700, prompt_token_estimate=500,
+                             section_counts={"facts": 2}, parameters=BudgetParameters()),
+    )
+    fields.update(overrides)
+    return StoryEvidencePackage(**fields)
+
+
+def agp_candidate(package: StoryEvidencePackage) -> StoryCandidate:
+    """§2's candidate, with the four signals its `candidate.json` actually records."""
+    return StoryCandidate(
+        candidate_id=package.candidate_id, detector_id="detector:metric_move",
+        detector_version="1.0.0", policy_version="canon-policy:1.0.0",
+        graph_run_id=GRAPH_RUN_ID, subject_entity_id="opendoor", story_type="metric_move",
+        metric_ids=("adjusted_gross_profit",), anchor_period_keys=("2022Q2", "2022Q3"),
+        anchor_observation_ids=(AGP_Q2_ID, AGP_Q3_ID),
+        signals={"crosses_zero": False, "delta": -446_000_000.0, "delta_pct": -80.215827338,
+                 "direction": "decrease", "period_shape": "quarter", "polarity": "revenue"},
+        evidence_request=EvidenceRequest(
+            metric_ids=("adjusted_gross_profit",), period_keys=("2022Q2", "2022Q3"),
+            observation_ids=(AGP_Q2_ID, AGP_Q3_ID)))
+
+
+def agp_derived(package: StoryEvidencePackage | None = None) -> tuple[DerivedFact, ...]:
+    """The `absolute_change` §2 is about, computed by the stage that will compute it live."""
+    package = package if package is not None else agp_package()
+    candidate = agp_candidate(package)
+    fact = execute(
+        DerivationRequest(operation=DerivationOperation.ABSOLUTE_CHANGE,
+                          from_fact_id=AGP_Q2_ID, to_fact_id=AGP_Q3_ID),
+        package, candidate,
+        direction=detector_config.quantity_direction,
+        offered=offers(package, candidate))
+    assert isinstance(fact, DerivedFact), fact
+    return (fact,)
+
+
+def agp_plan(package: StoryEvidencePackage | None = None) -> EditorialPlan:
+    package = package if package is not None else agp_package()
+    return EditorialPlan(
+        candidate_id=package.candidate_id, package_id=package.package_id,
+        thesis="Adjusted gross profit fell sharply between the second and third quarters.",
+        why_it_matters="It is the largest quarter-over-quarter fall in the series.",
+        key_points=(KeyPoint(
+            claim="Adjusted gross profit was $110 million in 2022Q3.",
+            required_fact_ids=(AGP_Q3_ID,),
+            required_citation_passage_ids=(AGP_PASSAGE_ID,),
+            statement_class=StatementClass.REPORTED),),
+        causal_language=CausalLanguage.FORBIDDEN)
+
+
+AGP_REPORTED_TEXT = "Adjusted gross profit was $110 million in the third quarter of 2022."
+AGP_DERIVED_TEXT = (
+    "Adjusted gross profit decreased by $446 million in the third quarter of 2022.")
+
+
+def derived_answer(derived: tuple[DerivedFact, ...], **overrides: Any) -> dict[str, Any]:
+    """A conformant answer that states a derived quantity the only way §12 now allows it.
+
+    The `calculated` sentence carries **no** calculation and an ordinary `fact_bindings` entry
+    naming the derived fact's id, with the metric surface and the period surface the DERIVED
+    FACTS section printed for it. Its citations are the two *input* facts' evidence handles: a
+    derived fact mints no handle of its own, deliberately, so the evidence a reader follows is
+    the two cells the quantity was computed from.
+    """
+    package = agp_package()
+    handles = [fact.evidence_handle for fact in package.facts]
+    content: dict[str, Any] = {
+        "title": "Adjusted gross profit in 2022Q3",
+        "sentences": [
+            sentence(AGP_REPORTED_TEXT, "reported",
+                     fact_bindings=[{"fact_id": AGP_Q3_ID, "rendered": "$110 million",
+                                     "metric_surface": "Adjusted Gross Profit",
+                                     "period_surface": "the third quarter of 2022"}],
+                     citations=[citation(handles[1])]),
+            sentence(AGP_DERIVED_TEXT, "calculated",
+                     fact_bindings=[{"fact_id": derived[0].fact_id,
+                                     "rendered": "$446 million",
+                                     "metric_surface": "Adjusted Gross Profit",
+                                     "period_surface": derived[0].period_surface_hint}],
+                     citations=[citation(handles[0]), citation(handles[1])]),
         ],
     }
     content.update(overrides)
@@ -394,13 +563,19 @@ def write_with(
     plan: EditorialPlan | None = None,
     *,
     style: StyleProfile = PLAIN_INVESTOR_STYLE,
+    derived_facts: tuple[DerivedFact, ...] = (),
 ):
     """Every test goes through this, annotated with the protocol, so the surface under test is
-    the contract rather than the concrete fake."""
+    the contract rather than the concrete fake.
+
+    `derived_facts` defaults to none, which is what makes the default path the one every test
+    above exercises: a writer handed no derived fact can resolve no `fact:derived:` id.
+    """
     return write_story(
         package if package is not None else make_package(),
         plan if plan is not None else make_plan(),
-        provider=provider, style=style, length_target=5, max_tokens=WRITER_MAX_TOKENS)
+        provider=provider, style=style, length_target=5, max_tokens=WRITER_MAX_TOKENS,
+        derived_facts=derived_facts)
 
 
 def draft_of(answer: Mapping[str, Any], **kwargs: Any) -> Draft:
@@ -455,8 +630,12 @@ def test_the_writer_takes_a_package_a_plan_a_provider_a_style_and_two_budgets():
     """A signature with no room for a retriever or a passage list is §10.2.1 point 3 stated
     structurally: the slice cannot be supplied, so it can only be derived."""
     parameters = inspect.signature(write_story).parameters
+    # `derived_facts` is the one addition, and it is what a *different stage* computed rather
+    # than something this one could have derived: §3 keeps derived facts out of the package, so
+    # there is nothing here to derive them from. Everything §10.2.1 point 3 forbids — a
+    # retriever, a term list, a passage set — is still absent.
     assert list(parameters) == ["package", "plan", "provider", "style", "length_target",
-                                "max_tokens"]
+                                "max_tokens", "derived_facts"]
     assert parameters["max_tokens"].default is inspect.Parameter.empty
     assert parameters["length_target"].default is inspect.Parameter.empty
     assert "temperature" not in parameters
@@ -550,34 +729,41 @@ def test_every_object_in_the_writer_schema_forbids_extras_and_requires_every_pro
             assert isinstance(subschema.get("items"), Mapping), path
 
 
-def test_a_calculation_is_an_array_because_the_portable_subset_has_no_nullable_object():
-    """§15.3 has no `null` type and no `anyOf`, and requires every property. An empty array is
-    the only portable spelling of *"this sentence derived nothing"*."""
-    calculation = writer_schema()["properties"]["sentences"]["items"]["properties"]["calculation"]
-    assert calculation["type"] == "array"
-    assert calculation["items"]["type"] == "object"
+def test_the_writer_schema_carries_no_calculation_and_no_operation_anywhere_in_it():
+    """DETERMINISTIC_FACT_TOOLS §5: the writer declares no arithmetic, so it has no field to.
 
-
-def test_the_writers_operations_exclude_the_machinery_it_could_never_satisfy():
-    """§13.14's machinery, minus the one form this package can actually support.
-
-    A superlative needs `extremum` over a full comparison set and §10.2 caps `facts[]` at
-    twelve; an absence claim needs `absence`, which a bounded package can never establish; an
-    ordering needs `temporal_order` and all three `executive_change` events carry
-    `occurred_on: null`. None is in the grammar, so the writer cannot half-support one.
-
-    **`compare_levels` is in the grammar, and it has to be.** §13.14 requires a comparative to
-    be expressed as `compare_levels` or `compare_deltas`, and with neither in the enum the
-    construction was undeclarable — which refused the demo's own true, correctly bound sentence
-    for a reason no rewrite could reach. `compare_deltas` stays out because a side of it is a
-    change of one metric across two periods, and every fact in this package is 2022Q3.
+    Asserted over the **whole** schema rather than over the one property that used to hold it,
+    because the failure being guarded against is the field coming back somewhere else — an
+    `operation` on a binding, an `expression` beside the text. A sentence now has exactly four
+    properties and every one of them is about words or ids.
     """
-    for operation in ("extremum", "compare_deltas", "absence", "temporal_order",
-                      "delta_relative"):
-        assert operation not in WRITER_OPERATIONS
-    assert "compare_levels" in WRITER_OPERATIONS
-    schema = writer_schema()["properties"]["sentences"]["items"]["properties"]["calculation"]
-    assert schema["items"]["properties"]["operation"]["enum"] == list(WRITER_OPERATIONS)
+    schema = writer_schema()
+    sentence_item = schema["properties"]["sentences"]["items"]
+    assert set(sentence_item["required"]) == {"text", "kind", "fact_bindings", "citations"}
+    assert set(sentence_item["properties"]) == set(sentence_item["required"])
+
+    flattened = json.dumps(schema)
+    for retired in ("calculation", "operation", "expression", "result_rendered",
+                    "formula_version_id", "input_observation_ids", "delta_pp"):
+        assert retired not in flattened, retired
+
+
+def test_a_model_that_declares_a_calculation_anyway_is_refused_by_the_grammar():
+    """`additionalProperties: false` is what makes the removal a refusal rather than a hope.
+
+    The old contract's own answer, replayed against the new schema: it is not tolerated, not
+    ignored and not silently dropped — it fails `schema_violations` before a draft exists, which
+    is the same treatment any other invented field gets.
+    """
+    answer = valid_answer()
+    answer["sentences"][2]["calculation"] = [{
+        "operation": "delta_pp", "input_observation_ids": [GGM_ID, AGM_ID],
+        "expression": "adjusted_gross_margin - gaap_gross_margin",
+        "result_rendered": "15.9 percentage points",
+        "formula_version_id": "", "period_surface": ""}]
+    with pytest.raises(StoryProviderSchemaError) as raised:
+        write_with(FakeWriteProvider(answer))
+    assert any("calculation" in violation for violation in raised.value.violations)
 
 
 # -- rule: the request is pinned, and style never touches the evidence ---------------------------
@@ -693,12 +879,20 @@ def test_a_binding_to_a_fact_the_package_does_not_hold_is_refused():
     assert UNRESOLVABLE_FACT_ID in raised.value.codes
 
 
-def test_a_calculation_over_an_input_the_package_does_not_hold_is_refused():
-    answer = valid_answer()
-    answer["sentences"][2]["calculation"][0]["input_observation_ids"] = [GGM_ID, "obs:invented"]
+def test_a_binding_to_a_derived_id_this_run_did_not_mint_is_refused():
+    """The replacement for *"a calculation over an input the package does not hold"*.
+
+    A derived fact is not in the package, so the writer's resolution set is two lists — and a
+    caller that ran no derivation stage passes none. A well-formed `fact:derived:` id is then
+    exactly as unresolvable as an invented `obs:` one, which is the safe direction: the alternative
+    would be a draft binding a quantity nothing computed.
+    """
+    derived = agp_derived()
+    package = agp_package()
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        write_with(FakeWriteProvider(derived_answer(derived)), package, agp_plan(package))
     assert UNRESOLVABLE_FACT_ID in raised.value.codes
+    assert derived[0].fact_id in str(raised.value)
 
 
 def test_a_rendering_its_own_sentence_does_not_contain_is_refused():
@@ -893,16 +1087,12 @@ def test_a_narrative_quote_that_occurs_twice_still_resolves_to_no_span_and_is_re
     assert "occurs 2 times" in str(raised.value)
 
 
-def test_two_calculations_on_one_sentence_are_refused_rather_than_one_being_picked():
-    answer = valid_answer()
-    answer["sentences"][2]["calculation"] = [
-        answer["sentences"][2]["calculation"][0],
-        {"operation": "difference", "input_observation_ids": [AGM_ID, GGM_ID],
-         "expression": "a - b", "result_rendered": "15.9", "formula_version_id": "",
-         "period_surface": ""}]
-    with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert raised.value.codes == (MORE_THAN_ONE_CALCULATION,)
+# `test_two_calculations_on_one_sentence_are_refused_rather_than_one_being_picked` stood here
+# and is **retired with the field it guarded**. It refused a `calculation` array of two — the
+# array being how §15.3 spelled an optional object — and there is no such property now, so
+# `more_than_one_calculation` is a code nothing can raise. What replaced it is one line up:
+# a `calculation` of any length is a schema violation, which is a stricter refusal reached
+# earlier.
 
 
 def test_a_draft_resting_on_no_fact_the_plan_named_is_refused_as_a_changed_thesis():
@@ -993,13 +1183,10 @@ def test_a_sentence_kind_outside_the_enum_fails_as_a_schema_error():
     assert any("kind" in violation for violation in raised.value.violations)
 
 
-def test_an_operation_outside_the_enum_fails_as_a_schema_error():
-    """The narrowing has teeth only if the grammar refuses the wider name."""
-    answer = valid_answer()
-    answer["sentences"][2]["calculation"][0]["operation"] = "extremum"
-    with pytest.raises(StoryProviderSchemaError) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert any("extremum" in violation for violation in raised.value.violations)
+# `test_an_operation_outside_the_enum_fails_as_a_schema_error` is retired: there is no operation
+# enum in the writer's grammar to be outside of. The closed operation vocabulary moved to the
+# *planner*, where `requested_derivations[].operation` is an `enum` over §4.1's seven, and
+# `tests/story/test_story_planner.py` is where a word outside it is now shown to be refused.
 
 
 def test_an_answer_of_the_wrong_shape_fails_as_a_schema_error_rather_than_a_draft_rejection():
@@ -1023,10 +1210,9 @@ def test_a_conformant_answer_becomes_a_structured_draft_with_located_spans():
     assert draft.candidate_id == CANDIDATE_ID and draft.package_id == PACKAGE_ID
     assert draft.prompt_version == WRITER_PROMPT_VERSION
     assert draft.model_id == "Qwen3.5-9B-Q4_K_M.gguf"
-    assert [s.index for s in draft.sentences] == [0, 1, 2, 3]
+    assert [s.index for s in draft.sentences] == [0, 1, 2]
     assert [s.kind for s in draft.sentences] == [
-        SentenceKind.REPORTED, SentenceKind.REPORTED, SentenceKind.CALCULATED,
-        SentenceKind.CONNECTIVE]
+        SentenceKind.REPORTED, SentenceKind.REPORTED, SentenceKind.CONNECTIVE]
     first = draft.sentences[0].fact_bindings[0]
     assert first.rendered == "3.3%"
     assert draft.sentences[0].text[first.char_start:first.char_end] == "3.3%"
@@ -1078,12 +1264,17 @@ def test_the_identity_fields_come_from_the_package_and_not_from_the_model():
     assert draft.candidate_id == CANDIDATE_ID and draft.package_id == PACKAGE_ID
 
 
-def test_an_empty_formula_version_is_read_as_no_declared_formula():
-    """§15.3 has no null, so `""` is how the grammar spells *"the ontology declares no formula
-    for this derivation"* — a cross-metric gap is arithmetic, not an ontology identity."""
+def test_no_sentence_this_module_builds_can_carry_a_calculation_at_all():
+    """`test_an_empty_formula_version_is_read_as_no_declared_formula` stood here.
+
+    It asserted that `""` was read as *"the ontology declares no formula for this derivation"* —
+    a field that existed because §15.3 has no null, and one the model filled with the package id
+    on the 2026-08-04 live run. There is nothing to read now: `DraftSentence.calculation`
+    survives on the type for artifacts written under prompt version 1.4.0, and no answer this
+    module accepts can set it.
+    """
     draft = draft_of(valid_answer())
-    assert draft.sentences[2].calculation is not None
-    assert draft.sentences[2].calculation.formula_version_id is None
+    assert [row.calculation for row in draft.sentences] == [None, None, None]
 
 
 # -- the Markdown renderer, which may only read the draft --------------------------------------------
@@ -1115,11 +1306,17 @@ def test_the_rendered_post_carries_every_sentence_verbatim_and_invents_no_numera
     assert written_numerals  # the post does state figures
 
 
-def test_the_rendered_post_shows_its_citations_and_its_derivation():
+def test_the_rendered_post_shows_its_citations_and_no_derivation_panel():
+    """The Sources panel is unchanged; the Derivations panel has nothing left to render.
+
+    It read `DraftSentence.calculation`, and a derived quantity is now an ordinary binding — so
+    it renders through the sentence and the Sources panel like every other figure. The branch is
+    kept in `render_markdown` for a draft read back from a 1.4.0 artifact, and this is the
+    assertion that no draft this module builds reaches it.
+    """
     rendered = render_markdown(draft_of(valid_answer()))
     assert "## Sources" in rendered and PASSAGE_ID in rendered
-    assert "## Derivations" in rendered
-    assert "adjusted_gross_margin - gaap_gross_margin = 15.9 percentage points" in rendered
+    assert "## Derivations" not in rendered
 
 
 def test_the_sources_panel_names_the_handle_beside_the_span_it_resolved_to():
@@ -1154,7 +1351,7 @@ def test_an_invented_number_the_draft_does_not_declare_is_refused_by_the_verifie
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
                  citations=[citation(AGM_HANDLE)]),
-        valid_answer()["sentences"][3]])
+        valid_answer()["sentences"][2]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "unbound_numeral" in codes_of(verified)
     assert verified.passed is False
@@ -1178,7 +1375,7 @@ def test_an_invented_entity_is_refused_as_a_foreign_subject(verifier):
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
                  citations=[citation(AGM_HANDLE)]),
-        valid_answer()["sentences"][3]])
+        valid_answer()["sentences"][2]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "foreign_subject_named" in codes_of(verified)
 
@@ -1195,7 +1392,7 @@ def test_unsupported_causation_is_refused_even_though_the_plan_forbade_it_in_wor
         sentence(text, "reported",
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
                  citations=[citation(AGM_HANDLE)]),
-        valid_answer()["sentences"][3]])
+        valid_answer()["sentences"][2]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "causal_construction_forbidden" in codes_of(verified)
 
@@ -1203,7 +1400,7 @@ def test_unsupported_causation_is_refused_even_though_the_plan_forbade_it_in_wor
 def test_a_dropped_required_warning_is_refused(verifier):
     """§12: the writer must not omit a `required_warning`. Dropping the last sentence drops the
     only place the post says "filing date"."""
-    answer = valid_answer(sentences=valid_answer()["sentences"][:3])
+    answer = valid_answer(sentences=valid_answer()["sentences"][:2])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     absent = [f for f in verified.all_findings if f.code == "required_warning_absent"]
     assert absent and absent[0].observed == "filing_date_unknown"
@@ -1215,7 +1412,7 @@ def test_a_dropped_plan_counterpoint_is_refused(verifier):
     sentence, and no §13 check required one to survive into the draft. This is that check, seen
     from the writer's side — the draft that drops the GAAP figure drops the counterpoint."""
     rows = valid_answer()["sentences"]
-    answer = valid_answer(sentences=[rows[0], rows[2], rows[3]])
+    answer = valid_answer(sentences=[rows[0], rows[2]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "required_counterpoint_absent" in codes_of(verified)
     assert verified.passed is False
@@ -1262,29 +1459,26 @@ def test_document_grain_counter_evidence_cannot_be_cited_by_the_writer_and_is_re
     assert "counter_evidence_cited_as_support" in codes_of(verified)
 
 
-def test_a_percentage_where_percentage_points_are_meant_is_refused(verifier):
+def test_a_percentage_where_percentage_points_are_meant_is_still_refused(verifier):
     """§13.3: the two readings differ by `100/|v1|`, which is base-dependent. `15.9%` is the
-    single most likely factual error in this candidate, and rule 7 of the system prompt exists
-    for it."""
+    single most likely factual error in this candidate, and the writer's rule 8 exists for it.
+
+    **The sentence no longer declares how the figure was arrived at, and that is the change.**
+    It used to carry a `Calculation` whose `result_rendered` was `"15.9%"`, and §13.3 read the
+    percent surface off that declaration. A gap is now a `DerivedFact` whose unit code stamped
+    is `percentage_points`, so a draft writing `15.9%` for it is refused for stating a quantity
+    in a unit the fact does not hold — a check the verifier owns and
+    `tests/story/test_story_deterministic_verifier.py` makes against derived facts. What is
+    still this file's to show is the half §12 owns: a numeral nothing binds is refused, whatever
+    unit it wears.
+    """
     assert "percentage points" in WRITER_SYSTEM
     text = "The gap between the two measures was 15.9%."
     rows = valid_answer()["sentences"]
-    answer = valid_answer(sentences=[rows[0], rows[1], sentence(text, "calculated", calculation=[{
-        "operation": "delta_pp", "input_observation_ids": [GGM_ID, AGM_ID],
-        "period_surface": "",
-        "expression": "adjusted_gross_margin - gaap_gross_margin",
-        "result_rendered": "15.9%", "formula_version_id": ""}]), rows[3]])
+    answer = valid_answer(sentences=[rows[0], rows[1], sentence(text, "calculated"), rows[2]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
-    assert "percentage_point_surface_missing" in codes_of(verified)
-
-
-def test_a_calculated_sentence_that_cites_a_passage_is_refused(verifier):
-    """§13.9: `claims.yaml` gives `calculated` `optional_fields: []` — no filed-passage field is
-    permitted. The gap is a calculation over two observations, not a reported fact."""
-    answer = valid_answer()
-    answer["sentences"][2]["citations"] = [citation(AGM_HANDLE)]
-    verified = verifier.verify(draft_of(answer), make_package(), make_plan())
-    assert "calculated_sentence_cites_passage" in codes_of(verified)
+    assert "unbound_numeral" in codes_of(verified)
+    assert verified.passed is False
 
 
 def test_the_bare_metric_surface_the_writer_was_told_not_to_use_is_refused(verifier):
@@ -1304,7 +1498,7 @@ def test_a_uniqueness_claim_is_refused_and_the_writer_cannot_declare_the_machine
     machinery."""
     text = "That was the only quarter with a negative adjusted gross margin."
     rows = valid_answer()["sentences"]
-    answer = valid_answer(sentences=[rows[0], rows[1], sentence(text, "connective"), rows[3]])
+    answer = valid_answer(sentences=[rows[0], rows[1], sentence(text, "connective"), rows[2]])
     verified = verifier.verify(draft_of(answer), make_package(), make_plan())
     assert "unsupported_superlative" in codes_of(verified)
     assert verified.passed is False
@@ -1332,10 +1526,18 @@ def test_the_writers_own_output_survives_the_deterministic_verifier_end_to_end(v
     judged by the deterministic verifier against the same package and plan, with no finding at
     all — not one WARN, not one ANNOTATE.
 
-    Every value is the founder's candidate's own: `3.3`, `-12.6`, and a gap of
-    `15.899999999999999` rendered `15.9 percentage points`. The calculation differences two
-    *different* metrics, which §13.9's original *"sharing metric and unit"* clause would have
-    refused and its 2026-08-04 correction permits — that clause is the story.
+    Every value is the founder's candidate's own: `3.3` and `-12.6`, both reported, both bound,
+    both cited by the handle of the cell they were read from.
+
+    **The gap sentence is not in this draft any more, and its absence is the change rather than
+    a loss of coverage.** It used to be a `calculated` sentence carrying a `Calculation` this
+    module built from the model's answer, and the assertion below used to read the
+    `calculation_ledger` back to prove the arithmetic recomputed. The writer declares no
+    arithmetic now (DETERMINISTIC_FACT_TOOLS §5): a gap is a `DerivedFact` code computes, so the
+    end-to-end claim about one has a derivation stage in the middle of it and belongs where that
+    stage runs — `tests/story/test_story_demo.py`, over `run_demo`. What this test still shows
+    is the half it was always about: a draft this module built, and a verifier that finds
+    nothing wrong with it.
     """
     package, plan = make_package(), make_plan()
     written = write_with(FakeWriteProvider(), package, plan)
@@ -1344,15 +1546,107 @@ def test_the_writers_own_output_survives_the_deterministic_verifier_end_to_end(v
     assert verified.all_findings == (), [f.code for f in verified.all_findings]
     assert verified.passed is True
 
-    # The panels §13.17 requires, populated from the writer's own declarations.
+    # The panel §13.17 requires, populated from the writer's own declarations.
     assert [entry.fact_id for entry in verified.fact_ledger] == [AGM_ID, GGM_ID]
-    assert len(verified.calculation_ledger) == 1
-    assert verified.calculation_ledger[0].recomputed_value == 15.899999999999999
-    assert round(verified.calculation_ledger[0].recomputed_value, 1) == 15.9
+    assert verified.calculation_ledger == ()
 
     # And the post is rendered from the draft that passed, never from the model's answer.
     rendered = render_markdown(written.draft)
-    assert "15.9 percentage points" in rendered and "15.9%" not in rendered
+    assert "3.3%" in rendered and "-12.6%" in rendered
+
+
+# ---------------------------------------------------------------------------------------
+# DETERMINISTIC_FACT_TOOLS §5 — the derived facts the writer binds
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_derived_fact_reaches_the_writer_prompt_in_the_shape_facts_are_printed_in():
+    """§5: a new DERIVED FACTS section, printed like FACTS, with everything a binding needs.
+
+    The four things a `FactBinding` carries are all on the row — the id to name, the result to
+    write, the metric surface and the period surface — and one thing FACTS has is deliberately
+    absent: an evidence id. No handle is ever minted for a derived fact, so the row names its
+    two input facts instead and the writer cites theirs.
+    """
+    package, derived = agp_package(), agp_derived()
+    prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
+                           derived_facts=derived, length_target=3)
+
+    assert "DERIVED FACTS (1;" in prompt
+    assert f"[{derived[0].fact_id}]" in prompt
+    assert "adjusted_gross_profit  -446000000.0 USD" in prompt
+    assert "says: decreased by, 2022Q2 -> 2022Q3" in prompt
+    assert 'metric surface: write one of "Adjusted Gross Profit"' in prompt
+    assert f"computed from {AGP_Q2_ID} and {AGP_Q3_ID}" in prompt
+    # The row carries no handle of its own, and the section says which two to cite instead.
+    section = prompt.split("DERIVED FACTS")[1].split("METRIC SEMANTICS")[0]
+    assert "evidence id:" not in section
+
+
+def test_the_period_surface_the_model_used_to_forget_is_printed_for_it_to_copy():
+    """§2's measured failure, closed at the rendering end.
+
+    `unbound_numeral` fired on the literal `2022` because a `calculated` sentence carried no
+    binding and the model left `Calculation.period_surface` empty. Code fills it now, from the
+    derivation's own `to_period`, and the prompt prints the exact words — so the field the model
+    used to forget is one it copies rather than one it composes.
+    """
+    package, derived = agp_package(), agp_derived()
+    prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
+                           derived_facts=derived)
+
+    assert derived[0].period_surface_hint == "the third quarter of 2022"
+    assert derived[0].to_period == "2022Q3"
+    assert 'period surface: write exactly "the third quarter of 2022"' in prompt
+
+
+def test_a_prompt_with_no_derived_fact_says_so_rather_than_omitting_the_section():
+    """A section that vanished would read as an omission; one that says "(none)" is a rule."""
+    prompt = writer_prompt(make_package(), make_plan(), writer_passages(make_package()))
+    assert "DERIVED FACTS (none; the plan requested no derivation" in prompt
+    assert "  (none)" in prompt.split("DERIVED FACTS")[1]
+
+
+def test_a_draft_binding_a_derived_fact_round_trips_through_the_writer():
+    """§5's whole point: `$446 million` is stated by an ordinary `FactBinding` and nothing else.
+
+    No operation, no expression, no input list and no formula version — the four fields §2's run
+    got wrong or left empty are not in the answer at all. What the model supplies is the words
+    and the id; the span is located here, and the period surface came off the derived fact.
+    """
+    package, derived = agp_package(), agp_derived()
+    written = write_with(FakeWriteProvider(derived_answer(derived)), package, agp_plan(package),
+                         derived_facts=derived)
+    gap = written.draft.sentences[1]
+
+    assert gap.kind is SentenceKind.CALCULATED
+    assert gap.calculation is None
+    assert [b.fact_id for b in gap.fact_bindings] == [derived[0].fact_id]
+    assert gap.text[gap.fact_bindings[0].char_start:gap.fact_bindings[0].char_end] == \
+        "$446 million"
+    assert gap.fact_bindings[0].period_surface == "the third quarter of 2022"
+    # The two input facts' handles, resolved to the two cells the quantity was computed from.
+    assert [c.passage_id for c in gap.citations] == [AGP_PASSAGE_ID, AGP_PASSAGE_ID]
+    assert [AGP_TABLE[c.char_start:c.char_end] for c in gap.citations] == ["556", "110"]
+
+
+def test_the_number_and_the_word_in_that_draft_are_codes_and_not_the_models():
+    """The property the whole change exists for, asserted on the fact the draft bound.
+
+    `-446,000,000.0` is `execute`'s answer over the package's own two values, `"decreased by"`
+    is `detector_config.quantity_direction`'s through the `DirectionOracle` seam, and
+    `reused_detector_signal` records that the result was asserted equal to the candidate's own
+    `delta` rather than merely agreeing with it by inspection.
+    """
+    derived = agp_derived()
+
+    assert (derived[0].from_value, derived[0].to_value) == (556_000_000.0, 110_000_000.0)
+    assert derived[0].result == -446_000_000.0
+    assert derived[0].display_semantics.value == "decreased by"
+    assert derived[0].unit == "USD" and derived[0].currency == "USD"
+    assert derived[0].reused_detector_signal == "delta"
+    assert derived[0].fact_id.startswith(
+        "fact:derived:absolute-change:opendoor:adjusted-gross-profit:2022Q2-2022Q3:")
 
 
 # ---------------------------------------------------------------------------------------

@@ -126,6 +126,31 @@ COMPARATIVE_DIRECTION: Mapping[str, bool] = {
     "greater than": True, "smaller than": False, "larger than": True,
 }
 
+#: Which way each change verb points, for DETERMINISTIC_FACT_TOOLS §6's orientation rule.
+#: `True` when the word says the quantity went up, `False` down, **`None` when the word states
+#: no direction of the stored number at all**.
+#:
+#: Total over `story.core.numerals.CHANGE_VERBS` — asserted by a test, exactly as
+#: `COMPARATIVE_DIRECTION`'s totality over `COMPARATIVE_TERMS` is — because a widened change-verb
+#: lexicon with an unstated polarity would turn a refusal into a pass at the one place this map
+#: guards: a sentence that says *"fell"* over a derived fact whose `display_semantics` is
+#: *"increased by"*.
+#:
+#: **Three of the thirteen are `None`, and each is a measurement rather than a hedge.**
+#: `improved` is a statement about the quantity's desirability and not about its sign —
+#: `direct_selling_costs` is stored negative on 46 of 46 canonical values, so a cost that
+#: improves is a *rise* in the stored number. `widened` and `narrowed` describe a magnitude:
+#: a widening loss is a fall. A `None` here makes the orientation rule abstain for that word,
+#: which is the opposite of `comparative_direction`'s `None` — there the sentence *declared* a
+#: comparison and an unreadable word is a refusal; here the word is incidental prose and
+#: refusing on it would be inventing a claim the sentence did not make.
+CHANGE_DIRECTION: Mapping[str, bool | None] = {
+    "rose": True, "increased": True, "up": True, "higher": True,
+    "fell": False, "declined": False, "decreased": False, "dropped": False,
+    "down": False, "lower": False,
+    "improved": None, "widened": None, "narrowed": None,
+}
+
 #: What a sentence says *about* a metric: a direction, a level, or a financial state. Read only
 #: inside a `connective` sentence, where §13.14 permits no claim at all.
 #:
@@ -239,6 +264,7 @@ _TEMPORAL = _compile(TEMPORAL_TERMS)
 _STATE = _compile(STATE_TERMS)
 _FORWARD = _compile(FORWARD_LOOKING_TERMS)
 _FOREIGN = _compile(FOREIGN_SUBJECTS)
+_CHANGE = _compile(tuple(CHANGE_DIRECTION))
 
 #: Clause boundaries for §13.10 condition 5's *"within the same clause"*. A comma **is** a
 #: boundary here and is not one in `numerals._clauses`, and the difference is deliberate:
@@ -315,6 +341,21 @@ def temporal_orderings(text: str) -> tuple[LexicalMatch, ...]:
     return _scan(_TEMPORAL, text)
 
 
+def change_verbs(text: str) -> tuple[LexicalMatch, ...]:
+    """Every change verb in `text` (§6's orientation rule over a derived fact)."""
+    return _scan(_CHANGE, text)
+
+
+def change_direction(term: str) -> bool | None:
+    """`True` for a word saying the quantity rose, `False` fell, `None` for one saying neither.
+
+    `None` is *"this word states no direction"* and a caller abstains on it — see
+    `CHANGE_DIRECTION`, which is where the three `None`s are argued. That is deliberately not
+    `comparative_direction`'s contract, where `None` means *"unreadable, refuse"*.
+    """
+    return CHANGE_DIRECTION.get(re.sub(r"\s+", " ", term.strip().lower()))
+
+
 def state_terms(text: str) -> tuple[LexicalMatch, ...]:
     """Every direction, level or financial-state word in `text` (§13.14's connective rule)."""
     return _scan(_STATE, text)
@@ -387,6 +428,7 @@ __all__ = [
     "ABSENCE_TERMS",
     "ATTRIBUTION_FRAMES",
     "CAUSAL_MARKERS",
+    "CHANGE_DIRECTION",
     "COMPARATIVE_DIRECTION",
     "COMPARATIVE_TERMS",
     "CONNECTIVE_LEXICON",
@@ -401,6 +443,8 @@ __all__ = [
     "absence_claims",
     "attribution_frames",
     "causal_markers",
+    "change_direction",
+    "change_verbs",
     "comparative_direction",
     "comparatives",
     "foreign_subjects",

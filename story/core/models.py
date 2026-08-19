@@ -1315,6 +1315,35 @@ class BudgetParameters(StoryModel):
     #: §10.2.1 point 2 — the excerpt window around a matched span.
     excerpt_radius_chars: int = 400
     max_graph_hops: int = 2
+    #: DETERMINISTIC_FACT_TOOLS §4.3's cap on the offer set — how many `(operation, from, to)`
+    #: triples code will offer the planner for one package. **A `BudgetParameters` field so it
+    #: reaches both digests**, which is the whole reason it is here and not a constant in the
+    #: derivation stage: the offer set is printed into the planner prompt, so a run at 12 offers
+    #: and a run at 40 ask the model different questions, and §14's atomic finalisation would
+    #: `os.replace` one over the other if they shared an id. That is the `--limit 3` defect this
+    #: class already records, applied to the one new thing that bounds a prompt.
+    #:
+    #: **Adding it moves `package_id` and `story_run_id`, by design, and the cost is measured
+    #: rather than predicted.** `digest_parts()` renders every field, so every package and every
+    #: run built after this line was written mints a new id — which is correct: they are packages
+    #: a planner may request derivations against and the ones before were not. The committed
+    #: replay stores are keyed on a request that embeds `package_id`, so they miss:
+    #: **16 tests go red** — 14 in `tests/story/test_story_demo.py` and 2 in
+    #: `tests/story/test_demo_ui_api.py` *(measured 2026-08-19; removing this one field and
+    #: changing nothing else makes all 16 pass again)*. That is the same event `PACKAGE_VERSION`
+    #: records above and the same answer: DETERMINISTIC_FACT_TOOLS §9 re-records both fixtures
+    #: **live**, once, after every schema change in the plan has landed, because the planner and
+    #: writer schemas move too and *"the recorded answers are answers to a different question"*.
+    #: Keeping the demo green by leaving the cap out of the digest is the one thing this field
+    #: exists to forbid.
+    #:
+    #: 12 rather than a larger number because §10's rejected-options table already argues the
+    #: shape: minting a fact for every offered triple is *"cheaper and worse — the offer set is
+    #: combinatorial"*. Twelve facts admit 132 ordered pairs and seven operations; the cap is
+    #: what keeps the printed list readable and the planner's choice meaningful. It is
+    #: deliberately **not** in `section_bounds.CEILINGS`: those bound §10's package sections, and
+    #: a derived fact is §3's separate artifact and not a package section.
+    max_derivations: int = 12
 
     def digest_parts(self) -> tuple[str, ...]:
         """Labelled `name=value` parts, sorted, for `package_id` and `story_run_id`.
@@ -1550,6 +1579,263 @@ class StoryEvidencePackage(StoryModel):
 
 
 # ---------------------------------------------------------------------------------------
+# Derivation — DETERMINISTIC_FACT_TOOLS §4 and §7
+#
+# These four types are here and not in `story/stages/derivation/public.py`, and the reason is
+# structural rather than stylistic. `test_story_package_structure.py::
+# test_no_stage_imports_another_stage` is symmetric: it forbids `story.stages.generation`
+# importing `story.stages.derivation` exactly as it forbids the reverse. §5 puts
+# `requested_derivations[]` in the **planner's** schema and the derived facts in the
+# **writer's** prompt, and §6 puts `DerivedFact` in the verifier's `PackageIndex` — three
+# stages that must name these types and may not reach the stage that mints them. `core/` is
+# the surface all three already share, and it is the only one.
+#
+# What stays in the stage is everything about *deciding*: the refusal taxonomy, the validated
+# intermediate, the tool version. A type nothing outside the stage reads has no business here.
+# ---------------------------------------------------------------------------------------
+
+
+class DerivedFactKind(str, Enum):
+    """What kind of thing a derived fact is (§4.4, §7).
+
+    **A separate enum from `FactKind`, deliberately.** §3 forbids a derived fact from entering
+    `StoryEvidencePackage.facts` at all — a package whose contents depended on a model call
+    would put a model's selection inside `package_content_digest`, which is a `story_run_id`
+    input. Adding `evidence_scope` to `FactKind` would make
+    `PackagedFact(fact_kind=FactKind.EVIDENCE_SCOPE)` constructible, and the state §3 exists to
+    forbid would be one keyword argument away. `FactKind.DERIVED` therefore stays where it is,
+    unused, and this is the vocabulary of the separate artifact.
+    """
+
+    #: A quantity code computed from two packaged observations (§4).
+    DERIVED = "derived"
+    #: A claim about what the package's evidence does *not* contain (§7). Never about the world.
+    EVIDENCE_SCOPE = "evidence_scope"
+
+
+class DerivationOperation(str, Enum):
+    """§4.1's seven operations, and there is no eighth.
+
+    Each is here **only** because an existing verification rule can already check its result —
+    §4.1's last column — so the enum is not a menu of arithmetic but the list of quantities the
+    deterministic verifier can re-derive.
+
+    `PERCENTAGE_CHANGE` and `PERCENTAGE_POINT_CHANGE` are two members and never one member with
+    a flag. The unit decides which is legal and refuses the other, which makes §13.3's
+    percent-versus-percentage-point confusion unrepresentable at request time rather than
+    caught after the fact. §10's rejected-options table records the flag as the option not
+    taken and this pair of names is what rejecting it looks like.
+
+    A closed `enum` and not a pattern, for `StoryModel`'s stated reason: §15.3's portable schema
+    subset can express `enum` and cannot express `pattern`, so both providers constrain a
+    planner's `requested_derivations[]` identically.
+    """
+
+    ABSOLUTE_CHANGE = "absolute_change"
+    PERCENTAGE_CHANGE = "percentage_change"
+    PERCENTAGE_POINT_CHANGE = "percentage_point_change"
+    COMPARE_LEVELS = "compare_levels"
+    RATIO = "ratio"
+    CROSSED_ZERO = "crossed_zero"
+    TREND_DIRECTION = "trend_direction"
+
+
+class DisplaySemantics(str, Enum):
+    """The words a derived fact may be described with — closed, never free text.
+
+    §4.4's `display_semantics` is what stops the writer inferring a direction from the sign of
+    `result`, and it can only do that if code decides it. Twelve members, one per shape of
+    answer the seven operations produce.
+
+    **`DIRECTION_UNVERIFIABLE` is a member and not an omission**, and it is the honest reading
+    of `ValueSign.UNVERIFIED`. `direct_selling_costs` and `holding_costs` are stored **negative
+    by convention** — 46 of 46 and 15 of 15 canonical values below zero — so *"costs rose"* is a
+    **fall** in the stored number, and two of the corpus's cost metrics have no observation at
+    all to measure the convention from. A negative delta therefore does not mean "decreased",
+    and where the convention is unmeasured this says so instead of guessing.
+    `story/stages/detection/detector_config.py:quantity_direction` returns `None` in exactly
+    that case, with the same argument recorded against it: the move is real and citable and
+    only the sentence describing it is unavailable.
+    """
+
+    INCREASED_BY = "increased by"
+    DECREASED_BY = "decreased by"
+    UNCHANGED = "unchanged"
+    HIGHER_THAN = "higher than"
+    LOWER_THAN = "lower than"
+    EQUAL_TO = "equal to"
+    TIMES = "times"
+    CROSSED_ZERO = "crossed zero"
+    DID_NOT_CROSS_ZERO = "did not cross zero"
+    INCREASED = "increased"
+    DECREASED = "decreased"
+    DIRECTION_UNVERIFIABLE = "direction unverifiable"
+
+
+#: What `DerivedFact.source` says about a row code computed. One string, because §6's
+#: `derived_result_mismatch` asks *"did the derivation tool produce this"* and a second spelling
+#: would be a second answer.
+DERIVATION_SOURCE = "derivation_tool"
+
+#: Every unit a derived fact may carry, and no other. The first four are the corpus's own
+#: `Observation.unit` values; `percent`, `percentage_points` and `multiple` are quantities
+#: §13.3's second gate says **no observation may hold** — the extraction refused 174
+#: `DERIVED_CHANGE_COLUMN` and 12 `DERIVED_COMPARISON` rows — and they exist here because a
+#: derived fact is precisely the thing that may.
+#:
+#: `boolean` and `direction` close the set over §4.1's two non-scalar operations. They are not
+#: `numerals.SurfaceUnit` members and never will be: no numeral binds them, so there is nothing
+#: for §13.2's surface map to say about one.
+DERIVED_UNITS: tuple[str, ...] = (
+    "USD", "percent", "homes", "markets",
+    "percentage_points", "multiple", "boolean", "direction",
+)
+
+
+class DerivationRequest(StoryModel):
+    """One derivation the planner asks for: an operation and two package fact ids (§4.3, §5).
+
+    **Three fields, and no fourth.** There is no expression string, no formula, no free-text
+    operand and no result — §10 rejects a generic `evaluate(expression)` outright (*"an
+    expression string is arbitrary Python by another name"*), and a request carrying a result
+    would be the model doing the arithmetic and code checking its homework, which is the
+    arrangement §1 replaces.
+
+    It doubles as the **offer**: `offers(package, candidate)` returns the requests that would be
+    granted, so *"the planner may request only a triple from that list"* is a membership test on
+    one type rather than an agreement between two.
+    """
+
+    operation: DerivationOperation
+    from_fact_id: str
+    to_fact_id: str
+
+
+class DerivedFact(StoryModel):
+    """One quantity code computed from two packaged observations (§4.4).
+
+    **It is not a `PackagedFact` and cannot be made into one.** There is no `passage_id`, no
+    `evidence_source_id` and no `evidence_handle` here, and `extra="forbid"` is what keeps them
+    out: §6 requires that *"no handle is ever minted for a derived fact"*, because a citation
+    must stay attached to the observed facts a claim rests on. A reader who wants the evidence
+    follows `from_fact_id` and `to_fact_id` into `StoryEvidencePackage.facts` and cites the
+    cells there — which is also §6's rule for what a citation supporting a derived fact *is*.
+
+    **`from_period`/`to_period` and `period_surface_hint` are the whole repair §2 measured.**
+    The failure that started this was not arithmetic: `$446 million` recomputed cleanly and
+    `unbound_numeral` fired on the literal `2022`, because a `calculated` sentence carries no
+    `fact_bindings` and the model left `Calculation.period_surface` empty. A derived fact binds
+    as an ordinary `FactBinding`, which carries `period_surface` per binding, and code fills it
+    from the derivation's own periods. The model cannot forget a field it no longer writes.
+
+    **`result` and `result_word` are exclusive, and the pair is not an ambiguity.** Five of
+    §4.1's seven operations produce a number; `crossed_zero` produces a boolean and
+    `trend_direction` a direction word, and neither is a numeral any draft may print with a
+    unit. A single `result: float` would have forced `1.0` to stand for *"it crossed"*, which is
+    a number the verifier would then compare against a numeral in the prose.
+
+    **`from_metric_id` exists for one operation.** R2 permits two metrics only under a
+    `DIVERGENCE` claim, so `compare_levels` and `ratio` are the only members that can name two;
+    everywhere else it equals `metric_id`. §4.4 writes a single `metric_id` and that name is
+    kept — three later packets are coded against it — with the second metric stated beside it
+    rather than folded into a list nothing else in the run reads.
+    """
+
+    fact_id: str
+    fact_kind: Literal[DerivedFactKind.DERIVED] = DerivedFactKind.DERIVED
+    operation: DerivationOperation
+    #: The package these inputs came from, and a digest input to `fact_id`. §6's
+    #: `derived_fact_not_in_run` is the check this field answers.
+    package_id: str
+    from_fact_id: str
+    to_fact_id: str
+    from_period: str
+    to_period: str
+    from_value: float
+    to_value: float
+    #: The scalar answer, or `None` for the two operations that have none.
+    result: float | None = None
+    #: The closed word `crossed_zero` and `trend_direction` answer with, `""` otherwise.
+    result_word: str = ""
+    unit: str
+    #: `None` wherever the operation divides the currency out or replaces it — a percentage, a
+    #: multiple, a direction. Never copied forward "because the inputs had one".
+    currency: str | None = None
+    display_semantics: DisplaySemantics
+    metric_id: str
+    from_metric_id: str
+    #: The metric labels a writer may use, in `(from, to)` order and deduplicated.
+    metric_surfaces: tuple[str, ...] = ()
+    #: The surface a `FactBinding` should carry for `to_period`, minted by code. Empty only for
+    #: a period shape no surface names — which R3 refuses before this row can exist.
+    period_surface_hint: str = ""
+    #: Which of §6.9's R1–R10 were **evaluated** to permit these two inputs, in the order
+    #: `comparable` applies them. Read off `series.rules_evaluated`, never restated: a
+    #: comparison that refuses at R3 never reaches R4, and a fact claiming *"R1–R10 were
+    #: applied"* about it would be false in the direction that matters.
+    comparability_rule_ids: tuple[str, ...] = ()
+    source: str = DERIVATION_SOURCE
+    tool_version: str
+    #: The candidate signal this result was **asserted equal to** (§7 of the brief), or `""`
+    #: when the candidate carried none for this quantity. A disagreement is a refusal and never
+    #: reaches this field — two code paths computing one number and differing is a defect in one
+    #: of them.
+    reused_detector_signal: str = ""
+    warning_codes: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _result_is_scalar_or_word_and_not_both(self) -> "DerivedFact":
+        if (self.result is None) == (self.result_word == ""):
+            raise ValueError(
+                f"{self.fact_id}: a derived fact carries a scalar `result` or a `result_word`, "
+                f"exactly one — got result={self.result!r} and result_word={self.result_word!r}. "
+                "A boolean rendered as 1.0 is a numeral §13.1 would compare against the prose")
+        if self.unit not in DERIVED_UNITS:
+            raise ValueError(
+                f"{self.fact_id}: unit {self.unit!r} is not one of {DERIVED_UNITS}; §13.2's "
+                "surface map is closed and a unit outside it has no rendering rule")
+        return self
+
+
+class EvidenceScopeFact(StoryModel):
+    """What the package's evidence does **not** contain, stated by code (§7).
+
+    A second type rather than a second shape of `DerivedFact`, and the argument is
+    `TableCellRef`'s: one type covering both would make `DerivedFact(operation=…,
+    from_value=None)` constructible — a computed quantity with no inputs — which is the single
+    state the derivation stage exists to make impossible. Two total types beat one type with
+    eleven optional fields.
+
+    **It carries no `citations` field at all, and the absence is the design.** §7: today the
+    *"no explanation was disclosed"* sentence reuses a financial-table citation as though the
+    table said it, and `counter_evidence_cited_as_support` and
+    `citation_reused_for_unrelated_claim` are the only things standing between a draft and that
+    claim. An empty tuple would be a place to put one; no field is not.
+
+    **`statement` is about the evidence and never about the world.** *"The evidence in this
+    package supplies no explanation for the change"* — never *"there was no cause"*. The
+    minting rule in `story/stages/derivation/execute.py` is what makes the first sentence true;
+    nothing could make the second one true.
+    """
+
+    fact_id: str
+    fact_kind: Literal[DerivedFactKind.EVIDENCE_SCOPE] = DerivedFactKind.EVIDENCE_SCOPE
+    #: The machine-readable claim, e.g. `no_supported_causal_explanation_in_package`.
+    claim: str
+    statement: str
+    package_id: str
+    source: str = DERIVATION_SOURCE
+    tool_version: str
+    #: The package facts the minting rule examined, so the claim can be re-checked without
+    #: rebuilding the package. Sorted and unique for `_require_sorted_unique`'s reason.
+    examined_fact_ids: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _examined_ids_are_sorted(self) -> "EvidenceScopeFact":
+        _require_sorted_unique(self.examined_fact_ids, "examined_fact_ids")
+        return self
+
+# ---------------------------------------------------------------------------------------
 # Planning — §11
 # ---------------------------------------------------------------------------------------
 
@@ -1610,6 +1896,16 @@ class EditorialPlan(StoryModel):
     required_warnings: tuple[str, ...] = ()
     #: Computed by code from the package before the call, never chosen by the model.
     causal_language: CausalLanguage = CausalLanguage.FORBIDDEN
+    #: DETERMINISTIC_FACT_TOOLS §5 — the derivations the planner asks code to compute, each a
+    #: triple `offers(package, candidate)` put in front of it. **A request and never a result**:
+    #: the model names an operation and two package fact ids and nothing else, and
+    #: `derivation.execute` decides what the quantity is. A triple outside the offer set is
+    #: `derivation_not_offered` at `planner.plan_violations`, before the writer runs.
+    #:
+    #: Empty is the ordinary state and not a degradation. A plan that states only levels needs
+    #: no derivation, and §10's rejected-options table refuses the alternative — minting a fact
+    #: for every offered triple — as *"cheaper and worse"*.
+    requested_derivations: tuple[DerivationRequest, ...] = ()
     uncertainty: str = ""
     structure: tuple[str, ...] = ()
     prohibited_claims: tuple[str, ...] = ()
@@ -2001,6 +2297,8 @@ class RetrievalResult(StoryModel):
 
 __all__ = [
     "CITATION_ADAPTER",
+    "DERIVATION_SOURCE",
+    "DERIVED_UNITS",
     "EVIDENCE_HANDLE_PREFIX",
     "PACKAGE_VERSION",
     "POLICY_VERSION",
@@ -2018,12 +2316,18 @@ __all__ = [
     "Conflict",
     "ConflictCluster",
     "Counterpoint",
+    "DerivationOperation",
+    "DerivationRequest",
+    "DerivedFact",
+    "DerivedFactKind",
+    "DisplaySemantics",
     "Draft",
     "DraftSentence",
     "EditorialPlan",
     "EventParticipant",
     "EvidenceRole",
     "EvidenceRequest",
+    "EvidenceScopeFact",
     "EvidenceSourceCitation",
     "FactBinding",
     "FactKind",

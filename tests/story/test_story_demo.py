@@ -149,9 +149,12 @@ explicitly instead.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import pytest
 
@@ -165,12 +168,15 @@ from story.core.models import (
 )
 from story.pipeline import (
     ACCEPTED,
+    DERIVATION_REFUSED,
+    DERIVED_FACTS_FILENAME,
     DISPOSITIONS,
     DRAFT_REFUSED,
     PLAN_REFUSED,
     PROVIDER_FAILED,
     REJECTED,
     SELECTION_MODE,
+    STAGE_DERIVATION,
     STAGE_PLANNER,
     STAGE_WRITER,
     CandidateNotFound,
@@ -188,6 +194,7 @@ from story.providers.generation_store import (
     StoredGeneration,
 )
 from story.providers.public import PROVIDER_LOCAL, PROVIDER_OPENAI
+from story.stages.derivation.offers import offers
 from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
 from story.stages.freshness import FreshnessReport
@@ -295,6 +302,42 @@ def demo_inputs() -> DemoInputs:
     )
 
 
+def recorded_content(schema_name: str) -> dict[str, Any]:
+    """One recorded answer's `content`, read by schema name rather than by request digest.
+
+    The digest is exactly what a schema or prompt change moves, and these two answers are wanted
+    *because* they are the live Qwen run's own words rather than because they still key. Reading
+    by name is honest about that: nothing here claims a replay.
+    """
+    for line in (STORES / "generations.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row["schema_name"] == schema_name:
+            return json.loads(row["raw_content"])
+    raise AssertionError(f"no recorded {schema_name!r} row")
+
+
+def compare_levels_request() -> dict[str, str]:
+    """The one derivation §2's package supports and the candidate publishes a signal for.
+
+    `gaap_gross_margin` → `adjusted_gross_margin` in 2022Q3, which is the orientation the
+    candidate's own `gap` describes: `left_metric_id` is the adjusted margin and `right_metric_id`
+    the GAAP one, so `from` is the right side and `to` is the left. Reversed, the derivation is
+    still offered and still correct and simply has no signal to be asserted against.
+    """
+    inputs = demo_inputs()
+    for request in offers(inputs.package, inputs.candidate):
+        signals = inputs.candidate.signals
+        if (request.operation.value == "compare_levels"
+                and request.from_fact_id.startswith(f"obs:{signals['right_metric_id']}".replace(
+                    "_", "-"))):
+            return {"operation": request.operation.value,
+                    "from_fact_id": request.from_fact_id,
+                    "to_fact_id": request.to_fact_id}
+    raise AssertionError("this package offers no compare_levels in the signalled orientation")
+
+
 def replaying(filename: str = "generations.jsonl") -> ReplayingStoryGenerationProvider:
     """Replay-only, with no inner provider: a miss raises rather than reaching for a GPU."""
     return ReplayingStoryGenerationProvider(
@@ -368,7 +411,6 @@ class BadWriterProvider:
                     "metric_surface": "Adjusted Gross Margin",
                     "period_surface": "",
                 }],
-                "calculation": [],
                 "citations": [{
                     "evidence_id": "ev:norm:0001801169:0001801169-22-000108:"
                                    "open-20220930.htm#p139:r99c99",
@@ -445,6 +487,68 @@ class RefusedPlannerProvider:
                 reasoning_effort=REASONING_EFFORT, max_tokens=max_tokens),
             prompt_version=""))
         return result
+
+
+class DerivingProvider:
+    """Answers both calls, so a run reaches the derivation stage between them.
+
+    **Its two answers are the recorded ones, moved onto the contract S13 introduced.** The plan
+    is `generations.jsonl`'s own, plus one `requested_derivations` entry; the draft is
+    `generations.jsonl`'s own with its third sentence rewritten — the `calculation` gone and an
+    ordinary `fact_bindings` entry in its place. Rewriting the recording rather than inventing a
+    pair keeps every id, every surface and every citation the live Qwen run produced, so what
+    this exercises is the one thing that changed.
+
+    **The derived fact id is read out of the writer's own prompt**, not computed here. That is
+    deliberate: a double that recomputed the id would bind a fact whether or not the DERIVED
+    FACTS section carried one, and the property worth asserting is that the writer was shown the
+    thing it binds.
+    """
+
+    model_id = MODEL_ID
+    provider_id = PROVIDER_ID
+
+    #: `[fact:derived:…]` as `prompts._derived_fact_lines` prints it.
+    DERIVED_ID = re.compile(r"\[(fact:derived:[^\]\s]+)\]")
+
+    def __init__(self, requested: Sequence[Mapping[str, str]]) -> None:
+        self.requested = [dict(row) for row in requested]
+        self.calls: list[str] = []
+        self.prompts: dict[str, str] = {}
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(ok=True, status="deriving")
+
+    def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
+                 schema_name: str, max_tokens: int, temperature: float) -> GenerationResult:
+        self.calls.append(schema_name)
+        self.prompts[schema_name] = prompt
+        if schema_name == "story_editorial_plan":
+            content = {**recorded_content("story_editorial_plan"),
+                       "requested_derivations": self.requested}
+        else:
+            content = self._draft(prompt)
+        raw = json.dumps(content, ensure_ascii=False)
+        return GenerationResult(
+            content=content, raw_content=raw, model_id="qwen-wire-name",
+            prompt_tokens=1520, completion_tokens=430, total_tokens=1950, latency_ms=11.0,
+            raw_sha256="", content_sha256="", finish_reason="stop", attempts=1)
+
+    def _draft(self, prompt: str) -> dict[str, Any]:
+        content = json.loads(json.dumps(recorded_content("story_post_draft")))
+        for row in content["sentences"]:
+            row.pop("calculation", None)
+        found = self.DERIVED_ID.findall(prompt)
+        gap = content["sentences"][2]
+        if found:
+            gap["fact_bindings"] = [{
+                "fact_id": found[0],
+                "rendered": "15.9 percentage points",
+                "metric_surface": "Adjusted Gross Margin",
+                "period_surface": "the third quarter of 2022"}]
+            gap["citations"] = [{"evidence_id": fact.evidence_handle}
+                                for fact in demo_inputs().package.facts]
+        return content
 
 
 class UnreachableProvider:
@@ -920,8 +1024,12 @@ def test_the_five_settings_that_shared_one_key_before_v3_now_have_five(config):
     from story.stages.generation.prompts import (
         PLANNER_MAX_TOKENS, PLANNER_SCHEMA_NAME, PLANNER_SYSTEM, planner_prompt, planner_schema)
 
-    package = demo_inputs().package
-    call = dict(system=PLANNER_SYSTEM, prompt=planner_prompt(package),
+    inputs = demo_inputs()
+    package = inputs.package
+    # The same offer set `run_demo` prints, because it is inside the prompt and therefore inside
+    # the digest: a request built here without one would key a row no run could ever ask for.
+    call = dict(system=PLANNER_SYSTEM,
+                prompt=planner_prompt(package, offered=offers(package, inputs.candidate)),
                 schema=planner_schema(causal_language=causal_language_for(package)),
                 schema_name=PLANNER_SCHEMA_NAME, provider_id=PROVIDER_OPENAI,
                 model_id=OPENAI_MODEL_ID, temperature=0.0,
@@ -1909,25 +2017,163 @@ def test_a_schema_violation_is_the_models_answer_wherever_it_was_raised(tmp_path
 
 
 def test_the_dispositions_are_a_closed_set_the_run_reports_from(tmp_path, config):
-    """Five values, declared once, and every one of them reachable from this file's doubles.
+    """Six values, declared once, and every one of them reachable from this file's doubles.
 
     A list stated in more than one place is a list that ends up different lengths in different
     places, which is how a browser came to render a disposition set that had four members while
     `pipeline` had five. The demo UI reads `DISPOSITIONS` rather than restating it, and this is
     the end that says the constant is complete.
+
+    **`derivation_refused` is the sixth** (DETERMINISTIC_FACT_TOOLS §5). It is not reachable
+    from a model's answer at all: a triple outside the offer set is refused by `plan_violations`
+    and ends the run as `plan_refused`, and a triple inside it has passed every clause of §4.2
+    by construction. What is left is the detector-signal assertion — the candidate's own `gap`
+    disagreeing with what the operation computed — so the double below moves the *candidate's*
+    signal rather than the model's answer, which is what that disposition is about.
     """
     reached = {
-        run_demo(demo_inputs(), provider=provider, config=config,
+        run_demo(inputs, provider=provider, config=config,
                  out_dir=tmp_path / name).disposition
-        for name, provider in (("accepted", replaying(ACCEPTED_STORE)),
-                               ("rejected", replaying(REJECTED_STORE)),
-                               ("plan", RefusedPlannerProvider()),
-                               ("draft", BadWriterProvider()),
-                               ("fault", UnreachableProvider()))
+        for name, inputs, provider in (
+            ("accepted", demo_inputs(), replaying(ACCEPTED_STORE)),
+            ("rejected", demo_inputs(), replaying(REJECTED_STORE)),
+            ("plan", demo_inputs(), RefusedPlannerProvider()),
+            ("draft", demo_inputs(), BadWriterProvider()),
+            ("derivation", misreported_signal_inputs(),
+             DerivingProvider([compare_levels_request()])),
+            ("fault", demo_inputs(), UnreachableProvider()))
     }
 
     assert reached == set(DISPOSITIONS)
-    assert len(DISPOSITIONS) == len(set(DISPOSITIONS)) == 5
+    assert len(DISPOSITIONS) == len(set(DISPOSITIONS)) == 6
+
+
+# ---------------------------------------------------------------------------------------
+# DETERMINISTIC_FACT_TOOLS §5 — the derivation stage, between the plan and the draft
+# ---------------------------------------------------------------------------------------
+
+
+def misreported_signal_inputs() -> DemoInputs:
+    """The same run with the candidate's `gap` signal moved, and nothing else touched.
+
+    A defect in one of two code paths, planted at the only place it can come from: the candidate
+    is the detector's output and the package is the packager's, and §4.4 asserts the derived
+    result equal to the signal rather than preferring either. `dataclasses.replace` on the frozen
+    `DemoInputs` and `model_copy` on the frozen candidate, so nothing else in the run moves.
+    """
+    inputs = demo_inputs()
+    signals = {**inputs.candidate.signals, "gap": 9.9}
+    return replace(inputs, candidate=inputs.candidate.model_copy(update={"signals": signals}))
+
+
+def test_a_run_writes_the_derived_facts_it_computed_and_names_the_file_in_its_manifest(
+    tmp_path, config
+):
+    """§3: the derived facts are a **separate artifact**, and §14 hashes it like every other.
+
+    They may not go in `evidence_package.json`: the planner selects the derivations, and
+    `package_content_digest` is a `story_run_id` input, so a package whose contents depended on a
+    model call would make the run id depend on the model's output. So the file is its own, and
+    the manifest names it, hashes it and counts what went into it.
+    """
+    provider = DerivingProvider([compare_levels_request()])
+    outcome = run_demo(demo_inputs(), provider=provider, config=config,
+                       out_dir=tmp_path / "run")
+
+    written = json.loads((outcome.directory / DERIVED_FACTS_FILENAME).read_text("utf-8"))
+    assert [fact["operation"] for fact in written["facts"]] == ["compare_levels"]
+    assert written["facts"][0]["result"] == 15.9
+    assert written["facts"][0]["unit"] == "percentage_points"
+    assert written["facts"][0]["display_semantics"] == "higher than"
+    assert written["facts"][0]["reused_detector_signal"] == "gap"
+    assert written["refusals"] == []
+    assert written["tool_version"] == "1.0.0"
+    # §7's fact, minted by code from the package alone and never requested.
+    assert [row["claim"] for row in written["evidence_scope_facts"]] == [
+        "no_supported_causal_explanation_in_package"]
+
+    manifest = json.loads((outcome.directory / "demo_manifest.json").read_text("utf-8"))
+    assert DERIVED_FACTS_FILENAME in manifest["artifacts"]
+    assert manifest["artifacts"][DERIVED_FACTS_FILENAME] == hashlib.sha256(
+        (outcome.directory / DERIVED_FACTS_FILENAME).read_bytes()).hexdigest()
+    assert manifest["demo"]["derivation_tool_version"] == "1.0.0"
+    assert manifest["counts"]["derivations_offered"] == 4
+    assert manifest["counts"]["derivations_requested"] == 1
+    assert manifest["counts"]["derived_facts"] == 1
+    assert manifest["counts"]["derivation_refusals"] == 0
+    assert manifest["counts"]["evidence_scope_facts"] == 1
+
+
+def test_the_writer_is_shown_the_derived_fact_and_binds_the_id_it_was_shown(tmp_path, config):
+    """The seam §5 puts between the two model calls, asserted from both sides.
+
+    The double reads the `fact:derived:` id out of its own prompt rather than recomputing one,
+    so a run where the DERIVED FACTS section carried nothing would bind nothing and this would
+    fail on the draft rather than passing on a coincidence.
+    """
+    provider = DerivingProvider([compare_levels_request()])
+    outcome = run_demo(demo_inputs(), provider=provider, config=config,
+                       out_dir=tmp_path / "run")
+
+    assert provider.calls == ["story_editorial_plan", "story_post_draft"]
+    written = json.loads((outcome.directory / DERIVED_FACTS_FILENAME).read_text("utf-8"))
+    derived_id = written["facts"][0]["fact_id"]
+    assert f"[{derived_id}]" in provider.prompts["story_post_draft"]
+    assert 'period surface: write exactly "the third quarter of 2022"' in (
+        provider.prompts["story_post_draft"])
+
+    assert outcome.draft is not None
+    gap = outcome.draft.sentences[2]
+    assert [b.fact_id for b in gap.fact_bindings] == [derived_id]
+    assert gap.calculation is None
+    assert gap.fact_bindings[0].period_surface == "the third quarter of 2022"
+
+
+def test_the_offer_set_reaches_the_planner_prompt_and_bounds_what_it_may_ask_for(
+    tmp_path, config
+):
+    """§4.3: the list is printed, and it is the same list the answer is checked against."""
+    inputs = demo_inputs()
+    provider = DerivingProvider([compare_levels_request()])
+    run_demo(inputs, provider=provider, config=config, out_dir=tmp_path / "run")
+
+    prompt = provider.prompts["story_editorial_plan"]
+    offered = offers(inputs.package, inputs.candidate)
+    assert "DERIVATIONS OFFERED (4 available" in prompt
+    for request in offered:
+        assert (f'operation "{request.operation.value}"  '
+                f'from_fact_id "{request.from_fact_id}"  '
+                f'to_fact_id "{request.to_fact_id}"') in prompt
+
+
+def test_a_derivation_the_detectors_own_signal_contradicts_ends_the_run_and_writes_no_draft(
+    tmp_path, config
+):
+    """§4.4: two code paths computing one number and differing is a defect in one of them.
+
+    It is refused rather than resolved by preference, and the run stops there — the writer is
+    never called, because a plan resting on a quantity that does not exist cannot be written.
+    Recorded as its own disposition rather than as `plan_refused`, which would blame a model for
+    a disagreement between two deterministic computations.
+    """
+    provider = DerivingProvider([compare_levels_request()])
+    outcome = run_demo(misreported_signal_inputs(), provider=provider, config=config,
+                       out_dir=tmp_path / "run")
+
+    assert outcome.disposition == DERIVATION_REFUSED
+    assert outcome.refusal_codes == ("derived_result_mismatch",)
+    assert provider.calls == ["story_editorial_plan"]
+    assert outcome.draft is None and outcome.verified is None
+    assert not (outcome.directory / "post.md").exists()
+    assert not (outcome.directory / "draft.json").exists()
+
+    written = json.loads((outcome.directory / DERIVED_FACTS_FILENAME).read_text("utf-8"))
+    assert written["facts"] == []
+    assert [row["code"] for row in written["refusals"]] == ["derived_result_mismatch"]
+
+    rejected = json.loads((outcome.directory / "rejected.json").read_text("utf-8"))
+    assert rejected["stage"] == STAGE_DERIVATION
+    assert rejected["codes"] == ["derived_result_mismatch"]
 
 
 def test_the_manifest_is_written_last_and_names_the_hash_of_every_other_artifact(

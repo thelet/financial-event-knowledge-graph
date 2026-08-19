@@ -30,9 +30,11 @@ from __future__ import annotations
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
 from story.core.models import (
+    DerivedFact,
     Draft,
     EditorialPlan,
     EvidenceRequest,
+    EvidenceScopeFact,
     GenerationResult,
     HealthStatus,
     RetrievalResult,
@@ -205,10 +207,22 @@ class DraftVerifier(Protocol):
     `plan` is required because §13 has checks the draft alone cannot answer: a dropped
     `required_warning` and an absent counterpoint are both refusals about what the *plan*
     asked for.
+
+    **`derived_facts` is defaulted, and that is the one place this protocol is permissive**
+    (DETERMINISTIC_FACT_TOOLS §6). A run that requested no derivation produces none, and every
+    call site written before S13 means exactly that — so the default is the truthful value
+    rather than a convenience. It is not a way to skip the argument: a draft binding a
+    `fact:derived:` id against an empty sequence is `derived_fact_not_in_run`, a REFUSE, so a
+    caller that forgot to pass what it computed fails closed rather than verifying a number
+    against nothing.
     """
 
     def verify(
-        self, draft: Draft, package: StoryEvidencePackage, plan: EditorialPlan
+        self,
+        draft: Draft,
+        package: StoryEvidencePackage,
+        plan: EditorialPlan,
+        derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
     ) -> VerifiedDraft: ...
 
 

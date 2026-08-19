@@ -43,6 +43,8 @@ from typing import Sequence
 from story.core.models import (
     Calculation,
     CheckResult,
+    DerivationOperation,
+    DerivedFact,
     Draft,
     DraftSentence,
     PackagedFact,
@@ -54,6 +56,7 @@ from story.core.numerals import tokenize_numerals
 # Full dotted paths, so this module does not route through the package `__init__` that imports
 # it — see the same note in `deterministic.py`.
 import story.stages.verification.citations as citation_rules
+import story.stages.verification.derived_facts as derived_rules
 import story.stages.verification.language as language
 from story.stages.verification.codes import finding
 from story.stages.verification.metric_surfaces import MetricAliasIndex
@@ -279,10 +282,27 @@ def _claim_findings(
     aliases: MetricAliasIndex,
     exempt: Sequence[language.LexicalMatch],
 ) -> list[VerificationFinding]:
-    """§13.14's four constructions, each permitted only with its machinery behind it."""
+    """§13.14's four constructions, each permitted only with its machinery behind it.
+
+    **DETERMINISTIC_FACT_TOOLS §6 gives the comparative a second thing that can back it and
+    leaves the other three alone.** A bound `compare_levels` `DerivedFact` *is* the comparison —
+    two readings of one period, a signed gap and a `display_semantics` code computed — so a
+    comparative sentence carrying one has its machinery, and `_derived_comparison_findings`
+    checks the words against it exactly as `_comparison_text_findings` checks them against a
+    declaration. The superlative, the absence claim and the temporal ordering get no such
+    reprieve: §4.1 has no operation for an extremum, none for an absence and none for an
+    ordering, so those three remain unconditional refusals outside a `Calculation`, which §6
+    retires. That is a narrowing of what a draft can say and it is the direction §13.14 says
+    the failure should point.
+    """
     found: list[VerificationFinding] = []
     calculation = sentence.calculation
     operation = calculation.operation if calculation is not None else ""
+    comparison_facts = [
+        derived for binding in sentence.fact_bindings
+        if (derived := index.derived_fact(binding.fact_id)) is not None
+        and derived.operation is DerivationOperation.COMPARE_LEVELS
+    ]
 
     def outside(match: language.LexicalMatch) -> bool:
         return not any(span.contains(match.start, match.end) for span in exempt)
@@ -304,7 +324,8 @@ def _claim_findings(
         break
 
     comparatives = tuple(filter(outside, language.comparatives(sentence.text)))
-    if comparatives and operation not in {"compare_levels", "compare_deltas"}:
+    if (comparatives and operation not in {"compare_levels", "compare_deltas"}
+            and not comparison_facts):
         found.append(finding(
             "unsupported_comparative",
             sentence_index=sentence.index,
@@ -343,6 +364,17 @@ def _claim_findings(
         found.extend(_extremum_findings(sentence, calculation, index))
     if operation in {"compare_levels", "compare_deltas"} and calculation is not None:
         found.extend(_comparison_findings(sentence, calculation, index, aliases, comparatives))
+    if comparatives:
+        # **Only when the sentence actually makes a comparison**, which is where a `DerivedFact`
+        # parts company with a `Calculation`. A calculation *declared* `left < right` — a
+        # direction — so R8 rightly requires the prose to state one; a derived fact declares a
+        # signed **quantity**, and *"the gap between the two measures was 15.9 percentage
+        # points"* states that quantity and asserts no direction at all. The direction it does
+        # carry is `display_semantics`, and it is checked here the moment the sentence reaches
+        # for a comparative and by `derived_facts.orientation_findings` when it reaches for a
+        # change verb.
+        for derived in comparison_facts:
+            found.extend(_derived_comparison_findings(sentence, derived, aliases, comparatives))
     if operation == "temporal_order" and calculation is not None:
         found.extend(_temporal_findings(sentence, calculation, index))
     return found
@@ -524,44 +556,21 @@ def _comparison_text_findings(
     Every other shape still has to line up — one comparative, unnegated, a polarity the lexicon
     states, and the two metrics named in the declared order on either side of it.
     """
-    def refusal(expected: str, observed: str) -> list[VerificationFinding]:
-        return [finding(
-            "comparative_not_supported_by_text",
-            sentence_index=sentence.index,
-            fact_ids=tuple(calculation.input_observation_ids),
-            expected=expected, observed=observed,
-            explanation=(
-                "§13.14: a calculation names its two sides by position and the sentence names "
-                "them in words. Recomputing the declaration alone would accept the sentence "
-                "that reverses it, which is the same number and the opposite claim."),
-        )]
+    word_findings, match = _comparative_word_findings(
+        sentence,
+        fact_ids=tuple(calculation.input_observation_ids),
+        comparatives=comparatives,
+        left_above=left_above,
+        declares=calculation.operation,
+        declaration=calculation.expression.strip().lower(),
+    )
+    if word_findings or match is None:
+        return word_findings
 
-    if not comparatives:
-        return refusal(
-            f"a comparative construction, which is what {calculation.operation} declares",
-            f"no comparative in {sentence.text!r}")
-    if len(comparatives) > 1:
-        return refusal(
-            "one comparative, which is what one calculation can support",
-            ", ".join(match.term for match in comparatives))
-    match = comparatives[0]
-    if language.negated(sentence.text, match):
-        # §13.10 condition 5's rule, on §13.14's construction. *"was **not** 15.9 points lower
-        # than"* and *"was **no** lower than"* both passed: the comparative is in the lexicon,
-        # its polarity matches the declaration, and the sentence asserts the opposite of both.
-        # Measured on the demo's own draft, twice.
-        return refusal(
-            "an unnegated comparative, whose direction the declaration can be checked against",
-            f"{match.term!r} negated in {sentence.text!r}")
-    direction = language.comparative_direction(match.term)
-    if direction is None:
-        return refusal("a comparative whose polarity the §13.14 lexicon states", match.term)
-    if direction is not left_above:
-        return refusal(
-            f"{calculation.expression.strip().lower()} written as "
-            + ("a term putting the first side above the second"
-               if left_above else "a term putting the first side below the second"),
-            match.term)
+    def refusal(expected: str, observed: str) -> list[VerificationFinding]:
+        return _comparative_refusal(
+            sentence, tuple(calculation.input_observation_ids), expected, observed)
+
     if calculation.operation == "compare_deltas":
         # A side of a delta comparison is a change *of one metric*. Two metrics on one side is
         # not a delta, and neither the recomputation nor a reader could say which one moved.
@@ -591,6 +600,133 @@ def _comparison_text_findings(
             f"{expected_left} before {match.term!r} and {expected_right} after it",
             f"{named_left or 'no metric'} before and {named_right or 'no metric'} after")
     return []
+
+def _comparative_refusal(
+    sentence: DraftSentence, fact_ids: Sequence[str], expected: str, observed: str
+) -> list[VerificationFinding]:
+    return [finding(
+        "comparative_not_supported_by_text",
+        sentence_index=sentence.index,
+        fact_ids=tuple(fact_ids),
+        expected=expected, observed=observed,
+        explanation=(
+            "§13.14: a comparison names its two sides by position and the sentence names them "
+            "in words. Recomputing the declaration alone would accept the sentence that "
+            "reverses it, which is the same number and the opposite claim."),
+    )]
+
+
+def _comparative_word_findings(
+    sentence: DraftSentence,
+    *,
+    fact_ids: Sequence[str],
+    comparatives: Sequence[language.LexicalMatch],
+    left_above: bool,
+    declares: str,
+    declaration: str,
+) -> tuple[list[VerificationFinding], language.LexicalMatch | None]:
+    """The four things the comparative *word* has to be, before either caller reads the sides.
+
+    Extracted from `_comparison_text_findings` unchanged and in the same order, so a
+    `Calculation` and a `compare_levels` `DerivedFact` are judged by one implementation and the
+    §13.14 findings a stored draft raises today are byte-identical. Returns the match when every
+    word test passed, so the caller knows whether to go on to the sides.
+    """
+    def refusal(expected: str, observed: str) -> list[VerificationFinding]:
+        return _comparative_refusal(sentence, fact_ids, expected, observed)
+
+    if not comparatives:
+        return refusal(
+            f"a comparative construction, which is what {declares} declares",
+            f"no comparative in {sentence.text!r}"), None
+    if len(comparatives) > 1:
+        return refusal(
+            "one comparative, which is what one calculation can support",
+            ", ".join(match.term for match in comparatives)), None
+    match = comparatives[0]
+    if language.negated(sentence.text, match):
+        # §13.10 condition 5's rule, on §13.14's construction. *"was **not** 15.9 points lower
+        # than"* and *"was **no** lower than"* both passed: the comparative is in the lexicon,
+        # its polarity matches the declaration, and the sentence asserts the opposite of both.
+        # Measured on the demo's own draft, twice.
+        return refusal(
+            "an unnegated comparative, whose direction the declaration can be checked against",
+            f"{match.term!r} negated in {sentence.text!r}"), None
+    direction = language.comparative_direction(match.term)
+    if direction is None:
+        return refusal(
+            "a comparative whose polarity the §13.14 lexicon states", match.term), None
+    if direction is not left_above:
+        return refusal(
+            f"{declaration} written as "
+            + ("a term putting the first side above the second"
+               if left_above else "a term putting the first side below the second"),
+            match.term), None
+    return [], match
+
+
+def _derived_comparison_findings(
+    sentence: DraftSentence,
+    derived: DerivedFact,
+    aliases: MetricAliasIndex,
+    comparatives: Sequence[language.LexicalMatch],
+) -> list[VerificationFinding]:
+    """§13.14's comparative, with a `compare_levels` `DerivedFact` in place of a declaration.
+
+    **Two sides, and the derivation names them: `to` is the subject and `from` is what it is
+    stated against.** The polarity comes from `display_semantics` and not from the sign of
+    `result`, because those are different questions on a metric stored under an inverted
+    convention — the field exists for exactly that reason. So *"adjusted gross margin was 15.9
+    points **higher** than GAAP gross margin"* is checked against `higher than` over
+    `(adjusted, gaap)`, and the same sentence with `lower` is refused: the same number and the
+    opposite claim, which is §13.14's own attack on the demo candidate.
+
+    **The reversed *phrasing* is refused too, and it is not a false positive.** *"GAAP gross
+    margin was 15.9 points lower than adjusted"* is a true sentence, and it is not the sentence
+    this fact states — it is the sentence the **other orientation** states, and
+    `offers()` offers both orientations of every pair precisely so a writer can bind the one it
+    wrote. Binding one and writing the other leaves the declaration and the prose describing
+    different comparisons, which is the state the rule exists to refuse; the fix is a rebind and
+    not a rewrite. `_comparison_text_findings` has held a `Calculation` to the same bar since
+    R8, and relaxing it here would make a derived comparison weaker than the one it replaces.
+
+    A fact whose `display_semantics` states no direction — `equal to`, or
+    `direction unverifiable` where the metric's sign convention was never measured — licenses no
+    comparative at all, and the sentence is refused rather than passed on a direction nobody
+    established.
+    """
+    left_above = derived_rules.SEMANTIC_DIRECTION.get(derived.display_semantics)
+    fact_ids = (derived.fact_id, derived.from_fact_id, derived.to_fact_id)
+    if left_above is None:
+        return _comparative_refusal(
+            sentence, fact_ids,
+            "a derived comparison stating a direction",
+            f"display_semantics is {derived.display_semantics.value!r}, which states none")
+    word_findings, match = _comparative_word_findings(
+        sentence,
+        fact_ids=fact_ids,
+        comparatives=comparatives,
+        left_above=left_above,
+        declares=derived.operation.value,
+        declaration=derived.display_semantics.value,
+    )
+    if word_findings or match is None:
+        return word_findings
+    expected_left, expected_right = derived.metric_id, derived.from_metric_id
+    if expected_left == expected_right:
+        return _comparative_refusal(
+            sentence, fact_ids,
+            "two sides the sentence names apart",
+            f"both sides are {expected_left}, which no reading of the sentence can order")
+    named_left = aliases.resolve(sentence.text[:match.start]).unique_metric_id
+    named_right = aliases.resolve(sentence.text[match.end:]).unique_metric_id
+    if (named_left, named_right) != (expected_left, expected_right):
+        return _comparative_refusal(
+            sentence, fact_ids,
+            f"{expected_left} before {match.term!r} and {expected_right} after it",
+            f"{named_left or 'no metric'} before and {named_right or 'no metric'} after")
+    return []
+
 
 def _temporal_findings(
     sentence: DraftSentence, calculation: Calculation, index: PackageIndex

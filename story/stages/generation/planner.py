@@ -21,7 +21,7 @@ parameter, no field and no prompt line through which a plan could ask for differ
 and §11's second consequence — counter-evidence never comes from `search_passages` — is S5's
 to keep in `story/stages/packaging/counter_evidence.py`.
 
-**Three rules are code after the call, not instructions in the prompt.** §15.3 prohibits
+**Four rules are code after the call, not instructions in the prompt.** §15.3 prohibits
 `minItems` and `pattern`, so "counterpoints must be non-empty" and "this id must exist" cannot
 be expressed to the grammar at all; a prompt line asking for them is a request, and this stage
 needs a refusal. `plan_violations` is that refusal, it is pure, and it is the same function
@@ -31,7 +31,14 @@ D5's verifier can run against a hand-written plan:
 2. `counterpoints` is non-empty when `counter_evidence` is, every counterpoint is grounded in
    at least one id drawn from `counter_evidence`, and every unused counter-evidence item is
    accounted for in `unusable_evidence`;
-3. `causal_language` is the value **code** computed from the package.
+3. `causal_language` is the value **code** computed from the package;
+4. every `requested_derivations` entry is a triple the prompt actually offered
+   (DETERMINISTIC_FACT_TOOLS §4.3). The fourth for the same reason as the first three and not a
+   new kind of thing: §15.3 can pin the *operation* to seven words with an `enum` and can say
+   nothing at all about which pairs of ids those words are legal over, because that is a fact
+   about this package. So the grammar constrains the vocabulary and this function constrains the
+   list — and it does so **before the writer runs**, so a plan resting on a quantity nothing
+   will compute never costs a second call.
 
 **A fourth thing happens after the call and is a narrowing rather than a rule**:
 `claim_qualifying_warnings` drops the package's build-provenance codes from the model's
@@ -73,6 +80,7 @@ from story.contracts import StoryGenerationProvider
 from story.core.models import (
     CausalLanguage,
     Counterpoint,
+    DerivationRequest,
     EditorialPlan,
     GenerationResult,
     KeyPoint,
@@ -135,6 +143,14 @@ COUNTER_EVIDENCE_UNACCOUNTED = "counter_evidence_unaccounted"
 UNKNOWN_WARNING_CODE = "unknown_warning_code"
 UNKNOWN_UNUSABLE_ID = "unknown_unusable_id"
 CAUSAL_LANGUAGE_NOT_COMPUTED = "causal_language_not_computed"
+#: DETERMINISTIC_FACT_TOOLS §4.3 — the plan asked for a derivation that was not on the list the
+#: prompt printed. **Spelled the way §6 spells the verifier's own new gate code**, so a refusal
+#: here and a finding raised for the same fault downstream are one string and not two; the
+#: derivation stage's `DerivationRefusalCode.NOT_OFFERED` carries the same spelling for the same
+#: reason. Refused here rather than at the executor because §5 puts the check *before the writer
+#: runs*: a plan resting on a quantity nothing will compute is a plan whose key point cannot be
+#: written, and discovering that after a writer call has been paid for helps nobody.
+DERIVATION_NOT_OFFERED = "derivation_not_offered"
 THESIS_EMPTY = "thesis_empty"
 NO_KEY_POINTS = "no_key_points"
 PLAN_NOT_CONSTRUCTIBLE = "plan_not_constructible"
@@ -280,12 +296,23 @@ def _negated_before(text: str, index: int) -> bool:
 
 
 def plan_violations(
-    plan: EditorialPlan, package: StoryEvidencePackage
+    plan: EditorialPlan,
+    package: StoryEvidencePackage,
+    *,
+    offered: Sequence[DerivationRequest] = (),
 ) -> tuple[PlanViolation, ...]:
     """Every reason this plan may not reach the writer. Empty means accepted.
 
     Pure and provider-free, so a hand-written plan, a replayed plan and a freshly generated one
     are all judged by one function.
+
+    `offered` is the same tuple `planner_prompt` printed (DETERMINISTIC_FACT_TOOLS §4.3), and it
+    is compared by **equality on the whole triple** rather than by membership of any part: an
+    operation the offer set does not pair with these two ids, and the two ids the other way
+    round, are both different derivations, and §6's `derived_fact_orientation_reversed` exists
+    precisely because the reversal is a real distinction. Defaulted to empty, which refuses every
+    requested derivation — the honest reading for a caller that shows the model no offers,
+    since a plan cannot legitimately request from a list it was never given.
     """
     fact_ids = {fact.observation_id for fact in package.facts}
     passage_ids = _passage_ids(package)
@@ -350,6 +377,17 @@ def plan_violations(
                 UNKNOWN_WARNING_CODE,
                 f"required_warnings names {code!r}; the package carries "
                 f"{sorted(known_warnings) or 'no warnings'}"))
+
+    for index, request in enumerate(plan.requested_derivations):
+        if any(request == offer for offer in offered):
+            continue
+        found.append(PlanViolation(
+            DERIVATION_NOT_OFFERED,
+            f"requested_derivations[{index}] asks for {request.operation.value} from "
+            f"{request.from_fact_id!r} to {request.to_fact_id!r}; the prompt offered "
+            f"{len(offered)} triples and this is not one of them (§4.3 — the planner may "
+            "request only a triple from the list it was shown, and an orientation is part of "
+            "the triple)"))
 
     computed = causal_language_for(package)
     if plan.causal_language is not computed:
@@ -439,6 +477,7 @@ def editorial_plan_from(
     *,
     model_id: str,
     prompt_version: str = PLANNER_PROMPT_VERSION,
+    offered: Sequence[DerivationRequest] = (),
 ) -> EditorialPlan:
     """One schema-conformant answer as an `EditorialPlan`, or `EditorialPlanRejected`.
 
@@ -474,6 +513,18 @@ def editorial_plan_from(
                     required_citation_passage_ids=tuple(
                         row.get("required_citation_passage_ids") or ()),
                 ) for row in content.get("counterpoints") or ()),
+            # Read as the model wrote them, with no tidying. A triple this constructor
+            # normalised — an operation lower-cased, an id stripped — would be a triple
+            # `plan_violations` then compared against the offer set having already repaired it,
+            # so a plan that asked for something it was not shown would pass by having been
+            # corrected on the way past. The `DerivationOperation` enum refuses a word outside
+            # the seven here, which is a schema-shaped failure and not a repair.
+            requested_derivations=tuple(
+                DerivationRequest(
+                    operation=row["operation"],
+                    from_fact_id=row["from_fact_id"],
+                    to_fact_id=row["to_fact_id"],
+                ) for row in content.get("requested_derivations") or ()),
             required_warnings=claim_qualifying_warnings(
                 tuple(content.get("required_warnings") or ()), package),
             causal_language=computed,
@@ -495,7 +546,7 @@ def editorial_plan_from(
             f"the model's plan cannot be constructed: {exc}",
             (PlanViolation(PLAN_NOT_CONSTRUCTIBLE, str(exc)),)) from exc
 
-    violations = plan_violations(plan, package)
+    violations = plan_violations(plan, package, offered=offered)
     if violations:
         raise EditorialPlanRejected(
             "the plan is refused before the writer runs (§11): "
@@ -509,11 +560,19 @@ def plan_story(
     *,
     provider: StoryGenerationProvider,
     max_tokens: int,
+    offered: Sequence[DerivationRequest] = (),
 ) -> PlannedStory:
     """§11's whole stage: package in, accepted plan out.
 
-    Two arguments and a budget. There is no `terms`, no retriever and no configuration
-    parameter, which is the §11 correction stated as a signature rather than as a promise.
+    Two arguments, a budget and the offer set. There is still no `terms`, no retriever and no
+    configuration parameter, which is the §11 correction stated as a signature rather than as a
+    promise — and `offered` does not weaken it. It is a pure function of the package and the
+    candidate computed *before* this call by a stage that has no model in it, so it is one more
+    thing the plan may not influence rather than a channel through which it could.
+
+    **The same tuple is printed and checked**, which is why it is one argument and not two: it
+    reaches `planner_prompt` and `plan_violations` from here, so the list the model was shown
+    and the list its answer is judged against cannot drift apart.
 
     `max_tokens` is keyword-only with no default because it is a digest input to
     `request_identity`; pass `prompts.PLANNER_MAX_TOKENS` unless something measured says
@@ -529,7 +588,7 @@ def plan_story(
 
     result = provider.generate(
         system=PLANNER_SYSTEM,
-        prompt=planner_prompt(package),
+        prompt=planner_prompt(package, offered=offered),
         schema=schema,
         schema_name=PLANNER_SCHEMA_NAME,
         max_tokens=max_tokens,
@@ -555,7 +614,8 @@ def plan_story(
             # The *configured* identity where the provider states one, not the `.gguf` path the
             # server reports back — the distinction `generation_store` keeps as two fields.
             model_id=getattr(provider, "model_id", "") or result.model_id,
-            prompt_version=PLANNER_PROMPT_VERSION)
+            prompt_version=PLANNER_PROMPT_VERSION,
+            offered=offered)
     except (EditorialPlanRejected, StoryProviderSchemaError) as exc:
         exc.generation = result
         raise

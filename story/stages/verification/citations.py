@@ -45,6 +45,21 @@ cell and citing the cell beside it passed that test for the whole corpus.
 model.** Both are argued where they are implemented — `_rule_a` and `_rule_b` — because both
 changed meaning when the model stopped choosing spans, and a reader who finds only one of the
 two arguments would conclude the wrong thing about the other.
+
+**DETERMINISTIC_FACT_TOOLS §6 changes what *"the facts this sentence binds"* means, and nothing
+else here.** A sentence may now bind a `DerivedFact`, and *"a citation supporting a derived fact
+is one that supports an **input fact** of it"*. So every rule below that reasoned over
+`bound_ids` reasons over `_evidence_fact_ids` instead: the observations the sentence bound
+directly, plus the observations its derived facts were computed from. The derived id itself is
+never in that set and **no evidence handle is ever minted for one** — `DerivedFact` has no field
+to hold one, §6 forbids it, and five layers downstream assume a cited thing was read from a
+filing. A reader who wants the evidence for `-$446M` follows it to `$556M` and `$110M` and cites
+the two cells there, which is exactly what the coverage rule now requires of the draft.
+
+§7's `EvidenceScopeFact` goes the other way: it was read from nothing, so **no** citation can
+support it, and a `PassageCitation` on a sentence binding one is refused outright. That is the
+failure §7 names — the *"no explanation was disclosed"* sentence reusing a financial-table
+citation as though the table had said it.
 """
 
 from __future__ import annotations
@@ -122,6 +137,35 @@ def cited_span(passage: PackagedPassage, citation: PassageCitation) -> str | Non
     return passage.text[start:end]
 
 
+def _evidence_fact_ids(sentence: DraftSentence, index: PackageIndex) -> tuple[str, ...]:
+    """The **observations** this sentence's citations have to answer for (§6).
+
+    A directly bound observation is itself; a bound `DerivedFact` is its two inputs; a bound
+    §7 `EvidenceScopeFact` contributes nothing, because it was read from nothing. Order follows
+    the bindings and then `(from, to)`, so a finding's `fact_ids` reads in the order the
+    sentence made its claims rather than in hash order.
+
+    An id that resolves as none of the three is dropped rather than passed through:
+    `deterministic._check_identity` has already refused it as `fact_not_in_package` or
+    `derived_fact_not_in_run`, and carrying it here would make a citation rule report a second
+    finding about a binding nothing can evidence.
+    """
+    found: list[str] = []
+    for binding in sentence.fact_bindings:
+        if index.fact(binding.fact_id) is not None:
+            found.append(binding.fact_id)
+            continue
+        found.extend(fact.observation_id
+                     for fact in index.derived_inputs(binding.fact_id))
+    return tuple(dict.fromkeys(found))
+
+
+def _scope_bindings(sentence: DraftSentence, index: PackageIndex) -> tuple[str, ...]:
+    """The §7 evidence-scope facts this sentence binds, if any."""
+    return tuple(binding.fact_id for binding in sentence.fact_bindings
+                 if index.scope_fact(binding.fact_id) is not None)
+
+
 def check_sentence_citations(
     sentence: DraftSentence,
     index: PackageIndex,
@@ -144,7 +188,10 @@ def check_sentence_citations(
     findings: list[VerificationFinding] = []
     uses: list[CitationUse] = []
     examined = 0
-    bound_ids = tuple(binding.fact_id for binding in sentence.fact_bindings)
+    # §6: the observations this sentence's citations answer for — its own bindings, plus the
+    # inputs of every derived fact it binds. Never a derived id: nothing mints a handle for one.
+    bound_ids = _evidence_fact_ids(sentence, index)
+    scope_ids = _scope_bindings(sentence, index)
 
     for citation in sentence.citations:
         examined += 1
@@ -164,6 +211,28 @@ def check_sentence_citations(
             continue
 
         handle = citation_id(citation)
+        if scope_ids:
+            # §7: the fact carries no `citations` field and mints no evidence handle, and the
+            # absence is the design. Support is positional reconstruction or span containment
+            # and neither is defined against a fact that was read from nothing — so this is
+            # `citation_does_not_support_fact` in that code's own words rather than a new one.
+            findings.append(finding(
+                "citation_does_not_support_fact",
+                sentence_index=sentence.index,
+                citation_ids=(handle,),
+                fact_ids=scope_ids,
+                expected="no citation on a sentence binding an evidence-scope fact",
+                observed=f"{citation.passage_id} cited beside {', '.join(scope_ids)}",
+                explanation=(
+                    "§7: an evidence-scope fact states what this package's evidence does not "
+                    "contain. A filed passage cited beside it is being presented as the source "
+                    "of a claim about the filings' silence, which is the exact failure the "
+                    "brief names: today that sentence reuses a financial-table citation as "
+                    "though the table said it, and `counter_evidence_cited_as_support` and "
+                    "`citation_reused_for_unrelated_claim` are all that stand between a draft "
+                    "and the claim."),
+            ))
+            continue
         # Before the passage is resolved, because §3.4's questions are about the handle and the
         # fact it names, not about the span the citation happens to carry: a citation naming a
         # passage the package does not hold still has an answerable question about its handle,
@@ -255,6 +324,12 @@ def _handle_findings(
     Check 7 is conditioned on the sentence binding a fact at all, exactly as
     `citation_does_not_support_fact` is. A sentence that binds nothing has no fact for the
     handle to be wrong about; what it cites is judged by Rule B and by the reuse rule.
+
+    **§6: `bound_ids` here is `_evidence_fact_ids`, so a derived binding is answered for by its
+    two inputs.** A handle minted for an input of a bound derivation satisfies check 7 and a
+    handle for anything else does not — which is how *"a citation supporting a derived fact is
+    one that supports an input fact of it"* becomes a membership test rather than an exception.
+    The derived id itself is never in the set and no handle names it.
 
     Findings accumulate rather than short-circuit after check 7: a handle for another fact is
     still a handle this package minted, so checks 2–5 are answerable and true about it, and
@@ -512,20 +587,26 @@ def _support_findings(
     index: PackageIndex,
     aliases: MetricAliasIndex,
 ) -> list[VerificationFinding]:
-    """Rule A or Rule B for each fact this sentence bound, plus the uncited-claim refusal."""
+    """Rule A or Rule B for each fact this sentence bound, plus the uncited-claim refusal.
+
+    **§6: a bound `DerivedFact` is supported through its inputs.** `_evidence_pairs` pairs each
+    binding with the observation Rule A or Rule B is run against, which for a derived binding is
+    one of its two inputs — so `-$446M` is evidenced by the two cells `$556M` and `$110M` were
+    read from, and by nothing else. The binding carried alongside is the derived one, because it
+    is the binding that holds the span, the metric surface and the period surface a rule reads.
+    """
     findings: list[VerificationFinding] = []
-    supported = [
-        binding for binding in sentence.fact_bindings
-        if (fact := index.fact(binding.fact_id)) is not None
-        and fact.passage_id == citation.passage_id
-    ]
-    if sentence.fact_bindings and not supported:
+    pairs = _evidence_pairs(sentence, index)
+    supported = [(binding, fact) for binding, fact in pairs
+                 if fact.passage_id == citation.passage_id]
+    if pairs and not supported:
         findings.append(finding(
             "citation_does_not_support_fact",
             sentence_index=sentence.index,
             citation_ids=(handle,),
-            fact_ids=tuple(binding.fact_id for binding in sentence.fact_bindings),
-            expected="the passage each bound fact was read from",
+            fact_ids=tuple(fact.observation_id for _binding, fact in pairs),
+            expected="the passage each bound fact — or each input of a bound derivation — "
+                     "was read from",
             observed=citation.passage_id,
             explanation=(
                 "§13.7: support is positional reconstruction (Rule A) or span containment "
@@ -536,14 +617,32 @@ def _support_findings(
                 if fact.passage_id == citation.passage_id],
         ))
 
-    for binding in supported:
-        fact = index.fact(binding.fact_id)
-        assert fact is not None  # `supported` was built from a resolved lookup
+    for binding, fact in supported:
         if index.is_table_fact(fact) and sentence.kind is not SentenceKind.EXPLANATORY:
             findings.extend(_rule_a(sentence, binding, fact, handle, passage, index, aliases))
         else:
             findings.extend(_rule_b(sentence, binding, fact, handle, span, aliases))
     return findings
+
+
+def _evidence_pairs(
+    sentence: DraftSentence, index: PackageIndex
+) -> tuple[tuple[FactBinding, PackagedFact], ...]:
+    """Each binding paired with the observation a §13.7 rule is run against.
+
+    One pair for a directly bound observation; two for a bound derived fact, one per input.
+    A §7 evidence-scope binding yields none — it was read from nothing, and the citation on
+    such a sentence is refused before any rule here runs.
+    """
+    pairs: list[tuple[FactBinding, PackagedFact]] = []
+    for binding in sentence.fact_bindings:
+        fact = index.fact(binding.fact_id)
+        if fact is not None:
+            pairs.append((binding, fact))
+            continue
+        pairs.extend((binding, input_fact)
+                     for input_fact in index.derived_inputs(binding.fact_id))
+    return tuple(pairs)
 
 
 def _rule_a(
@@ -806,11 +905,10 @@ def _reuse_findings(
     earlier = earlier_uses.get(key)
     if earlier is None or earlier.sentence_index == sentence.index:
         return []
-    supports_here = any(
-        (fact := index.fact(binding.fact_id)) is not None
-        and fact.passage_id == citation.passage_id
-        for binding in sentence.fact_bindings
-    )
+    # §6: a derived binding supports through its inputs here too, so a second citation of the
+    # table a derivation was computed from is a legitimate second use and not a decorative one.
+    supports_here = any(fact.passage_id == citation.passage_id
+                        for _binding, fact in _evidence_pairs(sentence, index))
     if supports_here:
         return []
     return [finding(
@@ -866,6 +964,11 @@ def _coverage_findings(
     A bound fact carrying no `evidence_handle` cannot be covered by anything: that is the
     §13.7.2 row with no filed passage, **0 of 564 facts** across the 262 live packages
     *(measured 2026-08-18)*, and refusing it is the same answer Rule C gives its citations.
+
+    **§6 widens *"every fact this sentence binds"* to include a derived fact's two inputs, and
+    that is a real strengthening rather than bookkeeping.** `-$446M` rests on `$556M` and
+    `$110M`; a sentence stating the fall and citing one endpoint has evidenced half of it, and
+    the reader is shown one mark under a number computed from two. Both cells or neither.
 
     **Driven over every real package, both ways.** For each of the **724** ordered pairs of
     handle-carrying facts in one package, a sentence binding both: citing both handles raises

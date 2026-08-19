@@ -7,14 +7,15 @@ one prompt module because a persona and its schema are the same kind of thing, a
 them would be one file per function.
 
     prompts.py    two personas, two renderings, two schemas inside §15.3's portable subset
-    planner.py    §11's call, and the three rules that are code after it rather than prompt text
+    planner.py    §11's call, and the four rules that are code after it rather than prompt text
     writer.py     §12's call, the passage slice §10.2.1 point 3 derives by code, and the
                   Markdown renderer that may only read the structured draft
 
 Entry points:
 
-    planned = plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS)
-    written = write_story(package, planned.plan, provider=provider,
+    planned = plan_story(package, provider=provider, offered=offers(package, candidate),
+                         max_tokens=PLANNER_MAX_TOKENS)   # offers(): S13's stage
+    written = write_story(package, planned.plan, provider=provider, derived_facts=derived,
                           length_target=DEFAULT_LENGTH_TARGET, max_tokens=WRITER_MAX_TOKENS)
     written.draft         # structured; every id resolves and every span is located
     written.generation    # tokens, latency and content digest, for §14's manifest
@@ -34,6 +35,7 @@ from __future__ import annotations
 from story.stages.generation.planner import (
     CAUSAL_LANGUAGE_NOT_COMPUTED,
     CAUSAL_MARKERS,
+    DERIVATION_NOT_OFFERED,
     COUNTER_EVIDENCE_UNACCOUNTED,
     COUNTERPOINT_MISSING,
     COUNTERPOINT_UNGROUNDED,
@@ -70,7 +72,6 @@ from story.stages.generation.prompts import (
     PLANNER_SYSTEM,
     WARNING_QUALIFIER_PHRASES,
     WRITER_MAX_TOKENS,
-    WRITER_OPERATIONS,
     WRITER_PROMPT_VERSION,
     WRITER_SCHEMA_NAME,
     WRITER_SYSTEM,
@@ -90,7 +91,6 @@ from story.stages.generation.writer import (
     CITATION_QUOTE_NOT_IN_PASSAGE,
     DRAFT_NOT_CONSTRUCTIBLE,
     EVIDENCE_HANDLE_OUT_OF_BOUNDS,
-    MORE_THAN_ONE_CALCULATION,
     NO_SENTENCES,
     PLAN_NAMES_ANOTHER_PACKAGE,
     THESIS_ABANDONED,
@@ -112,13 +112,13 @@ __all__ = [
     "CAUSAL_MARKERS",
     "CITATION_QUOTE_AMBIGUOUS",
     "CITATION_QUOTE_NOT_IN_PASSAGE",
+    "DERIVATION_NOT_OFFERED",
     "COUNTERPOINT_MISSING",
     "COUNTERPOINT_UNGROUNDED",
     "COUNTER_EVIDENCE_UNACCOUNTED",
     "DEFAULT_LENGTH_TARGET",
     "DRAFT_NOT_CONSTRUCTIBLE",
     "EVIDENCE_HANDLE_OUT_OF_BOUNDS",
-    "MORE_THAN_ONE_CALCULATION",
     "NEGATION_TOKENS",
     "NO_KEY_POINTS",
     "NO_SENTENCES",
@@ -141,7 +141,6 @@ __all__ = [
     "UNRESOLVABLE_PASSAGE_ID",
     "WARNING_QUALIFIER_PHRASES",
     "WRITER_MAX_TOKENS",
-    "WRITER_OPERATIONS",
     "WRITER_PROMPT_VERSION",
     "WRITER_SCHEMA_NAME",
     "WRITER_SYSTEM",

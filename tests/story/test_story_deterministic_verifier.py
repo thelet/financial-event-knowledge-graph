@@ -26,7 +26,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from story.core.keys import package_content_digest
+from story.core.keys import derived_fact_id, package_content_digest
 from story.core.table_cells import resolve_cell, resolve_header
 from story.core.models import (
     BudgetParameters,
@@ -35,6 +35,9 @@ from story.core.models import (
     Conflict,
     ConflictCluster,
     Counterpoint,
+    DerivationOperation,
+    DerivedFact,
+    DisplaySemantics,
     Draft,
     DraftSentence,
     EditorialPlan,
@@ -156,6 +159,11 @@ GGM_FACT = make_fact(
 AGM_SPAN_HANDLE = make_fact().evidence_handle
 GGM_SPAN_HANDLE = GGM_FACT.evidence_handle
 
+#: S13's tool version, restated. `story/stages/derivation/public.py:TOOL_VERSION` is the
+#: authority and a stage may not import a sibling stage; `test_story_verification_derived.py`
+#: imports both and asserts they have not drifted.
+TOOL_VERSION = "1.0.0"
+
 METRICS = (
     PackagedMetric(
         metric_id="adjusted_gross_margin", label="Adjusted Gross Margin", unit="percent",
@@ -168,6 +176,41 @@ METRICS = (
         mutually_distinct_groups=("margin_measures",),
     ),
 )
+
+
+#: The demo candidate's gap, as DETERMINISTIC_FACT_TOOLS §4 computes it rather than as the
+#: writer used to declare it. `3.3 - (-12.6)` is `15.899999999999999` and rounds at
+#: `DELTA_PRECISION` to `15.9`; the unit is `percentage_points`, which **no observation may
+#: be** — the extraction refused all 186 change rows it saw — and which is exactly what a
+#: derived fact exists to hold.
+#:
+#: `display_semantics` is `higher than` because both margins carry the same sign convention, so
+#: a positive gap means the `to` side is the higher quantity. It is code's word and not the
+#: writer's: §4.4 puts it on the row so a draft cannot infer a direction from the sign of
+#: `result`, which on a cost metric would read backwards.
+GAP_DERIVED = DerivedFact(
+    fact_id=derived_fact_id(
+        operation="compare_levels", subject_entity_id="opendoor",
+        metric_ids=("gaap_gross_margin", "adjusted_gross_margin"), period_keys=("2022Q3",),
+        from_fact_id=GGM_ID, to_fact_id=AGM_ID, package_id=PACKAGE_ID,
+        tool_version=TOOL_VERSION),
+    operation=DerivationOperation.COMPARE_LEVELS,
+    package_id=PACKAGE_ID,
+    from_fact_id=GGM_ID, to_fact_id=AGM_ID,
+    from_period="2022Q3", to_period="2022Q3",
+    from_value=-12.6, to_value=3.3,
+    result=15.9, unit="percentage_points",
+    display_semantics=DisplaySemantics.HIGHER_THAN,
+    metric_id="adjusted_gross_margin", from_metric_id="gaap_gross_margin",
+    metric_surfaces=("Gross Margin", "Adjusted Gross Margin"),
+    period_surface_hint="the third quarter of 2022",
+    comparability_rule_ids=("R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"),
+    tool_version=TOOL_VERSION,
+)
+
+#: What §3's separate artifact holds for this run. Supplied to every `verify` in this module by
+#: the `verifier` fixture, the way `run_demo` supplies it — see `_DemoVerifier`.
+DERIVED_FACTS: tuple[DerivedFact, ...] = (GAP_DERIVED,)
 
 
 def make_package(**overrides: object) -> StoryEvidencePackage:
@@ -253,7 +296,57 @@ def ggm_sentence(**overrides: object) -> DraftSentence:
     return DraftSentence(**fields)  # type: ignore[arg-type]
 
 
+def _gap_binding(text: str = GAP_TEXT, **overrides: object) -> FactBinding:
+    fields: dict[str, object] = dict(
+        fact_id=GAP_DERIVED.fact_id, rendered="15.9 percentage points",
+        char_start=text.index("15.9 percentage points"),
+        char_end=text.index("15.9 percentage points") + len("15.9 percentage points"),
+        metric_surface="Adjusted gross margin",
+        period_surface=GAP_DERIVED.period_surface_hint,
+    )
+    fields.update(overrides)
+    return FactBinding(**fields)  # type: ignore[arg-type]
+
+
 def gap_sentence(**overrides: object) -> DraftSentence:
+    """The demo's gap sentence as S13 leaves it: a binding, not a declaration.
+
+    **Every field the model used to fill is now code's.** The number is `GAP_DERIVED.result`,
+    the period surface is `period_surface_hint`, and the sentence cites the two cells its inputs
+    were read from — which is §6's rule that a citation supporting a derived fact is one that
+    supports an input of it, and the reason no handle is ever minted for the derivation itself.
+
+    The `Calculation` shape this used to have is `legacy_gap_sentence` below, kept because §13.9
+    still refuses one and still recomputes it.
+    """
+    fields: dict[str, object] = dict(
+        index=2, text=GAP_TEXT, kind=SentenceKind.CALCULATED,
+        fact_bindings=(_gap_binding(),),
+        citations=(
+            PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+                            char_start=_span("Gross Margin (12.6)")[0],
+                            char_end=_span("Gross Margin (12.6)")[1],
+                            evidence_handle=GGM_SPAN_HANDLE),
+            PassageCitation(passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+                            char_start=_span("Adjusted Gross Margin 3.3")[0],
+                            char_end=_span("Adjusted Gross Margin 3.3")[1],
+                            evidence_handle=AGM_SPAN_HANDLE),
+        ),
+    )
+    fields.update(overrides)
+    return DraftSentence(**fields)  # type: ignore[arg-type]
+
+
+def legacy_gap_sentence(**overrides: object) -> DraftSentence:
+    """The retired `Calculation` shape, which §13.9 now refuses **and still recomputes**.
+
+    DETERMINISTIC_FACT_TOOLS §6 removes `calculation` from the writer schema and refuses a draft
+    that carries one — the number would rest on the model. The type survives in
+    `story/core/models.py` so a draft stored by an earlier run still reads back, so every §13.9
+    and §13.14 rule that runs off a `Calculation` stays reachable and stays tested here. The
+    tests below therefore assert the code they always asserted **plus**
+    `reported_sentence_carries_calculation`, and each one says so.
+    """
     fields: dict[str, object] = dict(
         index=2, text=GAP_TEXT, kind=SentenceKind.CALCULATED,
         calculation=Calculation(
@@ -305,13 +398,37 @@ def make_plan(**overrides: object) -> EditorialPlan:
     return EditorialPlan(**fields)  # type: ignore[arg-type]
 
 
+class _DemoVerifier:
+    """`DeterministicVerifier` with this run's derived facts supplied on every call.
+
+    S13 gave `verify` a fourth argument — §3's separate `derived_facts.json` artifact — and the
+    demo draft's gap sentence now binds a `DerivedFact` instead of declaring a `Calculation`.
+    Naming the same one-element tuple at a hundred call sites that are about periods, citations
+    or causal language would bury the thing each of them is actually testing, so the fixture
+    supplies it the way `run_demo` does.
+
+    **`derived_facts=()` is a different answer from omitting it and a test may say so.** A draft
+    binding a derived id against an empty tuple is `derived_fact_not_in_run`, a REFUSE, and
+    `test_a_binding_to_a_derived_fact_this_run_did_not_produce_is_refused` passes `()` on
+    purpose.
+    """
+
+    def __init__(self, inner: DeterministicVerifier) -> None:
+        self.inner = inner
+
+    def verify(self, draft, package, plan, derived_facts=None):  # type: ignore[no-untyped-def]
+        return self.inner.verify(
+            draft, package, plan,
+            DERIVED_FACTS if derived_facts is None else derived_facts)
+
+
 @pytest.fixture
-def verifier() -> DeterministicVerifier:
-    return DeterministicVerifier(
+def verifier() -> _DemoVerifier:
+    return _DemoVerifier(DeterministicVerifier(
         graph_run_id=GRAPH_RUN_ID,
         run_complete_sha256=RUN_COMPLETE_SHA256,
         ontology_definition_hash=ONTOLOGY_DEFINITION_HASH,
-    )
+    ))
 
 
 def codes_of(verified) -> set[str]:  # type: ignore[no-untyped-def]
@@ -345,15 +462,24 @@ def test_a_clean_draft_of_the_demo_candidate_passes_with_no_finding_at_all(verif
 
 
 def test_the_accepted_draft_carries_a_fact_ledger_and_a_calculation_ledger(verifier):
-    """§13.17: `VerifiedDraft` carries the evidence panel and the derivation panel."""
+    """§13.17: `VerifiedDraft` carries the evidence panel and the derivation panel.
+
+    **The expectation moved with S13 and this is the whole of the move.** The evidence panel now
+    carries a third row — the derived fact the gap sentence binds — and the derivation panel's
+    row is the derivation tool's `compare_levels` rather than the writer's `delta_pp`. The
+    quantity is the same 15.9 and the residue is still real: `3.3 - (-12.6)` is
+    `15.899999999999999`, which is why §4.4 rounds once at `DELTA_PRECISION` before publishing
+    it and why nothing here compares by equality.
+    """
     verified = verifier.verify(make_draft(), make_package(), make_plan())
-    assert [entry.fact_id for entry in verified.fact_ledger] == [AGM_ID, GGM_ID]
+    assert [entry.fact_id for entry in verified.fact_ledger] == [
+        AGM_ID, GGM_ID, GAP_DERIVED.fact_id]
     assert len(verified.calculation_ledger) == 1
     entry = verified.calculation_ledger[0]
-    assert entry.operation == "delta_pp"
-    # The residue is real and is why nothing here compares by equality.
-    assert entry.recomputed_value == 15.899999999999999
-    assert round(entry.recomputed_value, 1) == 15.9
+    assert entry.operation == "compare_levels"
+    assert entry.input_observation_ids == (GGM_ID, AGM_ID)
+    assert entry.recomputed_value == 15.9
+    assert round(3.3 - (-12.6), 1) == 15.9
 
 
 def test_every_check_reports_its_own_denominator_so_a_clean_draft_cannot_claim_more(verifier):
@@ -582,7 +708,7 @@ def test_a_percent_change_sentence_with_no_declared_reading_is_unresolvable_not_
 
 def test_a_relative_change_across_zero_is_refused_outright(verifier):
     """§13.3's third gate. `adjusted_ebitda_margin` crosses zero six times in 26 quarters."""
-    sentence = gap_sentence(
+    sentence = legacy_gap_sentence(
         index=0,
         text="The margin changed by 138% relative to the prior quarter.",
         calculation=Calculation(
@@ -813,20 +939,35 @@ def test_a_citation_reused_for_a_claim_the_passage_does_not_evidence_is_refused(
 
 
 def test_a_calculated_sentence_may_not_carry_a_passage_citation(verifier):
-    """§13.9: `claims.yaml` gives `calculated` `optional_fields: []`."""
+    """§13.9, in the narrowed form §6 leaves it.
+
+    **The expectation moved, and the argument is in `_check_reported_vs_calculated`.** The rule
+    was *"no passage citation at all"*, because a calculated number was the model's own and any
+    citation beside it claimed the filing said something it did not. §6 makes the number code's
+    and requires the table citation to stay attached to the observations it was computed from,
+    so the sentence must cite **those two** — and a citation to anything else is refused exactly
+    as every citation was before. Here the sentence cites the 2022Q4 fact's handle, which is no
+    input of its derivation.
+    """
+    unrelated = make_fact(observation_id=AGM_Q4_ID, period_key="2022Q4",
+                          period_start="2022-10-01", period_end="2022-12-31", value=-3.2,
+                          quoted_text="(3.2)")
     sentence = gap_sentence(citations=(PassageCitation(
-        passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, char_start=0, char_end=10,
-        evidence_handle=AGM_SPAN_HANDLE),))
+        passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+        char_start=_span("Adjusted Gross Margin 3.3")[0],
+        char_end=_span("Adjusted Gross Margin 3.3")[1],
+        evidence_handle=unrelated.evidence_handle),))
     verified = verifier.verify(
         make_draft(sentences=(agm_sentence(), ggm_sentence(), sentence)),
-        make_package(), make_plan(required_warnings=()))
+        make_package(facts=(make_fact(), GGM_FACT, unrelated)),
+        make_plan(required_warnings=()))
     assert "calculated_sentence_cites_passage" in codes_of(verified)
 
 
 def test_a_derived_difference_that_does_not_reproduce_from_its_inputs_is_refused(verifier):
     """Compared after rounding to the draft's own precision, never by equality."""
     text = "The gap between the two measures was 12.9 percentage points."
-    sentence = gap_sentence(
+    sentence = legacy_gap_sentence(
         index=0, text=text,
         calculation=Calculation(
             operation="delta_pp", input_observation_ids=(GGM_ID, AGM_ID),
@@ -859,7 +1000,7 @@ def test_a_calculation_over_inputs_of_different_shapes_is_incomparable(verifier)
                     period_end="2022-09-30", value=-12.6,
                     row_label="Gross Margin", quoted_text="(12.6)")
     package = make_package(facts=(make_fact(), ytd))
-    sentence = gap_sentence(index=0, calculation=Calculation(
+    sentence = legacy_gap_sentence(index=0, calculation=Calculation(
         operation="delta_pp", input_observation_ids=(ytd.observation_id, AGM_ID),
         expression="adjusted_gross_margin - gaap_gross_margin",
         result_rendered="15.9 percentage points"))
@@ -903,7 +1044,13 @@ def test_a_calculated_sentence_may_declare_the_period_it_computed_over(verifier)
     verified = verifier.verify(
         make_draft(sentences=(dated_gap_sentence(),)), make_package(),
         make_plan(required_warnings=()))
-    assert verified.all_findings == ()
+    # **The expectation moved and the check did not.** §6 retires `Calculation`, so this draft
+    # is now refused for carrying one — and that is the *only* finding: §13.4 still resolves the
+    # declared surface through the same grammar, still compares it against every input, and
+    # still reports one thing examined. The derived-binding form of the same sentence is
+    # `test_story_verification_derived.py`'s and it passes clean.
+    assert codes_of(verified) == {"reported_sentence_carries_calculation",
+                                  "calculated_sentence_without_calculation"}
     assert verified.check("periods").examined == 1
 
 
@@ -957,7 +1104,10 @@ def test_a_comparative_backed_by_compare_levels_is_accepted(verifier):
         make_draft(sentences=(dated_gap_sentence(),)), make_package(),
         make_plan(required_warnings=()))
     assert "unsupported_comparative" not in codes_of(verified)
-    assert verified.passed is True
+    # §6 retires `Calculation`, so the draft is refused for carrying one — and for nothing
+    # else. §13.14's comparative machinery still ran and still found the sentence supported.
+    assert codes_of(verified) == {"reported_sentence_carries_calculation",
+                                  "calculated_sentence_without_calculation"}
 
 
 def test_a_comparative_whose_gap_does_not_recompute_is_refused(verifier):
@@ -1263,7 +1413,7 @@ def test_malicious_percentage_where_percentage_points_are_meant_is_caught_by_the
         verifier):
     """§13.3: the two readings differ by `100/|v1|`, which is base-dependent."""
     text = "The gap between the two measures was 15.9%."
-    sentence = gap_sentence(index=0, text=text, calculation=Calculation(
+    sentence = legacy_gap_sentence(index=0, text=text, calculation=Calculation(
         operation="delta_pp", input_observation_ids=(GGM_ID, AGM_ID),
         expression="adjusted_gross_margin - gaap_gross_margin",
         result_rendered="15.9%"))
@@ -1898,7 +2048,7 @@ def test_a_derivation_whose_sentence_names_no_period_keeps_its_declared_surface(
     `period_surface: "the third quarter of 2022"` and names no period in words. It is true, and
     the declared surface is still required to agree with **every** input by §13.4.
     """
-    sentence = gap_sentence(
+    sentence = legacy_gap_sentence(
         index=0,
         calculation=Calculation(
             operation="delta_pp", input_observation_ids=(GGM_ID, AGM_ID),
@@ -1907,8 +2057,9 @@ def test_a_derivation_whose_sentence_names_no_period_keeps_its_declared_surface(
             period_surface="the third quarter of 2022"))
     verified = verifier.verify(
         make_draft(sentences=(sentence,)), make_package(), make_plan(required_warnings=()))
-    assert verified.all_findings == ()
-    assert verified.passed is True
+    # The no-period carve-out is unchanged; the retirement of `Calculation` is the one finding.
+    assert codes_of(verified) == {"reported_sentence_carries_calculation",
+                                  "calculated_sentence_without_calculation"}
 
 
 def _explanatory_attack(text: str, rendered: str, **binding_overrides: object) -> DraftSentence:
@@ -2107,12 +2258,26 @@ def grid_citation(fact: PackagedFact, *, text: str = GRID_TEXT, **overrides: obj
     return PassageCitation(**fields)  # type: ignore[arg-type]
 
 
+def grid_gap_sentence(**overrides: object) -> DraftSentence:
+    """`gap_sentence` citing the grid's cells instead of the narrative spans.
+
+    The derived fact is the same one — its inputs are the same two observation ids — but a
+    grid fact carries a `TableCellRef`, so the handle this package minted for it is a cell
+    handle and not a span handle. §6's rule that a derived fact's citation is an *input's*
+    citation is what makes this fixture a one-line difference rather than a second derivation.
+    """
+    fields: dict[str, object] = dict(
+        citations=(grid_citation(GRID_GGM), grid_citation(GRID_AGM)))
+    fields.update(overrides)
+    return gap_sentence(**fields)
+
+
 def grid_draft(sentences=None, **overrides: object) -> Draft:  # type: ignore[no-untyped-def]
     return make_draft(
         sentences=tuple(sentences) if sentences is not None else (
             agm_sentence(citations=(grid_citation(GRID_AGM),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence()),
+            grid_gap_sentence(), warning_sentence()),
         **overrides)
 
 
@@ -2160,7 +2325,7 @@ def test_citing_another_facts_cell_in_the_same_passage_is_refused(verifier):
         grid_draft(sentences=(
             agm_sentence(citations=(grid_citation(GRID_GGM),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(), warning_sentence())),
         grid_package(), grid_plan())
     assert codes_of(verified) == {"evidence_handle_not_for_fact"}
     assert verified.passed is False
@@ -2186,7 +2351,7 @@ def test_citing_the_same_metrics_other_period_from_the_same_row_is_refused(verif
         grid_draft(sentences=(
             agm_sentence(citations=(grid_citation(GRID_AGM_Q2),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(), warning_sentence())),
         grid_package(), grid_plan())
     assert codes_of(verified) == {"evidence_handle_not_for_fact"}
     assert "2022Q2" in AGM_Q2_HANDLE or AGM_Q2_HANDLE.endswith("r4c5")
@@ -2203,7 +2368,7 @@ def test_a_handle_from_another_package_resolves_to_nothing_and_is_refused(verifi
             agm_sentence(citations=(grid_citation(
                 GRID_AGM, evidence_handle=foreign.evidence_handle),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(), warning_sentence())),
         grid_package(), grid_plan())
     assert codes_of(verified) == {"unresolvable_evidence_handle"}
     found = next(f for f in verified.all_findings)
@@ -2225,7 +2390,7 @@ def test_a_handle_whose_passage_the_package_does_not_carry_is_refused(verifier):
                          citations=(grid_citation(
                              GRID_AGM, evidence_handle=orphan.evidence_handle),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(), warning_sentence())),
         grid_package(facts=(GRID_AGM, GRID_GGM, orphan)), grid_plan())
     assert "unresolvable_evidence_handle" in codes_of(verified)
     found = next(f for f in verified.all_findings
@@ -2245,7 +2410,12 @@ def test_coordinates_the_passage_no_longer_has_are_refused_as_out_of_bounds(veri
             agm_sentence(citations=(grid_citation(
                 GRID_AGM, evidence_handle=drifted.evidence_handle),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            # §6: the gap sentence cites its derivation's two inputs, so it names the same
+            # drifted handle and raises the same one code. The set is what is asserted.
+            grid_gap_sentence(citations=(
+                grid_citation(GRID_GGM),
+                grid_citation(GRID_AGM, evidence_handle=drifted.evidence_handle))),
+            warning_sentence())),
         grid_package(facts=(drifted, GRID_GGM, GRID_AGM_Q2)), grid_plan())
     assert codes_of(verified) == {"evidence_handle_out_of_bounds"}
     assert "which has 6 lines" in next(iter(verified.all_findings)).observed
@@ -2265,7 +2435,10 @@ def test_a_cell_that_no_longer_holds_the_facts_value_is_refused(verifier):
             agm_sentence(citations=(grid_citation(
                 shifted, evidence_handle=shifted.evidence_handle),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(citations=(
+                grid_citation(GRID_GGM),
+                grid_citation(shifted, evidence_handle=shifted.evidence_handle))),
+            warning_sentence())),
         grid_package(facts=(shifted, GRID_GGM, GRID_AGM_Q2)), grid_plan())
     assert codes_of(verified) == {"evidence_cell_value_mismatch"}
     found = next(iter(verified.all_findings))
@@ -2287,7 +2460,9 @@ def test_a_row_relabelled_in_the_passage_is_refused(verifier):
         grid_draft(sentences=(
             agm_sentence(citations=(grid_citation(GRID_AGM, text=relabelled),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM, text=relabelled),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(citations=(grid_citation(GRID_GGM, text=relabelled),
+                                         grid_citation(GRID_AGM, text=relabelled))),
+            warning_sentence())),
         grid_package(primary_passages=(grid_passage(relabelled),)), grid_plan())
     assert codes_of(verified) == {"evidence_row_label_mismatch"}
     assert next(iter(verified.all_findings)).observed == "'Adjusted Gross Margin (Loss)'"
@@ -2303,7 +2478,9 @@ def test_a_header_that_no_longer_names_the_facts_period_is_refused(verifier):
         grid_draft(sentences=(
             agm_sentence(citations=(grid_citation(GRID_AGM, text=redated),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM, text=redated),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(citations=(grid_citation(GRID_GGM, text=redated),
+                                         grid_citation(GRID_AGM, text=redated))),
+            warning_sentence())),
         grid_package(primary_passages=(grid_passage(redated),)), grid_plan())
     assert codes_of(verified) == {"evidence_column_label_mismatch"}
     assert all("Nine Months Ended September 30, 2022" in found.observed
@@ -2326,7 +2503,7 @@ def test_a_span_that_is_not_the_handles_cell_is_refused(verifier):
             agm_sentence(citations=(grid_citation(
                 GRID_AGM, char_start=elsewhere.char_start, char_end=elsewhere.char_end),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(), warning_sentence())),
         grid_package(), grid_plan())
     assert codes_of(verified) == {"evidence_cell_span_mismatch"}
 
@@ -2409,7 +2586,7 @@ def test_a_sentence_that_states_two_figures_and_evidences_one_is_refused(verifie
                                 metric_surface="GAAP gross margin", period_surface="2022Q3")),
         citations=(grid_citation(GRID_AGM),))
     verified = verifier.verify(
-        grid_draft(sentences=(both, gap_sentence(index=1), warning_sentence(index=2))),
+        grid_draft(sentences=(both, grid_gap_sentence(index=1), warning_sentence(index=2))),
         grid_package(), grid_plan())
     assert "uncited_factual_sentence" in codes_of(verified)
     assert verified.passed is False
@@ -2424,7 +2601,7 @@ def test_a_sentence_that_states_two_figures_and_evidences_one_is_refused(verifie
     honest = both.model_copy(update={
         "citations": (grid_citation(GRID_AGM), grid_citation(GRID_GGM))})
     assert not any(found.code == "uncited_factual_sentence" for found in verifier.verify(
-        grid_draft(sentences=(honest, gap_sentence(index=1), warning_sentence(index=2))),
+        grid_draft(sentences=(honest, grid_gap_sentence(index=1), warning_sentence(index=2))),
         grid_package(), grid_plan()).all_findings)
 
 
@@ -2441,7 +2618,7 @@ def test_citing_the_wrong_cell_is_named_once_and_not_twice(verifier):
         grid_draft(sentences=(
             agm_sentence(citations=(grid_citation(GRID_GGM),)),
             ggm_sentence(citations=(grid_citation(GRID_GGM),)),
-            gap_sentence(), warning_sentence())),
+            grid_gap_sentence(), warning_sentence())),
         grid_package(), grid_plan())
     assert codes_of(verified) == {"evidence_handle_not_for_fact"}
 

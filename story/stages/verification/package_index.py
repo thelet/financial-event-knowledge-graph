@@ -12,6 +12,13 @@ document grain or at passage grain*. No verdicts, no findings.
   (61.3%)"*. §13.12 says the same about conflicts — *"derive `conflicted_slots` from the
   package at verification time, never from a constant; a hard-coded count would pass a draft
   verified against a different run."* So both are computed here from the rows in hand.
+**DETERMINISTIC_FACT_TOOLS §6 adds a second and a third map.** A `DerivedFact` and an
+`EvidenceScopeFact` are §3's separate artifact and may never enter `package.facts` — a package
+whose contents depended on a model call would put the planner's selection inside
+`package_content_digest`, which is a `story_run_id` input — so they are indexed here beside the
+package rather than inside it, and `fact()` deliberately does **not** resolve one. The argument
+for that narrowness is on `fact()` itself and it is about which way the omission fails.
+
 * Counter-evidence grain is derived **structurally**, from whether a counter-evidence passage
   is a passage some packaged fact was read from. `story/stages/packaging/counter_evidence.py`
   reaches the same answer and discloses it as one of two warning codes, but a stage may not
@@ -24,16 +31,26 @@ document grain or at passage grain*. No verdicts, no findings.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from story.core.models import (
     Conflict,
+    DerivedFact,
+    EvidenceScopeFact,
     PackagedDocument,
     PackagedEvent,
     PackagedFact,
     PackagedPassage,
     StoryEvidencePackage,
 )
+
+#: What a `DerivedFact.fact_id` and an `EvidenceScopeFact.fact_id` begin with. Restated from
+#: `story/core/keys.py`, which mints both, rather than imported: the two functions there take
+#: eight and three keyword arguments and this needs the first two segments of what they return.
+#: `test_story_verification_derived.py` mints a real id through `keys` and asserts these are its
+#: prefixes, which is the same trade `derivation/public.py` makes for `DIRECTION_INCREASE`.
+DERIVED_FACT_PREFIX = "fact:derived:"
+EVIDENCE_SCOPE_PREFIX = "fact:evidence-scope:"
 
 #: §13.7.1 escape hatch 2. §6.6's D15 detects a year-only column and §6.1 step 4 resolves it by
 #: document majority; a fact carrying the classification may proceed with the minority reading
@@ -72,10 +89,21 @@ class PackageIndex:
     call would make §13.7.1's check quadratic in a draft's citations for no reason.
     """
 
-    def __init__(self, package: StoryEvidencePackage) -> None:
+    def __init__(
+        self,
+        package: StoryEvidencePackage,
+        derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
+    ) -> None:
         self.package = package
         self.facts: Mapping[str, PackagedFact] = {
             fact.observation_id: fact for fact in package.facts}
+        # Named `derived_facts` where §6 writes `derived`, so it does not collide with the
+        # `derived_fact()` accessor beside it — `facts`/`fact()` is the pair it is modelled on.
+        self.derived_facts: Mapping[str, DerivedFact] = {
+            fact.fact_id: fact for fact in derived_facts if isinstance(fact, DerivedFact)}
+        self.evidence_scope: Mapping[str, EvidenceScopeFact] = {
+            fact.fact_id: fact for fact in derived_facts
+            if isinstance(fact, EvidenceScopeFact)}
         self.documents: Mapping[str, PackagedDocument] = {
             document.document_id: document for document in package.documents}
         self.events: Mapping[str, PackagedEvent] = {
@@ -99,7 +127,57 @@ class PackageIndex:
     # -- resolution ---------------------------------------------------------------------
 
     def fact(self, fact_id: str) -> PackagedFact | None:
+        """The **observation** this id names, or `None`.
+
+        **DETERMINISTIC_FACT_TOOLS §6 says *"`fact(fact_id)` resolves either"* and this returns
+        an observation only. The correction is about which way the omission fails.** Twenty-four
+        call sites across three modules read the result of this method, and every one of them
+        immediately reads `observation_id`, `value`, `unit`, `passage_id`, `quoted_text` or
+        `evidence_handle` — five fields a `DerivedFact` does not have and must not be given
+        (§4.4: *"it is not a `PackagedFact` and cannot be made into one"*). Widening the return
+        type would put an `isinstance` guard at each of those twenty-four sites, and a site that
+        forgot one would raise `AttributeError` at best and read the wrong attribute at worst.
+
+        Left narrow, a check that has not been taught about derived facts sees `None` for a
+        derived binding — which is `fact_not_in_package`, a REFUSE. **The omission fails
+        closed.** That is the whole argument, and it is why `derived_fact()`, `scope_fact()` and
+        `bound()` are separate lookups rather than one widened one.
+        """
         return self.facts.get(fact_id)
+
+    def derived_fact(self, fact_id: str) -> DerivedFact | None:
+        """The derived fact this id names, from the artifact handed to `verify` (§4.4)."""
+        return self.derived_facts.get(fact_id)
+
+    def scope_fact(self, fact_id: str) -> EvidenceScopeFact | None:
+        """The evidence-scope fact this id names (§7)."""
+        return self.evidence_scope.get(fact_id)
+
+    def bound(self, fact_id: str) -> PackagedFact | DerivedFact | EvidenceScopeFact | None:
+        """Anything a `FactBinding` may legitimately name, in the order the checks try them.
+
+        §6's *"resolves an observed **or** a derived fact"*, as its own method so the widening
+        is opt-in per call site. Used by the checks that genuinely take all three — identity
+        resolution and the citation coverage rule — and by nothing that reads a field only one
+        of the three carries.
+        """
+        return (self.facts.get(fact_id)
+                or self.derived_facts.get(fact_id)
+                or self.evidence_scope.get(fact_id))
+
+    def derived_inputs(self, fact_id: str) -> tuple[PackagedFact, ...]:
+        """The **observations** a derived fact was computed from, resolved in this package.
+
+        §6's rule for what a citation supporting a derived fact *is*: one that supports an input
+        fact of it. Returns only the inputs that resolve — an input this package does not carry
+        is `derivation_not_offered` from `derived_facts.py`, and returning a placeholder here
+        would make a citation rule reason about a fact nobody can cite.
+        """
+        derived = self.derived_facts.get(fact_id)
+        if derived is None:
+            return ()
+        resolved = (self.facts.get(derived.from_fact_id), self.facts.get(derived.to_fact_id))
+        return tuple(fact for fact in resolved if fact is not None)
 
     def passage(self, passage_id: str) -> PackagedPassage | None:
         return self.passages.get(passage_id)
@@ -176,6 +254,8 @@ def _column_slots(package: StoryEvidencePackage) -> Mapping[tuple[str, str], Col
 
 
 __all__ = [
+    "DERIVED_FACT_PREFIX",
+    "EVIDENCE_SCOPE_PREFIX",
     "TABLE_LANE",
     "YEAR_ONLY_COLUMN_AMBIGUITY",
     "ColumnSlot",

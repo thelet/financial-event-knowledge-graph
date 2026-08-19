@@ -189,6 +189,111 @@ def package_id(
     ))
 
 
+def derived_fact_id(
+    *,
+    operation: str,
+    subject_entity_id: str,
+    metric_ids: Sequence[str],
+    period_keys: Sequence[str],
+    from_fact_id: str,
+    to_fact_id: str,
+    package_id: str,
+    tool_version: str,
+) -> str:
+    """`fact:derived:{operation}:{subject}:{metrics}:{periods}:{digest12}` — §4.4.
+
+        digest12 = digest(operation, from=…, to=…, package_id, tool_version)
+
+    **The digest departs from the brief's example, and the reason is this module's own rule**:
+    readable segments never carry uniqueness, the digest does. Without it, two packages over one
+    metric-and-period pair would mint one id for two different computations — the inputs a
+    package carries are what §6.1 chose as representative, and a package built at a different
+    budget or from a different graph run can choose differently. `package_id` is inside the
+    digest for exactly that: it already covers the fact ids, the budget, the graph run and the
+    extraction run's `run.complete` marker, so a derived fact cannot outlive the evidence it was
+    computed from.
+
+    `tool_version` is inside for `detector_version`'s reason (§6.11): a change to how a quantity
+    is computed must **mint a new fact** rather than silently redefine an existing one, because
+    the id is what a draft binds and what a verification report names.
+
+    **§4.4 writes the digest over *sorted* input fact ids, and that is wrong — measured, not
+    argued.** Built that way, `2022Q2 → 2022Q3` and `2022Q3 → 2022Q2` produce the same twelve
+    characters:
+    `fact:derived:absolute-change:opendoor:adjusted-gross-profit:2022Q2-2022Q3:44329cfd7dea`
+    and `…:2022Q3-2022Q2:44329cfd7dea`. Those are two different derivations — `−446,000,000`
+    against `+446,000,000`, *"decreased by"* against *"increased by"* — separated only by a
+    readable segment, which is exactly the arrangement this module's opening rule forbids.
+    The sort was there to stop *argument order* changing an id, and the two roles are already
+    **named**: labelling them `from=` and `to=` keeps that guarantee and keeps the orientation.
+    §6's `derived_fact_orientation_reversed` is a check about this distinction, so the id scheme
+    had better be able to make it.
+
+    The segments are the operation, the subject, the metric ids in `(from, to)` order and the
+    period pair. Metrics are joined rather than sorted for the same directional reason:
+    `gaap-gross-margin-adjusted-gross-margin` is the other comparison. Period keys keep their
+    filed spelling (`2022Q2`, not `2022q2`), matching `candidate_id`, which does not slug them
+    either.
+
+    Worked, on the §2 candidate:
+
+        fact:derived:absolute-change:opendoor:adjusted-gross-profit:2022Q2-2022Q3:<digest12>
+
+    A same-period operation renders one period key rather than repeating it, which is why the
+    join is over `dict.fromkeys` and not over the pair.
+    """
+    _require(
+        operation=operation,
+        subject_entity_id=subject_entity_id,
+        package_id=package_id,
+        tool_version=tool_version,
+    )
+    if not any(str(metric_id).strip() for metric_id in metric_ids):
+        raise EmptyIdentityError(
+            f"{operation}: a derived fact names the metric it is about, and none was given")
+    if not any(str(key).strip() for key in period_keys):
+        raise EmptyIdentityError(
+            f"{operation}: a derived fact with no period is a quantity about no time")
+    _require(from_fact_id=from_fact_id, to_fact_id=to_fact_id)
+    return ":".join((
+        "fact",
+        "derived",
+        slug(operation),
+        slug(subject_entity_id),
+        "-".join(slug(metric_id) for metric_id in dict.fromkeys(metric_ids)),
+        "-".join(dict.fromkeys(period_keys)),
+        digest(f"operation={operation}",
+               f"from={from_fact_id}",
+               f"to={to_fact_id}",
+               f"package_id={package_id}",
+               f"tool_version={tool_version}"),
+    ))
+
+
+def evidence_scope_fact_id(
+    *, claim: str, package_id: str, tool_version: str
+) -> str:
+    """`fact:evidence-scope:{claim}:{digest12}` — §7.
+
+    **§7 writes the digest as `<package-digest12>` and this covers `tool_version` as well.**
+    The claim is minted by a rule in code — *"`explanatory_passages` is empty **and**
+    `causal_language` is `FORBIDDEN` **and** no fact carries a causal marker"* — so a change to
+    that rule changes what the id asserts while the package stands still. The same argument
+    `derived_fact_id` makes for a computation applies to an absence: a claim about evidence that
+    a new rule version would state differently must be a new fact, not the same one silently
+    re-meaning.
+    """
+    _require(claim=claim, package_id=package_id, tool_version=tool_version)
+    return ":".join((
+        "fact",
+        "evidence-scope",
+        slug(claim),
+        digest(f"claim={claim}",
+               f"package_id={package_id}",
+               f"tool_version={tool_version}"),
+    ))
+
+
 def package_content_digest(payload: Mapping[str, Any]) -> str:
     """`sha256` over the package's canonical JSON — §10.3, full length, not a `digest12`.
 
@@ -317,7 +422,9 @@ __all__ = [
     "STORY_LAYOUT_VERSION",
     "candidate_id",
     "candidate_slug",
+    "derived_fact_id",
     "draft_content_sha256",
+    "evidence_scope_fact_id",
     "package_content_digest",
     "package_id",
     "slug",
