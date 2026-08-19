@@ -116,12 +116,18 @@ class StoryRunManifest:
     writer_provider_model: dict[str, Any]
 
     #: What the request was actually parameterised with — `{temperature, temperature_sent,
-    #: reasoning_effort, max_output_tokens, store_responses}`. **Added 2026-08-19** because
-    #: `temperature` alone is a claim rather than a record: OpenAI's reasoning models refuse the
-    #: parameter (measured, MULTI_PROVIDER_OPENAI §3 — `gpt-5-nano` returns 400 `Unsupported
-    #: parameter`), so a manifest reading `temperature: 0.0` for such a run would state a value
-    #: that was never sent. `temperature_sent` comes from the adapter, and is `null` when
-    #: nothing sent anything — which is the truthful answer for a replayed run.
+    #: reasoning_effort, max_output_tokens_ceiling, max_output_tokens_sent, store_responses}`.
+    #: **Added 2026-08-19** because `temperature` alone is a claim rather than a record: OpenAI's
+    #: reasoning models refuse the parameter (measured, MULTI_PROVIDER_OPENAI §3 — `gpt-5-nano`
+    #: returns 400 `Unsupported parameter`), so a manifest reading `temperature: 0.0` for such a
+    #: run would state a value that was never sent. `temperature_sent` comes from the adapter,
+    #: and is `null` when nothing sent anything — which is the truthful answer for a replayed run.
+    #:
+    #: **The single `max_output_tokens` became a `_ceiling`/`_sent` pair later the same day**,
+    #: because it had the defect the block exists to prevent: it reported the *configured* cap
+    #: (4096 on OpenAI) for requests whose bodies carried the call site's 2048. Both numbers are
+    #: worth keeping and neither may stand for the other; `story/pipeline.py:_provider_settings`
+    #: carries the argument.
     provider_settings: dict[str, Any]
 
     #: What decided the candidates, and — `ranking_policy_version` — what decided which of them

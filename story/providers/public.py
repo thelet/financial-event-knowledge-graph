@@ -162,6 +162,63 @@ OPENAI_KEY_MISSING_REASON = (
     f"{ENV_OPENAI_API_KEY} is not set in the environment or in the repository-root "
     f"{DEFAULT_ENV_PATH.name}")
 
+#: What a browser is told about a configuration that did not resolve, and **the only shape**
+#: `_provider_option` may put in `unavailable_reason`.
+#:
+#: **Found by an adversarial review 2026-08-19, and it is a boundary defect rather than a
+#: message defect.** The catalogue used to render `str(exc)`, so `STORY_OPENAI_MODEL=
+#: internal-codename-orion-7` came back to the browser as *"provider.openai model
+#: 'internal-codename-orion-7' is not one of […]"* and `STORY_LLM_CONTEXT_TOKENS=many` as
+#: *"must be an integer, got 'many'"* — an environment variable's **value** in the option label
+#: and in `#provider-notice`, against four docstrings, plan §6 and the sentence at
+#: `index.html:85` that two tests assert.
+#:
+#: The exception is right to name the value: an operator debugging a configuration needs it,
+#: and `load_provider_config` still raises it whole to the CLI and to a test. What is fixed is
+#: that the string never crosses into a response — the reason below is built from
+#: `StoryProviderConfigurationError.setting`, which is a literal written in this file's source
+#: and can therefore hold nothing an operator did not publish.
+#:
+#: The setting name comes **first** because `app.js` renders this whole sentence as the
+#: `<option>` label as well as in `#provider-notice`, and an option is read at a glance.
+UNUSABLE_CONFIG_REASON = (
+    "{setting} is not usable as configured. Its value is not shown here — a configuration value "
+    "can itself be private, and this sentence reaches a browser. The full message does name it "
+    "and is raised where the configuration is read.")
+
+#: The fallback `setting` for a refusal that declared none. Value-free by construction, which
+#: is the property that matters: a raise site added later without a `setting=` degrades to a
+#: vaguer sentence, never to a leaking one.
+UNNAMED_SETTING = "the provider configuration"
+
+# -- what a response body may weigh ------------------------------------------------------------
+#
+#: A response is bounded by what the request asked for, and `max_output_tokens` is the anchor:
+#: it is the only number in the request that says how much text was invited. 64 bytes per
+#: requested token is deliberately loose — a JSON token is 3–8 UTF-8 bytes and `\uXXXX`
+#: escaping costs at most 6 per character — so the bound refuses a body that is *categorically*
+#: wrong (an 8 MB `output_text`, which an adversarial review posted through both adapters
+#: unchallenged on 2026-08-19) rather than one that merely ran long.
+#:
+#: **Pre-existing, and S12 is what makes it matter.** Before a second provider the only endpoint
+#: was a process on loopback; a remote endpoint over TLS is a different threat model, and an
+#: unbounded body lands whole in `generations.jsonl` and in a run's artifacts.
+RESPONSE_BYTES_PER_OUTPUT_TOKEN = 64
+#: A floor, so a small `max_output_tokens` cannot make the ceiling smaller than a legitimate
+#: envelope: the response carries the whole `usage` block, an id, a status and a dated model
+#: name beside the text.
+MIN_RESPONSE_BYTE_CEILING = 64 * 1024
+
+
+def response_byte_ceiling(max_output_tokens: int) -> int:
+    """How many bytes of response body the two adapters accept for one request.
+
+    A function of the request rather than a constant, because the two providers configure
+    `max_output_tokens` an order of magnitude apart (2048 locally, 4096 for OpenAI) and a single
+    number would be either slack for one or a bound the other trips on legitimately.
+    """
+    return max(MIN_RESPONSE_BYTE_CEILING, int(max_output_tokens) * RESPONSE_BYTES_PER_OUTPUT_TOKEN)
+
 
 class StoryProviderError(RuntimeError):
     """Base of every failure this boundary is allowed to raise.
@@ -185,7 +242,19 @@ class StoryProviderConfigurationError(StoryProviderError):
     exactly the way `enable_thinking: true` is, and failing at build time is the whole point
     (llama.cpp drops the keyword silently and the local checker ignores it, so the alternative
     is an unconstrained request that says nothing).
+
+    **`setting` names the key or the environment variable that is wrong, and nothing else**
+    *(added 2026-08-19, after a review found the message itself in a browser)*. The message is
+    allowed to quote the offending value — an operator debugging a configuration needs it, and
+    every raise below that can name one does. The *catalogue* is not: it renders
+    `UNUSABLE_CONFIG_REASON` over this field, which is a literal from this file's own source.
+    Two fields rather than one carefully-worded message, because a message that had to be safe
+    for a browser would be a message that could not help an operator, and both readers exist.
     """
+
+    def __init__(self, message: str, *, setting: str | None = None) -> None:
+        super().__init__(message)
+        self.setting = setting
 
 
 class StoryProviderUnavailable(StoryProviderError):
@@ -216,11 +285,20 @@ class StoryProviderSchemaError(StoryProviderError):
     A model result, not a fault, and **deliberately not retried**: the server was asked for
     schema-constrained output and answered, and re-asking at temperature 0 returns the same
     thing while charging for it twice.
+
+    **`generation` is the `GenerationResult` the raiser was judging, or `None`** *(added
+    2026-08-19)*. Two call sites raise this class and only one of them holds a result: an
+    *adapter* raises it while translating a response, before a `GenerationResult` has been
+    constructed at all, so there is nothing to attach and the field stays `None`; a *stage*
+    (`plan_story`, `write_story`) raises it about a result it already has, and attaches it so
+    the run can record a call that was made and paid for. Typed `Any` rather than imported,
+    because this module is defined by importing no model and no transport.
     """
 
     def __init__(self, message: str, violations: tuple[str, ...] = ()) -> None:
         super().__init__(message)
         self.violations = violations
+        self.generation: Any = None
 
 
 @dataclass(frozen=True)
@@ -311,6 +389,18 @@ class StoryProviderConfig:
                                       "provider.timeout_seconds"),
             max_retries=_as_int(provider.get("max_retries"), DEFAULT_MAX_RETRIES,
                                 "provider.max_retries"),
+            # **Read, so that `validated()`'s local refusals can fire from a file** *(found by
+            # an adversarial review 2026-08-19)*. This branch used to construct the three S12
+            # fields from their dataclass defaults, so `provider.reasoning_effort: high` in
+            # `config/story.yaml` was **silently dropped** and the refusal below it could only
+            # be reached from a hand-built dataclass — the exact "looks configured and is not"
+            # failure the comment beside that refusal says it exists to prevent, reproduced by
+            # the code meant to prevent it.
+            supports_temperature=_as_bool(provider.get("supports_temperature"), True,
+                                          "provider.supports_temperature"),
+            reasoning_effort=_as_optional_str(provider.get("reasoning_effort")),
+            store_responses=_as_bool(provider.get("store_responses"), False,
+                                     "provider.store_responses"),
         )
         return loaded.validated()
 
@@ -328,7 +418,8 @@ class StoryProviderConfig:
         block = provider.get("openai") or {}
         if not isinstance(block, Mapping):
             raise StoryProviderConfigurationError(
-                f"provider.openai: must be a mapping, got {type(block).__name__}")
+                f"provider.openai: must be a mapping, got {type(block).__name__}",
+                setting="provider.openai")
         _refuse_secrets(block, "provider.openai")
 
         models = openai_model_options(provider)
@@ -339,7 +430,11 @@ class StoryProviderConfig:
                 f"provider.openai model {name!r} is not one of "
                 f"{[option.model_id for option in models]}; a model reaches the wire only if "
                 "its `supports_temperature` was measured against the API, and an undeclared "
-                "one would have to be guessed at")
+                "one would have to be guessed at",
+                # The message names the model and the catalogue does not: the name can arrive
+                # from `STORY_OPENAI_MODEL`, and an environment variable's value is the one
+                # thing §6 forbids the payload to carry.
+                setting="provider.openai.models")
         return cls(
             kind=PROVIDER_OPENAI,
             base_url=str(block.get("base_url", DEFAULT_OPENAI_BASE_URL)).rstrip("/"),
@@ -364,31 +459,51 @@ class StoryProviderConfig:
     def validated(self) -> "StoryProviderConfig":
         """Reject a configuration that cannot produce constrained output. Idempotent.
 
-        Called from the constructor too, so a hand-built config cannot slip past the check
-        that only `from_config` would otherwise apply.
+        **This is not called from `__init__`, and this docstring said it was** *(corrected
+        2026-08-19, checked by constructing `StoryProviderConfig(kind="nonsense")` — it
+        succeeds)*. `StoryProviderConfig` is a plain frozen dataclass with no `__post_init__`.
+        What actually covers a hand-built config is that **both adapters call `validated()` in
+        their own `__init__`**, alongside `from_config` and `load_provider_config` — so nothing
+        reaches a wire unvalidated, which is the guarantee the sentence was reaching for. The
+        difference is only *when* an invalid dataclass is refused: at the adapter rather than at
+        the dataclass. Left as it is here rather than moved into `__post_init__`, which is a
+        change to every construction path and belongs to whoever needs it, not to a docstring
+        correction.
+
+        **The API key is judged here as well** — see `_refuse_unusable_api_key`. It is a
+        configuration check and not a transport one, and putting it anywhere else was measured
+        to be too late.
         """
         if self.kind not in SUPPORTED_KINDS:
             raise StoryProviderConfigurationError(
                 f"provider.kind {self.kind!r} is not one of {sorted(SUPPORTED_KINDS)}; the "
                 "story layer dispatches on this value rather than defaulting, because a typo "
                 "that silently selected the local server would be found by reading the "
-                "generations rather than by reading the error")
+                "generations rather than by reading the error",
+                setting="provider.kind")
         if not self.base_url:
-            raise StoryProviderConfigurationError("provider.base_url is required")
+            raise StoryProviderConfigurationError("provider.base_url is required",
+                                                  setting="provider.base_url")
         if not self.model:
             raise StoryProviderConfigurationError(
                 "provider.model is required: it is the identity every stored generation is "
-                "keyed under, and the server reports a filesystem path rather than a name")
+                "keyed under, and the server reports a filesystem path rather than a name",
+                setting="provider.model")
         if self.max_retries < 0:
-            raise StoryProviderConfigurationError("provider.max_retries must not be negative")
+            raise StoryProviderConfigurationError("provider.max_retries must not be negative",
+                                                  setting="provider.max_retries")
         if self.max_output_tokens <= 0:
-            raise StoryProviderConfigurationError("provider.max_output_tokens must be positive")
+            raise StoryProviderConfigurationError("provider.max_output_tokens must be positive",
+                                                  setting="provider.max_output_tokens")
         if self.timeout_seconds <= 0:
-            raise StoryProviderConfigurationError("provider.timeout_seconds must be positive")
+            raise StoryProviderConfigurationError("provider.timeout_seconds must be positive",
+                                                  setting="provider.timeout_seconds")
         if self.max_output_tokens >= self.context_tokens:
             raise StoryProviderConfigurationError(
                 f"provider.max_output_tokens ({self.max_output_tokens}) leaves no room for a "
-                f"prompt in provider.context_tokens ({self.context_tokens})")
+                f"prompt in provider.context_tokens ({self.context_tokens})",
+                setting="provider.max_output_tokens")
+        _refuse_unusable_api_key(self.api_key, self.kind)
 
         # Dispatch on the kind rather than tolerate a setting that means nothing to it. A
         # `reasoning_effort` the local transport silently drops is the same class of defect as
@@ -398,21 +513,25 @@ class StoryProviderConfig:
                 raise StoryProviderConfigurationError(
                     f"provider.reasoning_effort {self.reasoning_effort!r} means nothing to "
                     f"{PROVIDER_LOCAL}: the local server has no such parameter, so the value "
-                    "would be recorded in the manifest as a setting that never reached a wire")
+                    "would be recorded in the manifest as a setting that never reached a wire",
+                    setting="provider.reasoning_effort")
             if not self.supports_temperature:
                 raise StoryProviderConfigurationError(
                     f"{PROVIDER_LOCAL} always accepts a temperature, and PINNED_TEMPERATURE is "
                     "a digest input to every stored generation; declaring it unsupported would "
-                    "drop that input from the request while leaving it in the key")
+                    "drop that input from the request while leaving it in the key",
+                    setting="provider.supports_temperature")
             if self.store_responses:
                 raise StoryProviderConfigurationError(
                     f"provider.store_responses means nothing to {PROVIDER_LOCAL}: nothing is "
-                    "retained beyond the process that answered")
+                    "retained beyond the process that answered",
+                    setting="provider.store_responses")
         elif self.reasoning_effort is not None and self.reasoning_effort not in REASONING_EFFORTS:
             raise StoryProviderConfigurationError(
                 f"provider.reasoning_effort {self.reasoning_effort!r} is not one of "
                 f"{sorted(REASONING_EFFORTS)}; a misspelt effort is a 400 at the far end of a "
-                "request carrying a whole evidence package")
+                "request carrying a whole evidence package",
+                setting="provider.reasoning_effort")
         return self
 
     @property
@@ -421,10 +540,60 @@ class StoryProviderConfig:
 
         Built at the last possible moment, the way `StoryNeo4jSettings.auth` builds its pair,
         so the secret exists as a plain string for the length of one request.
+
+        Nothing is checked here, and that is the point: `validated()` has already refused a key
+        that cannot be a header, so this property cannot be the place a malformed one is
+        discovered. It used to be — see `_refuse_unusable_api_key`.
         """
         if self.api_key is None or not self.api_key.get_secret_value():
             return {}
         return {"Authorization": f"Bearer {self.api_key.get_secret_value()}"}
+
+
+def _refuse_unusable_api_key(api_key: SecretStr | None, kind: str) -> None:
+    """Refuse a key that cannot become an `Authorization` header, before one is ever built.
+
+    **Two reproduced disclosures, one cause** *(adversarial review, 2026-08-19)*. `httpx`
+    encodes a header value as ASCII, so a key holding any non-ASCII character —
+    `kľúč-SECRET-9999`, an em dash, a trailing U+00A0 — raises `UnicodeEncodeError` from inside
+    `client.post`/`client.get`. That is neither `httpx.TimeoutException` nor `httpx.HTTPError`,
+    so it escaped `generate()`'s six classes entirely and made `health()` raise against its
+    "never raises" docstring — and `UnicodeEncodeError.args[1]` **is the whole key**, so any
+    `repr()` of it discloses the credential. A key holding a control character got further:
+    h11 refuses it with the *bytes repr* of the header, `b'Bearer GLORP_TOPSECRET_2026\\nX: 1'`,
+    which escapes the newline — so `_redacted`'s exact-substring half missed it and only the
+    `sk-`-shaped prefix of an `sk-` key was caught. A non-`sk-` key came out in full, inside a
+    typed error message and inside `health().detail`.
+
+    **Malformed means: anything outside printable ASCII, U+0021–U+007E.** That is the wire's
+    own rule stated positively rather than a taste — RFC 9110 field values admit visible ASCII,
+    and a bearer token has no legitimate use for a space, a tab, a control character or a
+    non-ASCII letter. Refusing the *whole class* is why it closes both findings at once: a
+    permissive check that only rejected `\\n` and `\\r` would still hand `httpx` an
+    unencodable key, and a check that only rejected non-ASCII would still hand h11 a newline.
+
+    Refused as a configuration error rather than sanitised, because a key with a stray
+    character is a key that will not authenticate: silently trimming it would turn a typo in
+    `.env` into a 401 nobody can explain.
+
+    **The message names no part of the key.** The position is enough to find the character in
+    an editor, and the value of a credential is the one thing no message may quote — which is
+    the whole difference between this and the other refusals in this file.
+    """
+    if api_key is None:
+        return
+    key = api_key.get_secret_value()
+    for index, char in enumerate(key):
+        if "\x21" <= char <= "\x7e":
+            continue
+        env_name = ENV_OPENAI_API_KEY if kind == PROVIDER_OPENAI else ENV_API_KEY
+        raise StoryProviderConfigurationError(
+            f"{env_name} holds a character no HTTP header can carry, at position {index + 1}: "
+            "only printable ASCII (U+0021–U+007E) reaches an Authorization header, and "
+            "anything else raises out of the transport carrying the key in its own arguments. "
+            "The character is not quoted here and neither is the key. Check for a smart quote, "
+            "a non-breaking space or a line break pasted into the value.",
+            setting=env_name)
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -550,6 +719,14 @@ class ProviderOption:
     `unavailable_reason` names an environment *variable* and never its value — "OpenAI is
     missing" and "OpenAI does not exist" are different facts and the interface has to be able
     to tell them apart.
+
+    **That sentence was false for one class of reason until 2026-08-19**, and this docstring
+    was one of four asserting it. The missing-key path always obeyed it (`OPENAI_KEY_MISSING_
+    REASON` is a constant), but a *configuration* failure was rendered as `str(exc)`, and those
+    messages quote the value they refused — so `STORY_OPENAI_MODEL=internal-codename-orion-7`
+    reached the browser verbatim. `_provider_option` now builds every such reason from
+    `UNUSABLE_CONFIG_REASON` and a setting name, so the rule holds on both paths rather than on
+    the one that happened to use a constant.
     """
 
     provider_id: str
@@ -600,30 +777,71 @@ def default_provider_id(config: Mapping[str, Any] | None = None) -> str:
     it sits in — the local server — while `default` says which provider a call site that made
     no choice gets. Falling back to `kind` is what makes a pre-S12 config file resolve exactly
     as it did.
+
+    **A non-string is refused rather than stringified** *(found by an adversarial review
+    2026-08-19)*. This used to `str()` whatever the key held, so `default: {a: 1}` reached
+    `GET /demo/providers` as `default_provider_id: "{'a': 1}"` — nonsense in a payload, and
+    nonsense that fails safe only by accident downstream. The rest of this module dispatches on
+    `kind` rather than defaulting for exactly this reason; the same rule applies to the key that
+    chooses which `kind` is reached for.
     """
     provider = _provider_block(config or {})
     for key in ("default", "kind"):
         value = provider.get(key)
-        if value:
-            return str(value)
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str):
+            raise StoryProviderConfigurationError(
+                f"provider.{key} must be a provider id, got {type(value).__name__} "
+                f"{value!r}; it names one of {sorted(SUPPORTED_KINDS)}",
+                setting=f"provider.{key}")
+        return value
     return DEFAULT_KIND
 
 
 def openai_model_options(provider: Mapping[str, Any]) -> tuple[ModelOption, ...]:
-    """`provider.openai.models`, or the measured defaults when the block names none."""
+    """`provider.openai.models`, or the measured defaults when the block names **no key at all**.
+
+    Three cases, dispatched on rather than collapsed into one fallback *(corrected 2026-08-19,
+    after a review reproduced the collapse)*:
+
+    * **absent** — no `models:` key — is the only one that reaches `DEFAULT_OPENAI_MODELS`. A
+      caller with no config file at all must resolve the same models `config/story.yaml` names,
+      which is why the constant exists.
+    * **an empty list** is a statement, and it is honoured. `models: []` used to hand back
+      `['gpt-5-nano', 'gpt-4.1-mini']`, so an operator who emptied the list to take OpenAI out
+      of a build got two models back and no indication that anything had been ignored. An empty
+      tuple here makes every model selection fail to resolve, which is what the catalogue
+      renders as an unavailable provider — the operator's own intent, arrived at honestly.
+    * **anything else** — `models: "x"`, a mapping, a number — is a mistake in the file and is
+      refused. Falling through to the defaults meant a typo produced a working configuration
+      that was not the one written down, which is the failure mode this module's `kind` dispatch
+      already argues against.
+    """
     block = provider.get("openai") or {}
     declared = block.get("models") if isinstance(block, Mapping) else None
-    rows = declared if isinstance(declared, (list, tuple)) and declared else DEFAULT_OPENAI_MODELS
+    if declared is None:
+        rows: Any = DEFAULT_OPENAI_MODELS
+    elif isinstance(declared, (list, tuple)):
+        rows = declared
+    else:
+        raise StoryProviderConfigurationError(
+            f"provider.openai.models must be a list, got {type(declared).__name__}; an "
+            "unreadable list used to fall through to the built-in defaults, so a typo produced "
+            "a configuration that worked and was not the one written down",
+            setting="provider.openai.models")
 
     options: list[ModelOption] = []
     for index, row in enumerate(rows):
         if not isinstance(row, Mapping):
             raise StoryProviderConfigurationError(
-                f"provider.openai.models[{index}] must be a mapping, got {type(row).__name__}")
+                f"provider.openai.models[{index}] must be a mapping, got {type(row).__name__}",
+                setting="provider.openai.models")
         model_id = str(row.get("id") or "")
         if not model_id:
             raise StoryProviderConfigurationError(
-                f"provider.openai.models[{index}] must declare an id")
+                f"provider.openai.models[{index}] must declare an id",
+                setting="provider.openai.models")
         effort = row.get("reasoning_effort")
         options.append(ModelOption(
             model_id=model_id,
@@ -646,10 +864,20 @@ def _provider_option(
         resolved = load_provider_config(
             config, provider_id=provider_id, env_path=env_path, environ=environ)
     except StoryProviderConfigurationError as exc:
-        return ProviderOption(provider_id, label, False, str(exc), (), "")
+        # `exc.setting`, never `str(exc)`. The message is allowed to quote the value that is
+        # wrong and every raise in this module that can name one does; this is the one place
+        # where the string crosses into something a browser renders, and `UNUSABLE_CONFIG_REASON`
+        # records what a review found when it did not.
+        return ProviderOption(provider_id, label, False, _unusable_reason(exc), (), "")
 
     if provider_id == PROVIDER_OPENAI:
-        models = openai_model_options(_provider_block(config or {}))
+        try:
+            models = openai_model_options(_provider_block(config or {}))
+        except StoryProviderConfigurationError as exc:
+            # Unreachable while `load_provider_config` above reads the same list, and here
+            # regardless: `provider_catalogue` promises never to raise, and a promise that
+            # depends on two functions agreeing about what they read is not one.
+            return ProviderOption(provider_id, label, False, _unusable_reason(exc), (), "")
         has_key = resolved.api_key is not None and bool(resolved.api_key.get_secret_value())
         reason = "" if has_key else OPENAI_KEY_MISSING_REASON
         return ProviderOption(provider_id, label, has_key, reason, models, resolved.model)
@@ -659,6 +887,17 @@ def _provider_option(
     model = ModelOption(resolved.model, resolved.model, resolved.supports_temperature,
                         resolved.reasoning_effort)
     return ProviderOption(provider_id, label, True, "", (model,), resolved.model)
+
+
+def _unusable_reason(exc: StoryProviderConfigurationError) -> str:
+    """The one sentence a refused configuration is allowed to become in a payload.
+
+    `getattr` rather than an attribute read, because `StoryProviderConfigurationError` is raised
+    from three other modules — the two adapters and `portable_schema` — and one of them
+    constructing it positionally must not turn a rendered catalogue into an `AttributeError`.
+    """
+    setting = getattr(exc, "setting", None) or UNNAMED_SETTING
+    return UNUSABLE_CONFIG_REASON.format(setting=setting)
 
 
 def _provider_block(config: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -671,7 +910,7 @@ def _provider_block(config: Mapping[str, Any]) -> Mapping[str, Any]:
     provider = config.get("provider") or {}
     if not isinstance(provider, Mapping):
         raise StoryProviderConfigurationError(
-            f"provider: must be a mapping, got {type(provider).__name__}")
+            f"provider: must be a mapping, got {type(provider).__name__}", setting="provider")
     _refuse_secrets(provider, "provider")
     nested = provider.get("openai")
     if isinstance(nested, Mapping):
@@ -685,7 +924,14 @@ def _refuse_secrets(block: Mapping[str, Any], path: str) -> None:
         if secret_name in block:
             raise StoryProviderConfigurationError(
                 f"{path}.{secret_name} must not appear in a configuration file; set "
-                f"{env_name} in the environment or in {DEFAULT_ENV_PATH.name}")
+                f"{env_name} in the environment or in {DEFAULT_ENV_PATH.name}",
+                setting=f"{path}.{secret_name}")
+
+
+# Each of the four below quotes the value it refused, and each is reachable from an environment
+# variable — `STORY_LLM_CONTEXT_TOKENS=many` raises "must be an integer, got 'many'". That is
+# right for an operator and is why `setting=` travels beside it: the catalogue renders the
+# setting name and never the message. See `UNUSABLE_CONFIG_REASON`.
 
 
 def _as_int(value: Any, fallback: int, name: str) -> int:
@@ -694,7 +940,8 @@ def _as_int(value: Any, fallback: int, name: str) -> int:
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
-        raise StoryProviderConfigurationError(f"{name} must be an integer, got {value!r}") from exc
+        raise StoryProviderConfigurationError(
+            f"{name} must be an integer, got {value!r}", setting=name) from exc
 
 
 def _as_float(value: Any, fallback: float, name: str) -> float:
@@ -703,4 +950,28 @@ def _as_float(value: Any, fallback: float, name: str) -> float:
     try:
         return float(value)
     except (TypeError, ValueError) as exc:
-        raise StoryProviderConfigurationError(f"{name} must be a number, got {value!r}") from exc
+        raise StoryProviderConfigurationError(
+            f"{name} must be a number, got {value!r}", setting=name) from exc
+
+
+def _as_bool(value: Any, fallback: bool, name: str) -> bool:
+    """A YAML boolean, or a refusal. **Never `bool(value)`** — `bool("false")` is `True`, and
+    the two settings this reads decide whether a temperature reaches the wire and whether a
+    provider may retain an evidence package."""
+    if value is None:
+        return fallback
+    if isinstance(value, bool):
+        return value
+    raise StoryProviderConfigurationError(
+        f"{name} must be true or false, got {type(value).__name__} {value!r}", setting=name)
+
+
+def _as_optional_str(value: Any) -> str | None:
+    """`None` stays `None`; anything else becomes the string `validated()` judges.
+
+    Deliberately not refusing a non-string: `reasoning_effort: none` parses as YAML's `None`
+    and `reasoning_effort: minimal` as a string, so the values a person actually writes are
+    already covered, and a number here reaches `REASONING_EFFORTS` and is refused there with
+    the vocabulary in the message.
+    """
+    return None if value is None else str(value)

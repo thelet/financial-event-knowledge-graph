@@ -132,6 +132,15 @@ def _provider(config: DemoConfig, *, live: bool, provider_id: str | None = None,
 def cmd_demo(args) -> int:
     root = Path(args.root) if args.root else None
     config = DemoConfig.load(root if root is not None else Path.cwd())
+    # **Before the graph is opened, not after** *(corrected 2026-08-19, after a review timed
+    # it)*. This used to run the freshness gate, the detectors and the whole packaging pass —
+    # about 30 s — and only then discover that `--provider anthropic` names nothing, or that the
+    # selected provider has no recorded store to replay. The demo UI already refuses the pair on
+    # the request thread for exactly this reason (`start_generation`'s "an unknown pair is a 400
+    # the client can fix"), and a typo at a command line deserves the same answer in the same
+    # second. It also costs nothing to move: `_provider` reads configuration and at most one
+    # store file, and touches neither Neo4j nor the model server.
+    provider = _provider(config, live=args.live, provider_id=args.provider, model_id=args.model)
     context = build_story_context(
         root, graph_runs_root=Path(args.runs_root) if args.runs_root else None)
     try:
@@ -153,8 +162,7 @@ def cmd_demo(args) -> int:
           f"{len(inputs.package.primary_passages)} primary passages")
 
     outcome = run_demo(
-        inputs, provider=_provider(config, live=args.live, provider_id=args.provider,
-                                   model_id=args.model),
+        inputs, provider=provider,
         config=config, out_dir=Path(args.out) if args.out else None, live=args.live)
 
     print(f"story run      {outcome.story_run_id}")

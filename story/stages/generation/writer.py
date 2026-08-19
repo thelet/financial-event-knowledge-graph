@@ -155,11 +155,18 @@ class DraftRejected(RuntimeError):
 
     Also **not** a verification result. A `VerifiedDraft` records a decision about a draft that
     exists; these are the answers from which no draft can be built at all.
+
+    **`generation` carries the answer that was refused** *(added 2026-08-19)*, exactly as
+    `EditorialPlanRejected.generation` does and for the same measured reason. It stays `None`
+    for the one refusal this module raises *before* a request is built — a plan made from
+    another package — because that run genuinely spent nothing, and a field filled from
+    anywhere but the call itself would have claimed otherwise.
     """
 
     def __init__(self, message: str, violations: Sequence[DraftViolation] = ()) -> None:
         super().__init__(message)
         self.violations = tuple(violations)
+        self.generation: GenerationResult | None = None
 
     @property
     def codes(self) -> tuple[str, ...]:
@@ -749,22 +756,29 @@ def write_story(
         temperature=PINNED_TEMPERATURE,
     )
 
-    violations = tuple(schema_violations(result.content, schema))
-    if violations:
-        # Never retried: the server was asked for schema-constrained output and answered, and
-        # re-asking at temperature 0 returns the same thing while charging for it twice.
-        raise StoryProviderSchemaError(
-            f"the writer's answer does not satisfy schema {WRITER_SCHEMA_NAME!r}: "
-            + "; ".join(violations), violations)
+    # `plan_story`'s block, for its reason: everything below judges an answer that already
+    # exists, so a refusal raised here refuses a generation the run paid for and must record.
+    # A fault raised inside `provider.generate` never reaches here and carries nothing.
+    try:
+        violations = tuple(schema_violations(result.content, schema))
+        if violations:
+            # Never retried: the server was asked for schema-constrained output and answered,
+            # and re-asking at temperature 0 returns the same thing while charging twice.
+            raise StoryProviderSchemaError(
+                f"the writer's answer does not satisfy schema {WRITER_SCHEMA_NAME!r}: "
+                + "; ".join(violations), violations)
 
-    draft = draft_from(
-        result.content, package, plan,
-        passages=passages,
-        # The *configured* identity where the provider states one, not the `.gguf` path the
-        # server reports back — the distinction `generation_store` keeps as two fields.
-        model_id=getattr(provider, "model_id", "") or result.model_id,
-        style_profile_id=style.profile_id,
-        prompt_version=WRITER_PROMPT_VERSION)
+        draft = draft_from(
+            result.content, package, plan,
+            passages=passages,
+            # The *configured* identity where the provider states one, not the `.gguf` path the
+            # server reports back — the distinction `generation_store` keeps as two fields.
+            model_id=getattr(provider, "model_id", "") or result.model_id,
+            style_profile_id=style.profile_id,
+            prompt_version=WRITER_PROMPT_VERSION)
+    except (DraftRejected, StoryProviderSchemaError) as exc:
+        exc.generation = result
+        raise
     return WrittenStory(draft=draft, generation=result)
 
 

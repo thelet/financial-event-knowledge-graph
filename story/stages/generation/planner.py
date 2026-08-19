@@ -177,11 +177,22 @@ class EditorialPlanRejected(RuntimeError):
     transport, and a caller that caught a provider fault must not also catch this. Deliberately
     not retried either — at temperature 0 the same request returns the same plan, and §11's
     rejection is a statement about the plan, not about the attempt.
+
+    **`generation` carries the answer that was refused** *(added 2026-08-19)*. It is `None` on
+    the one refusal raised before a request is built, and set by `plan_story` on every refusal
+    raised after one came back. A refusal is not a failure to generate: the tokens were spent
+    and the row is in the store, and a run that recorded no result for it under-reported its
+    own cost — measured on `data/story_demo/story-v1-b949ecf8bbd6`, whose `generations.jsonl`
+    held the planner row while its manifest read `generation_calls: 0`, `total_tokens: 0` and
+    `planner_provider_model: {}`. Attached to the refusal rather than fished out of the
+    provider's store, because a store is optional and a transport fault genuinely has no result
+    to report — and one that reached into a store would have invented one for it.
     """
 
     def __init__(self, message: str, violations: Sequence[PlanViolation] = ()) -> None:
         super().__init__(message)
         self.violations = tuple(violations)
+        self.generation: GenerationResult | None = None
 
     @property
     def codes(self) -> tuple[str, ...]:
@@ -525,18 +536,27 @@ def plan_story(
         temperature=PINNED_TEMPERATURE,
     )
 
-    violations = tuple(schema_violations(result.content, schema))
-    if violations:
-        # Never retried: the server was asked for schema-constrained output and answered, and
-        # re-asking at temperature 0 returns the same thing while charging for it twice.
-        raise StoryProviderSchemaError(
-            f"the planner's answer does not satisfy schema {PLANNER_SCHEMA_NAME!r}: "
-            + "; ".join(violations), violations)
+    # Everything below judges an answer that already exists, so every refusal it raises is a
+    # refusal *of a generation* rather than a failure to obtain one. The result is attached so
+    # the runner can record what the call cost whichever way the stage ended; a fault raised
+    # inside `provider.generate` never reaches this block and carries nothing, which is what
+    # keeps a transport failure from being recorded as a call that produced an answer.
+    try:
+        violations = tuple(schema_violations(result.content, schema))
+        if violations:
+            # Never retried: the server was asked for schema-constrained output and answered,
+            # and re-asking at temperature 0 returns the same thing while charging twice.
+            raise StoryProviderSchemaError(
+                f"the planner's answer does not satisfy schema {PLANNER_SCHEMA_NAME!r}: "
+                + "; ".join(violations), violations)
 
-    plan = editorial_plan_from(
-        result.content, package,
-        # The *configured* identity where the provider states one, not the `.gguf` path the
-        # server reports back — the distinction `generation_store` keeps as two fields.
-        model_id=getattr(provider, "model_id", "") or result.model_id,
-        prompt_version=PLANNER_PROMPT_VERSION)
+        plan = editorial_plan_from(
+            result.content, package,
+            # The *configured* identity where the provider states one, not the `.gguf` path the
+            # server reports back — the distinction `generation_store` keeps as two fields.
+            model_id=getattr(provider, "model_id", "") or result.model_id,
+            prompt_version=PLANNER_PROMPT_VERSION)
+    except (EditorialPlanRejected, StoryProviderSchemaError) as exc:
+        exc.generation = result
+        raise
     return PlannedStory(plan=plan, generation=result)

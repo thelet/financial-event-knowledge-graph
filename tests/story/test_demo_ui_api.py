@@ -2092,3 +2092,116 @@ def test_a_handler_result_is_always_a_shape_the_transport_can_send(graph_service
     harness.wait(started["run_id"])
     assert isinstance(harness.call("GET", started["events_url"]), EventStream)
     assert isinstance(harness.call("GET", "/demo/graph/overview"), JsonResponse)
+
+
+# ---------------------------------------------------------------------------------------
+# Four claims a panel made about a run, and did not hold.
+# ---------------------------------------------------------------------------------------
+
+
+def _outcome_with(totals: Mapping[str, Any]) -> Any:
+    return types.SimpleNamespace(manifest=types.SimpleNamespace(token_totals=dict(totals)))
+
+
+def test_a_live_run_that_measured_nothing_is_not_told_it_was_a_replay():
+    """Reproduced 2026-08-19: a live run with a rejected key came back as `{"mode": "live",
+    "measured": false, "reason": "not measured on replay…"}`.
+
+    `_cost_panel` selected the reason on `measured` alone and ignored `mode`, so a panel telling
+    the truth about *what* happened told a falsehood about *why*. "The recorded store holds no
+    token count" is not a fact about a run that never reached a store.
+    """
+    panel = api._cost_panel(_outcome_with({"generation_calls": 0}), live=True)
+
+    assert panel == {**panel, "mode": "live", "measured": False}
+    assert panel["reason"] == api.LIVE_UNMEASURED_COST_REASON
+    assert "replay" not in panel["reason"].replace("replaying", "")
+    assert panel["total_tokens"] is None, "a zero would be a fabricated measurement"
+
+
+def test_a_replayed_run_still_gets_the_replay_reason():
+    """The half that was always right, kept: the store holds no token count by design, and
+    saying so is what stops a zero from reading as a measurement."""
+    panel = api._cost_panel(_outcome_with({"generation_calls": 2}), live=False)
+
+    assert panel["mode"] == "replay" and panel["measured"] is False
+    assert panel["reason"] == api.REPLAY_COST_REASON
+
+
+def test_a_live_run_that_did_measure_reports_its_numbers_and_neither_absence_reason():
+    panel = api._cost_panel(
+        _outcome_with({"prompt_tokens": 2869, "completion_tokens": 529, "total_tokens": 3398,
+                       "generation_calls": 1}), live=True)
+
+    assert panel["measured"] is True and panel["total_tokens"] == 3398
+    assert panel["reason"] not in (api.REPLAY_COST_REASON, api.LIVE_UNMEASURED_COST_REASON)
+
+
+def test_a_model_id_that_is_not_a_path_is_left_alone_and_claims_no_redaction():
+    """The note is a statement about what was removed. Reproduced 2026-08-19 on an OpenAI run:
+    the payload read `"provider_model_id": "gpt-5-nano-2025-08-07"` beside *"the filename only.
+    The server reports an absolute path to the model file…"* — nothing had been reduced and
+    there was no path. The function's own docstring makes exactly this argument for the empty
+    block and then made the claim anyway.
+    """
+    block = {"provider_model_id": "gpt-5-nano-2025-08-07", "model_id": "gpt-5-nano"}
+    api._redact_provider_model_id(block)
+
+    assert block == {"provider_model_id": "gpt-5-nano-2025-08-07", "model_id": "gpt-5-nano"}
+    assert "provider_model_id_note" not in block
+
+
+def test_a_model_id_that_is_a_path_is_still_reduced_and_still_says_so():
+    """The half the note was written for, and the leak it was written after."""
+    block = {"provider_model_id": "/home/someone/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf"}
+    api._redact_provider_model_id(block)
+
+    assert block["provider_model_id"] == MODEL_ID
+    assert block["provider_model_id_note"] == api.PROVIDER_MODEL_ID_NOTE
+
+
+def test_a_provider_default_that_is_not_a_provider_id_is_a_typed_refusal_not_a_payload(
+        graph_services, config, openai_configured):
+    """`default: {a: 1}` reached this endpoint as `default_provider_id: "{'a': 1}"`.
+
+    It failed safe downstream — nothing matches that id — but a payload the interface renders is
+    not a place to put the `repr` of a mapping. `default_provider_id` refuses it at the source
+    now, so this endpoint reports a configuration fault the way it reports every other one.
+    """
+    broken = dataclasses.replace(
+        config, raw={**config.raw,
+                     "provider": {**config.raw["provider"], "default": {"a": 1}}})
+    harness = Harness(services={**graph_services, "demo_config": lambda: broken})
+
+    status, payload = harness.json("GET", "/demo/providers")
+    assert status == api.ERRORS["provider_unavailable"][0]
+    assert payload["error"]["code"] == "provider_unavailable"
+    assert "{'a': 1}" not in json.dumps(payload)
+
+
+def test_no_configured_value_reaches_the_provider_payload_through_an_error_message(
+        graph_services, config, monkeypatch):
+    """The §6 rule, against the shape that broke it.
+
+    `_provider_option` rendered `str(exc)` into `unavailable_reason`, and those messages quote
+    the value they refused — so `STORY_OPENAI_MODEL=<an undeclared name>` arrived in the option
+    label and in `#provider-notice`, both of which `app.js` renders verbatim. The fix is at the
+    boundary rather than in the four messages, so this drives two unrelated raise sites and
+    asserts on the whole payload rather than on one field.
+    """
+    monkeypatch.setenv(ENV_OPENAI_API_KEY, OPENAI_KEY_MARKER)
+    monkeypatch.setenv("STORY_OPENAI_MODEL", "NEEDLE-orion-7")
+    monkeypatch.setenv("STORY_LLM_MAX_RETRIES", "NEEDLE-many")
+    harness = Harness(services=graph_services)
+
+    status, payload = harness.json("GET", "/demo/providers")
+    assert status == 200
+    body = json.dumps(payload, sort_keys=True)
+    assert "NEEDLE" not in body, "a configured value reached the browser inside a reason"
+    assert OPENAI_KEY_MARKER not in body
+    # Still offered, still unavailable, still naming the setting: the payload has to stay able
+    # to tell "this is misconfigured" from "this does not exist".
+    reasons = {entry["provider_id"]: entry["unavailable_reason"]
+               for entry in payload["providers"]}
+    assert reasons[PROVIDER_OPENAI].startswith("provider.openai.models")
+    assert reasons[PROVIDER_LOCAL].startswith("STORY_LLM_MAX_RETRIES")

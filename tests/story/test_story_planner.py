@@ -808,13 +808,18 @@ def test_the_plan_replays_from_a_recorded_generation_with_no_server_running():
     """§14: byte-identical *replay* is the achievable claim, and the planner is inside it."""
     package = divergence_package()
     store = GenerationStore()
+    # The two settings `story-generation-v3` added are stated here because the store is empty
+    # and `FakePlanProvider` publishes no `StoryProviderConfig` to read them off. They are the
+    # local server's — the pinned temperature reaches the wire, no `reasoning` block is sent.
     recording = ReplayingStoryGenerationProvider(
-        store, FakePlanProvider(), prompt_version=PLANNER_PROMPT_VERSION)
+        store, FakePlanProvider(), temperature_sent=True, reasoning_effort=None,
+        prompt_version=PLANNER_PROMPT_VERSION)
     first = plan_with(recording, package).plan
     assert store.identity_provider_id() == PROVIDER_LOCAL
 
-    # Neither identifier is passed: both are read back off the rows the recording wrote, which
-    # is the property that makes a written store sufficient to replay from on its own.
+    # **Nothing** is passed: the provider, the model and — since `story-generation-v3` — both
+    # request settings are read back off the rows the recording wrote, which is the property
+    # that makes a written store sufficient to replay from on its own.
     replaying: StoryGenerationProvider = ReplayingStoryGenerationProvider(store)
     second = plan_with(replaying, package).plan
     assert second == first

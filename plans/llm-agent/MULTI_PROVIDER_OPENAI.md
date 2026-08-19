@@ -1,6 +1,9 @@
 # S12 — A second provider: OpenAI beside the local Qwen server
 
-**Status:** plan, committed as a checkpoint before implementation. *(2026-08-19)*
+**Status:** implemented. Planned and committed as a checkpoint at `d72ca64`; built at
+`2cbf533`, `4a857fd` and `b1dc8ac`; §10 records the live comparison that followed and the
+one defect it found. Sections 1–9 are the plan **as written before implementation** and are
+corrected in place where reality contradicted them, with the correction marked. *(2026-08-19)*
 
 ## 1. The answer, first
 
@@ -33,7 +36,7 @@ Read from the tree at `6a84426`, not from memory:
 | `PINNED_TEMPERATURE = 0.0` is a constant, not a config field | `providers/public.py:69` | Stays. A provider that cannot accept it records that it did not send it. |
 | The demo UI builds the provider on the **request** thread, before the worker starts | `demo_ui/api.py:1263-1297, 1892` | Freezing provider+model at *Generate post* needs no new machinery — it needs the selection resolved in `_provider_for` and nowhere else. |
 | The UI states "No credential, provider setting or environment value is shown anywhere in this interface" | `static/index.html:104-107`, asserted by `test_demo_ui_app.py:183`, `test_demo_ui_static.py:460` | A provider/model control makes half that sentence false. The copy is **corrected**, not deleted: no credential, no base URL, no environment value — a provider label and a model id, which are already in every manifest the panel renders. |
-| Replay fixture is Qwen-only, 2 rows, committed | `tests/story/fixtures/story_demo/generations.jsonl` | Fixtures become provider-specific by directory, and an OpenAI fixture is recorded from the live run in §8. |
+| Replay fixture is Qwen-only, 2 rows, committed | `tests/story/fixtures/story_demo/generations.jsonl` | Fixtures become provider-specific by directory, and an OpenAI fixture is recorded from the live run in §10 *(done — §10.2)*. |
 | Baseline offline suite | `pytest tests/story -m "not live and not neo4j"` | **2996 passed, 145 deselected, 43s** *(measured 2026-08-19)*. This number must not fall. |
 | `openai` is in the **forbidden import list** | `test_story_package_structure.py:46-58` | The SDK is not an option. See §9. |
 | The local llama.cpp server is up | `GET 127.0.0.1:8080/health` → 200 *(2026-08-19)* | Qwen-unchanged can be proved live, not only by replay. |
@@ -169,7 +172,24 @@ provider:
         reasoning_effort: minimal
       - id: gpt-4.1-mini     # verified present 2026-08-19; accepts `temperature: 0`
         supports_temperature: true
+      - id: gpt-5.4          # added at `4a857fd`, after the first live runs — see §10
+        supports_temperature: false
+        reasoning_effort: none
 ```
+
+**Three models shipped, not the two this section first listed** *(corrected 2026-08-19)*.
+`gpt-5.4` was added while running §10 because two small models failing the same deterministic
+gates does not distinguish *"OpenAI behaves differently"* from *"a small model does"*. Its
+`reasoning_effort` is **measured, not chosen**: at `medium` the writer call spends its whole
+2048-token budget reasoning and returns `status: incomplete` with
+`incomplete_details.reason: max_output_tokens` and no message item — the same failure
+`LOCAL_RUNTIME_VALIDATED.md` §4 recorded for llama.cpp with thinking enabled, from the other
+direction. `max_tokens` is a `request_identity` input, so raising `generation.writer_max_tokens`
+to suit one model would re-key every committed Qwen row; the budget stays and the effort gives
+way. And `minimal` — the value `gpt-5-nano` takes — is **refused** by `gpt-5.4`:
+`Unsupported value: 'minimal' is not supported with the 'gpt-5.4' model. Supported values are:
+'none', 'low', 'medium', 'high', and 'xhigh'.` The effort vocabulary is per model, which
+`REASONING_EFFORTS` cannot express and says so in its own comment.
 
 Every key here is a `config_hash` input and therefore a `story_run_id` input — including keys
 this loader does not read. That is already true and is why the block is safe to add.
@@ -202,6 +222,46 @@ offline*: run the demo with a shim that computes both the old and the new identi
 the old, write under the new. `raw_content` and `content_sha256` stay byte-identical, and that
 byte-identity is the test.
 
+**Corrected 2026-08-19, after an adversarial review of the shipped change.** The section above
+is right about the argument and was **not carried far enough**: S12 added `supports_temperature`
+and `reasoning_effort` to `StoryProviderConfig`, both of which decide what the request body
+contains, and neither became a digest input. Reproduced by building five bodies through
+`StoryOpenAIResponsesProvider.request_body` and keying each under the v2 rule — **5 distinct
+bodies, 1 distinct digest** (`ae13b6c9d9a5…`):
+
+| configuration | `reasoning` in the body | `temperature` in the body |
+| --- | --- | --- |
+| `reasoning_effort=None` | *no block* | absent |
+| `reasoning_effort="none"` | `{"effort":"none"}` | absent |
+| `reasoning_effort="medium"` | `{"effort":"medium"}` | absent |
+| `reasoning_effort="high"` | `{"effort":"high"}` | absent |
+| `supports_temperature=True` | `{"effort":"none"}` | `0.0` |
+
+This is not hypothetical: §10 records `gpt-5.4`'s effort being changed *during* the live
+comparison, so a fixture recorded at `none` would have answered a request that went out at
+`medium`. `config_hash` covers `story_run_id` and **not** the store key, so the run id was never
+the defence. Fixed the same way: `temperature_sent` and `reasoning_effort` are the ninth and
+tenth digest inputs, `IDENTITY_VERSION` → `story-generation-v3`, both are stored on the row so
+the file continues to state its own key, and **all five committed stores were re-keyed, not
+re-recorded** — 10 rows, 10 `content_sha256` unchanged. An absent effort is a distinct sentinel
+part rather than a dropped one, so it cannot shift the parts after it.
+
+Two consequences worth naming. A **replay-only provider has no `StoryProviderConfig`**, so the
+two settings are resolved explicit-argument → inner adapter's config → *the store's own rows*,
+which is what keeps a committed fixture replayable from the file alone; a store that can state
+neither — because it is empty, or because its rows disagree — is refused at construction, as it
+already was for `model_id` and `provider_id`. And `GenerationStore.get` now **checks the row it
+found against the identity that found it**: the same review rewrote every row of the OpenAI
+fixture to claim the local provider, left `request_sha256` alone, and got a HIT. That is a
+different failure from a wrong lookup and it now raises `MislabelledGenerationError`, which is
+deliberately not a `LookupError` so nothing can treat it as a miss and fall through to a server.
+
+**Verified against the live server 2026-08-19**: a `--live` local run wrote a `generations.jsonl`
+byte-identical to the committed re-keyed fixture (`sha256 f59fd4e4f94eb094`), so both call
+sites' live answers land on the new keys; and the shipped `python -m story demo` replay
+reproduces `d72ca64`'s artifact hashes exactly (`draft.json 526b5d6736e2b262`,
+`post.md 73a5ec3d87dfb049`, `verification_report.json fe31ad41d39a3723`).
+
 ### 5.2 `story_run_id` gains `provider_id`, and the manifest gains three fields
 
 `provider_id` joins the digest parts and `_run_id_input_names()`. `StoryRunManifest` gains:
@@ -210,9 +270,17 @@ byte-identity is the test.
 * `planner_provider_model` / `writer_provider_model` — `{provider_id, model_id, provider_model_id,
   prompt_version, schema_name, max_tokens}` per call site, because the brief asks for planner and
   writer provenance separately and today one pair of scalars covers both;
-* `provider_settings` — `{temperature, temperature_sent, reasoning_effort, max_output_tokens,
-  store_responses}`, so a run against a model that refuses `temperature` says so rather than
-  recording a number it never sent.
+* `provider_settings` — `{temperature, temperature_sent, reasoning_effort,
+  max_output_tokens_ceiling, max_output_tokens_sent, store_responses}`, so a run against a model
+  that refuses `temperature` says so rather than recording a number it never sent.
+
+  **`max_output_tokens` was one field as built and had the defect this block exists to remove**
+  *(corrected 2026-08-19)*: it reported the config's ceiling — 4096 for OpenAI — while the body
+  carried the call site's `max_tokens` of 2048, under a docstring promising "what the request was
+  actually parameterised with". Both numbers are worth keeping and neither may stand for the
+  other, so both are recorded under names that say which is which. `…_sent` is a list because
+  `max_tokens` is a per-call-site parameter and this block is per-run, and it is empty for a
+  replay, which issued no body at all.
 
 `token_totals` already exists and already carries what the provider returned; the OpenAI adapter
 must map `input_tokens/output_tokens/total_tokens` onto `prompt_tokens/completion_tokens/
@@ -235,8 +303,16 @@ demo:
 
 The scalar key stays readable for one release as the local default if that keeps the diff honest;
 the mapping is authoritative. Selecting a provider with no recorded store on the replay path is
-`ApiError("generation_store_empty")` naming the provider — never a silent fall-through to a
-different provider's rows.
+`ApiError("provider_requires_live")` naming the provider — never a silent fall-through to a
+different provider's rows. (`generation_store_empty`, which this section first named, is the
+*other* refusal and still exists: a store that is configured and holds no row. "No store for this
+provider" and "an empty store" are different facts and the shipped code says which.)
+
+**As built, the scalar is read in exactly one place** — `DemoConfig.generation_store_for`, as the
+local provider's fallback. The demo UI's `_provider_for` read it directly until `b1dc8ac` and now
+goes through the accessor, so the "kept because `story/demo_ui/api.py` still reads it" sentence
+that shipped in `config/story.yaml` and in `pipeline.py` was stale on arrival and is corrected:
+what keeps the key is a `config/story.yaml` written before `generation_stores` existed.
 
 ## 6. UI
 
@@ -317,17 +393,88 @@ Mocked/recorded only. Nothing in the default suite spends money: the OpenAI live
 | Recording the OpenAI fixture by hand | A fixture that never came from the API proves nothing about translation. It is captured from the §10 live run or it does not exist. |
 | Sending `temperature` to every model and catching the 400 | A 400 per run to discover a static fact. Declared per model in config, verified against the API, and recorded in the manifest. |
 
-## 10. The live run, once the packets land
+## 10. The live comparison — run *(2026-08-19)*
 
-One end-to-end OpenAI run over **the same candidate and the same evidence package** the Qwen
-fixture was recorded from, then a table comparing: schema adherence, planner result, writer result,
-deterministic-verifier findings, token usage, and accepted/rejected. Its generations are committed
-as the provider-specific OpenAI fixture (§5.3).
+**The answer, first: the adapter is right and no OpenAI model produced a publishable post.** All
+four runs are over one candidate, one graph run (`graph-v1-0483dc6b4b10`), one evidence package
+(`pkg:…:4e4363b11373`, digest `76a9c8ac2a2a…`), one prompt pair and one schema pair. Every
+OpenAI request was accepted at the wire — `strict: true` on this repository's own two schemas,
+zero `invalid_json_schema`, zero `schema_violations` — so **schema adherence is 4/4 and the
+translation is not what any of these runs failed on**. Each failed one gate further in, and each
+failed a *different* one, which is the useful result: §11, §12 and §13 each refused something,
+and none of them was changed to let anything through.
 
-**No verifier rule and no evidence contract may be changed to make OpenAI pass.** A rejection is a
-result, and it is reported as one.
+| run (`data/story_demo/`) | provider / model | dated `provider_model_id` | mode | `reasoning_effort` | `temperature` sent | tokens in / out / total | disposition | what refused it |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `story-v1-fd681dbaa9f0` | local / `Qwen3.5-9B-Q4_K_M.gguf` | `/home/…/Qwen3.5-9B-Q4_K_M.gguf` | replay | — | yes | 0 / 0 / 0 *(replay stores none)* | **accepted** | — |
+| `story-v1-b949ecf8bbd6` | openai / `gpt-5-nano` | *not recorded — see below* | live | `minimal` | no | *not recorded — see below* | **plan_refused** | §11 `unknown_unusable_id` |
+| `story-v1-98a0c8e10720` | openai / `gpt-4.1-mini` | `gpt-4.1-mini-2025-04-14` | live | none | yes | 2 869 / 529 / 3 398 *(planner only)* | **draft_refused** | §12 `binding_rendering_not_in_text` ×2 |
+| `story-v1-50c0f3c4a1c2` | openai / `gpt-5.4` | `gpt-5.4-2026-03-05` | live | `none` | no | 7 399 / 1 135 / 8 534 | **rejected** | §13, 7 blocking findings |
 
-## 11. Open decision, with a recommendation
+What each failure actually was:
+
+* **`gpt-5-nano` — §11.** The plan was schema-valid and named an observation that is not in the
+  package: `unusable_evidence` cited
+  `obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db`, while the package
+  holds `…:3eabe78a6d25`. `plan_violations` refused it before the writer ran.
+* **`gpt-4.1-mini` — §12.** The plan was accepted. The draft declared two fact bindings whose
+  `rendered` strings — `3.3 percent` and `-12.6 percent` — do not appear in the sentence text
+  they were declared against (`sentences[2]`). §12 refused it before the verifier ran.
+* **`gpt-5.4` — §13.** Plan and draft both accepted; four sentences reached the deterministic
+  verifier and it refused seven things: `unbound_numeral` ×2 (a bare `2022` nobody declared),
+  `metric_surface_ambiguous` ×1, `citation_reused_for_unrelated_claim` ×4. This is the run whose
+  generations are committed as the OpenAI fixture (§5.3), and its rejection is the result.
+
+**No verifier rule and no evidence contract was changed to make OpenAI pass.** The one
+configuration change the comparison caused is `gpt-5.4`'s `reasoning_effort: none`, which is a
+statement about a *budget* and not about a gate — see §4.4.
+
+### 10.1 The comparison found a defect in the accounting, and it was in the pre-S12 code
+
+Two of the token columns above read *"not recorded"*, and that is a defect this run surfaced
+rather than a limitation of the API. `run_demo` appended a `GenerationResult` to `results` only
+on the success path, so a stage that produced a schema-valid answer §11 or §12 then refused
+recorded **no** generation at all:
+
+| run | rows in its own `generations.jsonl` | manifest `generation_calls` | manifest `total_tokens` | `planner_provider_model` |
+| --- | --- | --- | --- | --- |
+| `story-v1-b949ecf8bbd6` | 1 | 0 | 0 | `{}` — for a planner that ran |
+| `story-v1-98a0c8e10720` | 2 | 1 | 3 398 | filled; `writer_provider_model` `{}` for a writer that answered |
+
+The store on disk knew the call happened; the manifest did not. It is **pre-existing**, not
+caused by S12 — one provider and one always-accepted fixture never produced a refused-with-answer
+run to notice it — but S12 is what made it visible and what makes it matter, since the brief
+requires the token usage the provider returned and the final disposition both to be right.
+
+Fixed at packet D: `EditorialPlanRejected` and `DraftRejected` carry the `GenerationResult` they
+refused, and `run_demo` records it whichever way the stage ended. A provider *fault* — transport,
+timeout, an adapter's own schema error — genuinely produced no result, carries none, and still
+records nothing. Re-verified against the two recorded stores above: replayed under `b1dc8ac` the
+plan-refused store reports `generation_calls: 0` and an empty planner block, and under the fix
+`1` and a filled one; the draft-refused store reports `1` / empty writer block before and `2` /
+filled after. The accepted Qwen replay is byte-identical across the change, manifest included.
+
+A second consequence, worth naming because it moves an id: `_provider_model_id` falls back to the
+*configured* model name when no result was recorded, which is why `story-v1-b949ecf8bbd6`'s
+manifest reads `gpt-5-nano` where the API answered `gpt-5-nano-2025-08-07`. `provider_model_id`
+is a `story_run_id` input, so the fix changes the run id a refused-planner run mints. The
+directories above were written before the fix and are left as they are; they are the evidence.
+
+### 10.2 What the OpenAI fixture proves that the Qwen ones cannot
+
+`tests/story/fixtures/story_demo/openai/generations.jsonl` — the `gpt-5.4` run's two rows,
+byte-identical to what it wrote (`sha256 1c9898136c4789…`), committed. It carries the three
+claims no Qwen store can: that the same schema pair reached a second server unmodified and came
+back usable; that a recorded row states its own provider and is a guaranteed miss for the other
+one, in **both** directions, on real files; and that §13 is provider-blind on real recorded
+content — the same draft verifies to the same findings whichever adapter's rows delivered it,
+asserted over a Qwen draft the verifier accepts *and* an OpenAI draft it rejects.
+
+It is deliberately **not** in `config/story.yaml`'s `demo.generation_stores`. The shipped
+configuration having no OpenAI store is what makes the demo UI answer `provider_requires_live`
+for OpenAI honestly, and that answer is itself a tested guarantee. The tests name the path.
+
+## 11. Open decision, with a recommendation — resolved *(2026-08-19)*
 
 `config/story.yaml` names `gpt-5-nano` as the OpenAI default. It is a reasoning model, so
 `temperature` is not sent and determinism is weaker than the pinned local path's — recorded
@@ -335,3 +482,9 @@ honestly in `provider_settings` rather than papered over. **Recommendation: keep
 the default and offer `gpt-4.1-mini` as the temperature-pinned alternative**, so the demo's default
 is the current-generation model while a determinism-sensitive comparison has somewhere to go. The
 owner may reverse this by editing one key; both are verified present on the account.
+
+**Taken as recommended, and a third model added beside them.** `provider.openai.default_model`
+is `gpt-5-nano` and `gpt-4.1-mini` is offered alongside it; `gpt-5.4` joined the list at
+`4a857fd` for the reason §4.4 and §10 record. The *pipeline* default — `provider.default` — stays
+`local_openai_compatible`, which is a separate key and a separate decision: the demo replays a
+committed Qwen store, and a default that missed it would need a live run to say anything at all.

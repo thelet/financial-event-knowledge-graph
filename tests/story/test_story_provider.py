@@ -43,9 +43,15 @@ from story.providers import (
     StoryProviderTransportError,
     StoryProviderUnavailable,
     load_provider_config,
-    request_identity,
     schema_violations,
     validate_portable_schema,
+)
+#: Imported from the module and not through the package: `story/providers/__init__.py`'s lazy
+#: re-export list is owned elsewhere, and the three names `story-generation-v3` added are new.
+from story.providers.generation_store import (
+    NO_REASONING_EFFORT,
+    MislabelledGenerationError,
+    RequestIdentity,
 )
 from story.providers.public import (
     ENV_API_KEY,
@@ -616,13 +622,25 @@ def test_a_temperature_cannot_be_configured_at_all():
 # -- the request identity the store is keyed by -----------------------------------------------
 
 
-def identity(**overrides) -> str:
+def identity_of(**overrides) -> RequestIdentity:
+    """One planner request, and the digest **plus** the claim a row keyed under it must make.
+
+    The two settings `story-generation-v3` added default to the local server's — the temperature
+    reaches the wire, no `reasoning` block is sent — because that is what every fixture in this
+    module records. They are spelled out rather than omitted: since 2026-08-19 there is no such
+    thing as a request identity that does not state them.
+    """
     call = dict(system=PLANNER_SYSTEM, prompt=PROMPT, schema=PLAN_SCHEMA,
                 schema_name="story_editorial_plan", provider_id=PROVIDER_LOCAL,
                 model_id="Qwen3.5-9B-Q4_K_M.gguf",
-                temperature=PINNED_TEMPERATURE, max_tokens=512)
+                temperature=PINNED_TEMPERATURE, temperature_sent=True, reasoning_effort=None,
+                max_tokens=512)
     call.update(overrides)
-    return request_identity(**call)
+    return RequestIdentity.of(**call)
+
+
+def identity(**overrides) -> str:
+    return identity_of(**overrides).sha256
 
 
 def test_the_same_request_produces_the_same_identity():
@@ -637,10 +655,48 @@ def test_the_same_request_produces_the_same_identity():
     ("provider_id", PROVIDER_OPENAI),
     ("model_id", "Qwen3.5-9B-Q8_0.gguf"),
     ("temperature", 0.2),
+    # The two `story-generation-v3` added, 2026-08-19. Every value below is one a real
+    # configuration in `config/story.yaml` reaches: `gpt-5-nano` sends no temperature,
+    # `gpt-5.4` asks for `none`, `gpt-5-nano` for `minimal`.
+    ("temperature_sent", False),
+    ("reasoning_effort", "none"),
     ("max_tokens", 513),
 ])
 def test_changing_any_digest_input_changes_the_identity(field, value):
     assert identity(**{field: value}) != identity()
+
+
+@pytest.mark.parametrize("effort", ["none", "minimal", "low", "medium", "high", "xhigh"])
+def test_every_declared_reasoning_effort_keys_apart_from_every_other_and_from_no_effort(effort):
+    """The collision the 2026-08-19 review reproduced, closed value by value.
+
+    Under `story-generation-v2` all seven of these — the six efforts and no `reasoning` block at
+    all — produced **one** digest, so a fixture recorded at `none` would have answered a request
+    that went out at `medium`. `gpt-5.4`'s effort was changed during the live comparison
+    (MULTI_PROVIDER_OPENAI §10), so this is a setting that has already moved once under a
+    committed store.
+
+    The `None` case is asserted separately because it is the one that needs a sentinel rather
+    than a digest: an absent effort is a *distinct, stable* part and never a dropped one.
+    """
+    others = {identity(reasoning_effort=other)
+              for other in ("none", "minimal", "low", "medium", "high", "xhigh")
+              if other != effort}
+    assert identity(reasoning_effort=effort) not in others
+    assert identity(reasoning_effort=effort) != identity(reasoning_effort=None)
+
+
+def test_an_absent_reasoning_effort_shifts_no_other_part_of_the_digest():
+    """`NO_REASONING_EFFORT` is a value in the join, not a part removed from it.
+
+    A dropped part would make "no reasoning block" produce the digest of a *different* request
+    that happened to have one fewer input — the ambiguity the labelled join exists to remove.
+    Asserted as a property rather than by reading the payload: the effort-absent request must
+    differ from the request that also drops the part *after* it by changing `max_tokens`.
+    """
+    assert identity(reasoning_effort=None) != identity(reasoning_effort=None, max_tokens=513)
+    assert identity(reasoning_effort=NO_REASONING_EFFORT) != identity(reasoning_effort=None), (
+        "the literal sentinel must not be reachable as a declared effort")
 
 
 def test_a_changed_schema_changes_the_identity_but_a_reordered_one_does_not():
@@ -679,6 +735,8 @@ def stored(**overrides) -> StoredGeneration:
         schema_name="story_editorial_plan",
         prompt_version="story-planner:1.0.0",
         temperature=PINNED_TEMPERATURE,
+        temperature_sent=True,
+        reasoning_effort=None,
         max_tokens=512,
         finish_reason="stop",
         raw_content=json.dumps(CONFORMANT_PLAN),
@@ -717,10 +775,16 @@ def test_a_replayed_result_invents_no_token_count_and_no_latency():
 
 def test_a_miss_with_no_inner_provider_raises_and_names_the_digest_it_missed_on():
     """A replay that quietly reaches for a server is not a replay, and every miss has to be
-    recorded with the request it would have issued."""
+    recorded with the request it would have issued.
+
+    Every identity input is stated explicitly here because the store is **empty**: it has no
+    rows to read an identity off, and since `story-generation-v3` that includes how the requests
+    were parameterised. The alternative — defaulting the two — is what the version closes.
+    """
     store = GenerationStore()
     replaying = ReplayingStoryGenerationProvider(
-        store, provider_id=PROVIDER_LOCAL, model_id="Qwen3.5-9B-Q4_K_M.gguf")
+        store, provider_id=PROVIDER_LOCAL, model_id="Qwen3.5-9B-Q4_K_M.gguf",
+        temperature_sent=True, reasoning_effort=None)
     with pytest.raises(MissingGenerationError) as raised:
         generate(replaying)
     assert raised.value.request_sha256 == identity()
@@ -735,7 +799,7 @@ def test_a_miss_with_an_inner_provider_generates_and_records_what_it_asked():
     result = generate(replaying)
 
     assert len(calls) == 1
-    row = store.get(identity())
+    row = store.get(identity_of())
     assert row is not None
     assert row.raw_content == result.raw_content
     assert row.content_sha256 == result.content_sha256
@@ -834,7 +898,7 @@ def test_a_row_recorded_under_one_provider_is_a_miss_under_another_and_never_a_s
     """
     store = GenerationStore()
     store.put(stored())
-    assert store.get(identity()) is not None
+    assert store.get(identity_of()) is not None
 
     as_openai = ReplayingStoryGenerationProvider(
         store, provider_id=PROVIDER_OPENAI, model_id="Qwen3.5-9B-Q4_K_M.gguf")
@@ -843,7 +907,54 @@ def test_a_row_recorded_under_one_provider_is_a_miss_under_another_and_never_a_s
 
     assert identity(provider_id=PROVIDER_OPENAI) != identity()
     assert raised.value.request_sha256 == identity(provider_id=PROVIDER_OPENAI)
-    assert store.get(raised.value.request_sha256) is None
+    assert store.row(raised.value.request_sha256) is None
+
+
+def test_a_row_that_contradicts_the_identity_that_found_it_raises_rather_than_replaying():
+    """Repair 2 at the store: the digest guards the lookup, this guards the row.
+
+    `StoredGeneration` has carried `provider_id`, `model_id`, `schema_name`, `temperature` and
+    `max_tokens` since v2 "so the file states its own key", and until 2026-08-19 nothing compared
+    the statement with the key. A file that has been edited, concatenated or merged is where only
+    the second check is left — the digests are intact and the rows are not the rows.
+
+    Deliberately **not** a `LookupError`: a caller that treated this as a miss would fall through
+    to a server, and a store that contradicts itself must stop a run rather than slow it down.
+    """
+    store = GenerationStore()
+    store.put(stored(provider_id=PROVIDER_OPENAI, model_id="gpt-5.4"))
+
+    assert store.row(identity()) is not None, "the row is findable; only its claim is wrong"
+    with pytest.raises(MislabelledGenerationError) as raised:
+        store.get(identity_of())
+
+    assert raised.value.differences == ("provider_id", "model_id")
+    assert not isinstance(raised.value, LookupError)
+    assert raised.value.request_sha256 == identity()
+
+
+def test_a_row_written_by_the_store_itself_is_never_mislabelled():
+    """The other side of the check, so it cannot pass by refusing everything.
+
+    Driven through `generate` twice: the first call records a row, the second looks it up under
+    the identity that recorded it and must find it. `from_result` takes the identity whole for
+    exactly this reason — one object, so the row cannot be keyed under one set of values and
+    labelled with another.
+    """
+    store = GenerationStore()
+    provider, calls = provider_on(answering())
+    replaying = ReplayingStoryGenerationProvider(store, provider)
+    first, second = generate(replaying), generate(replaying)
+
+    assert len(calls) == 1 and second.metadata["replayed"] is True
+    assert first.content_sha256 == second.content_sha256
+    row = store.generations()[0]
+    assert row.disagrees_with(
+        RequestIdentity.of(system=PLANNER_SYSTEM, prompt=PROMPT, schema=PLAN_SCHEMA,
+                           schema_name="story_editorial_plan", provider_id=PROVIDER_LOCAL,
+                           model_id="Qwen3.5-9B-Q4_K_M.gguf", temperature=PINNED_TEMPERATURE,
+                           temperature_sent=True, reasoning_effort=None,
+                           max_tokens=512)) == ()
 
 
 def test_a_written_store_states_which_provider_its_rows_were_keyed_under(tmp_path):
@@ -886,8 +997,44 @@ def test_a_replay_only_provider_reports_health_without_a_server():
     """A replay-only run is fully able to proceed; reporting it unhealthy would make the
     freshness gate refuse the one configuration that provably needs nothing running."""
     status = ReplayingStoryGenerationProvider(
-        GenerationStore(), provider_id=PROVIDER_LOCAL, model_id="m").health()
+        GenerationStore(), provider_id=PROVIDER_LOCAL, model_id="m",
+        temperature_sent=True, reasoning_effort=None).health()
     assert status.ok is True and status.status == "replay"
+
+
+def test_an_empty_replay_only_store_must_be_told_how_its_requests_were_parameterised():
+    """The `story-generation-v3` half of "a written file is sufficient to replay from".
+
+    A store with rows states its own settings and needs nothing passed in — the test below
+    proves that. A store with **no** rows states nothing, and the two settings are digest inputs,
+    so defaulting them would key an OpenAI request as a Qwen one. It is the same refusal
+    `model_id` and `provider_id` already make, extended to the inputs that were missing from the
+    key until 2026-08-19, and it names both values so a caller knows which one it failed to give.
+    """
+    with pytest.raises(ValueError) as raised:
+        ReplayingStoryGenerationProvider(
+            GenerationStore(), provider_id=PROVIDER_LOCAL, model_id="m")
+    assert "temperature_sent=<not stated>" in str(raised.value)
+    assert "reasoning_effort=<not stated>" in str(raised.value)
+
+
+def test_a_store_whose_rows_disagree_about_the_effort_cannot_be_replayed_under_one_identity():
+    """`identity_reasoning_effort`'s reason for returning a sentinel rather than `None`.
+
+    `None` is a *legal* effort — every local row carries it — so a store holding a `medium` row
+    beside a `high` one must not resolve to "no reasoning at all" and key every lookup wrong.
+    Both halves are asserted: the accessor refuses to answer, and the provider refuses to build.
+    """
+    from story.providers.generation_store import UNSET
+
+    store = GenerationStore()
+    store.put(stored(reasoning_effort="medium"))
+    store.put(stored(request_sha256="f" * 64, reasoning_effort="high"))
+
+    assert store.identity_reasoning_effort() is UNSET
+    with pytest.raises(ValueError) as raised:
+        ReplayingStoryGenerationProvider(store)
+    assert "reasoning" in str(raised.value)
 
 
 def test_the_replaying_provider_is_usable_through_the_protocol():

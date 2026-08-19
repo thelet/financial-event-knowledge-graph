@@ -765,7 +765,11 @@ def test_the_catalogue_never_raises_on_a_configuration_it_cannot_build():
                for option in provider_catalogue(broken, env_path=NO_ENV_FILE, environ={})}
 
     assert options[PROVIDER_OPENAI].available is False
-    assert "id" in options[PROVIDER_OPENAI].unavailable_reason
+    # **Was `"id" in …` until 2026-08-19, and that passed by accident**: the substring occurs in
+    # the sentence's ordinary prose, so it proved nothing about the reason naming anything. The
+    # reason names the *setting*, which is the only thing it is now allowed to name — see
+    # `UNUSABLE_CONFIG_REASON` and the leak that produced it.
+    assert options[PROVIDER_OPENAI].unavailable_reason.startswith("provider.openai.models")
     assert options[PROVIDER_LOCAL].available is True
 
 
@@ -860,3 +864,313 @@ def test_the_committed_configuration_resolves_both_providers():
     assert openai.base_url == "https://api.openai.com/v1"
     assert openai.supports_temperature is False and openai.reasoning_effort == "minimal"
     assert "api_key" not in raw["provider"] and "api_key" not in raw["provider"]["openai"]
+
+
+# -- what a browser may be told about a configuration that did not resolve -----------------------
+#
+# Every test in this section was written against a reproduction. Before the fix each of them
+# found the offending *value* inside `ProviderOption.unavailable_reason`, which `app.js` renders
+# both as the option's label and as a line in `#provider-notice`.
+
+
+def catalogue_of(environ: dict, config=None) -> dict:
+    return {option.provider_id: option
+            for option in provider_catalogue(config, env_path=NO_ENV_FILE, environ=environ)}
+
+
+def test_an_undeclared_model_name_from_the_environment_never_reaches_the_catalogue():
+    """`STORY_OPENAI_MODEL`'s **value** in a browser, reproduced 2026-08-19.
+
+    The catalogue rendered `str(exc)` and the refusal quotes the model it could not find, so
+    `STORY_OPENAI_MODEL=internal-codename-orion-7` came back as *"provider.openai model
+    'internal-codename-orion-7' is not one of […]"* in the option label and in the notice — a
+    name an operator may not have published, carried out of their environment by a payload whose
+    own docstring forbids exactly that.
+
+    The exception is unchanged and still names it. The boundary is what moved.
+    """
+    secret_model = "internal-codename-orion-7"
+    option = catalogue_of({ENV_OPENAI_API_KEY: FAKE_KEY,
+                           ENV_OPENAI_MODEL: secret_model})[PROVIDER_OPENAI]
+
+    assert option.available is False
+    assert secret_model not in json.dumps(option.as_dict())
+    # The *setting* is named, because "OpenAI is misconfigured" and "OpenAI does not exist" are
+    # still different facts and the interface still has to tell them apart.
+    assert option.unavailable_reason.startswith("provider.openai.models")
+    # And the operator's half is intact: the raise still quotes the value.
+    with pytest.raises(StoryProviderConfigurationError) as raised:
+        load_provider_config(provider_id=PROVIDER_OPENAI, env_path=NO_ENV_FILE,
+                             environ={ENV_OPENAI_API_KEY: FAKE_KEY,
+                                      ENV_OPENAI_MODEL: secret_model})
+    assert secret_model in str(raised.value)
+
+
+def test_an_unreadable_environment_number_never_reaches_the_catalogue():
+    """The same leak on the *local* provider and through a different raise site.
+
+    `STORY_LLM_CONTEXT_TOKENS=many` raised "must be an integer, got 'many'", and that string was
+    the local option's whole `unavailable_reason`. Any `STORY_LLM_*` value could ride out this
+    way; the fix is at the boundary rather than at the four messages, which is why this asserts
+    on a second raise site than the test above.
+    """
+    marker = "not-a-number-BUT-A-SECRET"
+    option = catalogue_of({"STORY_LLM_CONTEXT_TOKENS": marker})[PROVIDER_LOCAL]
+
+    assert option.available is False
+    assert marker not in json.dumps(option.as_dict())
+    assert option.unavailable_reason.startswith("STORY_LLM_CONTEXT_TOKENS")
+
+
+def test_no_reason_the_catalogue_can_produce_carries_a_configured_value():
+    """The general form, across every refusal reachable from a configuration.
+
+    A per-case test would only ever cover the raise sites somebody thought of. This drives six
+    shapes through the catalogue and asserts the payload holds none of the six needles — which
+    is the property `ProviderOption`'s docstring claims and did not have.
+    """
+    needles = {
+        "model": ({ENV_OPENAI_API_KEY: FAKE_KEY, ENV_OPENAI_MODEL: "NEEDLE-model"}, None),
+        "int": ({"STORY_LLM_MAX_RETRIES": "NEEDLE-retries"}, None),
+        "float": ({"STORY_LLM_TIMEOUT_SECONDS": "NEEDLE-timeout"}, None),
+        "url": ({"STORY_LLM_BASE_URL": ""}, None),
+        "effort": ({}, {"provider": {"reasoning_effort": "NEEDLE-effort"}}),
+        "models": ({}, {"provider": {"openai": {"models": "NEEDLE-models"}}}),
+    }
+    for name, (environ, config) in needles.items():
+        rendered = json.dumps([option.as_dict()
+                               for option in catalogue_of(environ, config).values()])
+        assert "NEEDLE" not in rendered, f"{name} leaked a configured value into the catalogue"
+
+
+# -- a key that cannot become a header ------------------------------------------------------------
+
+
+#: Reproduced by an adversarial review 2026-08-19. Each one used to escape the error taxonomy:
+#: `httpx` encodes a header value as ASCII, so the first three raise `UnicodeEncodeError` from
+#: inside `client.post`/`client.get` — neither `httpx.TimeoutException` nor `httpx.HTTPError` —
+#: and `UnicodeEncodeError.args[1]` is the whole key. The fourth reached h11, which reports the
+#: **bytes repr** of the header, escaping the newline past `_redacted`'s exact-substring half.
+UNUSABLE_KEYS = [
+    "kľúč-SECRET-9999",
+    "sk-LEAKME-ари-0004",
+    "sk-em—dash-SECRET",
+    "GLORP_TOPSECRET_2026\nX: 1",
+]
+
+
+@pytest.mark.parametrize("key", UNUSABLE_KEYS)
+def test_a_key_that_cannot_be_a_header_is_refused_when_it_is_loaded(key):
+    with pytest.raises(StoryProviderConfigurationError) as raised:
+        load_provider_config(provider_id=PROVIDER_OPENAI, env_path=NO_ENV_FILE,
+                             environ={ENV_OPENAI_API_KEY: key})
+    message = str(raised.value)
+    assert ENV_OPENAI_API_KEY in message
+    # No part of the key, not even the offending character: this is the one refusal in the
+    # module whose message may not quote what it refused.
+    for fragment in ("SECRET", "LEAKME", "GLORP", "TOPSECRET", "kľúč", "ари"):
+        assert fragment not in message
+
+
+@pytest.mark.parametrize("key", UNUSABLE_KEYS)
+def test_a_key_that_cannot_be_a_header_never_reaches_a_request_or_a_health_probe(key):
+    """The two escapes, closed at construction.
+
+    `generate()` raised outside its six classes and `health()` raised at all — against a
+    docstring that says it never does. Both are unreachable now because the provider cannot be
+    built, which is the same argument §4.3 already makes for an absent key.
+    """
+    from pydantic import SecretStr
+
+    config = StoryProviderConfig(kind=PROVIDER_OPENAI, base_url="https://api.openai.com/v1",
+                                 model="gpt-5-nano", context_tokens=128000,
+                                 max_output_tokens=4096, supports_temperature=False,
+                                 reasoning_effort="minimal", api_key=SecretStr(key))
+    with pytest.raises(StoryProviderConfigurationError):
+        StoryOpenAIResponsesProvider(
+            config, client=httpx.Client(transport=httpx.MockTransport(refusing)))
+
+
+def test_a_usable_key_is_still_accepted_whole():
+    """The guard on the guard: the refusal is a character class, not a length or a prefix."""
+    config = openai_config(key="sk-proj-Abc_123-XYZ*")
+    assert config.authorization_headers == {"Authorization": "Bearer sk-proj-Abc_123-XYZ*"}
+
+
+def test_the_redaction_also_covers_the_escaped_spelling_of_a_key():
+    """Defence in depth, and only that — see `_redacted`'s docstring for why it cannot be more.
+
+    The needle is a **legal** key: printable ASCII throughout, so the refusal above does not
+    reach it, and holding no `sk-` prefix, so the pattern half cannot save it either. A
+    backslash in it is enough — h11 and `repr` both render one as two, and the exact-substring
+    half of `_redacted` then matches nothing. That is the same escaping that let a
+    control-character key out in full; the difference is that this one is a key an operator may
+    really hold, which is why the one-line replacement earns its place after the refusal.
+    """
+    leaky = "GLORP\\TOPSECRET_2026"
+    provider, _ = provider_on(answering(), key=leaky)
+    try:
+        # What h11 and `repr` render that header as: the one backslash becomes two.
+        escaped = leaky.encode("unicode_escape").decode("ascii")
+        assert escaped != leaky, "the needle must actually be escaped, or this proves nothing"
+        message = provider._redacted(f"Illegal header value b'Bearer {escaped}'")
+        assert "GLORP" not in message and "TOPSECRET" not in message
+    finally:
+        provider.close()
+
+
+# -- `provider.openai.models`, dispatched on rather than defaulted --------------------------------
+
+
+def test_an_empty_model_list_takes_openai_out_of_the_build_rather_than_restoring_the_defaults():
+    """`models: []` used to hand back `['gpt-5-nano', 'gpt-4.1-mini']`.
+
+    An operator who empties the list has said something; the loader answered with two models
+    they did not declare and no indication that anything had been ignored.
+    """
+    from story.providers.public import openai_model_options
+
+    assert openai_model_options({"openai": {"models": []}}) == ()
+    option = catalogue_of({ENV_OPENAI_API_KEY: FAKE_KEY},
+                          {"provider": {"openai": {"models": []}}})[PROVIDER_OPENAI]
+    assert option.available is False
+    assert option.models == ()
+
+
+def test_a_models_key_that_is_not_a_list_is_refused_rather_than_replaced_by_the_defaults():
+    """`models: "x"` used to resolve to the built-in pair, so a typo produced a configuration
+    that worked and was not the one written down."""
+    from story.providers.public import openai_model_options
+
+    with pytest.raises(StoryProviderConfigurationError) as raised:
+        openai_model_options({"openai": {"models": "gpt-5-nano"}})
+    assert "must be a list" in str(raised.value)
+
+
+def test_an_absent_models_key_is_the_one_case_that_reaches_the_measured_defaults():
+    """The case the constant exists for: a caller with no configuration file at all."""
+    from story.providers.public import openai_model_options
+
+    assert [option.model_id for option in openai_model_options({})] == [
+        "gpt-5-nano", "gpt-4.1-mini"]
+
+
+# -- the local refusals, reachable from a file ----------------------------------------------------
+
+
+@pytest.mark.parametrize("field,value", [
+    ("reasoning_effort", "high"),
+    ("supports_temperature", False),
+    ("store_responses", True),
+])
+def test_a_local_setting_that_means_nothing_is_refused_from_a_configuration_file(field, value):
+    """`validated()`'s local refusals could not fire from `config/story.yaml`.
+
+    Verified before the fix: `load_provider_config({"provider": {"reasoning_effort": "high"}})`
+    returned `reasoning_effort=None`. `from_config`'s local branch never read the three S12
+    fields, so the value was **silently dropped** and the refusal beside it — whose comment says
+    it exists to catch a setting that "looks configured and is not" — could only be reached from
+    a hand-built dataclass. Which is the failure it describes, in the code written to prevent it.
+    """
+    with pytest.raises(StoryProviderConfigurationError) as raised:
+        load_provider_config({"provider": {field: value}}, env_path=NO_ENV_FILE, environ={})
+    assert PROVIDER_LOCAL in str(raised.value)
+
+
+def test_a_local_setting_that_is_neither_true_nor_false_is_refused_rather_than_coerced():
+    """Never `bool(value)`: `bool("false")` is `True`, and this key decides whether the pinned
+    temperature reaches the wire at all."""
+    with pytest.raises(StoryProviderConfigurationError) as raised:
+        load_provider_config({"provider": {"supports_temperature": "false"}},
+                             env_path=NO_ENV_FILE, environ={})
+    assert "true or false" in str(raised.value)
+
+
+# -- `provider.default` ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [{"a": 1}, ["openai"], 7])
+def test_a_provider_default_that_is_not_a_provider_id_is_refused_rather_than_stringified(value):
+    """`default: {a: 1}` reached `GET /demo/providers` as `default_provider_id: "{'a': 1}"`.
+
+    It failed safe further down, which is luck rather than design, and the payload was nonsense
+    either way. This module dispatches on `kind` rather than defaulting; the key that chooses
+    which `kind` is reached for gets the same treatment.
+    """
+    from story.providers.public import default_provider_id
+
+    with pytest.raises(StoryProviderConfigurationError) as raised:
+        default_provider_id({"provider": {"default": value}})
+    assert "provider.default" in str(raised.value)
+
+
+def test_a_string_provider_default_is_still_read_and_a_missing_one_still_falls_back():
+    from story.providers.public import default_provider_id
+
+    assert default_provider_id({"provider": {"default": PROVIDER_OPENAI}}) == PROVIDER_OPENAI
+    assert default_provider_id({"provider": {"kind": PROVIDER_LOCAL}}) == PROVIDER_LOCAL
+    assert default_provider_id({}) == PROVIDER_LOCAL
+
+
+# -- a response body bounded by what the request asked for ----------------------------------------
+
+
+def test_a_response_far_past_its_own_budget_is_refused_rather_than_parsed_and_stored():
+    """An 8 MB `output_text` was parsed, schema-checked and returned without complaint.
+
+    Pre-existing, and S12 is what makes it matter: before a second provider the only endpoint
+    was a process on loopback. The bound is `response_byte_ceiling(max_output_tokens)` — the
+    request's own budget is the only number that says how much text was invited.
+    """
+    from story.providers.public import response_byte_ceiling
+
+    config = openai_config()
+    ceiling = response_byte_ceiling(config.max_output_tokens)
+    huge = dict(CONFORMANT_PLAN, thesis="x" * (ceiling + 1))
+    provider, calls = provider_on(answering(huge), config=config)
+    try:
+        with pytest.raises(StoryProviderResponseError) as raised:
+            generate(provider)
+    finally:
+        provider.close()
+    assert "ceiling" in str(raised.value)
+    assert calls, "the request was issued; it is the response that is refused"
+
+
+def test_the_local_adapter_bounds_its_response_too():
+    """A local server is a process an operator started, not a proof."""
+    from story.providers.public import response_byte_ceiling
+
+    local = load_provider_config(env_path=NO_ENV_FILE, environ={})
+    ceiling = response_byte_ceiling(local.max_output_tokens)
+    body = json.dumps(dict(CONFORMANT_PLAN, thesis="x" * (ceiling + 1)))
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(
+        200, json={"choices": [{"finish_reason": "stop",
+                                "message": {"role": "assistant", "content": body}}],
+                   "model": local.model, "usage": {}})))
+    provider = StoryOpenAICompatibleProvider(local, client=client)
+    try:
+        with pytest.raises(StoryProviderResponseError) as raised:
+            provider.generate(system=PLANNER_SYSTEM, prompt=PROMPT, schema=PLAN_SCHEMA,
+                              schema_name="story_editorial_plan", max_tokens=2048)
+    finally:
+        provider.close()
+    assert "ceiling" in str(raised.value)
+
+
+def test_an_ordinary_answer_is_nowhere_near_the_bound():
+    """The guard on the guard: a bound that refused a real response would be a bug of its own.
+
+    The committed planner answer is three orders of magnitude inside it, which is the margin the
+    64-bytes-per-token anchor was chosen for.
+    """
+    from story.providers.public import response_byte_ceiling
+
+    config = openai_config()
+    provider, _ = provider_on(answering(), config=config)
+    try:
+        result = generate(provider)
+    finally:
+        provider.close()
+    assert result.content == CONFORMANT_PLAN
+    assert len(result.raw_content) * 100 < response_byte_ceiling(config.max_output_tokens)

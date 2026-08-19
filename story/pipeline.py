@@ -207,9 +207,12 @@ class DemoConfig:
     graph_run_id: str
     out_root: str
     #: `demo.generation_store` — the **scalar** key, and the local provider's store when the
-    #: mapping below does not name one. It is kept for one release rather than deleted because
-    #: it is what `story/demo_ui/api.py` still reads; `generation_stores` is authoritative and
-    #: `generation_store_for` is the accessor every new call site uses.
+    #: mapping below does not name one. `generation_stores` is authoritative and
+    #: `generation_store_for` is the accessor **every** call site now uses: the demo UI's own
+    #: moved on 2026-08-19, so the reason this field used to give for surviving — "it is what
+    #: `story/demo_ui/api.py` still reads" — is no longer true. What it is still for is a
+    #: `config/story.yaml` written before the mapping existed: `generation_store_for` falls back
+    #: to it for the local provider and for no other, so an older file resolves the same store.
     generation_store: str
     #: `demo.generation_stores` — provider id -> path (MULTI_PROVIDER_OPENAI §5.3). Authoritative.
     generation_stores: dict[str, str]
@@ -287,9 +290,15 @@ class DemoConfig:
         provider's, because since `story-generation-v2` a row is keyed on the adapter that
         produced it and one provider's rows are a guaranteed miss for another. The scalar
         `demo.generation_store` is read only for the local provider and only when the mapping
-        does not name one — it is the pre-2026-08-19 key, kept readable for one release because
-        `story/demo_ui/api.py` still reads the field directly, and it is not consulted for any
-        other provider id.
+        does not name one — it is the pre-2026-08-19 key, and it is not consulted for any other
+        provider id.
+
+        **It is no longer read anywhere but here**, which corrects the reason this method used
+        to give for the scalar's survival: the demo UI's `_provider_for` called
+        `config.generation_store` directly until 2026-08-19 and now calls this method, so the
+        key is not dead but the sentence naming that call site was stale. What keeps it is
+        backward compatibility with a `config/story.yaml` written before `generation_stores`
+        existed, and nothing else.
 
         `None` and not a fallback. Falling through to another provider's file would produce a
         run whose every request missed, reported as a `MissingGenerationError` about a digest
@@ -449,6 +458,12 @@ def run_demo(
     results: list[GenerationResult] = []
     planned: PlannedStory | None = None
     written: WrittenStory | None = None
+    #: The two call sites' own results, kept **separately from the disposition** because a
+    #: refused stage still made a call. `planned`/`written` are `None` on a refusal by
+    #: definition — there is no plan and no draft — and reading the manifest's accounting off
+    #: them recorded a run that spent nothing, which was measurably false.
+    planner_result: GenerationResult | None = None
+    writer_result: GenerationResult | None = None
     verified: VerifiedDraft | None = None
     disposition = ACCEPTED
     refusal = ""
@@ -457,18 +472,24 @@ def run_demo(
     try:
         planned = plan_story(package, provider=provider,
                              max_tokens=config.planner_max_tokens)
-        results.append(planned.generation)
+        planner_result = planned.generation
     except (EditorialPlanRejected, StoryProviderError) as exc:
         disposition, refusal, refusal_codes = PLAN_REFUSED, str(exc), _codes_of(exc)
+        planner_result = _generation_of(exc)
+    if planner_result is not None:
+        results.append(planner_result)
 
     if planned is not None:
         try:
             written = write_story(
                 package, planned.plan, provider=provider,
                 length_target=config.length_target, max_tokens=config.writer_max_tokens)
-            results.append(written.generation)
+            writer_result = written.generation
         except (DraftRejected, StoryProviderError) as exc:
             disposition, refusal, refusal_codes = DRAFT_REFUSED, str(exc), _codes_of(exc)
+            writer_result = _generation_of(exc)
+        if writer_result is not None:
+            results.append(writer_result)
 
     if planned is not None and written is not None:
         # The three freshness arguments are the *expected* identity §13.13 pins, supplied by
@@ -487,6 +508,7 @@ def run_demo(
     manifest = _write_run(
         directory, inputs=inputs, config=config, story_run=story_run,
         disposition=disposition, planned=planned, written=written, verified=verified,
+        planner_result=planner_result, writer_result=writer_result,
         refusal=refusal, refusal_codes=refusal_codes, results=results, provider=provider,
         live=live, now=now)
     return DemoOutcome(
@@ -509,6 +531,29 @@ def _codes_of(exc: Exception) -> tuple[str, ...]:
     if codes:
         return tuple(str(code) for code in codes)
     return tuple(str(v) for v in getattr(exc, "violations", ()) or ())
+
+
+def _generation_of(exc: Exception) -> GenerationResult | None:
+    """The generation a refusal refused, or `None` when nothing was ever generated.
+
+    **The distinction is the whole point and it is measured, not theoretical.** §11 and §12
+    refuse an answer the model *gave*: the request went out, the tokens were spent, the
+    provider's store holds the row. §14's accounting used to be assembled from `planned` and
+    `written`, which are `None` on exactly those refusals — so
+    `data/story_demo/story-v1-b949ecf8bbd6` (a real `gpt-5-nano` run, 2026-08-19) wrote a
+    `generations.jsonl` holding its planner row beside a manifest reading
+    `generation_calls: 0`, `total_tokens: 0` and `planner_provider_model: {}`, and
+    `story-v1-98a0c8e10720` reported one call for a run that made two.
+
+    A `StoryProviderUnavailable`, a `StoryProviderTimeout`, a `StoryProviderTransportError` or
+    a `StoryProviderResponseError` never got an answer, and an adapter's own
+    `StoryProviderSchemaError` never built a `GenerationResult` — all of them arrive here with
+    no `generation` and record nothing, which is the truthful zero. Read through `getattr` for
+    `_codes_of`'s reason: the shape belongs to the refusal's class, and a fifth refusal type
+    should not need this function edited to be *recorded*.
+    """
+    generation = getattr(exc, "generation", None)
+    return generation if isinstance(generation, GenerationResult) else None
 
 
 # -- identity and the manifest -------------------------------------------------------------------
@@ -647,6 +692,14 @@ def _call_site_provenance(provider: Any, result: GenerationResult | None, *,
     request, and a block assembled from configuration would record a request that was never
     made — the same argument `_token_totals` makes for reporting zeroes instead of remembered
     numbers.
+
+    **"Produced no result" is narrower than "was refused", and conflating the two was a
+    defect.** §11 and §12 refuse an answer that arrived; the request was built, the tokens were
+    spent and this block describes it. Only a stage that never got an answer back — a
+    transport fault, a timeout, a plan made from another package — leaves it empty. The result
+    therefore reaches this function from `run_demo`'s own `planner_result`/`writer_result`
+    rather than from `planned`/`written`, which are `None` on precisely the refusals that did
+    make a call.
     """
     if result is None:
         return {}
@@ -660,7 +713,8 @@ def _call_site_provenance(provider: Any, result: GenerationResult | None, *,
     }
 
 
-def _provider_settings(provider: Any, results: list[GenerationResult]) -> dict[str, Any]:
+def _provider_settings(provider: Any, results: list[GenerationResult],
+                       max_output_tokens_sent: list[int]) -> dict[str, Any]:
     """What the request was actually parameterised with — §5.2's third manifest addition.
 
     `temperature` is the value the call site pins (§15.1). `temperature_sent` is whether it
@@ -675,6 +729,29 @@ def _provider_settings(provider: Any, results: list[GenerationResult]) -> dict[s
     row carried a temperature would be recording the original run's parameters as this one's.
     The settings are read off the provider's own `StoryProviderConfig` through `getattr`, for
     `_provider_id`'s reason: the object may be a decorator or a double.
+
+    **`max_output_tokens` was one field and is now two, because the one it was did not match
+    this docstring's own sentence** *(2026-08-19, found by review)*. It reported the config's
+    `max_output_tokens` — 4096 for OpenAI, 2048 locally — while the body carried
+    `max_output_tokens: 2048`, which is the *call site's* `max_tokens` (`generation.planner_max_tokens`
+    and `generation.writer_max_tokens`, §15.3). Those are two different numbers and both are
+    worth keeping, so both are recorded under names that say which is which rather than one
+    being made to stand for the other:
+
+    * `max_output_tokens_ceiling` — the configured cap. Not what any request carried, but what
+      `StoryProviderConfig.validated()` checks against `context_tokens`, and the bound a call
+      site could not have exceeded. A run whose ceiling moved is a run whose transport changed.
+    * `max_output_tokens_sent` — what the bodies actually carried, and the only one that answers
+      the question this block is for.
+
+    `…_sent` is a **list** and not a scalar because `max_tokens` is a per-call-site parameter
+    while this block is per-run: a scalar would have to pick the planner's budget or the
+    writer's and call it the run's. It holds the budgets of the calls that *came back* — the
+    same rule `_call_site_provenance` follows, so a §11-refused run reports the planner's budget
+    alone and does not invent the writer's — and it is **empty for a replay**, gated on the same
+    absent `config` as the three fields above it rather than on a second test, because a run
+    with no adapter issued no body and a budget it never sent is exactly the claim this repair
+    removed.
     """
     config = getattr(provider, "config", None)
     sent: bool | None = None
@@ -692,7 +769,9 @@ def _provider_settings(provider: Any, results: list[GenerationResult]) -> dict[s
         "temperature": float(PINNED_TEMPERATURE),
         "temperature_sent": sent,
         "reasoning_effort": getattr(config, "reasoning_effort", None),
-        "max_output_tokens": getattr(config, "max_output_tokens", None),
+        "max_output_tokens_ceiling": getattr(config, "max_output_tokens", None),
+        "max_output_tokens_sent": ([] if config is None
+                                   else sorted(set(max_output_tokens_sent))),
         "store_responses": getattr(config, "store_responses", None),
     }
 
@@ -757,6 +836,12 @@ def _write_run(
     planned: PlannedStory | None,
     written: WrittenStory | None,
     verified: VerifiedDraft | None,
+    #: Each call site's own result, and **not** `planned.generation`/`written.generation`: those
+    #: exist only when the stage was accepted, and a refused stage still made a request whose
+    #: provenance §5.2 asks for. `None` means no request came back, which is the only thing
+    #: that leaves the block empty.
+    planner_result: GenerationResult | None,
+    writer_result: GenerationResult | None,
     refusal: str,
     refusal_codes: tuple[str, ...],
     results: list[GenerationResult],
@@ -820,14 +905,21 @@ def _write_run(
         max_tokens=config.planner_max_tokens,
         schema_digests=schema_digests_for(inputs.package),
         planner_provider_model=_call_site_provenance(
-            provider, planned.generation if planned is not None else None,
+            provider, planner_result,
             prompt_version=PLANNER_PROMPT_VERSION, schema_name=PLANNER_SCHEMA_NAME,
             max_tokens=config.planner_max_tokens),
         writer_provider_model=_call_site_provenance(
-            provider, written.generation if written is not None else None,
+            provider, writer_result,
             prompt_version=WRITER_PROMPT_VERSION, schema_name=WRITER_SCHEMA_NAME,
             max_tokens=config.writer_max_tokens),
-        provider_settings=_provider_settings(provider, results),
+        provider_settings=_provider_settings(
+            provider, results,
+            # The budgets the requests that came back actually carried, taken from the two
+            # call-site results rather than from the config: a refused planner still spent its
+            # own budget, and a writer that never ran never had one.
+            [budget for result, budget in ((planner_result, config.planner_max_tokens),
+                                           (writer_result, config.writer_max_tokens))
+             if result is not None]),
         detector_versions=dict(inputs.detector_versions),
         policy_version=inputs.policy_version,
         ranking_policy_version=RANKING_POLICY_VERSION,

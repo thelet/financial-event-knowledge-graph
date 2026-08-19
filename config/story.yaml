@@ -39,6 +39,13 @@ version: v1
 # There is deliberately **no `temperature` key**. §15.1 pins it as `PINNED_TEMPERATURE = 0.0`
 # at the call site because it is a digest input to every stored generation, and a value that
 # could be edited here would silently re-key the whole replay store.
+#
+# S12 added three keys this block *may* carry and does not: `supports_temperature`,
+# `reasoning_effort` and `store_responses`. All three mean nothing to the local server and
+# `validated()` **refuses** them here rather than ignoring them — and until 2026-08-19 the
+# loader never read them, so writing `reasoning_effort: high` below was silently dropped and the
+# refusal could only be reached from a hand-built dataclass. It is read now, so a setting that
+# means nothing fails on the first load instead of looking configured.
 provider:
   # Which provider a call site that made no choice gets (MULTI_PROVIDER_OPENAI §4.2). `kind`
   # below still describes *this* block, the local server; `default` says which of the two
@@ -86,6 +93,12 @@ provider:
     # parameter: 'temperature' is not supported with this model`, while `gpt-4.1-mini` accepts
     # it. A model absent from this list cannot be selected — its answer to that question has
     # never been measured, and discovering it costs a failed request per run.
+    #
+    # The key is **dispatched on, not defaulted** *(corrected 2026-08-19)*. Deleting it entirely
+    # resolves the two models `providers/public.py` names as constants, which is what a caller
+    # with no config file gets; writing `models: []` takes OpenAI out of this build, and used to
+    # hand back those two constants instead; anything that is not a list is a mistake and is
+    # refused rather than quietly replaced by them.
     #
     # `gpt-5-nano` is the default and it is a reasoning model, so determinism is weaker than the
     # pinned local path's: no temperature reaches the wire and the manifest records
@@ -177,17 +190,27 @@ demo:
   # re-recorded** — every `raw_content` and `content_sha256` is byte-identical to the 2026-08-18
   # capture, and only `request_sha256` moved.
   #
-  # There is deliberately **no `openai:` row yet.** The OpenAI fixture is captured from the live
-  # run in §10 or it does not exist; naming a path to a file nothing has written would be a
-  # claim. Until then, selecting `openai` on the replay path fails loudly and names the
-  # provider, which is the correct answer rather than a fall-through to Qwen's rows.
+  # **There is deliberately no `openai:` row, and the OpenAI fixture now exists anyway.** It was
+  # captured from the §10 live run on 2026-08-19 and is committed at
+  # `tests/story/fixtures/story_demo/openai/generations.jsonl` — two `gpt-5.4` rows, planner and
+  # writer, reaching the deterministic verifier. Adding the key here is what a reader will want
+  # to do next, and it is refused on purpose: the shipped configuration having no OpenAI store
+  # is what makes the demo UI answer `provider_requires_live` for OpenAI honestly, and that
+  # answer is a tested guarantee (`test_demo_ui_api.py`, `test_story_demo.py:
+  # test_a_provider_with_no_recorded_store_is_refused_by_name`). The fixture is for tests, and
+  # the tests name its path themselves. A shipped demo that replayed a recorded OpenAI run
+  # without a key would be claiming to have called an API it never called.
   generation_stores:
     local_openai_compatible: tests/story/fixtures/story_demo/local_openai_compatible/generations.jsonl
 
   # The pre-2026-08-19 scalar, kept readable for one release and **not** authoritative. It is
   # consulted only for `local_openai_compatible`, and only when the mapping above names no store
-  # for it. It stays because `story/demo_ui/api.py` still reads the field directly; when that
-  # call site moves to `DemoConfig.generation_store_for`, this key goes.
+  # for it — `DemoConfig.generation_store_for` is the accessor, and every call site now goes
+  # through it (`story/demo_ui/api.py` moved on 2026-08-19; the sentence that used to name it as
+  # the reason this key survives is no longer true and is corrected rather than left standing).
+  # What it is still doing here: it is the local provider's fallback, so a `config/story.yaml`
+  # written before the mapping existed — or one whose mapping names no local store — still
+  # resolves the same file. When nothing needs that compatibility, this key goes.
   generation_store: tests/story/fixtures/story_demo/local_openai_compatible/generations.jsonl
 
 # §10.2's bounds are **not restated here.** `story/core/models.py:BudgetParameters` holds them,

@@ -326,6 +326,21 @@ REPLAY_COST_REASON = (
     "attempt count: those change on every identical request, and a record carrying them could "
     "never be byte-identical. A zero here would be a fabricated measurement.")
 
+#: The same absence, for a run that was **not** a replay — and it needed its own sentence.
+#:
+#: **Reproduced 2026-08-19**: a live run with a rejected key came back as `{"mode": "live",
+#: "measured": false, "reason": "not measured on replay…"}`. `_cost_panel` selected the reason
+#: on `measured` alone and ignored `mode`, so a panel telling the truth about *what happened*
+#: told a falsehood about *why* — and "the store holds no token count" is not a fact about a run
+#: that never reached the store. The two live shapes are deliberately not split further: which
+#: of them occurred is readable from `generation_calls` beside this sentence, and a reason that
+#: guessed between them would be the same class of claim as the zero it exists to avoid.
+LIVE_UNMEASURED_COST_REASON = (
+    "not measured. This run called the server rather than replaying, and no generation call "
+    "returned a token count — either it failed before its first answer, or every call it made "
+    "was served from the recorded store. `generation_calls` beside this reason says which. A "
+    "zero here would be a fabricated measurement.")
+
 #: The same distinction for the package's retrieval trace.
 RETRIEVAL_TIMING_REASON = (
     "not measured. `retrieval_trace[].elapsed_ms` is pinned to zero inside a package because "
@@ -1356,6 +1371,25 @@ def _catalogue(config: Any) -> tuple[Any, ...]:
         raise ApiError("provider_unavailable", detail="catalogue") from None
 
 
+def _default_provider_id(config: Any) -> str:
+    """`provider.default`, guarded the way `_catalogue` is guarded and for the new reason.
+
+    Since 2026-08-19 `default_provider_id` **refuses** a `provider.default` that is not a
+    provider id rather than `str()`-ing it — a review reached `GET /demo/providers` with
+    `default: {a: 1}` and got `default_provider_id: "{'a': 1}"` back, which fails safe
+    downstream only by luck and is nonsense in a payload either way. That makes this a call that
+    can raise where it could not before, so it is wrapped: a malformed configuration is the
+    operator's problem and is reported as one, not as a traceback and not as a 500.
+    """
+    from story.providers.public import default_provider_id
+
+    try:
+        return default_provider_id(config.raw)
+    except Exception as exc:  # noqa: BLE001 - a configuration failure names a key
+        _log("the default provider could not be resolved", exc)
+        raise ApiError("provider_unavailable", detail="default") from None
+
+
 def provider_options(request: Request) -> JsonResponse:
     """`GET /demo/providers` — every provider this build knows, and whether it can be used.
 
@@ -1373,12 +1407,10 @@ def provider_options(request: Request) -> JsonResponse:
     exist" are different facts, and an interface that could not tell them apart would present a
     missing credential as a missing feature.
     """
-    from story.providers.public import default_provider_id
-
     config = _config(request)
     return JsonResponse({
         "providers": [option.as_dict() for option in _catalogue(config)],
-        "default_provider_id": default_provider_id(config.raw),
+        "default_provider_id": _default_provider_id(config),
         "honest_labels": list(HONEST_LABELS),
     })
 
@@ -1404,9 +1436,7 @@ def _provider_selection(body: Mapping[str, Any], config: Any) -> ProviderSelecti
     requested_model = _text(body, "model_id", maximum=128).strip()
     catalogue = _catalogue(config)
 
-    from story.providers.public import default_provider_id
-
-    provider_id = requested_provider or default_provider_id(config.raw)
+    provider_id = requested_provider or _default_provider_id(config)
     option = next((entry for entry in catalogue if entry.provider_id == provider_id), None)
     if option is None or not option.available:
         raise ApiError("invalid_provider_selection", detail="provider_id")
@@ -1657,11 +1687,24 @@ def _redact_provider_model_id(block: dict[str, Any]) -> None:
     An empty value is left alone rather than annotated: a run whose planner never returned has an
     empty block (`_call_site_provenance` returns `{}`), and stamping a redaction note onto it
     would claim something was removed from a block that never held anything.
+
+    **And so is a value that is already a bare name** *(found by an adversarial review
+    2026-08-19)*. This function made exactly the argument above for the empty block and then
+    stamped the note unconditionally, so an OpenAI run's payload read
+    `"provider_model_id": "gpt-5-nano-2025-08-07"` beside *"the filename only. The server reports
+    an absolute path to the model file, which names the operator's filesystem…"* — a claim about
+    a redaction that did not happen, over a value that is not a path and never was. The note is a
+    statement about what was removed, so it is stamped when something was removed and not
+    otherwise; the comparison is against the value this function was handed, which is the only
+    thing that can say whether anything changed.
     """
     reported = str(block.get("provider_model_id") or "")
     if not reported:
         return
-    block["provider_model_id"] = PurePosixPath(reported.replace("\\", "/")).name
+    reduced = PurePosixPath(reported.replace("\\", "/")).name
+    if reduced == reported:
+        return
+    block["provider_model_id"] = reduced
     block["provider_model_id_note"] = PROVIDER_MODEL_ID_NOTE
 
 
@@ -1676,6 +1719,13 @@ def _cost_panel(outcome: Any, *, live: bool) -> dict[str, Any]:
 
     The two package estimates are real: `BudgetParameters` computes them before any call, and
     they are reported as estimates whatever the mode.
+
+    **`measured` is derived from the totals; the `reason` is derived from the mode as well**
+    *(corrected 2026-08-19)*. It used to be selected on `measured` alone, so an unmeasured live
+    run was handed the replay sentence and told a reader "not measured on replay" about a run
+    that was not a replay. `measured` staying independent of `live` is the original and right
+    decision — a run asked for live can still be answered from the store — but *why* nothing was
+    measured is a different question from *whether*, and it has two answers.
     """
     totals = dict(getattr(outcome.manifest, "token_totals", {}) or {})
     total = int(totals.get("total_tokens", 0) or 0)
@@ -1692,7 +1742,7 @@ def _cost_panel(outcome: Any, *, live: bool) -> dict[str, Any]:
         panel[name] = int(totals.get(name, 0) or 0) if measured else None
     panel["latency_ms"] = None
     if not measured:
-        panel["reason"] = REPLAY_COST_REASON
+        panel["reason"] = LIVE_UNMEASURED_COST_REASON if live else REPLAY_COST_REASON
     else:
         panel["reason"] = ("latency is not recorded by this path; the token counts are the "
                            "server's own, summed across the run's generation calls")

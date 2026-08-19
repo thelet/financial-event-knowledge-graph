@@ -57,6 +57,7 @@ from story.providers.public import (
     StoryProviderTimeout,
     StoryProviderTransportError,
     StoryProviderUnavailable,
+    response_byte_ceiling,
 )
 
 
@@ -273,6 +274,32 @@ class StoryOpenAICompatibleProvider:
 
     # -- response --------------------------------------------------------------------------
 
+    def _refuse_an_oversized_body(self, size: int) -> None:
+        """A response body bounded by what the request asked for. Typed, like every other refusal.
+
+        **Reproduced before it was bounded** *(adversarial review, 2026-08-19)*: an 8 MB answer
+        was parsed, schema-checked and returned without complaint through *both* adapters, and
+        would have landed whole in `generations.jsonl` and in the run's artifacts.
+
+        The bound is here as well as in `openai_responses.py` and for the same reason a fault is
+        bounded anywhere: a local server is a process an operator started, not a proof. It is a
+        loose bound — `response_byte_ceiling` allows 64 bytes per requested output token — so it
+        refuses a body that is categorically wrong rather than one that merely ran long, and
+        `max_output_tokens` is the anchor because it is the only number in the request that says
+        how much text was invited.
+
+        The body is already in memory by the time this runs; bounding the *read* would mean
+        `client.stream` and a second code path on a non-streaming API. What this closes is the
+        half that persists — nothing oversized reaches a store, an artifact or a response.
+        """
+        ceiling = response_byte_ceiling(self._config.max_output_tokens)
+        if size <= ceiling:
+            return
+        raise StoryProviderResponseError(
+            f"response body is {size} bytes, over the {ceiling}-byte ceiling this request "
+            f"earns at max_output_tokens={self._config.max_output_tokens}; a body that far past "
+            "its own budget is not an answer, and it would be stored and served whole")
+
     def _to_result(
         self,
         response: httpx.Response,
@@ -282,6 +309,7 @@ class StoryOpenAICompatibleProvider:
         attempts: int,
     ) -> GenerationResult:
         raw_bytes = response.content
+        self._refuse_an_oversized_body(len(raw_bytes))
         try:
             envelope = json.loads(raw_bytes.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:

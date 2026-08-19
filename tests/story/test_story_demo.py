@@ -4,7 +4,7 @@ Offline by default and from committed fixtures. The `neo4j`-marked tests at the 
 re-derive the candidate and the package from the live graph; the `live`-marked one calls the
 model server.
 
-**The four stores moved on 2026-08-19 and were re-keyed, not re-recorded.** They now live in
+**The four local stores moved on 2026-08-19 and were re-keyed, not re-recorded.** They now live in
 `fixtures/story_demo/local_openai_compatible/`, because MULTI_PROVIDER_OPENAI §5.1 made
 `provider_id` a `request_identity` input and `IDENTITY_VERSION` `story-generation-v2` — a
 recorded generation is a *provider's*, one provider's rows are a guaranteed miss for another,
@@ -18,6 +18,20 @@ old digest and written back under the new one.
 bottom proves the other half: the running server's answer still lands on the new committed key.
 So every filename below is relative to that subdirectory, and every claim in the paragraphs that
 follow was made about these same bytes.
+
+**All five stores were re-keyed again later the same day, to `story-generation-v3`, and again
+not re-recorded.** An adversarial review of the change above found that `reasoning_effort` and
+whether `temperature` reached the body were *not* digest inputs, so five structurally different
+OpenAI requests shared one `request_sha256` — the same collision one level down, and the effort
+is a setting plan §10 records being changed *during* the live comparison. The technique was the
+one described above and the evidence is the same test:
+`test_the_rekeyed_stores_replay_to_the_bytes_they_replayed_to_before_the_rekey` still compares
+against `d72ca64`'s `sha256` values and still passes, which is the strongest available statement
+that two consecutive re-keys moved no answer. The digests moved once more (local planner
+`de1df732c2d4…` -> `bbf37f44ea9f…`, local writer `4e147f30fdb5…` -> `5ccb62deb13a…`, OpenAI
+planner `7843b7b0af58…` -> `38599e59fec3…`, OpenAI writer `092257797e1d…` -> `28b89c6cd6ef…`)
+and every row gained a `temperature_sent` and a `reasoning_effort` stating how it was
+parameterised. *(Measured 2026-08-19: 10 rows re-keyed, 10 `content_sha256` unchanged.)*
 
 **The recorded responses in `fixtures/story_demo/local_openai_compatible/generations.jsonl` are
 genuine Qwen output.**
@@ -93,6 +107,44 @@ Both had their citations migrated at S7a the same way and for the same reason:
   after"*. It is the attack a recomputation on its own would have accepted.
 
 Both are named `synthetic` because they are, and no test presents either as a recording.
+
+**`fixtures/story_demo/openai/generations.jsonl` is a recording too, and it is OpenAI's**
+*(captured 2026-08-19)*. Two rows, lifted whole out of one `python -m story demo --live
+--provider openai --model gpt-5.4` run against `https://api.openai.com/v1/responses` over the
+same candidate, the same graph run and the same evidence package every store above was recorded
+against. Nothing is hand-edited; the only thing that has moved since is the `story-generation-v3`
+re-key above, which changed each row's `request_sha256` and added the two fields recording how
+the request was parameterised — every `raw_content` and every `content_sha256` is still the
+API's own, and the file this was carried from hashed to `sha256 1c9898136c4789…`.
+
+| field | value |
+| --- | --- |
+| `provider_id` | `openai` |
+| `model_id` (the identity the rows are keyed under) | `gpt-5.4` |
+| `provider_model_id` (what the API called itself) | `gpt-5.4-2026-03-05` |
+| rows | `story_editorial_plan`, `story_post_draft` |
+| `finish_reason` | `completed` — the Responses API's `status`, not the local server's `stop` |
+| `temperature` / `max_tokens` | `0.0` / `2048`, the same digest inputs the Qwen rows carry |
+| disposition of the run it came from | **`rejected`**, 7 blocking findings |
+| findings | `unbound_numeral` ×2, `metric_surface_ambiguous` ×1, `citation_reused_for_unrelated_claim` ×4 |
+
+**What it proves that the Qwen stores cannot.** That the OpenAI adapter's translation produced a
+plan §11 accepted and a draft §12 could construct — so the same schema pair, the same prompts and
+the same portable subset reached a second server unmodified and came back usable. That a
+recorded row states its own provider and is a **guaranteed miss** for the other one, in both
+directions, on real files rather than on a relabelled copy. And that §13 is provider-blind on
+real recorded content: the same draft verifies to the same findings whichever adapter's rows
+delivered it, which is the brief's claim tested on two genuine recordings instead of a
+synthetic pair.
+
+**The rejection is the result and it is reported as one.** No verifier rule and no evidence
+contract was changed to make it pass (MULTI_PROVIDER_OPENAI §10).
+
+**It is deliberately not in `config/story.yaml`'s `demo.generation_stores`.** The shipped
+configuration names no OpenAI store, so the demo UI honestly answers `provider_requires_live`
+for OpenAI and that guarantee stays tested
+(`test_a_provider_with_no_recorded_store_is_refused_by_name`). Tests point at this file
+explicitly instead.
 """
 
 from __future__ import annotations
@@ -114,6 +166,7 @@ from story.core.models import (
 from story.pipeline import (
     ACCEPTED,
     DRAFT_REFUSED,
+    PLAN_REFUSED,
     REJECTED,
     SELECTION_MODE,
     CandidateNotFound,
@@ -124,7 +177,12 @@ from story.pipeline import (
     run_demo,
     select_candidate,
 )
-from story.providers.generation_store import GenerationStore, ReplayingStoryGenerationProvider
+from story.providers.generation_store import (
+    GenerationStore,
+    ReplayingStoryGenerationProvider,
+    RequestIdentity,
+    StoredGeneration,
+)
 from story.providers.public import PROVIDER_LOCAL, PROVIDER_OPENAI
 from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
@@ -137,6 +195,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: directory would be a directory of files that cannot be told apart by looking at it.
 FIXTURES = Path(__file__).parent / "fixtures" / "story_demo"
 STORES = FIXTURES / PROVIDER_LOCAL
+#: The OpenAI recording, captured 2026-08-19 from the §10 live comparison — see the module
+#: docstring for its provenance. Reached by path from here and **not** through
+#: `config/story.yaml`: the shipped configuration deliberately names no OpenAI store so that the
+#: demo UI's `provider_requires_live` answer stays true and stays tested.
+OPENAI_STORES = FIXTURES / PROVIDER_OPENAI
 
 #: §8b's manually selected candidate, and the id the demo re-derives and refuses to proceed
 #: without. Pinned as a string here because that is exactly how an operator supplies it.
@@ -150,6 +213,26 @@ MODEL_ID = "Qwen3.5-9B-Q4_K_M.gguf"
 #: The other half of that key since 2026-08-19. Named rather than spelled, and read from
 #: `providers/public.py` rather than retyped, so the fixtures and the boundary cannot drift.
 PROVIDER_ID = PROVIDER_LOCAL
+
+#: The two `story-generation-v3` added to the key on 2026-08-19, as the **local** server answers
+#: them: it always accepts `PINNED_TEMPERATURE`, and it has no `reasoning` parameter at all — a
+#: configuration that claimed otherwise is refused by `StoryProviderConfig.validated()`. Every
+#: double in this module is a local provider, so every one of them keys under these.
+TEMPERATURE_SENT = True
+REASONING_EFFORT: str | None = None
+
+#: `gpt-5.4`'s, from `config/story.yaml` and from plan §10: `supports_temperature: false`, so no
+#: temperature reaches the body, and `reasoning_effort: none` — the value §10 records being
+#: *changed during the live comparison*, which is the measurement that makes the effort a key
+#: input rather than a tidy one. The committed OpenAI store is keyed under these.
+OPENAI_TEMPERATURE_SENT = False
+OPENAI_REASONING_EFFORT = "none"
+
+#: The OpenAI recording's own identity, and both halves of it. `OPENAI_MODEL_ID` is the
+#: *configured* name the rows are keyed under; `OPENAI_PROVIDER_MODEL_ID` is the dated id the
+#: API answered with, which is what `provider_model_id` exists to notice moving.
+OPENAI_MODEL_ID = "gpt-5.4"
+OPENAI_PROVIDER_MODEL_ID = "gpt-5.4-2026-03-05"
 
 #: Every artifact §8b names, plus §14's replay store. `post.md` and `rejected.json` are the two
 #: that are mutually exclusive, so a reader can tell the disposition from the listing alone.
@@ -293,6 +376,92 @@ class BadWriterProvider:
             content=content, raw_content=raw, model_id=MODEL_ID, prompt_tokens=0,
             completion_tokens=0, total_tokens=0, latency_ms=0.0, raw_sha256="",
             content_sha256="", finish_reason="stop", attempts=1)
+
+
+class RefusedPlannerProvider:
+    """Answers the planner with a schema-valid plan §11 refuses, and reports what it cost.
+
+    **This is a real failure, reproduced rather than invented.** `gpt-5-nano` answered the live
+    §10 comparison with exactly this mistake on 2026-08-19 — `unusable_evidence` naming
+    `obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db`, an observation id
+    that is not an item of this package — and `plan_violations` refused it as
+    `unknown_unusable_id` before the writer ran. That run is `data/story_demo/
+    story-v1-b949ecf8bbd6`, and the manifest it wrote is what the accounting fix is measured
+    against.
+
+    The token counts are the double's own and are deliberately non-zero: the whole claim is
+    that a refused call is still a call the manifest has to account for, and a provider
+    reporting zeroes could not tell a recorded refusal from an un-recorded one.
+    """
+
+    model_id = MODEL_ID
+    provider_id = PROVIDER_ID
+
+    def __init__(self) -> None:
+        self._inner = replaying()
+        self.calls: list[str] = []
+        #: A real one, filled the way a live run fills it, so the run writes a
+        #: `generations.jsonl` a test can count against the manifest's own accounting. The
+        #: defect this fixture exercises is precisely a disagreement between those two files.
+        self.store = GenerationStore()
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(ok=True, status="refused-planner")
+
+    def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
+                 schema_name: str, max_tokens: int, temperature: float) -> GenerationResult:
+        self.calls.append(schema_name)
+        if schema_name != "story_editorial_plan":
+            raise AssertionError(
+                f"the writer was called for {schema_name!r} after the plan was refused")
+        replayed = self._inner.generate(
+            system=system, prompt=prompt, schema=schema, schema_name=schema_name,
+            max_tokens=max_tokens, temperature=temperature)
+        content = {
+            **replayed.content,
+            "unusable_evidence": [{
+                "id": "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:485954cf98db",
+                "reason": "outside_thesis_scope",
+            }],
+        }
+        raw = json.dumps(content, ensure_ascii=False)
+        result = GenerationResult(
+            content=content, raw_content=raw, model_id="qwen-wire-name", prompt_tokens=1101,
+            completion_tokens=202, total_tokens=1303, latency_ms=12.0, raw_sha256="",
+            content_sha256="", finish_reason="stop", attempts=1)
+        self.store.put(StoredGeneration.from_result(
+            result,
+            # Every key input in one object since `story-generation-v3`, for the reason
+            # `RequestIdentity` records: a second, hand-assembled argument list for the row was
+            # a second chance to key it under something the digest was not taken over.
+            identity=RequestIdentity.of(
+                system=system, prompt=prompt, schema=schema, schema_name=schema_name,
+                provider_id=self.provider_id, model_id=self.model_id,
+                temperature=temperature, temperature_sent=TEMPERATURE_SENT,
+                reasoning_effort=REASONING_EFFORT, max_tokens=max_tokens),
+            prompt_version=""))
+        return result
+
+
+class UnreachableProvider:
+    """Never answers. The other half of the accounting claim, and the one that must stay empty.
+
+    A transport fault produced no generation at all — nothing was returned, nothing was stored,
+    nothing was billed — so a manifest that recorded a call for it would be inventing one. That
+    is the failure mode the fix has to avoid while recording the refusals that *did* generate.
+    """
+
+    model_id = MODEL_ID
+    provider_id = PROVIDER_ID
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(ok=False, status="unavailable")
+
+    def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
+                 schema_name: str, max_tokens: int, temperature: float) -> GenerationResult:
+        from story.providers.public import StoryProviderUnavailable
+
+        raise StoryProviderUnavailable("http://127.0.0.1:8080/v1/chat/completions: unreachable")
 
 
 class ReportingProvider:
@@ -497,6 +666,12 @@ def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
 #: `story-generation-v2`, every `request_sha256` in every committed store changed, and the
 #: answers those digests point at are the same bytes they were.
 #:
+#: **Unchanged when the stores were re-keyed a second time**, to `story-generation-v3` on
+#: 2026-08-19, and that is why the table is worth more than a self-comparison: it is still
+#: measured against `d72ca64`, so it now says two consecutive re-keys moved no answer rather
+#: than one. Two re-keys is also where a self-comparison would have gone quietly wrong — the
+#: second one could have agreed with a first that had already damaged something.
+#:
 #: `generations.jsonl` is deliberately **not** in this table. It is the re-keyed file itself, so
 #: it is the one artifact that must differ; asserting it unchanged would assert the re-key did
 #: not happen. `demo_manifest.json` is out for its own reason — it holds the clock.
@@ -551,6 +726,12 @@ def test_the_rekeyed_stores_replay_to_the_bytes_they_replayed_to_before_the_reke
     So the test is a byte comparison against the tree that *preceded* the change, not a
     self-comparison: `sha256` of every artifact, against the values `d72ca64` produced. If a
     single character of a stored answer had been touched, `draft.json` and `post.md` move.
+
+    **It covers the `story-generation-v3` re-key of 2026-08-19 as well**, at no cost and with
+    no new numbers: the same four stores were carried across a second version bump by the same
+    technique, and the comparison is still against `d72ca64`. That is the point of pinning a
+    tree rather than a previous run — a second re-key that agreed with a damaged first one
+    would pass a self-comparison and fails this.
     """
     import hashlib
 
@@ -560,9 +741,11 @@ def test_the_rekeyed_stores_replay_to_the_bytes_they_replayed_to_before_the_reke
     for name, expected in sorted(BYTES_BEFORE_THE_REKEY[store_name].items()):
         assert hashlib.sha256((run / name).read_bytes()).hexdigest() == expected, name
     # The one file that had to move, and the reason the others could not be trusted to be
-    # unchanged by accident: the store's own bytes now carry `provider_id` and a new key.
+    # unchanged by accident: the store's own bytes now carry `provider_id`, the two settings
+    # `story-generation-v3` added, and a key that moved under each of the two versions.
     rekeyed = (run / "generations.jsonl").read_text(encoding="utf-8")
     assert f'"provider_id":"{PROVIDER_ID}"' in rekeyed
+    assert '"temperature_sent":true' in rekeyed and '"reasoning_effort":null' in rekeyed
 
 
 def test_only_the_request_digest_moved_in_the_committed_stores():
@@ -590,16 +773,187 @@ def test_only_the_request_digest_moved_in_the_committed_stores():
             "story_post_draft": "b5a159ec31a2c714d901d44f5a7ad4be931d5ffb09c4c47cf8f71d8da291c733",
         },
     }
-    for filename, expected in recorded.items():
-        rows = {row["schema_name"]: row for row in (
-            json.loads(line) for line in
-            (STORES / filename).read_text(encoding="utf-8").splitlines() if line.strip())}
-        for schema_name, content_sha256 in expected.items():
-            row = rows[schema_name]
-            assert row["content_sha256"] == content_sha256, (filename, schema_name)
-            assert hashlib.sha256(
-                row["raw_content"].encode("utf-8")).hexdigest() == content_sha256
-            assert row["provider_id"] == PROVIDER_ID
+    #: The OpenAI recording, added to this table by the `story-generation-v3` re-key. Its
+    #: numbers were measured on the live `gpt-5.4` run of §10 (2026-08-19) and are what makes
+    #: the claim "re-keyed, not re-recorded" checkable for the one store whose answers no local
+    #: server could reproduce — an accidental re-record here would be undetectable otherwise.
+    openai_recorded = {
+        "story_editorial_plan":
+            "efe245b6626fce785ae565ef9f6f3b3e1e21e778973f1a6ccf6f676e6785ea2e",
+        "story_post_draft": "42179bc76ef54304c5086f5b49d37e3d46d4d524b9f683bdb0bc5db6cc90d2c0",
+    }
+    for directory, provider_id, table in (
+            (STORES, PROVIDER_ID, recorded),
+            (OPENAI_STORES, PROVIDER_OPENAI, {"generations.jsonl": openai_recorded})):
+        for filename, expected in table.items():
+            rows = {row["schema_name"]: row for row in (
+                json.loads(line) for line in
+                (directory / filename).read_text(encoding="utf-8").splitlines() if line.strip())}
+            for schema_name, content_sha256 in expected.items():
+                row = rows[schema_name]
+                assert row["content_sha256"] == content_sha256, (filename, schema_name)
+                assert hashlib.sha256(
+                    row["raw_content"].encode("utf-8")).hexdigest() == content_sha256
+                assert row["provider_id"] == provider_id
+
+
+#: Every committed store, with the identity `story-generation-v3` says each row must state.
+#: Read as a table because that is what the repair added: before 2026-08-19 the first two
+#: columns were the whole of a row's stated key, and the last two were settings that changed the
+#: request body and reached no digest at all.
+COMMITTED_STORES: tuple[tuple[Path, str, str, bool, str | None], ...] = (
+    (STORES / "generations.jsonl", PROVIDER_LOCAL, MODEL_ID, True, None),
+    (STORES / ACCEPTED_STORE, PROVIDER_LOCAL, MODEL_ID, True, None),
+    (STORES / REJECTED_RECORDING, PROVIDER_LOCAL, MODEL_ID, True, None),
+    (STORES / REJECTED_STORE, PROVIDER_LOCAL, MODEL_ID, True, None),
+    (OPENAI_STORES / "generations.jsonl", PROVIDER_OPENAI, OPENAI_MODEL_ID, False, "none"),
+)
+
+
+@pytest.mark.parametrize("path, provider_id, model_id, temperature_sent, reasoning_effort",
+                         COMMITTED_STORES, ids=lambda v: getattr(v, "name", None))
+def test_every_committed_row_states_how_its_request_was_parameterised(
+    path, provider_id, model_id, temperature_sent, reasoning_effort
+):
+    """`story-generation-v3`, stated over the files: a row that cannot say is a row that lies.
+
+    The values are not this test's invention. The local server accepts `PINNED_TEMPERATURE` and
+    has no reasoning parameter — `StoryProviderConfig.validated()` refuses a configuration that
+    claims otherwise — while `config/story.yaml` declares `gpt-5.4` as
+    `supports_temperature: false, reasoning_effort: none`, measured against the API (plan §4.4).
+    So the OpenAI rows must differ from the Qwen rows in **both** of the fields that were
+    missing from the key, which is exactly why one digest could not stand for both.
+    """
+    rows = [json.loads(line) for line in
+            path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    assert len(rows) == 2
+    for row in rows:
+        assert row["provider_id"] == provider_id
+        assert row["model_id"] == model_id
+        assert row["temperature_sent"] is temperature_sent
+        assert row["reasoning_effort"] == reasoning_effort
+        # Stored beside `temperature`, never instead of it: the pinned value is what the call
+        # site asked for and `temperature_sent` is whether it reached the wire.
+        assert row["temperature"] == 0.0
+
+
+def test_the_five_settings_that_shared_one_key_before_v3_now_have_five(config):
+    """The collision the review reproduced, closed on the committed OpenAI request.
+
+    Not a synthetic request: the system, prompt, schema and budget below are the ones the real
+    planner call site builds for the committed evidence package, and the identity under the
+    committed settings is the key the committed row is actually filed under. The other four are
+    configurations `config/story.yaml` and plan §10 make reachable for this same model —
+    including `medium`, which is what `gpt-5.4` was run at *before* the effort was changed to
+    `none` during the live comparison. Under `story-generation-v2` all five were one digest.
+    """
+    from story.stages.generation.planner import causal_language_for
+    from story.stages.generation.prompts import (
+        PLANNER_MAX_TOKENS, PLANNER_SCHEMA_NAME, PLANNER_SYSTEM, planner_prompt, planner_schema)
+
+    package = demo_inputs().package
+    call = dict(system=PLANNER_SYSTEM, prompt=planner_prompt(package),
+                schema=planner_schema(causal_language=causal_language_for(package)),
+                schema_name=PLANNER_SCHEMA_NAME, provider_id=PROVIDER_OPENAI,
+                model_id=OPENAI_MODEL_ID, temperature=0.0,
+                max_tokens=config.planner_max_tokens)
+    variants = [
+        (OPENAI_TEMPERATURE_SENT, OPENAI_REASONING_EFFORT),   # what was recorded
+        (False, "medium"),
+        (False, "high"),
+        (False, None),
+        (True, OPENAI_REASONING_EFFORT),
+    ]
+    keys = [RequestIdentity.of(**call, temperature_sent=sent, reasoning_effort=effort).sha256
+            for sent, effort in variants]
+
+    assert len(set(keys)) == 5, "two of these five requests still share a replay row"
+    committed = {row.request_sha256 for row in
+                 GenerationStore(OPENAI_STORES / "generations.jsonl").generations()}
+    # The recorded settings hit the committed row; the four the run did not use are misses.
+    assert keys[0] in committed
+    assert set(keys[1:]).isdisjoint(committed)
+    assert PLANNER_MAX_TOKENS == config.planner_max_tokens
+
+
+def test_a_row_that_claims_a_different_provider_is_refused_rather_than_replayed(tmp_path):
+    """Repair 2, on a **doctored copy of a real fixture** rather than a hand-built store.
+
+    The doctoring is exactly what the 2026-08-19 review did: rewrite every row's `provider_id`
+    and `model_id` in the committed OpenAI recording to claim the local Qwen provider, and leave
+    `request_sha256` alone. Before the fix an `openai`/`gpt-5.4` lookup returned a **HIT** and
+    the run replayed a row that says it came from somewhere else, while every docstring in
+    `generation_store.py` claimed the file states its own key.
+
+    A raise and not a miss, and the difference matters: a miss falls through to a server or to
+    `MissingGenerationError`, both of which report "not here" about a row that is here and is
+    wrong. The message names the fields that disagree, because a run whose store contradicts
+    itself is a run somebody has to go and look at the file for.
+    """
+    from story.providers.generation_store import MislabelledGenerationError
+
+    doctored = tmp_path / "generations.jsonl"
+    doctored.write_text("".join(
+        json.dumps({**json.loads(line), "provider_id": PROVIDER_LOCAL, "model_id": MODEL_ID},
+                   ensure_ascii=False, separators=(",", ":")) + "\n"
+        for line in (OPENAI_STORES / "generations.jsonl").read_text(
+            encoding="utf-8").splitlines() if line.strip()), encoding="utf-8")
+
+    store = GenerationStore(doctored)
+    assert len(store) == 2, "the digests are untouched: the rows are still findable"
+
+    provider = ReplayingStoryGenerationProvider(
+        store, provider_id=PROVIDER_OPENAI, model_id=OPENAI_MODEL_ID,
+        temperature_sent=OPENAI_TEMPERATURE_SENT, reasoning_effort=OPENAI_REASONING_EFFORT)
+    with pytest.raises(MislabelledGenerationError) as raised:
+        run_demo(demo_inputs(), provider=provider, config=DemoConfig.load(REPO_ROOT),
+                 out_dir=tmp_path / "run")
+
+    assert set(raised.value.differences) == {"provider_id", "model_id"}
+    assert PROVIDER_LOCAL in str(raised.value) and PROVIDER_OPENAI in str(raised.value)
+    # Never a `MissingGenerationError`: a run that treated this as a miss would reach for a
+    # server, and the one thing a self-contradicting store must not produce is a quiet carry-on.
+    assert not isinstance(raised.value, LookupError)
+
+
+@pytest.mark.parametrize("field, doctored", [
+    # Every value below is one the *other* provider's rows really carry, or a real second call
+    # site — a doctoring that could plausibly happen by concatenating two files, which is the
+    # case a digest alone cannot catch.
+    ("temperature_sent", False),
+    ("reasoning_effort", "none"),
+    ("schema_name", "story_advisory_verification"),
+    ("max_tokens", 4096),
+])
+def test_a_row_that_misstates_any_digest_input_it_carries_is_refused(field, doctored, tmp_path):
+    """The comparison covers every digest input the row restates, not only the two ids.
+
+    `system`, `prompt` and `schema` are digest inputs the row deliberately does **not** carry —
+    §21 keeps the file free of anything large or volatile — so they are checked by the digest
+    and by nothing else. These four can be checked twice, and are.
+    """
+    from story.providers.generation_store import MislabelledGenerationError
+
+    path = tmp_path / "generations.jsonl"
+    rows = [json.loads(line) for line in
+            (STORES / "generations.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    path.write_text("".join(
+        json.dumps({**row, field: doctored}, ensure_ascii=False, separators=(",", ":")) + "\n"
+        for row in rows), encoding="utf-8")
+
+    with pytest.raises(MislabelledGenerationError) as raised:
+        run_demo(demo_inputs(), provider=replaying_from(path),
+                 config=DemoConfig.load(REPO_ROOT), out_dir=tmp_path / "run")
+    assert raised.value.differences == (field,)
+
+
+def replaying_from(path: Path) -> ReplayingStoryGenerationProvider:
+    """A replay-only provider over an arbitrary store file, keyed as the local server."""
+    return ReplayingStoryGenerationProvider(
+        GenerationStore(path), provider_id=PROVIDER_ID, model_id=MODEL_ID,
+        temperature_sent=TEMPERATURE_SENT, reasoning_effort=REASONING_EFFORT)
 
 
 # ---------------------------------------------------------------------------------------
@@ -614,13 +968,22 @@ class RelabellingProvider:
     as the real provider would, then answers from the committed row regardless — so the two runs
     it drives differ in the `provider_id` that reaches every id and in **nothing else**, which
     is the only way to attribute a difference in the run id to the provider.
+
+    `path`, `recorded_provider_id` and `model_id` default to the Qwen store so every call
+    written before the OpenAI recording existed reads as it did. Pointed at
+    `openai/generations.jsonl` they let the *same* shim carry a genuine OpenAI draft under a
+    local label, which is how §13's provider-blindness is proved on real recorded content
+    instead of on a relabelled copy of one provider's answer.
     """
 
-    model_id = MODEL_ID
-
-    def __init__(self, provider_id: str, filename: str = "generations.jsonl") -> None:
+    def __init__(self, provider_id: str, filename: str = "generations.jsonl", *,
+                 path: Path | None = None, recorded_provider_id: str = PROVIDER_ID,
+                 model_id: str = MODEL_ID) -> None:
         self.provider_id = provider_id
-        self._inner = replaying(filename)
+        self.model_id = model_id
+        self._inner = ReplayingStoryGenerationProvider(
+            GenerationStore(path if path is not None else STORES / filename),
+            provider_id=recorded_provider_id, model_id=model_id)
         self.store = GenerationStore()
 
     def health(self) -> HealthStatus:
@@ -628,19 +991,22 @@ class RelabellingProvider:
 
     def generate(self, *, system: str, prompt: str, schema: Mapping[str, Any],
                  schema_name: str, max_tokens: int, temperature: float) -> GenerationResult:
-        from story.providers.generation_store import StoredGeneration, request_identity
+        from story.providers.generation_store import RequestIdentity, StoredGeneration
 
         result = self._inner.generate(
             system=system, prompt=prompt, schema=schema, schema_name=schema_name,
             max_tokens=max_tokens, temperature=temperature)
         self.store.put(StoredGeneration.from_result(
             result,
-            request_sha256=request_identity(
+            # Every key input in one object since `story-generation-v3`, for the reason
+            # `RequestIdentity` records: a second, hand-assembled argument list for the row was
+            # a second chance to key it under something the digest was not taken over.
+            identity=RequestIdentity.of(
                 system=system, prompt=prompt, schema=schema, schema_name=schema_name,
                 provider_id=self.provider_id, model_id=self.model_id,
-                temperature=temperature, max_tokens=max_tokens),
-            provider_id=self.provider_id, model_id=self.model_id, schema_name=schema_name,
-            temperature=temperature, max_tokens=max_tokens, prompt_version=""))
+                temperature=temperature, temperature_sent=TEMPERATURE_SENT,
+                reasoning_effort=REASONING_EFFORT, max_tokens=max_tokens),
+            prompt_version=""))
         return result
 
 
@@ -700,6 +1066,147 @@ def test_the_shipped_store_is_a_miss_for_another_provider_rather_than_a_silent_h
         model_id=MODEL_ID)
     with pytest.raises(MissingGenerationError):
         run_demo(demo_inputs(), provider=mislabelled, config=config, out_dir=tmp_path / "run")
+
+
+def openai_replaying() -> ReplayingStoryGenerationProvider:
+    """The committed OpenAI recording, replay-only. A miss raises rather than calling the API.
+
+    `inner=None` is what makes "no network" a property of the object rather than a claim in a
+    comment: there is nothing for it to fall through to, so a request the file does not hold
+    fails with `MissingGenerationError` instead of reaching `api.openai.com`.
+    """
+    return ReplayingStoryGenerationProvider(
+        GenerationStore(OPENAI_STORES / "generations.jsonl"),
+        provider_id=PROVIDER_OPENAI, model_id=OPENAI_MODEL_ID)
+
+
+def test_the_committed_openai_recording_replays_offline_to_the_run_it_was_captured_from(
+    tmp_path, config
+):
+    """The §10 live `gpt-5.4` run, reproduced from its own rows with nothing running.
+
+    Everything asserted below was measured on the live run
+    (`data/story_demo/story-v1-50c0f3c4a1c2`, 2026-08-19): the draft reached §13, §13 refused
+    it, and the seven blocking findings are the three codes in the table in this module's
+    docstring. The rejection is the result and no rule was changed to avoid it
+    (MULTI_PROVIDER_OPENAI §10).
+    """
+    outcome = run_demo(demo_inputs(), provider=openai_replaying(), config=config,
+                       out_dir=tmp_path / "run")
+    manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+
+    assert outcome.disposition == REJECTED
+    assert outcome.verified is not None and not outcome.verified.passed
+    assert sum(1 for f in outcome.verified.all_findings if f.blocking) == 7
+    assert {f.code for f in outcome.verified.all_findings} == {
+        "unbound_numeral", "metric_surface_ambiguous", "citation_reused_for_unrelated_claim"}
+    # Both call sites answered, and each block names the *dated* id the API reported rather
+    # than the configured one — the distinction `provider_model_id` exists to keep.
+    assert manifest["provider_id"] == PROVIDER_OPENAI
+    for block in ("planner_provider_model", "writer_provider_model"):
+        assert manifest[block]["provider_id"] == PROVIDER_OPENAI
+        assert manifest[block]["model_id"] == OPENAI_MODEL_ID
+        assert manifest[block]["provider_model_id"] == OPENAI_PROVIDER_MODEL_ID
+    # A replay sent nothing, so it says so rather than repeating a pinned value it never sent.
+    assert manifest["provider_settings"]["temperature_sent"] is None
+
+
+def test_the_committed_openai_recording_states_its_own_provider_and_model(config):
+    """A store that does not say which adapter it came from cannot be replayed from the file.
+
+    Read off the file rather than off a run: `identity_provider_id` and `identity_model_id`
+    return `None` when the rows disagree, so a store that mixed two providers' answers would
+    fail here rather than silently answer half its lookups.
+    """
+    store = GenerationStore(OPENAI_STORES / "generations.jsonl")
+
+    assert len(store) == 2
+    assert store.identity_provider_id() == PROVIDER_OPENAI
+    assert store.identity_model_id() == OPENAI_MODEL_ID
+    assert {row.schema_name for row in store.generations()} == {
+        "story_editorial_plan", "story_post_draft"}
+    assert {row.provider_model_id for row in store.generations()} == {
+        OPENAI_PROVIDER_MODEL_ID}
+    # The Responses API has no `finish_reason`; `status` is what the adapter records, and the
+    # local server's `stop` never appears in an OpenAI row.
+    assert {row.finish_reason for row in store.generations()} == {"completed"}
+
+
+def test_each_providers_committed_rows_are_a_miss_under_the_other_in_both_directions(
+    tmp_path, config
+):
+    """Two real recordings, two identities, no overlap — and a loud failure either way round.
+
+    The existing test covers Qwen's rows under an OpenAI label. This one adds the direction that
+    only became testable when a genuine OpenAI recording existed, and asserts the digests are
+    disjoint as *files* as well, so the guarantee does not rest on running anything.
+    """
+    from story.providers.generation_store import MissingGenerationError
+
+    qwen_keys = {row.request_sha256 for row in
+                 GenerationStore(STORES / "generations.jsonl").generations()}
+    openai_keys = {row.request_sha256 for row in
+                   GenerationStore(OPENAI_STORES / "generations.jsonl").generations()}
+    assert qwen_keys.isdisjoint(openai_keys)
+
+    as_local = ReplayingStoryGenerationProvider(
+        GenerationStore(OPENAI_STORES / "generations.jsonl"),
+        provider_id=PROVIDER_LOCAL, model_id=OPENAI_MODEL_ID)
+    with pytest.raises(MissingGenerationError):
+        run_demo(demo_inputs(), provider=as_local, config=config, out_dir=tmp_path / "local")
+
+    as_openai = ReplayingStoryGenerationProvider(
+        GenerationStore(STORES / "generations.jsonl"),
+        provider_id=PROVIDER_OPENAI, model_id=MODEL_ID)
+    with pytest.raises(MissingGenerationError):
+        run_demo(demo_inputs(), provider=as_openai, config=config, out_dir=tmp_path / "openai")
+
+
+@pytest.mark.parametrize(
+    "label, path, recorded_provider_id, model_id, disposition",
+    [
+        ("qwen", STORES / "generations.jsonl", PROVIDER_LOCAL, MODEL_ID, ACCEPTED),
+        ("openai", OPENAI_STORES / "generations.jsonl", PROVIDER_OPENAI, OPENAI_MODEL_ID,
+         REJECTED),
+    ],
+)
+def test_the_verifier_reaches_the_same_verdict_whichever_provider_delivered_the_draft(
+    tmp_path, config, label, path, recorded_provider_id, model_id, disposition
+):
+    """MULTI_PROVIDER_OPENAI §8's last row, on **two real recordings** rather than a synthetic
+    pair.
+
+    Each provider's genuinely recorded answer is carried through `run_demo` twice — once under
+    `local_openai_compatible`, once under `openai` — and the draft and the whole verification
+    report are compared as **bytes**. §13 takes a draft, a package and a plan and knows nothing
+    about a transport, so a difference here would mean something provider-dependent had reached
+    it; asserting it over a Qwen draft the verifier *accepts* and an OpenAI draft it *rejects*
+    is what keeps the claim from being true only on the easy side.
+
+    The run ids must still differ, because the provider is a `story_run_id` input: identical
+    verification and distinct identity are both required, and this is the one test that holds
+    them together.
+    """
+    def run(provider_id: str, out: str):
+        return run_demo(
+            demo_inputs(),
+            provider=RelabellingProvider(provider_id, path=path,
+                                         recorded_provider_id=recorded_provider_id,
+                                         model_id=model_id),
+            config=config, out_dir=tmp_path / out)
+
+    local = run(PROVIDER_LOCAL, f"{label}-local")
+    openai = run(PROVIDER_OPENAI, f"{label}-openai")
+
+    assert local.disposition == openai.disposition == disposition
+    assert local.story_run_id != openai.story_run_id
+    for name in ("draft.json", "verification_report.json"):
+        assert (tmp_path / f"{label}-local" / name).read_bytes() == \
+            (tmp_path / f"{label}-openai" / name).read_bytes()
+    assert local.verified is not None and openai.verified is not None
+    assert local.verified.passed == openai.verified.passed == (disposition == ACCEPTED)
+    assert [f.code for f in local.verified.all_findings] == \
+        [f.code for f in openai.verified.all_findings]
 
 
 def test_a_provider_with_no_recorded_store_is_refused_by_name(config):
@@ -990,10 +1497,16 @@ def test_a_replayed_run_records_that_it_sent_nothing_rather_than_repeating_the_p
     """`provider_settings` on the deterministic path, and the nulls are the record.
 
     `temperature: 0.0` is the value §15.1 pins at the call site and is true of the request the
-    recorded row was produced by. `temperature_sent`, `reasoning_effort`, `max_output_tokens`
-    and `store_responses` are `null` because **this** run issued no request at all — a replay
+    recorded row was produced by. `temperature_sent`, `reasoning_effort`,
+    `max_output_tokens_ceiling` and `store_responses` are `null`, and
+    `max_output_tokens_sent` is empty, because **this** run issued no request at all — a replay
     has no adapter and no configuration. Copying the recorded run's parameters into this run's
     manifest would be recording somebody else's request as one's own.
+
+    `max_output_tokens` was **one** field until 2026-08-19 and it was the wrong one: it reported
+    the configured ceiling for requests whose bodies carried the call site's budget. See
+    `_provider_settings` — the pair below is what replaced it, and the empty list is this run
+    saying it sent no body rather than a `2048` it never sent.
     """
     run_demo(demo_inputs(), provider=replaying(), config=config, out_dir=tmp_path / "run")
     manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
@@ -1002,7 +1515,8 @@ def test_a_replayed_run_records_that_it_sent_nothing_rather_than_repeating_the_p
         "temperature": 0.0,
         "temperature_sent": None,
         "reasoning_effort": None,
-        "max_output_tokens": None,
+        "max_output_tokens_ceiling": None,
+        "max_output_tokens_sent": [],
         "store_responses": None,
     }
     assert manifest["demo"]["generation_mode"] == "replay"
@@ -1039,9 +1553,18 @@ def test_the_manifest_records_a_refusal_of_temperature_rather_than_a_number_neve
         "temperature": 0.0,
         "temperature_sent": False,
         "reasoning_effort": "minimal",
-        "max_output_tokens": 4096,
+        # **The two numbers that used to be one, and they differ** — which is the whole reason
+        # the field was split on 2026-08-19. 4096 is `provider.openai.max_output_tokens`, the
+        # ceiling; 2048 is `generation.writer_max_tokens`/`planner_max_tokens`, what the two
+        # bodies actually carried. Recording only the first under a docstring promising "what
+        # the request was actually parameterised with" was a claim about a value never sent, in
+        # the same block that exists because `temperature` was one.
+        "max_output_tokens_ceiling": 4096,
+        "max_output_tokens_sent": [2048],
         "store_responses": False,
     }
+    assert config.planner_max_tokens == config.writer_max_tokens == 2048
+    assert openai_like.max_output_tokens == 4096
 
 
 def test_the_manifest_totals_the_tokens_the_provider_itself_reported(tmp_path, config):
@@ -1083,18 +1606,105 @@ def test_the_manifest_lists_the_provider_among_the_run_id_inputs(tmp_path, confi
 def test_a_call_site_that_never_ran_records_an_empty_block_rather_than_an_invented_one(
     tmp_path, config
 ):
-    """A refused writer leaves no writer provenance, because there was no writer request.
+    """A refused *plan* leaves no writer provenance, because there was no writer request.
 
     Filling the block from configuration would put a `provider_model_id` and a `max_tokens` in
     the manifest for a call that was never built — the same argument `_token_totals` makes for
     reporting zeroes across a replay instead of remembered numbers.
+
+    **This test used to be driven by `BadWriterProvider` and asserted the wrong thing.** That
+    provider's writer *does* run and *does* answer; what §12 refuses is the answer. Reading
+    "the block is empty" off that run was reading the defect below as the contract. The
+    provider here refuses at §11, so the writer genuinely never ran, which is the only state
+    the empty block is allowed to mean.
+    """
+    provider = RefusedPlannerProvider()
+    outcome = run_demo(demo_inputs(), provider=provider, config=config,
+                       out_dir=tmp_path / "run")
+    manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+
+    assert outcome.disposition == PLAN_REFUSED
+    assert provider.calls == ["story_editorial_plan"]
+    assert manifest["planner_provider_model"]["schema_name"] == "story_editorial_plan"
+    assert manifest["writer_provider_model"] == {}
+
+
+def test_a_refused_plan_is_still_a_call_the_manifest_accounts_for(tmp_path, config):
+    """§11 refused an answer the model gave, and the run paid for it. **Measured defect.**
+
+    Before 2026-08-19 `run_demo` appended to `results` only on the success path, so a run whose
+    planner produced a schema-valid answer that §11 then refused recorded *no* generation at
+    all. The real run is `data/story_demo/story-v1-b949ecf8bbd6` (`gpt-5-nano`, live,
+    `plan_refused`): its own `generations.jsonl` holds one row, and the manifest it wrote beside
+    it read `generation_calls: 0`, `total_tokens: 0` and `planner_provider_model: {}`. The store
+    on disk knew the call happened and the manifest did not.
+
+    The numbers below come only from the provider, so a manifest that recomputed them or
+    quietly reported zeroes fails rather than looking plausible.
+    """
+    outcome = run_demo(demo_inputs(), provider=RefusedPlannerProvider(), config=config,
+                       out_dir=tmp_path / "run")
+    manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+
+    assert outcome.disposition == PLAN_REFUSED
+    assert "unknown_unusable_id" in outcome.refusal_codes
+    assert manifest["token_totals"]["generation_calls"] == 1
+    assert manifest["token_totals"]["prompt_tokens"] == 1101
+    assert manifest["token_totals"]["completion_tokens"] == 202
+    assert manifest["token_totals"]["total_tokens"] == 1303
+    # And the provenance of the call that was made, read off that call's own result: the wire
+    # name the double reported, never the configured one.
+    assert manifest["planner_provider_model"] == {
+        "provider_id": PROVIDER_ID,
+        "model_id": MODEL_ID,
+        "provider_model_id": "qwen-wire-name",
+        "prompt_version": "1.1.0",
+        "schema_name": "story_editorial_plan",
+        "max_tokens": 2048,
+    }
+    # The row the provider stored and the call the manifest counts are the same event.
+    rows = (tmp_path / "run" / "generations.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(rows) == manifest["token_totals"]["generation_calls"] == 1
+
+
+def test_a_refused_draft_is_still_a_call_the_manifest_accounts_for(tmp_path, config):
+    """The §12 half of the same claim, and the second measured run.
+
+    `data/story_demo/story-v1-98a0c8e10720` (`gpt-4.1-mini`, live, `draft_refused`) wrote two
+    rows to its `generations.jsonl` and a manifest reading `generation_calls: 1` — the planner's
+    call counted, the writer's refused call dropped, and `writer_provider_model: {}` for a
+    writer that had answered.
     """
     outcome = run_demo(demo_inputs(), provider=BadWriterProvider(), config=config,
                        out_dir=tmp_path / "run")
     manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+    written = {path.name for path in (tmp_path / "run").iterdir()}
 
     assert outcome.disposition == DRAFT_REFUSED
+    assert manifest["token_totals"]["generation_calls"] == 2
     assert manifest["planner_provider_model"]["schema_name"] == "story_editorial_plan"
+    assert manifest["writer_provider_model"]["schema_name"] == "story_post_draft"
+    # No draft was constructible, so there is no `draft.json` — the call is accounted for, the
+    # artifact is not invented.
+    assert "draft.json" not in written
+
+
+def test_a_stage_that_never_got_an_answer_records_no_call_at_all(tmp_path, config):
+    """The other shape, and the one a fix could easily get wrong.
+
+    A transport fault returned nothing: no result, no stored row, nothing billed. The manifest
+    must say zero rather than reach into a store or synthesise a block from configuration —
+    which is why the result travels *on the refusal* and a `StoryProviderUnavailable` carries
+    none.
+    """
+    outcome = run_demo(demo_inputs(), provider=UnreachableProvider(), config=config,
+                       out_dir=tmp_path / "run")
+    manifest = json.loads((tmp_path / "run" / "demo_manifest.json").read_text(encoding="utf-8"))
+
+    assert outcome.disposition == PLAN_REFUSED
+    assert manifest["token_totals"]["generation_calls"] == 0
+    assert manifest["token_totals"]["total_tokens"] == 0
+    assert manifest["planner_provider_model"] == {}
     assert manifest["writer_provider_model"] == {}
 
 
@@ -1386,6 +1996,9 @@ def test_live_the_qwen_writer_still_files_its_answer_under_the_committed_row(con
     # Only the planner row is seeded, so the writer's request misses and reaches the server.
     seeded = GenerationStore()
     seeded.put(rows["story_editorial_plan"])
+    # No `temperature_sent` and no `reasoning_effort`: they are read off `server.config`, so a
+    # live answer that landed on the committed key proves the re-key computed the same digest
+    # the running configuration does.
     provider = ReplayingStoryGenerationProvider(
         seeded, server, provider_id=PROVIDER_ID, model_id=MODEL_ID)
 
@@ -1394,11 +2007,20 @@ def test_live_the_qwen_writer_still_files_its_answer_under_the_committed_row(con
     write_story(package, planned.plan, provider=provider,
                 length_target=config.length_target, max_tokens=config.writer_max_tokens)
 
-    recorded = seeded.get(rows["story_post_draft"].request_sha256)
+    # `row` and not `get`: this reads the file by digest, and `get` since 2026-08-19 wants the
+    # identity that produced the digest so it can check the row against it. Here the digest is
+    # the *committed* one and the row is the *live* one, which is the entire question.
+    recorded = seeded.row(rows["story_post_draft"].request_sha256)
     assert recorded is not None, "the live answer did not land on the committed key"
     assert recorded.content_sha256 == rows["story_post_draft"].content_sha256
     assert recorded.raw_content == rows["story_post_draft"].raw_content
     assert recorded.provider_id == PROVIDER_ID
+    # …and the two `story-generation-v3` settings the live adapter's own `StoryProviderConfig`
+    # resolved, which is what makes this a check on the *new* key rather than on the old one:
+    # nothing below is passed in, it is read off the running server's configuration.
+    assert (recorded.temperature_sent, recorded.reasoning_effort) == (
+        rows["story_post_draft"].temperature_sent,
+        rows["story_post_draft"].reasoning_effort) == (True, None)
 
 
 @pytest.mark.live

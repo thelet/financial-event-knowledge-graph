@@ -70,6 +70,7 @@ from story.providers.public import (
     StoryProviderTimeout,
     StoryProviderTransportError,
     StoryProviderUnavailable,
+    response_byte_ceiling,
 )
 
 #: Any bearer-looking token, not just the configured one. OpenAI's own 401 echoes a *partial*
@@ -319,6 +320,7 @@ class StoryOpenAIResponsesProvider:
         body: Mapping[str, Any],
     ) -> GenerationResult:
         raw_bytes = response.content
+        self._refuse_an_oversized_body(len(raw_bytes))
         try:
             envelope = json.loads(raw_bytes.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:
@@ -399,6 +401,35 @@ class StoryOpenAIResponsesProvider:
             metadata=metadata,
         )
 
+    def _refuse_an_oversized_body(self, size: int) -> None:
+        """A response body bounded by what the request asked for. Typed, like every other refusal.
+
+        **Reproduced before it was bounded** *(adversarial review, 2026-08-19)*: an 8 MB
+        `output_text` was parsed, schema-checked and returned without complaint, and would have
+        landed whole in `generations.jsonl` and in the run's artifacts. Pre-existing — the
+        adapter shipped this way — but S12 is what makes it matter, because before it the only
+        endpoint this package spoke to was a process on loopback.
+
+        `response_byte_ceiling(max_output_tokens)` is the number and the request is the anchor:
+        `max_output_tokens` is the only value in the body that says how much text was invited,
+        so a bound derived from it moves when the budget moves and needs no second place to
+        configure. A `StoryProviderResponseError`, not a new class — a response arrived and
+        could not be used, which is exactly what that class covers.
+
+        **The body is already in memory when this runs, and that is a deliberate limit on what
+        this closes.** Bounding the *read* would mean `client.stream` on both adapters and a
+        second code path for a non-streaming API, to defend against an endpoint that is already
+        trusted enough to be sent an evidence package. What the bound does close is the part
+        that persists: nothing oversized reaches a store, an artifact or a response.
+        """
+        ceiling = response_byte_ceiling(self._config.max_output_tokens)
+        if size <= ceiling:
+            return
+        raise StoryProviderResponseError(
+            f"response body is {size} bytes, over the {ceiling}-byte ceiling this request "
+            f"earns at max_output_tokens={self._config.max_output_tokens}; a body that far past "
+            "its own budget is not an answer, and it would be stored and served whole")
+
     def _output_text(self, envelope: Mapping[str, Any]) -> str:
         """The assistant's text, out of a list that also carries reasoning items.
 
@@ -471,8 +502,26 @@ class StoryOpenAIResponsesProvider:
         OpenAI's own 401 returns a *partially* masked key (`sk-obvio**********alid`, measured
         2026-08-19) that shares its first eight characters with the real one and would survive
         an exact-substring replacement.
+
+        **The exact-substring half is defeated by any escaping the message applies, and this is
+        worth stating where the function lives** *(adversarial review, 2026-08-19)*. A key
+        holding a control character reached h11, which refuses it with the **bytes repr** of the
+        whole header — `b'Bearer GLORP_TOPSECRET_2026\\nX: 1'` — and a repr escapes the newline,
+        so the key as written is no longer a substring of the message. A non-`sk-` key came out
+        of `StoryProviderTransportError` and `health().detail` **in full**; an `sk-` key survived
+        only because the regex half caught its prefix. There is no general fix at this end: a
+        redaction cannot enumerate the escapings every library below it might apply. So this
+        function stays as **defence in depth**, the escaped spelling is replaced too because it
+        costs one line, and the actual fix is upstream — `public._refuse_unusable_api_key`
+        refuses a key that cannot be a header before one is ever built, which is what makes the
+        control-character message unreachable rather than merely redacted.
         """
         key = self._api_key
         if key:
             text = text.replace(key, "***")
+            # What a `repr` of the key, or of bytes containing it, would render it as. Closes
+            # the one escaping actually observed; it does not close the general case.
+            escaped = key.encode("unicode_escape").decode("ascii")
+            if escaped != key:
+                text = text.replace(escaped, "***")
         return _KEY_SHAPED.sub("sk-***", text)
