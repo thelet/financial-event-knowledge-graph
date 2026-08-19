@@ -82,6 +82,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import re
 import sys
 import threading
@@ -1604,8 +1605,89 @@ def _emit_inputs(emitter: TraceEmitter, inputs: Any) -> None:
                            warnings=len(package.counter_evidence)))
 
 
+def _emit_derivations(emitter: TraceEmitter, outcome: Any,
+                      derived: Mapping[str, Any] | None = None) -> None:
+    """§8's three derivation stages, every number read off the manifest the run just wrote.
+
+    **These arrive after `drafting · running` on a run that reached the writer, and that is a
+    real cost rather than an oversight.** The derivation genuinely happens between the plan and
+    the draft, and `_GenerationTrace` closes `planning` at the writer call precisely so the
+    stream reads in the order things happened. It cannot do the same here: the five numbers
+    (`derivations_offered` and its four neighbours) exist only once `run_demo` has returned, and
+    the one way to have them earlier would be for this module to call `offers(package,
+    candidate)` itself — which `pipeline.run_demo` names as *"the one way the printed offers and
+    the checked offers could disagree"*, since the printed set is what the planner was bound to.
+    A second offer set computed for a progress bar is not worth that risk. So these three rows
+    sit where `binding_facts_and_citations` already sits, and for the same reason: their content
+    is an accounting of a finished run.
+
+    `offering_derivations` is emitted on every run that got as far as `run_demo` returning,
+    including one whose planner refused — `offers()` runs **before** the planner and its result
+    is a fact about the package and the candidate, not about anything a model said. The other
+    two are `skipped` when there is no plan, because the stage really did not run.
+
+    `related_fact_ids` is where some of the detail the closed vocabulary cannot say survives: an
+    input id reads `obs:adjusted-gross-profit:opendoor:2022Q2:…`, so the metric and the period
+    are carried by `story/core/keys.py`'s readable-segment rule rather than by a `detail: str`
+    this model does not have and must not gain (§3).
+
+    A derived fact's own id is the most readable string in the run —
+    `fact:derived:absolute-change:opendoor:adjusted-gross-profit:2022Q2-2022Q3:<digest>` names
+    the operation and both periods — and it is on `derived_facts_added`. §3's no-invented-id rule
+    is enforced by resolving every entry against the run's own output, and a derived fact is
+    output: it lives in `derived_facts.json` because §3 of the plan keeps it out of the package,
+    which is a statement about where it is stored and not about whether the run produced it.
+
+    **§7's evidence-scope ids are not carried, and the omission is the point.**
+    `GraphHighlights` is *"ids the view should light up"*, and an evidence-scope fact names no
+    metric, no period and no cell — there is nothing to light up for a claim that the package
+    contains no explanation. Its count is on the row and its `examined_fact_ids` are in the
+    panel; a highlight would be a pointer at nothing.
+    """
+    counts = dict(getattr(outcome.manifest, "counts", {}) or {})
+    offered = int(counts.get("derivations_offered", 0) or 0)
+    emitter.emit("offering_derivations", "passed",
+                 counts=TraceCounts(processed=offered,
+                                    processed_unit="offered derivations"))
+
+    if outcome.plan is None:
+        # No plan, so nothing requested a derivation and §7's minting never ran either. Two
+        # `skipped` rows rather than two zero rows: a stage that did not run and a stage that ran
+        # and found nothing are different facts, which is `TraceCounts`' own argument.
+        emitter.emit("executing_derivations", "skipped")
+        emitter.emit("derived_facts_added", "skipped")
+        return
+
+    requested = int(counts.get("derivations_requested", 0) or 0)
+    granted = int(counts.get("derived_facts", 0) or 0)
+    refused = int(counts.get("derivation_refusals", 0) or 0)
+    scope = int(counts.get("evidence_scope_facts", 0) or 0)
+    facts = (derived or {}).get("facts") or []
+    emitter.emit(
+        "executing_derivations", "failed" if refused else "passed",
+        counts=TraceCounts(processed=requested, processed_unit="requested derivations",
+                           accepted=granted, accepted_unit="derived facts",
+                           refused=refused, refused_unit="requested derivations"),
+        # The **inputs**, because this stage's subject is the two readings it was asked to
+        # compare. What it produced is the next row's subject, and printing both here would
+        # count one derivation twice.
+        fact_ids=[fact_id for row in facts
+                  for fact_id in (row.get("from_fact_id"), row.get("to_fact_id"))
+                  if fact_id])
+    emitter.emit(
+        "derived_facts_added", "passed",
+        # `warnings` counts §7's facts for `resolving_primary_sources`' reason — that row already
+        # counts `counter_evidence` as warnings. An evidence-scope fact is a statement of a limit
+        # of the evidence, it was never requested, and folding it into `processed` would let a
+        # reader ask which plan request produced it.
+        counts=TraceCounts(processed=granted, processed_unit="derived facts",
+                           warnings=scope, warnings_unit="evidence-scope facts"),
+        fact_ids=[row["fact_id"] for row in facts if row.get("fact_id")])
+
+
 def _emit_outcome(emitter: TraceEmitter, outcome: Any, accepted: str, *,
-                  planning_closed: bool = False) -> None:
+                  planning_closed: bool = False,
+                  derived: Mapping[str, Any] | None = None) -> None:
     """The generation half's events, every count read off `DemoOutcome`.
 
     `planning_closed` is `_GenerationTrace`'s: when the writer call opened, planning was already
@@ -1624,6 +1706,7 @@ def _emit_outcome(emitter: TraceEmitter, outcome: Any, accepted: str, *,
                      counts=TraceCounts(processed=len(plan.key_points),
                                         accepted=len(plan.counterpoints),
                                         warnings=len(plan.required_warnings)))
+    _emit_derivations(emitter, outcome, derived)
     if draft is None:
         emitter.emit("binding_facts_and_citations", "skipped")
         emitter.emit("drafting", "failed",
@@ -1820,8 +1903,54 @@ def _verification_payload(verified: Any) -> dict[str, Any]:
     return payload
 
 
+#: What a derived fact's absence of an evidence handle means, said once. §6: *"no handle is ever
+#: minted for a derived fact"* — a citation stays attached to the observed facts a claim rests
+#: on, so a reader who wants the evidence follows the input ids into the package and cites the
+#: cells there. Held here rather than in `package_view` because it is the same class of sentence
+#: as `PROVIDER_MODEL_ID_NOTE`: a standing consequence a panel prints, not a mapping rule.
+DERIVED_HANDLE_ABSENT_REASON = (
+    "no evidence handle is minted for a derived fact, and none can be. This number was computed "
+    "from two filed readings; the filing says each of them and says nothing about their "
+    "difference. A citation that supports it is a citation to one of its input facts, which are "
+    "listed above and are each a click into the cell it was read from.")
+
+
+def _derived_facts_document(outcome: Any, *, pipeline: Any) -> tuple[
+        dict[str, Any] | None, dict[str, Any] | None]:
+    """`derived_facts.json` as the run wrote it, or a typed reason it is not here.
+
+    `(None, None)` means the derivation stage never ran — a planner refusal or a provider fault
+    — and `pipeline._write_run` writes the file under exactly that condition, so its absence
+    from `outcome.artifacts` is the run saying so rather than a missing file. `(None, error)` is
+    the artifact being listed and unreadable, which is a broken run directory and is reported the
+    way `post_error` reports the same class of thing: as an error state with a code, never as a
+    null the client has to interpret.
+
+    Read from the directory rather than carried on `DemoOutcome`, because `DemoOutcome` has no
+    derivation field and `story/pipeline.py` is not this packet's to widen. The file is the
+    run's own artifact, hashed into `artifacts`, so what is rendered is what was written.
+    """
+    name = pipeline.DERIVED_FACTS_FILENAME
+    if name not in dict(outcome.artifacts or {}):
+        return None, None
+    try:
+        return json.loads(
+            (Path(outcome.directory) / name).read_text(encoding="utf-8")), None
+    except (OSError, ValueError) as exc:
+        _log(f"the run {outcome.story_run_id} lists {name} and it could not be read", exc)
+        return None, {
+            "code": "derived_facts_artifact_unreadable",
+            "filename": name,
+            "message": ("this run's manifest lists the derived-facts artifact and hashes it, so "
+                        "it should exist and parse. It does not. The run's disposition is "
+                        "unchanged; what is missing is the file the derivation panel reads."),
+        }
+
+
 def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
-                     composed: Any, trace_digest: str, trace_count: int) -> dict[str, Any]:
+                     composed: Any, trace_digest: str, trace_count: int,
+                     derived: Mapping[str, Any] | None = None,
+                     derived_error: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """`DemoOutcome` as the run endpoint returns it.
 
     **A refused or rejected run renders as rejected, and there is one branch that decides it.**
@@ -1950,6 +2079,18 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
         "draft": None if outcome.draft is None else outcome.draft.model_dump(mode="json"),
         "verification": (None if outcome.verified is None
                          else _verification_payload(outcome.verified)),
+        # §8's *"the existing `derived_facts` group is populated"*, composed by the same mapper
+        # `model_facts` uses, so the group this run adds to the facts panel and the four the
+        # package sent it are one vocabulary. The ledger is passed because *"did the final draft
+        # bind this"* is a question only `VerifiedDraft.fact_ledger` can answer, and the panel
+        # did not read it before today.
+        "derived_facts": package_view.derived_fact_group(
+            derived, display=_display_number,
+            fact_ledger=() if outcome.verified is None else outcome.verified.fact_ledger,
+            handle_absent_because=DERIVED_HANDLE_ABSENT_REASON),
+        #: `null` on every coherent run, like `post_error`. Non-null means the manifest listed
+        #: the artifact and the file did not read back.
+        "derived_facts_error": None if derived_error is None else dict(derived_error),
         "post": post,
         #: `null` on every coherent run. Non-null means `accepted` and `post` disagree, and the
         #: disagreement is the server's to report rather than the client's to guess at.
@@ -2283,15 +2424,20 @@ def start_generation(request: Request) -> JsonResponse:
             _log("the generation run failed", exc)
             raise ApiError("internal_error", detail="run_demo") from None
 
+        # Read once and handed to both the trace and the payload: the ids the trace highlights
+        # and the rows the panel draws have to be the same run's, and two reads of one file is
+        # two places they could differ.
+        derived, derived_error = _derived_facts_document(outcome, pipeline=pipeline)
         _emit_outcome(emitter, outcome, pipeline.ACCEPTED,
-                      planning_closed=generation_trace.planning_closed)
+                      planning_closed=generation_trace.planning_closed, derived=derived)
         events = run.events()
         path = write_trace_events(Path(outcome.directory) / TRACE_EVENTS_FILENAME, events)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         STATE.put_generation(run.run_id, _GenerationRecord(
             outcome=_outcome_payload(
                 outcome, pipeline=pipeline, root=root, live=live, composed=composed,
-                trace_digest=digest, trace_count=len(events)),
+                trace_digest=digest, trace_count=len(events),
+                derived=derived, derived_error=derived_error),
             sources=_sources_payload(inputs, outcome)))
         return {"story_run_id": outcome.story_run_id, "disposition": outcome.disposition,
                 "accepted": outcome.disposition == pipeline.ACCEPTED}

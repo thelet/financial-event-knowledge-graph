@@ -134,8 +134,14 @@ class SurfaceUnit(str, Enum):
 class PercentOperation(str, Enum):
     """The three readings of a change in a percent metric (§13.3).
 
-    The values are the strings a draft puts in `Calculation.operation`; §13.3 requires the
-    draft to *declare* the reading and the verifier to recompute it, never to infer it.
+    The values were the strings a draft put in `Calculation.operation`, back when a draft
+    declared its own arithmetic. **It no longer does** *(2026-08-19,
+    DETERMINISTIC_FACT_TOOLS §5)*: `calculation` left the writer schema, and a draft still
+    carrying one is refused rather than read. The type stays live on two paths — the verifier
+    reads the field to *refuse* a legacy draft, and `percent_delta` dispatches on it for the
+    derivation stage — so what moved is only who chooses the reading. Code does, from the unit,
+    which is why `percentage_change` and `percentage_point_change` are two operations rather than
+    one with a flag: §13.3's confusion is now unrepresentable rather than declared and checked.
     """
 
     DELTA_PP = "delta_pp"

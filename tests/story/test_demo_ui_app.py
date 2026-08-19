@@ -834,7 +834,7 @@ def test_the_facts_panel_is_divided_into_the_five_groups_the_server_sends() -> N
     """
     source = app_source()
     assert "function renderModelFacts(" in source
-    assert "modelFacts.groups" in source
+    assert "modelFacts?.groups" in source
     assert "dom.modelFacts" in source
     for name in ("Observed facts", "Derived facts", "Semantic facts", "Company context",
                  "Comparison rules"):
@@ -944,10 +944,123 @@ def test_one_passage_carried_in_two_sections_keeps_both_of_its_blocks() -> None:
     source = app_source()
     assert "state.passageRows.get(passage.passage_id).push(" in source
     assert "state.passageRows.has(passage.passage_id)" in source
-    reveal = source[source.index("function revealPassage("):source.index("/** Post → sources, by fact. */")]
+    reveal = source[source.index("function revealPassage("):source.index("function revealFact(")]
     assert "for (const entry of found) entry.box.open = true;" in reveal, (
         "revealPassage opens one block, so a passage playing two parts shows one of them")
     assert "passage.also_in" in source
+
+
+# ---------------------------------------------------------------------------------------
+# DETERMINISTIC_FACT_TOOLS §8 — the derived facts, and the four claims about them the panel
+# must not be able to make by accident.
+# ---------------------------------------------------------------------------------------
+
+
+def derived_row_source() -> str:
+    source = app_source()
+    return source[source.index("function derivedFactRow("):source.index("function factValue(")]
+
+
+def test_the_derived_group_comes_from_the_run_and_the_other_four_from_the_package() -> None:
+    """§3's constraint reaching the browser.
+
+    A derived fact may not enter `StoryEvidencePackage.facts` — the planner selects the
+    derivations and `package_content_digest` is a `story_run_id` input — so the group is a
+    **run's**. `renderModelFacts` therefore takes two arguments, and `renderPackage` passes
+    `null` for the second: showing the previous run's arithmetic beside a freshly built package
+    would attribute one candidate's derivation to another candidate's evidence.
+    """
+    source = app_source()
+    assert "function renderModelFacts(modelFacts, derived)" in source
+    assert "renderModelFacts(payload.model_facts, null)" in source
+    assert "payload.outcome.derived_facts ?? null" in source
+    # And the group is substituted by name rather than merged field by field: deciding what a
+    # row says is `package_view.py`'s, and a merge here would be a second opinion.
+    assert "group.group === derived.group" in source
+
+
+def test_a_derived_fact_never_renders_as_having_evidence_of_its_own() -> None:
+    """§6: no handle is ever minted for a derived fact, and the row prints the server's reason.
+
+    The absence goes where an observed row puts its `evidence id`, so a reader comparing the two
+    sees a stated absence rather than a missing line — and the input ids are drawn beside it as
+    the route a citation actually has to take.
+    """
+    row = derived_row_source()
+    assert "row.evidence_handle_absent_because" in row
+    assert "row.evidence_handle" not in row.replace("row.evidence_handle_absent_because", ""), (
+        "the derived row renders an evidence handle, and a derived fact has none")
+    assert "row.input_fact_ids" in row
+    assert "revealFact(factId)" in row
+
+
+def test_clicking_an_input_id_is_what_links_a_derived_fact_to_its_cell() -> None:
+    """§8's third clause. The derived row registers under its own id and its inputs are clicks.
+
+    Before this, `state.factRows` was populated only from `passage.facts`, so a derived fact —
+    which has no `passage_id` by design — landed in `revealFact`'s no-rows fallback and nothing
+    happened. Two halves: the derived row registers itself, and the tab travels on the entry so
+    a derived id opens the facts panel while an observed id still opens sources.
+    """
+    row = derived_row_source()
+    assert "state.factRows.set(row.fact_id, [])" in row
+    assert "tab: dom.tabFacts" in row
+
+    source = app_source()
+    assert "tab: dom.tabSources" in source, "the sources rows no longer carry their own tab"
+    start = source.index("function revealFact(")
+    reveal = source[start:source.index("// ------", start)]
+    assert "selectTab(first.tab ?? dom.tabSources)" in reveal
+    # A derived row has no passage, and a missing one must not be highlighted as though it did.
+    assert "[factId, first.passageId].filter(Boolean)" in reveal
+
+
+def test_the_draft_no_longer_renders_a_field_the_writer_schema_cannot_produce() -> None:
+    """`Calculation` left the writer schema in S13, so `sentence.calculation` is always absent.
+
+    Rendering it would be dead code that read as a feature — and worse, its absence would read
+    as *"this sentence did no arithmetic"* about a run in which no sentence can. A computed
+    value is now an ordinary `FactBinding`, so the chip is where it shows.
+    """
+    source = app_source()
+    assert "sentence.calculation" not in code_only(source)
+    assert "calculation.result_rendered" not in source
+
+
+def test_a_binding_to_a_derived_fact_is_legible_as_a_derivation() -> None:
+    """A computed value binds exactly as a filed one does, which is the repair and the hazard.
+
+    On the wire the two are one type, so the chip is told apart by looking the id up in this
+    run's derived group — the server's rows — rather than by reading the id's own prefix, which
+    would be a second opinion in the browser about what a `fact:derived:` string means.
+    """
+    source = app_source()
+    draft = source[source.index("function renderDraft("):source.index("function renderPostMeta(")]
+    assert "outcome.derived_facts?.rows" in draft
+    assert "derivedRows.get(String(binding.fact_id))" in draft
+    # The operation and the periods, and the period *pair* is the server's string: a same-period
+    # comparison rendered `2022Q3 → 2022Q3` would read as a change over time that never happened,
+    # and that judgment belongs beside the row's own statement rather than in two places.
+    assert "derived.operation" in draft and "derived.period_label" in draft
+    assert "LABELS.derivedBinding" in draft
+    # §7's kind has no operation and can also be bound — the verifier has a check for exactly
+    # that — so the chip has a third shape rather than rendering `undefined undefined`.
+    assert "derived.claim" in draft
+    # The id is not parsed for its meaning anywhere in the file.
+    assert "fact:derived:" not in code_only(source)
+
+
+@pytest.mark.parametrize("key,phrase", [
+    ("derivedBinding", "it did not do"),
+    ("derivedUnused", "ordinary outcome"),
+    ("rulesEvaluated", "not the whole"),
+])
+def test_the_three_sentences_this_panel_adds_about_a_derivation_are_in_labels(
+        key: str, phrase: str) -> None:
+    """`LABELS` is the only place this file may write a sentence, and each of these three says
+    something the server's own fields cannot: what the model did *not* do, that an unused
+    derivation is normal, and that a rule list is the rules that ran."""
+    assert phrase in LABELS_TEXT[key]
 
 
 def test_this_file_is_honest_about_being_unable_to_run_the_code_it_tests() -> None:

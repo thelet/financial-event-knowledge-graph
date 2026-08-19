@@ -212,11 +212,23 @@ class EvidenceRole(str, Enum):
 class FactKind(str, Enum):
     """What kind of thing a packaged fact is — EVIDENCE_ROLES_AND_SEMANTIC_FACTS §4 S1.
 
-    `OBSERVED` and `DERIVED` are quantities: one read from a filing, one computed from readings.
-    The other three are the plan's §4 S4 correction — the ontology *defines* every metric the
-    post names, and carrying that definition as metadata beside the facts rather than as a fact
-    is why a post can state a number whose declared meaning never reached the model. They are
-    facts, they are authoritative, and they are not editable.
+    `OBSERVED` is a quantity read from a filing. The other three below it are the plan's §4 S4
+    correction — the ontology *defines* every metric the post names, and carrying that
+    definition as metadata beside the facts rather than as a fact is why a post can state a
+    number whose declared meaning never reached the model. They are facts, they are
+    authoritative, and they are not editable.
+
+    **`DERIVED` is dead, and saying so is the point** *(2026-08-19, DETERMINISTIC_FACT_TOOLS §3)*.
+    It was minted so a computed quantity could not arrive by widening `OBSERVED`, and it did its
+    job: when computed quantities arrived they could not live here at all. A `PackagedFact`
+    requires a passage or an evidence source, `package_content_digest` is a `story_run_id` input,
+    and §2 forbids anything a model selected from entering a package — so a derived quantity is a
+    `DerivedFact` in its own artifact, carrying `DerivedFactKind`. This member now has **zero
+    constructing uses in the repository**; it is kept rather than deleted because
+    `FactKind.OBSERVED` is the default on every `PackagedFact` ever written to
+    `evidence_package.json`, and removing a member of a `str` enum changes what those files
+    round-trip through. Nothing may start using it: a fact this package carries is one that was
+    read, and one that was computed is not this type.
     """
 
     OBSERVED = "observed"

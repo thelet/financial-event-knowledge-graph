@@ -333,6 +333,18 @@ export const LABELS = Object.freeze({
   noRequiredFactDropped:
     'No required fact was dropped — measured from the facts that survived, not asserted. A '
     + 'package that cannot hold one refuses instead.',
+  derivedBinding:
+    'This numeral was computed by the derivation tool from two filed readings, before the '
+    + 'writer ran. The model chose to state it and chose the words around it; it did not do '
+    + 'the arithmetic, and there is no field in its schema where it could have.',
+  derivedUnused:
+    'No sentence in the final draft binds this fact. Code computed it and the post did not '
+    + 'state it, which is an ordinary outcome and not a defect — the ledger this is read from '
+    + 'records what the draft used, not what was available to it.',
+  rulesEvaluated:
+    'These are the comparability rules that were evaluated to permit this pair, not the whole '
+    + 'set. A comparison refused at R3 never reaches R4, so a row claiming all ten ran would be '
+    + 'false about exactly the ones that did not.',
 });
 
 // ---------------------------------------------------------------------------------------
@@ -1555,7 +1567,10 @@ function renderPackage(payload) {
     .join(' · ');
   host.append(make('p', 'mono', countLine));
 
-  renderModelFacts(payload.model_facts);
+  // No derived group: a package is built before any model has run, so the run that would
+  // request a derivation has not happened. Passing the previous run's group here would show one
+  // candidate's arithmetic against another candidate's package.
+  renderModelFacts(payload.model_facts, null);
   renderFacts(payload.facts ?? []);
   renderPackageBounds(payload);
 }
@@ -1572,27 +1587,66 @@ function renderPackage(payload) {
  * as unavailable rather than skipped or blanked, because the only company-description row this
  * corpus can produce is that one and a gap is what a reader (or a model) fills in. And a
  * section whose `available` count is unknown says so, rather than being drawn as complete.
+ *
+ * `derived` is the second argument because the derived group is a **run's** and the other four
+ * are a **package's** — `derived_facts.json` exists only once the planner has requested a
+ * derivation and code has performed it. The group arrives from the server already composed by
+ * the same mapper, and this function substitutes it by name; it does not merge two payloads,
+ * because deciding what a row says is what `package_view.py` is for.
  */
-function renderModelFacts(modelFacts) {
+function renderModelFacts(modelFacts, derived) {
   const host = clear(dom.modelFacts);
-  if (!modelFacts) {
+  // The rows this panel registered last time are about to be detached from the document, so
+  // their entries go with them. Only this panel's: the sources panel's entries belong to a
+  // block that is still on screen, and dropping those would break the observed-fact click.
+  for (const [factId, entries] of [...state.factRows]) {
+    const kept = entries.filter((entry) => entry.tab !== dom.tabFacts);
+    if (kept.length) state.factRows.set(factId, kept);
+    else state.factRows.delete(factId);
+  }
+  if (!modelFacts && !derived) {
     setText(dom.modelFactsNote, '');
     host.append(make('p', 'is-absent', 'No package has been built for this story yet.'));
     return;
   }
-  setText(dom.modelFactsNote, modelFacts.slice_note);
-  for (const group of modelFacts.groups ?? []) {
+  setText(dom.modelFactsNote, modelFacts ? modelFacts.slice_note : '');
+  const groups = (modelFacts?.groups ?? []).map(
+    (group) => (derived && group.group === derived.group ? derived : group));
+  if (derived && !groups.includes(derived)) {
+    // A run whose package was never built through this panel. The group is still shown, because
+    // the derived facts are this run's and losing them would be the panel hiding the numbers the
+    // post rests on.
+    groups.push(derived);
+  }
+  for (const group of groups) {
     const box = details(host,
       `${group.label} (${formatCount(group.count)})`, { open: group.count > 0 });
     box.append(make('p', 'note', group.description));
-    box.append(sectionLedgerLine(group.ledger));
+    // No section, no ledger: `derived_fact_group` sends `null` rather than a stand-in, and a
+    // ledger line about a section that does not exist would invent a bound nobody applied.
+    if (group.section) box.append(sectionLedgerLine(group.ledger));
+    if (group.ran === false) {
+      box.append(make('div', 'is-absent', String(group.not_run_because ?? '')));
+      continue;
+    }
+    for (const refusal of group.refusals ?? []) {
+      // A refused request is a finding about the plan, not an absent row: the planner asked for
+      // a derivation and code would not perform it.
+      const row = make('div', 'is-blocking');
+      row.append(make('strong', null, refusal.code));
+      row.append(make('div', 'mono',
+        `${refusal.operation} · ${refusal.from_fact_id} → ${refusal.to_fact_id}`
+        + `${refusal.rule_id ? ` · ${refusal.rule_id}` : ''}`));
+      row.append(make('div', null, refusal.detail));
+      box.append(row);
+    }
     if (!group.count) {
-      box.append(make('div', 'is-absent',
-        'The package carries none of these.'));
+      box.append(make('div', 'is-absent', group.empty_because
+        ?? 'The package carries none of these.'));
       continue;
     }
     for (const row of group.rows ?? []) {
-      box.append(modelFactRow(row));
+      box.append(group === derived ? derivedFactRow(row, box) : modelFactRow(row));
     }
   }
 }
@@ -1701,6 +1755,119 @@ function sectionLedgerLine(ledger) {
     box.append(make('div', 'is-blocking', 'a required fact was dropped from this section'));
   }
   return box;
+}
+
+/**
+ * One derived fact, and the four things that make it different from a filed reading.
+ *
+ * 1. **It has no evidence of its own, and must not look as though it has.** The filing states
+ *    each of the two readings and says nothing about their difference, so no evidence handle is
+ *    minted for this row and none can be. The server's sentence saying so is printed where an
+ *    observed row prints its handle — an absence in the same place as the thing it is the
+ *    absence of.
+ * 2. **Its inputs are the route to the evidence**, so each input id is a click target that
+ *    reveals the observed fact and, through it, the cell it was read from.
+ * 3. **It is deterministic**, which is a claim about provenance and is the server's badge.
+ * 4. **Whether the final draft bound it is a different question from whether it was computed.**
+ *    `used_by_draft` comes from `VerifiedDraft.fact_ledger`, and `false` is a real answer: code
+ *    computed a quantity the post did not state.
+ *
+ * The row is registered in `state.factRows` under its own id, which is what makes a draft
+ * binding chip clickable at all — a derived fact has no `passage_id` by design, so the sources
+ * panel never registers one and `revealFact` landed in its no-rows fallback.
+ */
+function derivedFactRow(row, box) {
+  const item = make('div');
+  item.dataset.factId = row.fact_id;
+  item.dataset.factKind = row.fact_kind;
+
+  const head = make('div');
+  head.append(make('span', 'citation is-derived', row.fact_kind));
+  head.append(make('strong', null, `  ${row.statement}`));
+  item.append(head);
+  item.append(make('div', 'mono', row.badge));
+
+  const list = document.createElement('dl');
+  if (row.fact_kind === 'evidence_scope') {
+    // §7's row. The label is the server's and says what the claim is *about*, because the whole
+    // point of the type is that it speaks about the evidence and never about the world.
+    field(list, 'claim', row.claim, { mono: true });
+    field(list, 'claim is about', row.claim_about);
+  } else {
+    field(list, 'operation', row.operation, { mono: true });
+    field(list, 'result', row.value_display);
+    field(list, 'unit', row.unit);
+    field(list, 'periods', row.period_label);
+    field(list, 'from period', row.from_period);
+    field(list, 'to period', row.to_period);
+    field(list, 'reads as', row.display_semantics);
+    field(list, 'from value', row.from_value_display);
+    field(list, 'to value', row.to_value_display);
+  }
+  field(list, 'source', row.source, { mono: true });
+  field(list, 'authority', row.authority);
+  field(list, 'authoritative', row.authoritative);
+  field(list, 'editable', row.editable);
+  field(list, 'statement is', row.statement_source);
+  field(list, 'sent to the model', row.in_model_slice);
+  item.append(list);
+
+  if (row.editable === false && row.not_editable_because) {
+    item.append(make('div', 'note', row.not_editable_because));
+  }
+  if ((row.comparability_rule_ids ?? []).length) {
+    item.append(make('div', 'mono',
+      `comparability rules evaluated: ${row.comparability_rule_ids.join(', ')}`));
+    item.append(make('div', 'note', LABELS.rulesEvaluated));
+  }
+  if (row.reused_detector_signal) {
+    item.append(make('div', 'mono',
+      `asserted equal to the candidate's own ${row.reused_detector_signal} signal`));
+  }
+  if ((row.warning_codes ?? []).length) {
+    item.append(make('div', 'mono', `warnings: ${row.warning_codes.join(', ')}`));
+  }
+
+  // Both lists are package fact ids and both are clicks into the sources panel: the inputs are
+  // what this number was computed from, the examined ids are what the §7 rule looked at before
+  // it said the package contains no explanation. Neither list is evidence *for* the row, which
+  // is why the absence sentence below still stands beneath them.
+  for (const [caption, ids] of [['computed from ', row.input_fact_ids ?? []],
+    ['examined ', row.examined_fact_ids ?? []]]) {
+    if (!ids.length) continue;
+    const group = make('div');
+    group.append(make('span', 'note', caption));
+    for (const factId of ids) {
+      const chip = make('span', 'citation', `${factId}  `);
+      chip.title = factId;
+      chip.addEventListener('click', () => revealFact(factId));
+      group.append(chip);
+    }
+    item.append(group);
+  }
+
+  // Where an observed row prints its evidence id. The sentence is the server's and says why
+  // there is none and where a citation for this number has to attach instead.
+  item.append(make('div', 'is-absent', row.evidence_handle_absent_because));
+
+  const sentences = row.used_in_sentence_indexes ?? [];
+  if (row.used_by_draft) {
+    const group = make('div');
+    group.append(make('span', 'note', 'bound by '));
+    for (const index of sentences) {
+      const chip = make('span', 'citation', `sentence ${index}  `);
+      chip.addEventListener('click', () => revealSentence(Number(index)));
+      group.append(chip);
+    }
+    item.append(group);
+  } else {
+    item.append(make('div', 'is-absent', LABELS.derivedUnused));
+  }
+  item.append(make('div', 'mono', row.fact_id));
+
+  if (!state.factRows.has(row.fact_id)) state.factRows.set(row.fact_id, []);
+  state.factRows.get(row.fact_id).push({ row: item, box, tab: dom.tabFacts });
+  return item;
 }
 
 /**
@@ -2409,6 +2576,17 @@ async function finishGeneration(params) {
     }
     state.sources = sources.sources ?? null;
     renderSources(state.sources);
+    // **After the sources, and the order is load-bearing.** `renderSources` clears
+    // `state.factRows` and repopulates it from the passages; the derived rows register
+    // themselves as they are drawn, so drawing them first would leave every derived fact with
+    // no click target. The facts panel is the one place a run writes into a package panel, and
+    // it is the last thing painted for that reason.
+    renderModelFacts(state.packagePayload?.model_facts ?? null,
+      payload.outcome.derived_facts ?? null);
+    if (payload.outcome.derived_facts_error) {
+      dom.modelFacts.append(make('div', 'is-blocking',
+        String(payload.outcome.derived_facts_error.message)));
+    }
     if (shape !== 'inconsistent') settleBanner();
   } catch (failure) {
     showError('reading the generation outcome', failure);
@@ -2788,6 +2966,14 @@ function renderPlan(host, plan, outcome = {}) {
  * `sentence_index`, so a sentence with no finding reads "no finding", not "verified" — the
  * verifier reports what it refused, and turning silence into a pass would be this layer
  * inventing a result.
+ *
+ * **`sentence.calculation` is gone and is not rendered as absent** (S13). It was a field the
+ * writer filled — an operation, an expression and a rendered result the model declared — and
+ * the failure that started S13 was not its arithmetic but its optional `period_surface`, which
+ * the model left empty while its own text read *"in the third quarter of 2022"*. The field left
+ * the writer schema; a computed value is now bound like any other fact, so the chip is where it
+ * shows and there is nothing left for a `calculated:` line to say. A branch on a field that no
+ * schema can produce would be dead code that read as a feature.
  */
 function renderDraft(host, outcome) {
   const draft = outcome.draft;
@@ -2816,6 +3002,11 @@ function renderDraft(host, outcome) {
     if (!findingsBySentence.has(key)) findingsBySentence.set(key, []);
     findingsBySentence.get(key).push(finding);
   }
+  // This run's derived facts, by id, so a binding chip can say what it is bound to. The rows are
+  // the server's — the operation and the two periods are `DerivedFact`'s own fields — and the
+  // map is only the lookup.
+  const derivedRows = new Map(
+    (outcome.derived_facts?.rows ?? []).map((row) => [String(row.fact_id), row]));
 
   for (const sentence of draft.sentences ?? []) {
     const row = make('div');
@@ -2826,14 +3017,29 @@ function renderDraft(host, outcome) {
     const bindings = sentence.fact_bindings ?? [];
     if (bindings.length) {
       const group = make('div');
+      let derivedHere = false;
       for (const binding of bindings) {
-        const chip = make('span', 'citation',
-          `${binding.rendered} ← ${binding.metric_surface} ${binding.period_surface}  `);
-        chip.title = binding.fact_id;
+        // A derived binding looks exactly like a filed one on the wire — since S13 a computed
+        // value is stated by an ordinary `FactBinding`, which is the repair — so the chip is
+        // told apart by looking the id up in this run's derived group rather than by reading
+        // the id's own prefix. Parsing an id in the browser would be a second opinion about
+        // what a `fact:derived:` string means.
+        const derived = derivedRows.get(String(binding.fact_id));
+        if (derived) derivedHere = true;
+        // Three shapes, because a binding can name three kinds of fact. `operation` is absent on
+        // §7's kind, which is a claim about the evidence rather than a quantity — rendering it
+        // as `undefined undefined` was the failure mode this branch exists to avoid.
+        const chip = make('span', derived ? 'citation is-derived' : 'citation', derived
+          ? (derived.operation
+            ? `${binding.rendered} ← ${derived.operation} ${derived.period_label}  `
+            : `${binding.rendered} ← ${derived.claim}  `)
+          : `${binding.rendered} ← ${binding.metric_surface} ${binding.period_surface}  `);
+        chip.title = derived ? `${LABELS.derivedBinding} ${derived.fact_id}` : binding.fact_id;
         chip.addEventListener('click', () => revealFact(binding.fact_id));
         group.append(chip);
       }
       row.append(group);
+      if (derivedHere) row.append(make('div', 'note', LABELS.derivedBinding));
     } else {
       row.append(make('div', 'is-absent', 'no fact binding'));
     }
@@ -2861,13 +3067,6 @@ function renderDraft(host, outcome) {
       row.append(group);
     } else if (sentence.kind !== 'connective') {
       row.append(make('div', 'is-absent', 'no citation'));
-    }
-
-    if (sentence.calculation) {
-      const calculation = sentence.calculation;
-      row.append(make('div', 'mono',
-        `calculated: ${calculation.operation} · ${calculation.expression} = `
-        + `${calculation.result_rendered}`));
     }
 
     const findings = findingsBySentence.get(Number(sentence.index)) ?? [];
@@ -3369,7 +3568,8 @@ function passageBlock(passage, document_) {
     row.addEventListener('click', () => highlightIds(
       [fact.fact_id, passage.passage_id, document_.document_id], [], { focus: true }));
     if (!state.factRows.has(fact.fact_id)) state.factRows.set(fact.fact_id, []);
-    state.factRows.get(fact.fact_id).push({ row, box, passageId: passage.passage_id });
+    state.factRows.get(fact.fact_id).push(
+      { row, box, passageId: passage.passage_id, tab: dom.tabSources });
     box.append(row);
   }
 
@@ -3433,18 +3633,29 @@ function revealPassage(passageId) {
   highlightIds([passageId], [], { focus: true });
 }
 
-/** Post → sources, by fact. */
+/**
+ * Post → the panel that holds this fact.
+ *
+ * **The tab is on the entry rather than fixed here**, since S13. An observed fact is registered
+ * by the sources panel and lives under a passage; a derived fact has no `passage_id` by design —
+ * §3 forbids one, because a derived fact names no filed passage — so it is registered by the
+ * facts panel and lives under its group. Sending every click to the sources tab put a derived
+ * fact id in a panel that had no row for it, which is the no-rows fallback this function already
+ * has for an id nothing drew.
+ */
 function revealFact(factId) {
   const rows = state.factRows.get(String(factId)) ?? [];
   if (!rows.length) {
     highlightIds([factId], [], { focus: true });
     return;
   }
-  selectTab(dom.tabSources);
   const first = rows[0];
+  selectTab(first.tab ?? dom.tabSources);
   first.box.open = true;
   mark(first.row);
-  highlightIds([factId, first.passageId], [], { focus: true });
+  // `passageId` is absent on a derived row and is not defaulted: highlighting a passage this
+  // fact does not name would draw evidence for a number that has none of its own.
+  highlightIds([factId, first.passageId].filter(Boolean), [], { focus: true });
 }
 
 // ---------------------------------------------------------------------------------------

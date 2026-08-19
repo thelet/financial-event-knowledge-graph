@@ -12,6 +12,7 @@ has a reason written beside it.
 
 from __future__ import annotations
 
+import inspect
 import json
 
 import pytest
@@ -62,17 +63,22 @@ def test_every_stage_carries_a_label_and_no_stage_is_declared_twice():
 def test_the_declared_stages_are_the_ones_the_brief_names():
     """Pinned, so a stage cannot be added or renamed without the change being seen.
 
-    The count is the assertion that matters — eleven discovery stages and eleven generation ones
-    — because a scan that discovered its own corpus could pass by discovering nothing.
+    The count is the assertion that matters — eleven discovery stages and fourteen generation
+    ones — because a scan that discovered its own corpus could pass by discovering nothing.
 
     **Eleven and not ten since 2026-08-05.** `metric_history` was added because
     `story/demo_ui/discovery.py` instruments that step and had been reporting it under
     `ranking`'s name, which made the live stream emit `ranking` twice with different numbers.
     The stage exists here because code instruments it; the count moved because the vocabulary
     was short, not because the vocabulary is open.
+
+    **Fourteen and not eleven since 2026-08-19**, for the same reason and by the same rule: the
+    derivation stage sits between the plan and the draft and code instruments three steps of it.
+    DETERMINISTIC_FACT_TOOLS §8 asked for four; `test_no_stage_reports_the_same_measurement_
+    twice` below is why there are three.
     """
     assert len(STAGES_BY_PHASE["discovery"]) == 11
-    assert len(STAGES_BY_PHASE["generation"]) == 11
+    assert len(STAGES_BY_PHASE["generation"]) == 14
     assert STAGES_BY_PHASE["discovery"][0] == "loading_graph_snapshot"
     assert STAGES_BY_PHASE["generation"][-1] == "rendering"
     # Ordered as discovery runs: the distributions are built before the grouping and the ranking
@@ -80,6 +86,43 @@ def test_the_declared_stages_are_the_ones_the_brief_names():
     stages = STAGES_BY_PHASE["discovery"]
     assert (stages.index("metric_history") < stages.index("grouping")
             < stages.index("ranking"))
+
+
+def test_the_derivation_stages_sit_between_the_plan_and_the_draft():
+    """§8's placement, as an order rather than as a sentence in a comment.
+
+    Code computes the offer set before the planner is asked, the planner's requests are executed
+    before the writer is asked, and what the writer was given is what came back — so a panel
+    rendering the closed set in order must show the derivation between the two model calls.
+    """
+    stages = STAGES_BY_PHASE["generation"]
+    assert (stages.index("planning")
+            < stages.index("offering_derivations")
+            < stages.index("executing_derivations")
+            < stages.index("derived_facts_added")
+            < stages.index("drafting"))
+
+
+def test_no_stage_reports_the_same_measurement_twice():
+    """Why `validating_derivations` is not a stage, stated as a property of the code.
+
+    §8 names four derivation stages and this vocabulary declares three. `execute.py` validates
+    and computes in **one call per request**: `execute()` runs §4.2's clauses and answers with
+    either a `DerivedFact` or a `DerivationRefusal`, so every refusal is a validation outcome
+    and every granted fact passed every clause. A `validating_derivations` row could therefore
+    only ever carry `executing_derivations`' three numbers again — which is the defect
+    `metric_history` was added to fix, with the names swapped: `ranking` emitted twice, once
+    under a borrowed name.
+
+    Asserted against the stage's own source rather than argued: the day validation becomes a
+    separate pass with a count of its own, this fails and the fourth stage earns its place.
+    """
+    from story.stages.derivation import execute
+
+    source = inspect.getsource(execute)
+    assert "DerivationRefusal" in source, (
+        "execute() no longer answers with a refusal, so validation may have moved out of it")
+    assert "validating_derivations" not in STAGES_BY_PHASE["generation"]
 
 
 @pytest.mark.parametrize("stage", STAGES)
@@ -189,6 +232,72 @@ def test_a_count_with_no_unit_renders_exactly_as_it_always_did():
     emit, sink = emitter()
     emit.emit("canonical_series", "passed", counts=TraceCounts(processed=41, accepted=41))
     assert sink.events[0].message == "canonical series · passed · processed 41 · accepted 41"
+
+
+def test_the_derivation_rows_read_as_four_populations_and_not_as_one():
+    """§8's rows, composed, so what a reader actually sees is in this file and not inferred.
+
+    The brief's example of what a reader should see is:
+
+        Comparing 2022Q2 and 2022Q3 Adjusted Gross Profit
+        Calculated absolute change: -$446M
+        Validated periods and units
+        Added derived fact to trusted context
+
+    **Three of those four sentences are unsayable here, and the fourth is a count.** `message` is
+    composed from a stage label, a status, counts with units, and the *lengths* of three id
+    lists — there is no field on `TraceEvent` that holds a metric name, a period or a value, and
+    §3's whole guarantee is that adding one is what `test_no_field_accepts_free_text` fails on.
+    So the rows below say what was done and how much of it, and what they cannot say is carried
+    by `related_fact_ids`: `story/core/keys.py`'s readable-segment rule puts the metric and the
+    period inside an input id and the operation and both periods inside a derived one, which the
+    panel resolves and prints. §7's evidence-scope id is the one deliberate omission —
+    `api._emit_derivations` argues it: there is nothing for a view to light up for a claim that
+    the package contains no explanation.
+
+    `derivations offered 12 · requested 1` is the sentence `pipeline._counts` argues for —
+    *"a run that recorded only 'one derived fact' could not say whether the planner chose one of
+    twelve or one of one"* — and it needs four units to be readable at all.
+    """
+    emit, sink = emitter("generation")
+    emit.emit("offering_derivations", "passed",
+              counts=TraceCounts(processed=12, processed_unit="offered derivations"))
+    emit.emit("executing_derivations", "passed",
+              counts=TraceCounts(processed=1, processed_unit="requested derivations",
+                                 accepted=1, accepted_unit="derived facts",
+                                 refused=0, refused_unit="requested derivations"),
+              fact_ids=("obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+                        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"))
+    emit.emit("derived_facts_added", "passed",
+              counts=TraceCounts(processed=1, processed_unit="derived facts",
+                                 warnings=1, warnings_unit="evidence-scope facts"),
+              fact_ids=("fact:derived:absolute-change:opendoor:adjusted-gross-profit"
+                        ":2022Q2-2022Q3:9f2c1a4b7d3e",))
+
+    assert [event.message for event in sink.events] == [
+        "offering derivations · passed · processed 12 offered derivations",
+        "executing derivations · passed · processed 1 requested derivations · "
+        "accepted 1 derived facts · refused 0 requested derivations · 2 facts",
+        "derived facts added · passed · processed 1 derived facts · "
+        "warnings 1 evidence-scope facts · 1 facts",
+    ]
+    # The metric and the period on the inputs; the operation and both periods on the result.
+    assert all(fact_id.startswith("obs:") for fact_id in sink.events[1].related_fact_ids)
+    assert "2022Q2" in sink.events[1].related_fact_ids[0]
+    assert "absolute-change" in sink.events[2].related_fact_ids[0]
+    assert "2022Q2-2022Q3" in sink.events[2].related_fact_ids[0]
+
+
+def test_a_refused_derivation_is_a_failed_row_and_not_a_missing_one():
+    """A request code would not perform is a finding about the plan, and the row says so."""
+    emit, sink = emitter("generation")
+    emit.emit("executing_derivations", "failed",
+              counts=TraceCounts(processed=2, processed_unit="requested derivations",
+                                 accepted=1, accepted_unit="derived facts",
+                                 refused=1, refused_unit="requested derivations"))
+    assert sink.events[0].message == (
+        "executing derivations · failed · processed 2 requested derivations · "
+        "accepted 1 derived facts · refused 1 requested derivations")
 
 
 def test_a_unit_outside_the_closed_set_is_refused():

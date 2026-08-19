@@ -1,6 +1,6 @@
 {
   "budget": {
-    "artifact_token_estimate": 6636,
+    "artifact_token_estimate": 6642,
     "caps_hit": [
       "context_passages",
       "token_budget"
@@ -11,6 +11,7 @@
       "max_conflicts": 8,
       "max_context_neighbours": 1,
       "max_counter_evidence": 3,
+      "max_derivations": 12,
       "max_documents": 20,
       "max_events": 5,
       "max_explanatory_passages": 3,
@@ -551,8 +552,8 @@
   "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
   "ontology_id": "real_estate_marketplace_v1",
   "ontology_semantic_version": "2.0.0",
-  "package_content_digest": "76a9c8ac2a2a1cee62b5dfc2926d8b8cefba5a6998a90a80f1d58b867c905cf0",
-  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:4e4363b11373",
+  "package_content_digest": "0c2bc8491abe9e836334853bbd63c6a0454856058142cfcfc1ff715318760809",
+  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6943b6e1436a",
   "package_version": "1.3.0",
   "policy_version": "canon-policy:1.0.0",
   "primary_passages": [

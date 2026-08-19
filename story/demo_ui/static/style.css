@@ -426,6 +426,22 @@ textarea {
 #model-facts .citation,
 #package-bounds .citation,
 #sources-list .citation { color: var(--accent); cursor: default; }
+/*
+   A derived quantity, told apart from a filed reading at a glance.
+
+   Dashed and not coloured: the four colours in this sheet are verdicts — `--bad` refuses,
+   `--warn` qualifies, `--accent` points — and "code computed this rather than reading it" is a
+   statement about provenance and not about whether the number is good. A dashed underline says
+   "different in kind" without joining the verdict vocabulary, and it survives the two places a
+   derived chip appears: inside the facts panel, where the cursor is a default, and inside the
+   post, where it is a pointer.
+*/
+#model-facts .citation.is-derived,
+#post-output .citation.is-derived {
+  border-bottom: 1px dashed currentColor;
+}
+#model-facts [data-fact-kind="derived"],
+#model-facts [data-fact-kind="evidence_scope"] { border-left-style: dashed; }
 #model-facts .is-absent, #sources-list .is-absent { color: var(--ink-faint); font-style: italic; }
 #sources-list [data-role="counter_evidence"] {
   border-left: 3px solid var(--bad);

@@ -263,3 +263,140 @@ arithmetic.
 | A generic `evaluate(expression)` tool | An expression string is arbitrary Python by another name, and nothing downstream could check it. |
 | Mint derived facts for every offered triple, with no planner request | Cheaper and worse: the offer set is combinatorial, most of it is irrelevant to the post, and the token budget is §10.2's. The planner choosing is what keeps the set small and relevant. |
 | One `percentage_change` operation with a `points: bool` flag | Makes the confusion representable. Two operations make it a refusal at request time. |
+
+---
+
+## 11. Results — the fixtures re-recorded and both providers run *(2026-08-19)*
+
+**The answer, first.** No numeral in any post any provider produced is the model's arithmetic
+any more. On all four live runs below, the planner **requested** a derivation, code executed it
+and asserted it against the detector's own signal, and every computed figure the writer stated
+was bound by a `fact:derived:` id. Not one of the four was **accepted**, and every remaining
+refusal is a statement about *words* or about a gap this section names.
+
+### 11.1 What was re-recorded, and what could not be
+
+Five stores existed; four are committed now. Everything below is a live capture unless it says
+otherwise, and nothing was re-keyed.
+
+| store | provider / model | disposition | findings |
+| --- | --- | --- | --- |
+| `local_openai_compatible/generations.jsonl` | Qwen3.5-9B-Q4_K_M.gguf | **rejected** | `metric_surface_unresolved` ×3 |
+| `local_openai_compatible/generations_accepted_synthetic.jsonl` | *hand-authored from the row above* | **accepted** | none |
+| `local_openai_compatible/generations_rejected_synthetic.jsonl` | *hand-authored from the row above* | **rejected** | `comparative_not_supported_by_text` |
+| `openai/generations.jsonl` | `gpt-5.4` / `gpt-5.4-2026-03-05` | **rejected** | `unbound_numeral` ×2, `metric_surface_ambiguous`, `citation_reused_for_unrelated_claim` ×4 |
+
+`generations_rejected_recorded.jsonl` was **deleted**. It existed because the shipped store was
+accepted and something had to carry a refusal a real model earned; the shipped store is that
+refusal now, so the file would have been a byte-for-byte duplicate.
+
+**`tests/story/fixtures/story_demo/evidence_package.json` had to be rebuilt from the graph, and
+§4.3 is why.** `max_derivations` is a `BudgetParameters` field, `BudgetParameters` is inside
+`digest_parts()`, and so the live path builds `pkg:…:6943b6e1436a` where the committed fixture
+held `pkg:…:4e4363b11373`. Both prompts embed the package id, so **every store recorded live
+would have missed the fixture on every lookup**. The plan did not say this and it should have:
+§9 says *"`PACKAGE_VERSION` does not [bump], because the package does not change"*, which is
+true about the version and false about the digest. The two packages differ in
+`budget.parameters.max_derivations`, `budget.artifact_token_estimate` (6636 → 6642),
+`package_id` and `package_content_digest`, **and in nothing else**.
+
+### 11.2 The demo candidate under Qwen — and a prompt regression, measured
+
+`cand:cross-metric-divergence:…:9682f1c1c85a`. Four consecutive `--live` runs returned a
+byte-identical `generations.jsonl` (`sha256 1e26754afa26930f…`). 8,370 prompt and 1,540
+completion tokens; the pre-S13 run of the same candidate cost 7,398 and 1,328.
+
+What worked: the planner requested `compare_levels` out of the four `offers()` printed, the
+tool computed `-15.9 percentage_points` / `lower than`, and the writer bound it with
+`period_surface "the third quarter of 2022"`. The `numbers` check examined six numerals and
+refused none; the `periods` check resolved all three surfaces; **no `unbound_numeral` and no
+period or orientation finding appears at all.**
+
+What failed: the model wrote the **unit** into every `metric_surface` — `"percent"`,
+`"percent"`, `"percentage_points"`. Repairing only those three strings and touching nothing else
+accepts, so they were the whole of what it got wrong.
+
+**This is a regression in writer prompt 2.0.0 and it is not the model drifting.** A control run
+of the same candidate against the same server in a `git worktree` of `643935f` is still
+**accepted** and its `draft.json` and `post.md` hash to the values `d72ca64` recorded. An
+ablation over 2.0.0's two new sections *(four live writer calls)*:
+
+| writer prompt | `metric_surface` values Qwen produced |
+| --- | --- |
+| 2.0.0, DERIVED FACTS + EVIDENCE SCOPE | `percent`, `percent`, `percentage_points` |
+| 2.0.0, DERIVED FACTS only | `percent`, `percent`, `percentage_points` |
+| 2.0.0, EVIDENCE SCOPE only | `percent`, `percent`, `percentage points` |
+| 2.0.0, neither section populated | `GAAP Gross Margin`, `Adjusted Gross Margin`, … |
+
+Either new section alone is enough, so this is a 9B model degrading as the prompt lengthens
+rather than anything either section *says*. All six `length_target` values 3–8 were then
+measured live and **every one is refused**, so there was nothing to move `config/story.yaml` to
+and it stays at 4. **Nothing in `story/stages/` was changed to make a recording pass.**
+
+### 11.3 §2's driving candidate, both providers
+
+`cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d`, reachable from
+`python -m story demo` since 643935f. The pre-S13 column is a live Qwen run of the same
+candidate in a worktree of `643935f`, made today so the comparison is against the same server.
+
+| | pre-S13 (Qwen, `643935f`) | S13 (Qwen) | S13 (`gpt-5.4`) |
+| --- | --- | --- | --- |
+| derivation requested | — (no such field) | `absolute_change` 2022Q2→2022Q3 | `trend_direction` 2022Q2→2022Q3 |
+| derivation executed | — | yes, `-446,000,000 USD`, `decreased by`, asserted against the detector's `delta` | yes, `decrease`, asserted against the detector's `direction` |
+| what the writer bound | nothing — a `calculation` object it filled itself | `fact:derived:absolute-change:…:155d76ed704a`, `period_surface "the third quarter of 2022"` | `fact:derived:trend-direction:…:faf1a1d72ef9`, rendered as a *period string* |
+| blocking findings | **6** | **2** | **4** |
+| codes | `unbound_numeral` ×2 (on the retyped `556000000.0` and `110000000.0`), `period_unresolvable`, `period_named_in_text_contradicts_binding`, `calculation_result_surface_mismatch`, `comparative_not_supported_by_text` | `unbound_numeral` ×1, `derived_unit_mismatch` | `unbound_numeral`, `derived_unit_mismatch`, `derived_operation_not_supported`, `citation_reused_for_unrelated_claim` |
+| tokens (prompt / completion) | 8,887 / 1,433 | 10,454 / 1,559 | 10,127 / 1,304 |
+| disposition | rejected | rejected | rejected |
+
+**Gone, and stated plainly:** `period_unresolvable`, `period_named_in_text_contradicts_binding`,
+`calculation_result_surface_mismatch` and `comparative_not_supported_by_text` no longer appear
+on this candidate, and neither do the two `unbound_numeral`s the old draft earned by retyping
+its own inputs inside a sentence that could carry no bindings. §2's diagnosis was right about
+the mechanism and the structural repair removed it.
+
+**Not gone, and this is the finding §2 did not predict.** `unbound_numeral` still fires — on the
+literal `2022` of the **`from` period**:
+
+> *"Adjusted Gross Profit decreased by 446000000.0 USD from the second quarter of 2022 to the
+> third quarter of 2022."* — refused at `char_start 78`, the first `2022`.
+
+A binding declares **one** `period_surface`, and §6 fixes it to `to_period`
+(`_derived_fact_lines`: *"The period surface is `to_period`'s"*). A two-period derived fact whose
+sentence names both periods therefore has one covered year and one uncovered one, **by
+construction**. `gpt-5.4` hit the identical wall in its own wording. The plan's claim that *"the
+model cannot forget a field it no longer writes"* is true, and it is not sufficient: the field
+it no longer writes could hold only one period, and so can the binding that replaced it.
+
+### 11.4 Two defects this run found, reported and not repaired
+
+Both are in `story/stages/**`, which this packet may not change.
+
+1. **`trend_direction` is offered to the planner and can never be bound.** `offers()` publishes
+   it, `execute_all` computes it, and §13 then refuses any draft that binds it with
+   `derived_operation_not_supported` — the deliberate departure `fd55045` records, because the
+   verifier cannot recompute a stored sign convention. `gpt-5.4` requested it and was refused for
+   choosing something it was offered. An operation the verifier will always refuse should not be
+   in the offer set; the two should agree in one place.
+2. **A derived fact carries a `metric_surface` its own package may refuse.** The demo candidate's
+   `compare_levels` in the planner's chosen orientation has `metric_id: gaap_gross_margin`, whose
+   only package surface is `"Gross Margin"` — ambiguous, so `_derived_fact_lines` prints *"no
+   surface names this metric uniquely in this package — do not write about this fact"* for a fact
+   the plan's own key point requires the writer to state. The offer set and the writable-surface
+   rule disagree, and the model is left with no legal way to write a figure it was asked for.
+
+`resolve_demo_inputs`'s docstring in `story/pipeline.py` is also stale — it still says *"Only
+§6.6's D4 detector runs — the demo's candidate is a cross-metric divergence"*, which 643935f
+replaced with per-id dispatch.
+
+### 11.5 What is no longer true elsewhere
+
+`TABLE_CELL_CITATIONS.md` §S7a's results block describes `generations_rejected_recorded.jsonl`
+and the nineteen identical 1.4.0 writer calls. Both were accurate when written and neither is
+true of the tree now; that block is a dated record and was left standing rather than rewritten,
+and this section is where the supersession is stated.
+
+### 11.6 Suite
+
+`python -m pytest tests/story -m 'not live and not neo4j' -o addopts='' -q` → **3389 passed, 153
+deselected**. The `live` and `neo4j` marks were run separately: **152 passed, 1 skipped**.

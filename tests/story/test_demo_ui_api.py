@@ -1341,10 +1341,21 @@ def test_every_stage_the_trace_emits_is_in_the_closed_set_and_in_order(graph_ser
     assert stages[-1] == "rendering"
     assert events[-1].status == "complete"
     assert [event.sequence for event in events] == list(range(len(events)))
-    # Every highlight resolves against an id the run produced (§3).
+    # Every highlight resolves against an id the run produced (§3). **Since S13 that includes
+    # the derived facts**, which are the run's own artifact rather than the package's — §3 keeps
+    # them out of `StoryEvidencePackage.facts` on purpose, so a trace that highlighted one was
+    # refused here by a rule that was right about the package and wrong about the run. The
+    # widening is checked rather than granted: the derived id has to actually appear, or the
+    # union would let a trace highlight nothing at all and still pass.
+    _, run_payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    derived_ids = {row["fact_id"] for row
+                   in run_payload["outcome"]["derived_facts"]["rows"]
+                   if row["fact_kind"] == "derived"}
+    assert derived_ids, "this run computed a derived fact"
     package_ids = {fact.observation_id for fact in demo_inputs().package.facts}
-    for event in events:
-        assert set(event.related_fact_ids) <= package_ids
+    highlighted = {fact_id for event in events for fact_id in event.related_fact_ids}
+    assert highlighted <= package_ids | derived_ids
+    assert highlighted >= derived_ids
 
 
 def test_every_verifier_check_is_mapped_onto_a_trace_stage(graph_services):
@@ -1534,7 +1545,28 @@ def test_planning_closes_before_drafting_opens(graph_services):
 
 
 def test_a_float_with_residue_is_displayed_short_and_kept_exact(graph_services):
-    """§7: `15.899999999999999` renders as `15.9` and the exact value stays beside it."""
+    """§7: a binary residue renders short and the exact value stays beside it.
+
+    **The recorded run stopped supplying the residue on 2026-08-19 and the test was strengthened
+    rather than re-pinned.** Until S13 the gap was the *verifier's* subtraction,
+    `3.3 - (-12.6)`, which is `15.899999999999999` in binary floating point and reached the
+    panel raw. It is now the derivation tool's, which routes every operation through
+    `detector_config.round_delta`, so the ledger carries `-15.9` exactly and the end-to-end
+    assertion below can no longer exercise the display rule at all. Re-pinning it to `-15.9`
+    would have left a test named for a residue that never sees one.
+
+    So both halves are asserted: `_display_number` is driven directly over the value the old
+    fixture happened to produce — the rule is about arbitrary floats and outlived the fixture —
+    and the run is still asserted to carry `recomputed_value` and `recomputed_display` as a
+    pair, which is the property that says the panel shortens the display without rounding the
+    record.
+    """
+    from story.demo_ui.api import _display_number
+
+    assert _display_number(15.899999999999999) == "15.9"
+    assert _display_number(-15.899999999999999) == "-15.9"
+    assert _display_number(0.1 + 0.2) == "0.3"
+
     harness = Harness(services={**graph_services,
                                 "story_pipeline": committed_inputs_pipeline})
     _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
@@ -1543,8 +1575,8 @@ def test_a_float_with_residue_is_displayed_short_and_kept_exact(graph_services):
 
     ledger = payload["outcome"]["verification"]["calculation_ledger_display"]
     assert ledger, "the recorded draft carries a derivation"
-    assert ledger[0]["recomputed_value"] == 15.899999999999999
-    assert ledger[0]["recomputed_display"] == "15.9"
+    assert ledger[0]["recomputed_value"] == -15.9
+    assert ledger[0]["recomputed_display"] == "-15.9"
 
 
 def test_a_generation_run_that_raises_is_failed_and_holds_no_outcome(graph_services):

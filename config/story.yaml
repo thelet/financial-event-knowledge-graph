@@ -138,29 +138,34 @@ generation:
   # preferred. Six live writer calls against the demo package, one per target, with the
   # planner's answer replayed so only this number moved.
   #
-  # **Re-measured 2026-08-18 under `WRITER_PROMPT_VERSION` 1.4.0, and the reason for 4 is gone:**
+  # **Re-measured 2026-08-19 under `WRITER_PROMPT_VERSION` 2.0.0, and every target is now
+  # refused** (DETERMINISTIC_FACT_TOOLS §9, six live `--live` runs against this candidate):
   #
-  #   target 3  draft constructed, 3 sentences   verifier ACCEPTED
-  #   target 4  draft constructed, 3 sentences   verifier ACCEPTED
-  #   target 5  draft constructed, 3 sentences   verifier ACCEPTED
-  #   target 6  draft constructed, 3 sentences   verifier ACCEPTED
-  #   target 7  draft constructed, 3 sentences   verifier ACCEPTED
-  #   target 8  draft constructed, 3 sentences   verifier ACCEPTED
+  #   target 3  REJECTED  metric_surface_unresolved x3
+  #   target 4  REJECTED  metric_surface_unresolved x3
+  #   target 5  REJECTED  binding_rendering_is_not_one_numeral, metric_surface_unresolved x4
+  #   target 6  REJECTED  binding_rendering_is_not_one_numeral, metric_surface_unresolved x4
+  #   target 7  REJECTED  unbound_numeral x2, metric_surface_unresolved x3,
+  #                       citation_reused_for_unrelated_claim x2, uncited_factual_sentence,
+  #                       connective_sentence_carries_a_claim
+  #   target 8  REJECTED  binding_rendering_is_not_one_numeral, metric_surface_unresolved x4
   #
-  # The 2026-08-04 table this replaced read *"target 5–8: §12 refused,
-  # citation_quote_ambiguous_in_passage / citation_quote_not_in_passage; 3 and 4 rejected with 9
-  # blocking findings each; 4 is the longest target that reaches the verifier"*. Both halves are
-  # now false. TABLE_CELL_CITATIONS removed the quote gate the table path had — a citation is an
-  # evidence id and §12 resolves the span from the fact's own cell — so no target refuses at §12,
-  # and the model writes three sentences whatever it is asked for. The recorded run's disposition
-  # is **accepted**, not rejected, and has been since `74f4f1c` rebuilt the fixture.
+  # The 2026-08-18 table this replaces read ACCEPTED on all six. What changed is the writer
+  # prompt, not the model or the server: a control run of this candidate at `643935f` against
+  # the same server is still accepted and still hashes to the values recorded at `d72ca64`.
+  # Under 2.0.0 the 9B model writes the **unit** into `metric_surface` — `"percent"` — on every
+  # target, and an ablation shows either of the prompt's two new sections is enough to cause it.
+  # That is a defect in the writer prompt and is recorded as one; nothing here was tuned to
+  # route around it, and no target accepts, so there is nothing to move to.
   #
-  # **4 stays, and not because it is still the answer.** `length_target` is in the writer prompt,
-  # the prompt is in `request_identity`, and `generation_store` below is keyed on it: any other
-  # value misses the committed row and the offline demo would need a live re-record. Whether the
-  # demo should now run at 5 is a real question with a cost attached, and it is the
-  # orchestrator's to decide, not this file's. *(Verified 2026-08-18: a live target-4 call
-  # returns `content_sha256 b14908e636d5…`, byte-identical to the committed row.)*
+  # **4 stays, and the reason is unchanged.** `length_target` is in the writer prompt, the prompt
+  # is in `request_identity`, and `generation_stores` below is keyed on it: any other value
+  # misses the committed rows and the offline demo would need another live re-record. Whether
+  # the demo should run at 5 is a real question with a cost attached, and it is the
+  # orchestrator's to decide, not this file's. *(Verified 2026-08-19: four consecutive live
+  # target-4 runs return `generations.jsonl sha256 1e26754afa26930f…`, and
+  # `test_live_the_qwen_writer_still_files_its_answer_under_the_committed_row` lands the live
+  # writer answer on the committed key.)*
   length_target: 4
 
 # §8b's demo path. `candidate_id` is not here on purpose — it is the one argument
@@ -176,27 +181,32 @@ demo:
   out_root: data/story_demo
 
   # The recorded answer stores the deterministic path replays, **one per provider** — real Qwen
-  # responses, re-captured **2026-08-18** from the server named above under `PACKAGE_VERSION`
-  # 1.3.0 and `WRITER_PROMPT_VERSION` 1.4.0. (The 2026-08-04 capture this comment used to name
-  # was superseded at TABLE_CELL_CITATIONS S7a: the citation contract changed, so every request
-  # digest moved.) Tracked, because §14 keeps `tests/story/fixtures/` and "a small committed
-  # answer store for replay tests" in git; the pattern is
-  # `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores them and calls the server.
+  # responses, **re-recorded live on 2026-08-19** from the server named above under
+  # `PLANNER_PROMPT_VERSION` 1.2.0 and `WRITER_PROMPT_VERSION` 2.0.0. Tracked, because §14 keeps
+  # `tests/story/fixtures/` and "a small committed answer store for replay tests" in git; the
+  # pattern is `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores them and calls the
+  # server.
+  #
+  # **Re-recorded and not re-keyed, and the difference is the whole of DETERMINISTIC_FACT_TOOLS
+  # §9.** The two 2026-08-19 moves before it (`story-generation-v2` and `-v3`) were re-keys,
+  # valid because the *request* was unchanged. S13 changed both prompts and both schemas — the
+  # writer's 2.0.0 removes `calculation` — so the committed answers were answers to a different
+  # question and carrying them across would have been a lie about what was asked. The shipped
+  # recording's disposition is now **rejected** (three `metric_surface_unresolved`); the
+  # accepted branch the tests drive comes from `generations_accepted_synthetic.jsonl`, which is
+  # that recording with its three metric surfaces repaired and one sentence rewritten.
   #
   # **This mapping is authoritative** (MULTI_PROVIDER_OPENAI §5.3). A store is a *provider's*:
-  # since `story-generation-v2` (2026-08-19) `request_identity` digests the adapter, so one
-  # provider's rows are a guaranteed miss for another and there is no store that serves both.
-  # The files moved into `local_openai_compatible/` in the same change and were **re-keyed, not
-  # re-recorded** — every `raw_content` and `content_sha256` is byte-identical to the 2026-08-18
-  # capture, and only `request_sha256` moved.
+  # since `story-generation-v2` `request_identity` digests the adapter, so one provider's rows
+  # are a guaranteed miss for another and there is no store that serves both.
   #
-  # **There is deliberately no `openai:` row, and the OpenAI fixture now exists anyway.** It was
-  # captured from the §10 live run on 2026-08-19 and is committed at
-  # `tests/story/fixtures/story_demo/openai/generations.jsonl` — two `gpt-5.4` rows, planner and
-  # writer, reaching the deterministic verifier. Adding the key here is what a reader will want
-  # to do next, and it is refused on purpose: the shipped configuration having no OpenAI store
-  # is what makes the demo UI answer `provider_requires_live` for OpenAI honestly, and that
-  # answer is a tested guarantee (`test_demo_ui_api.py`, `test_story_demo.py:
+  # **There is deliberately no `openai:` row, and the OpenAI fixture exists anyway.** It was
+  # re-recorded from a live `gpt-5.4` run on 2026-08-19 and is committed at
+  # `tests/story/fixtures/story_demo/openai/generations.jsonl` — two rows, planner and writer,
+  # reaching the deterministic verifier and refused by it. Adding the key here is what a reader
+  # will want to do next, and it is refused on purpose: the shipped configuration having no
+  # OpenAI store is what makes the demo UI answer `provider_requires_live` for OpenAI honestly,
+  # and that answer is a tested guarantee (`test_demo_ui_api.py`, `test_story_demo.py:
   # test_a_provider_with_no_recorded_store_is_refused_by_name`). The fixture is for tests, and
   # the tests name its path themselves. A shipped demo that replayed a recorded OpenAI run
   # without a key would be claiming to have called an API it never called.

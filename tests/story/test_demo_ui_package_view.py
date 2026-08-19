@@ -25,7 +25,12 @@ import pytest
 
 from story.core.models import (
     ComparabilityFact,
+    DerivationOperation,
+    DerivedFact,
+    DisplaySemantics,
     EvidenceRole,
+    EvidenceScopeFact,
+    FactLedgerEntry,
     IdentityFact,
     PackageBudget,
     PackagedPassage,
@@ -195,13 +200,34 @@ def test_the_role_counts_report_every_role_including_the_zeros():
 # ---------------------------------------------------------------------------------------
 
 
-def test_the_five_groups_are_the_plans_own_division_and_each_names_its_section():
+def test_the_five_groups_are_the_plans_own_division_and_four_of_them_name_a_section():
+    """§4 S6's division is unchanged; where the second group comes from is not.
+
+    **`derived_facts` left `FACT_GROUPS` on 2026-08-19** (DETERMINISTIC_FACT_TOOLS §3). It
+    declared `("derived_facts", "Derived facts", "facts", FactKind.DERIVED)` — a filter on
+    `package.facts` — and that source is now *wrong* rather than merely empty: the planner
+    selects which derivations to request, `package_content_digest` is a `story_run_id` input, and
+    a package carrying a model's selection would put it inside a run id. So the group is a run's
+    and reaches `model_facts` as an argument.
+
+    Both halves are asserted, because only asserting the first would let the group quietly
+    vanish from the payload: the wire still carries five groups in the plan's order.
+    """
     assert [group for group, _label, _section, _kind in package_view.FACT_GROUPS] == [
-        "observed_facts", "derived_facts", "semantic_facts", "company_context",
-        "comparison_rules"]
+        "observed_facts", "semantic_facts", "company_context", "comparison_rules"]
     for group, _label, section, _kind in package_view.FACT_GROUPS:
         assert group in package_view.GROUP_DESCRIPTION
         assert hasattr(make_package(), section)
+
+    facts = package_view.model_facts(ontology_package(), display=display)
+    assert [group["group"] for group in facts["groups"]] == [
+        "observed_facts", "derived_facts", "semantic_facts", "company_context",
+        "comparison_rules"]
+    # And it names no package section, because there is none to name.
+    derived = facts["groups"][package_view.DERIVED_GROUP_POSITION]
+    assert derived["section"] == ""
+    assert derived["ledger"] is None
+    assert not hasattr(make_package(), "derived_facts")
 
 
 def test_every_fact_row_says_kind_statement_source_authority_editability_and_slice():
@@ -268,6 +294,236 @@ def test_the_slice_note_is_read_from_the_packaging_stages_own_exclusion_list():
     for section in section_bounds.PROMPT_EXCLUDED_SECTIONS:
         assert package_view.in_model_slice(section) is False
     assert package_view.in_model_slice("semantic_facts") is True
+
+
+# ---------------------------------------------------------------------------------------
+# The derived group — a run's facts, not a package's (DETERMINISTIC_FACT_TOOLS §4, §7, §8).
+# ---------------------------------------------------------------------------------------
+
+#: The real 2022Q2→2022Q3 derivation, built through the real type so a field this test asserts on
+#: cannot be one the model does not have. The values are the ones §2 measured:
+#: `556,000,000 → 110,000,000` gives `-446,000,000 USD`.
+DERIVED = DerivedFact(
+    fact_id=("fact:derived:absolute-change:opendoor:adjusted-gross-profit"
+             ":2022Q2-2022Q3:9f2c1a4b7d3e"),
+    operation=DerivationOperation.ABSOLUTE_CHANGE,
+    package_id="pkg:opendoor:2022Q3:0c4364ebbc44",
+    from_fact_id="obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+    to_fact_id="obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9",
+    from_period="2022Q2", to_period="2022Q3",
+    from_value=556000000.0, to_value=110000000.0,
+    result=-446000000.0, unit="USD", currency="USD",
+    display_semantics=DisplaySemantics.DECREASED_BY,
+    metric_id="adjusted_gross_profit", from_metric_id="adjusted_gross_profit",
+    metric_surfaces=("Adjusted Gross Profit",),
+    period_surface_hint="the third quarter of 2022",
+    comparability_rule_ids=("R1", "R2", "R3", "R4", "R5", "R7", "R10"),
+    tool_version="1.0.0", reused_detector_signal="delta",
+)
+
+SCOPE = EvidenceScopeFact(
+    fact_id="fact:evidence-scope:no-supported-causal-explanation:0c4364ebbc44",
+    claim="no_supported_causal_explanation_in_package",
+    statement=("The evidence in this package supplies no explanation for what is described "
+               "here."),
+    package_id="pkg:opendoor:2022Q3:0c4364ebbc44", tool_version="1.0.0",
+    examined_fact_ids=("obs:a", "obs:b"),
+)
+
+
+def derived_document(**overrides) -> dict:
+    """`derived_facts.json` as `pipeline._derived_facts_payload` writes it."""
+    document = {
+        "tool_version": "1.0.0",
+        "facts": [DERIVED.model_dump(mode="json")],
+        "evidence_scope_facts": [SCOPE.model_dump(mode="json")],
+        "refusals": [],
+    }
+    document.update(overrides)
+    return document
+
+
+def test_a_derived_row_carries_everything_the_panel_has_to_show():
+    """§8's list, field by field: operation, inputs, result, unit, periods, rules, badge, use."""
+    group = package_view.derived_fact_group(derived_document(), display=display)
+    row = group["rows"][0]
+
+    assert row["operation"] == "absolute_change"
+    assert row["input_fact_ids"] == [DERIVED.from_fact_id, DERIVED.to_fact_id]
+    assert (row["value"], row["value_display"], row["unit"]) == (-446000000.0, "-446000000", "USD")
+    assert (row["from_period"], row["to_period"]) == ("2022Q2", "2022Q3")
+    assert row["comparability_rule_ids"] == ["R1", "R2", "R3", "R4", "R5", "R7", "R10"]
+    assert row["badge"] == package_view.DETERMINISTIC_BADGE
+    assert row["deterministic"] is True
+    assert row["tool_version"] == "1.0.0"
+    assert row["display_semantics"] == "decreased by"
+    assert row["reused_detector_signal"] == "delta"
+    # The statement is a rendering of the row's own fields, and the row says so — the same
+    # discipline `_observed_statement` follows, and for the stronger reason that a sentence about
+    # a computed quantity is the writer's job.
+    assert row["statement_source"] == "rendered from this row's own fields"
+    assert "2022Q2 → 2022Q3" in row["statement"]
+
+
+def test_a_derived_fact_never_looks_as_though_it_has_evidence_of_its_own():
+    """§6: *"no handle is ever minted for a derived fact"*, and the row has to say why.
+
+    The filing states each of the two readings and says nothing about their difference. A row
+    that carried a handle — or that simply omitted the field — would let a reader take a
+    citation on this number as a citation the filing supports. The route to the evidence is the
+    two input ids, which is exactly what §8's click-through resolves.
+    """
+    group = package_view.derived_fact_group(derived_document(), display=display)
+    row = group["rows"][0]
+
+    assert row["evidence_handle"] is None
+    assert "no evidence handle" in row["evidence_handle_absent_because"]
+    assert row["input_fact_ids"], "the only route from a derived fact to a filed cell"
+    assert "passage_id" not in row
+    assert row["authoritative"] is False
+    assert row["editable"] is False
+    assert "never produced it" in row["not_editable_because"]
+
+
+def test_the_evidence_scope_row_is_a_claim_about_the_evidence_and_not_about_the_world():
+    """§7. *"This package supplies no explanation"* is checkable; *"there was no cause"* is not.
+
+    The row carries the tool's own statement verbatim, says what the claim is *about*, and
+    carries no handle — which is the failure §7 names: today that sentence reuses a
+    financial-table citation as though the table had said it.
+    """
+    group = package_view.derived_fact_group(derived_document(), display=display)
+    row = next(r for r in group["rows"] if r["fact_kind"] == "evidence_scope")
+
+    assert row["claim"] == "no_supported_causal_explanation_in_package"
+    assert row["statement"] == SCOPE.statement
+    assert "The evidence in this package" in row["statement"]
+    assert "what the evidence in this package contains" in row["claim_about"]
+    assert "not a claim about the company" in row["claim_about"]
+    assert row["evidence_handle"] is None
+    assert row["examined_fact_ids"] == ["obs:a", "obs:b"]
+    assert group["derived_count"] == 1 and group["evidence_scope_count"] == 1
+    # **Its own absence sentence, and not the derived facts'.** A derived fact has no handle
+    # because the filing states the two readings and not their difference; this has none because
+    # there is nothing it could cite at all, and "computed from two filed readings" would be
+    # false about a row that is not a number.
+    assert row["evidence_handle_absent_because"] == package_view.SCOPE_HANDLE_ABSENT
+    assert "nothing it could cite" in row["evidence_handle_absent_because"]
+    assert row["evidence_handle_absent_because"] != (
+        group["rows"][0]["evidence_handle_absent_because"])
+
+
+def test_whether_the_final_draft_bound_a_derived_fact_is_read_from_the_ledger():
+    """§8's last column, and `false` is a real answer.
+
+    The derivation stage can say what it computed and cannot say what the post stated; only
+    `VerifiedDraft.fact_ledger` can, and the panel did not read it before today. A row that
+    defaulted to *"used"* would report every offered derivation as having reached the page.
+    """
+    ledger = (FactLedgerEntry(
+        fact_id=DERIVED.fact_id, metric_id="adjusted_gross_profit", period_key="2022Q3",
+        value=-446000000.0, unit="USD", rendered="$446 million", sentence_index=2),)
+
+    unused = package_view.derived_fact_group(derived_document(), display=display)
+    used = package_view.derived_fact_group(derived_document(), display=display,
+                                           fact_ledger=ledger)
+
+    assert unused["rows"][0]["used_by_draft"] is False
+    assert unused["rows"][0]["used_in_sentence_indexes"] == []
+    assert used["rows"][0]["used_by_draft"] is True
+    assert used["rows"][0]["used_in_sentence_indexes"] == [2]
+
+
+def test_a_stage_that_never_ran_is_not_a_stage_that_computed_nothing():
+    """`ran: false` beside an empty list, never `count: 0` on its own.
+
+    A planner refusal means no derivation was requested, refused or computed; an empty result
+    means the plan asked for none. Only the second says anything about this package, and a
+    panel that rendered both as *"none"* would report a run that never reached the stage as a
+    run that reached it and found nothing.
+    """
+    absent = package_view.derived_fact_group(None, display=display)
+    empty = package_view.derived_fact_group(
+        derived_document(facts=[], evidence_scope_facts=[]), display=display)
+
+    assert absent["ran"] is False and absent["count"] == 0
+    assert "never ran" in absent["not_run_because"]
+    assert empty["ran"] is True and empty["count"] == 0
+    assert empty["not_run_because"] == ""
+    assert "requested no derivation" in empty["empty_because"]
+
+
+def test_a_refused_request_is_carried_rather_than_dropped():
+    """The planner asked and code would not perform it — a finding about the plan, not a gap."""
+    group = package_view.derived_fact_group(
+        derived_document(facts=[], refusals=[
+            {"code": "derived_inputs_incomparable", "operation": "percentage_change",
+             "from_fact_id": "obs:a", "to_fact_id": "obs:b", "rule_id": "R2",
+             "detail": "two metrics, and the claim is not a divergence"}]),
+        display=display)
+
+    assert group["refusals"][0]["code"] == "derived_inputs_incomparable"
+    assert group["refusals"][0]["rule_id"] == "R2"
+    assert group["count"] == 1, "the evidence-scope fact is still a row"
+
+
+def test_a_same_period_comparison_does_not_render_as_a_change_over_time():
+    """`compare_levels` and `ratio` take two metrics in **one** period.
+
+    Measured on the committed run: the recorded draft's derivation is
+    `compare_levels(adjusted_gross_margin, gaap_gross_margin)` in 2022Q3, and the first
+    rendering of it read `2022Q3 → 2022Q3` — an arrow between a period and itself, which reads
+    as a movement that did not happen. The pair is one string decided in one place, so the row's
+    statement and the draft's binding chip cannot answer it differently.
+    """
+    level = DERIVED.model_copy(update={
+        "operation": DerivationOperation.COMPARE_LEVELS,
+        "from_period": "2022Q3", "to_period": "2022Q3",
+        "from_metric_id": "adjusted_gross_margin", "metric_id": "gaap_gross_margin",
+        "metric_surfaces": ("Adjusted Gross Margin", "Gross Margin"),
+        "unit": "percentage_points", "currency": None, "result": -15.9,
+        "display_semantics": DisplaySemantics.LOWER_THAN,
+    })
+    group = package_view.derived_fact_group(
+        derived_document(facts=[level.model_dump(mode="json")], evidence_scope_facts=[]),
+        display=display)
+    row = group["rows"][0]
+
+    assert row["period_label"] == "2022Q3"
+    assert "→" not in row["statement"]
+    assert row["statement"] == (
+        "Adjusted Gross Margin / Gross Margin · 2022Q3 · compare_levels = -15.9 "
+        "percentage_points")
+    # The two-period case still shows the arrow, so this is not a rule that lost the movement.
+    moved = package_view.derived_fact_group(derived_document(), display=display)
+    assert moved["rows"][0]["period_label"] == "2022Q2 → 2022Q3"
+
+
+def test_the_derived_group_is_spliced_between_the_observations_and_the_ontology():
+    """One mapper, five groups, in §4 S6's order — whether or not a run has produced any."""
+    facts = package_view.model_facts(ontology_package(), display=display,
+                                     derived=derived_document())
+    groups = {group["group"]: group for group in facts["groups"]}
+
+    assert [g["group"] for g in facts["groups"]][:2] == ["observed_facts", "derived_facts"]
+    assert groups["derived_facts"]["count"] == 2
+    assert facts["total"] == sum(group["count"] for group in facts["groups"])
+
+
+def test_a_package_built_before_any_run_still_shows_the_heading():
+    """`POST /demo/evidence-package` runs no model, so the group is empty and present.
+
+    Present because a heading that appears only sometimes reads as a feature that sometimes
+    exists, and the reader of a package panel needs to know that a derivation is a thing this
+    pipeline does and has not done yet.
+    """
+    facts = package_view.model_facts(ontology_package(), display=display)
+    derived = next(g for g in facts["groups"] if g["group"] == "derived_facts")
+
+    assert derived["ran"] is False
+    assert derived["rows"] == []
+    assert derived["label"] == "Derived facts"
+    assert "not in the evidence package" in derived["description"]
 
 
 # ---------------------------------------------------------------------------------------

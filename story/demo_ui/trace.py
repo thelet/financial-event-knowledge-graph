@@ -67,6 +67,22 @@ Status = Literal["queued", "running", "passed", "warning", "failed", "skipped", 
 #: — so the live stream emitted `ranking` twice, before and after `grouping`, with different
 #: numbers, and a viewer saw ranking run twice. A stage exists here because code instruments it;
 #: this one does, and borrowing another stage's name to report it was the dishonest option.
+#:
+#: **Three derivation stages were added 2026-08-19 (DETERMINISTIC_FACT_TOOLS §8), and the plan
+#: asked for four.** `offering_derivations` is `offers(package, candidate)`, which runs before
+#: the planner and decides what it may ask for; `executing_derivations` is the plan's requests
+#: validated and computed; `derived_facts_added` is what entered the writer's trusted context,
+#: §7's evidence-scope facts included.
+#:
+#: §8's fourth name, `validating_derivations`, is **deliberately not here**. `execute.py`
+#: validates and computes in one call per request — `execute()` runs §4.2's clauses and returns
+#: either a `DerivedFact` or a `DerivationRefusal`, so every refusal *is* a validation outcome
+#: and every granted fact passed every clause. A `validating_derivations` row would therefore
+#: carry the same three numbers as `executing_derivations` for every run that can exist, and
+#: this table's own rule is that a stage exists because code instruments it. Two rows reporting
+#: one measurement is the `ranking`-twice defect with the names swapped. What validation did is
+#: reported where it happened: `executing_derivations · failed · refused N` is a refusal at
+#: §4.2, and the refusal codes are in `derived_facts.json` and on the rejection payload.
 STAGES_BY_PHASE: Mapping[str, tuple[str, ...]] = {
     "discovery": (
         "loading_graph_snapshot",
@@ -86,6 +102,9 @@ STAGES_BY_PHASE: Mapping[str, tuple[str, ...]] = {
         "resolving_primary_sources",
         "freshness",
         "planning",
+        "offering_derivations",
+        "executing_derivations",
+        "derived_facts_added",
         "binding_facts_and_citations",
         "drafting",
         "checking_numbers_and_units",
@@ -118,6 +137,9 @@ STAGE_LABELS: Mapping[str, str] = {
     "resolving_primary_sources": "resolving primary sources",
     "freshness": "freshness",
     "planning": "planning",
+    "offering_derivations": "offering derivations",
+    "executing_derivations": "executing derivations",
+    "derived_facts_added": "derived facts added",
     "binding_facts_and_citations": "binding facts and citations",
     "drafting": "drafting",
     "checking_numbers_and_units": "checking numbers and units",
@@ -164,7 +186,18 @@ class TraceProgress(StoryModel):
 #: Closed, not free text, for §3's reason: a `str` field on a trace model is exactly the seam
 #: prose gets in through. Every member below is written here, by us, and a value outside the set
 #: is a validation error rather than a rendered sentence.
+#: **The four derivation units are four populations and not four names for one** (§8). An offer
+#: is a triple code would grant if asked; a request is one the plan actually made; a derived fact
+#: is one that came back; an evidence-scope fact was never requested at all, because absence is
+#: not a calculation. `derivations_offered 12 · derivations_requested 1` is the sentence the
+#: manifest's own `_counts` docstring argues for — *"a run that recorded only 'one derived fact'
+#: could not say whether the planner chose one of twelve or one of one"* — and it is unreadable
+#: unless each number says which population it counted.
 COUNT_UNITS: frozenset[str] = frozenset({
+    "offered derivations",
+    "requested derivations",
+    "derived facts",
+    "evidence-scope facts",
     "freshness checks",
     "bounded reads",
     "observations",

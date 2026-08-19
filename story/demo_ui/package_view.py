@@ -31,7 +31,13 @@ passage beside a labelled one.
 
 **The five fact groups are §4 S6's own division** — observed, derived, semantic, company
 context, comparison rules — and `model_facts` is what the *"Facts sent to the model"* section
-renders. Two properties of that payload are worth stating because both are easy to get quietly
+renders. **Four of the five are read out of a package and the fifth is not**
+(DETERMINISTIC_FACT_TOOLS §3, 2026-08-19): a derived fact may not enter
+`StoryEvidencePackage.facts`, because the planner selects which derivations to request and
+`package_content_digest` is a `story_run_id` input. So `derived_fact_group` takes a run's
+`derived_facts.json` and `model_facts` splices it in — which is the one place this module reads
+something that is not a package, and it is stated here rather than discovered in the signature.
+Two further properties of that payload are worth stating because both are easy to get quietly
 wrong:
 
 * **An unavailable row stays a row.** The corpus holds no company description — not on the
@@ -313,24 +319,45 @@ def role_catalogue(package: StoryEvidencePackage | None = None) -> list[dict[str
 # The facts the model was given.
 # ---------------------------------------------------------------------------------------
 
-#: §4 S6's five groups, each naming the package section it reads and the `FactKind` its rows
-#: carry. `observed` and `derived` are two kinds inside one section, which is why the group is
-#: a triple rather than a section name: `PackagedFact.fact_kind` is what separates them, and a
-#: derived quantity is the writer's `Calculation` today so the group is ordinarily empty.
+#: The four groups this module reads **out of a package**, each naming its section and the
+#: `FactKind` its rows carry.
+#:
+#: **`derived_facts` was one of these until 2026-08-19 and is not any more**
+#: (DETERMINISTIC_FACT_TOOLS §3). It declared `("derived_facts", "Derived facts", "facts",
+#: FactKind.DERIVED)` — a filter on `package.facts` — and that source is now wrong rather than
+#: merely empty: a derived fact may not enter `StoryEvidencePackage.facts` at all, because
+#: `package_content_digest` is a `story_run_id` input and the planner *selects* the derivations,
+#: so a package carrying one would put a model's choice inside a run id. Derived facts live in
+#: `derived_facts.json`, produced per run, and reach this module through `derived_fact_group`
+#: below. Leaving the old triple in place would have kept the group rendering `count: 0` against
+#: a run that really computed one, which is the flattering failure: a panel saying *"no
+#: derivation"* about a post whose central number is a derivation.
 FACT_GROUPS: tuple[tuple[str, str, str, FactKind], ...] = (
     ("observed_facts", "Observed facts", "facts", FactKind.OBSERVED),
-    ("derived_facts", "Derived facts", "facts", FactKind.DERIVED),
     ("semantic_facts", "Semantic facts", "semantic_facts", FactKind.SEMANTIC),
     ("company_context", "Company context", "identity_facts", FactKind.IDENTITY),
     ("comparison_rules", "Comparison rules", "comparability_facts", FactKind.COMPARABILITY),
 )
 
+#: §4 S6's second group, and the one thing `model_facts` renders that is not read off a package.
+#: The pair is `(group, label)` and not a quadruple because there is no section to name and no
+#: `FactKind` to filter on — `DerivedFactKind` is a separate enum for §3's reason, and a row's
+#: own `fact_kind` says which of its two members it is.
+DERIVED_GROUP: tuple[str, str] = ("derived_facts", "Derived facts")
+
+#: Where the derived group sits among the four: immediately after the observations it was
+#: computed from, which is the order §4 S6 lists and the order a reader follows a number in.
+DERIVED_GROUP_POSITION = 1
+
 #: What each group is, in one sentence a panel can print under its heading.
 GROUP_DESCRIPTION: Mapping[str, str] = {
     "observed_facts": "one reading of one filed cell, with the passage it was read from",
     "derived_facts": (
-        "a quantity computed from readings. Empty on every package built so far: a derivation "
-        "is the writer's `Calculation`, recomputed by §13.9, and is not a packaged fact"),
+        "a quantity code computed from two filed readings, and never the model's arithmetic. "
+        "Each row names the operation, the two facts it was computed from and the rules that "
+        "permitted the comparison. It is not in the evidence package — the planner chooses "
+        "which derivations to request, and nothing a model selected may enter a package whose "
+        "digest is an input to the run id — so this group is a run's, not a package's"),
     "semantic_facts": (
         "what the ontology declares a metric means. Authoritative and read-only — the numbers "
         "in the post have no declared meaning without them"),
@@ -349,7 +376,15 @@ GROUP_DESCRIPTION: Mapping[str, str] = {
 NOT_EDITABLE_BECAUSE: Mapping[str, str] = {
     "observed": "read from a filing; §2's line is that code chooses facts and the model chooses "
                 "words, and neither this panel nor the prompt UI may edit one",
-    "derived": "recomputed by §13.9 from the facts it names",
+    # Corrected 2026-08-19 with the derivation stage. It read "recomputed by §13.9 from the facts
+    # it names", which described the writer declaring a `Calculation` that code then checked.
+    # That field is gone from the writer schema: code now computes the number and the model only
+    # binds it, so there is nothing here for an edit to move.
+    "derived": "computed by the derivation tool from the two package facts it names, before the "
+               "writer ran. The model states this number; it never produced it",
+    "evidence_scope": "minted by code from the package alone, and never requested. It is a "
+                      "claim about what this evidence does not contain, which no prompt may "
+                      "soften",
     "semantic": "the ontology is authoritative (C4) and is not reachable from the prompt UI",
     "identity": "the ontology is authoritative (C4) and is not reachable from the prompt UI",
     "comparability": "the ontology is authoritative (C4) and is not reachable from the prompt UI",
@@ -491,14 +526,278 @@ def section_summary(package: StoryEvidencePackage, section: str) -> dict[str, An
     }
 
 
+# ---------------------------------------------------------------------------------------
+# The facts code computed — a run's, not a package's (DETERMINISTIC_FACT_TOOLS §4, §7).
+# ---------------------------------------------------------------------------------------
+
+#: The badge §8 asks every derived row to carry. One string, in one place, because it is a claim
+#: about provenance and two spellings of it would be two claims.
+DETERMINISTIC_BADGE = "deterministic · tool-generated"
+
+#: Why a derived row is not a piece of evidence, in the words the panel prints beside it when no
+#: caller supplied a longer one. Kept short here and argued at length at the API boundary, which
+#: is the surface that knows about citations.
+DERIVED_HANDLE_ABSENT = (
+    "no evidence handle is minted for a derived fact. Its evidence is the two facts it was "
+    "computed from, and a citation attaches to those.")
+
+#: The same absence for §7's kind, and it needed its own sentence rather than the one above.
+#: A derived fact's handle is absent because the filing states the two readings and not their
+#: difference; an evidence-scope fact's is absent because **there is nothing for it to cite at
+#: all**. It is a claim that the package contains no explanation, and a citation on it would be
+#: a passage offered as evidence for an absence — which is the exact failure §7 exists to stop.
+SCOPE_HANDLE_ABSENT = (
+    "this fact cites nothing, and there is nothing it could cite. It says what this package's "
+    "evidence does not contain, and no passage can be evidence for an absence — a citation "
+    "here would be a financial table offered as proof that no explanation was disclosed, which "
+    "is the failure this kind of fact exists to prevent. The facts the rule examined are listed "
+    "beside it and each is a click into the cell it was read from.")
+
+
+def _derived_statement(row: Mapping[str, Any], result: str) -> str:
+    """One line rendered from the row's own fields, exactly as `_observed_statement` is.
+
+    `DerivedFact` carries no `statement` either, and for a stronger reason: a sentence about a
+    computed quantity is the thing the writer is for, and one composed here that read like prose
+    would be this module putting words in the post's mouth. So the fields are joined in a fixed
+    order — metric, the period pair, the operation, the result — and every component is on the
+    row beside it, with `statement_source` saying which this is.
+    """
+    surfaces = tuple(row.get("metric_surfaces") or ())
+    metric = " / ".join(surfaces) if surfaces else str(row.get("metric_id", ""))
+    unit = row.get("unit") or ""
+    tail = f"{result} {unit}" if unit else result
+    return f"{metric} · {_period_label(row)} · {row.get('operation', '')} = {tail}"
+
+
+def _period_label(row: Mapping[str, Any]) -> str:
+    """The period pair as one string.
+
+    `compare_levels` and `ratio` take two metrics in **one** period, and `2022Q3 → 2022Q3` reads
+    as a change over time that did not happen. One period where there is one.
+    """
+    start, end = row.get("from_period", ""), row.get("to_period", "")
+    return end if start == end else f"{start} → {end}"
+
+
+def _ledger_use(fact_ledger: Sequence[Any], fact_id: str) -> tuple[bool, list[int]]:
+    """Whether the accepted draft bound this fact, and in which sentences.
+
+    §8's last column, and the one thing on a derived row that no artifact of the derivation
+    stage can answer: the stage computed the fact, and whether the *draft* used it is
+    `VerifiedDraft.fact_ledger`'s to say. `False` here means the tool computed a quantity the
+    post did not state — which is an ordinary outcome and worth showing, because the alternative
+    reading is that every offered derivation reached the page.
+    """
+    used = sorted({int(entry.sentence_index) for entry in fact_ledger
+                   if getattr(entry, "fact_id", None) == fact_id})
+    return bool(used), used
+
+
+def _derived_row(row: Mapping[str, Any], *, display: Any, fact_ledger: Sequence[Any],
+                 handle_absent_because: str) -> dict[str, Any]:
+    """One `DerivedFact` as the panel reads it (§8).
+
+    `result` and `result_word` are exclusive on the model and stay exclusive here: five
+    operations answer with a number and two answer with a word, and rendering `1.0` for *"it
+    crossed zero"* would put a numeral on the page that no unit belongs to.
+    """
+    value = row.get("result")
+    word = row.get("result_word") or ""
+    shown = word if value is None else display(value)
+    used, sentences = _ledger_use(fact_ledger, str(row.get("fact_id", "")))
+    inputs = [row.get("from_fact_id", ""), row.get("to_fact_id", "")]
+    return {
+        "fact_id": row.get("fact_id", ""),
+        "fact_kind": row.get("fact_kind", "derived"),
+        "statement": _derived_statement(row, shown),
+        "statement_source": "rendered from this row's own fields",
+        "operation": row.get("operation", ""),
+        # Both ids, in `(from, to)` order, and named as inputs rather than as sources: they are
+        # what the click target in §8's third clause resolves, and they are the only route from
+        # this row to a filed cell.
+        "input_fact_ids": [fact_id for fact_id in inputs if fact_id],
+        "from_fact_id": row.get("from_fact_id", ""),
+        "to_fact_id": row.get("to_fact_id", ""),
+        "from_period": row.get("from_period", ""),
+        "to_period": row.get("to_period", ""),
+        # The pair as one string, decided here for `_derived_statement`'s reason: a same-period
+        # comparison rendered `2022Q3 → 2022Q3` reads as a change over time that did not happen,
+        # and the draft's binding chip needs the same answer this row's statement gives.
+        "period_label": _period_label(row),
+        "from_value": row.get("from_value"),
+        "to_value": row.get("to_value"),
+        "from_value_display": (None if row.get("from_value") is None
+                               else display(row["from_value"])),
+        "to_value_display": (None if row.get("to_value") is None
+                             else display(row["to_value"])),
+        "value": value,
+        "value_display": shown,
+        "result_word": word,
+        "unit": row.get("unit", ""),
+        "currency": row.get("currency"),
+        "display_semantics": row.get("display_semantics", ""),
+        "metric_id": row.get("metric_id", ""),
+        "from_metric_id": row.get("from_metric_id", ""),
+        "metric_surfaces": list(row.get("metric_surfaces") or ()),
+        "period_surface_hint": row.get("period_surface_hint", ""),
+        # Which of R1–R10 were **evaluated**, never "R1–R10 were applied": a comparison refused
+        # at R3 never reaches R4, and the fact records the ones that ran.
+        "comparability_rule_ids": list(row.get("comparability_rule_ids") or ()),
+        "source": row.get("source", ""),
+        "source_detail": f"{DETERMINISTIC_BADGE} · tool version {row.get('tool_version', '')}",
+        "deterministic": True,
+        "badge": DETERMINISTIC_BADGE,
+        "tool_version": row.get("tool_version", ""),
+        "reused_detector_signal": row.get("reused_detector_signal", ""),
+        "used_by_draft": used,
+        "used_in_sentence_indexes": sentences,
+        "authoritative": False,
+        "authority": ("the derivation tool, over two facts this package carries. It is "
+                      "authoritative for the arithmetic and for nothing else — what the two "
+                      "readings mean is the ontology's, and what they say is the filing's"),
+        "editable": False,
+        "not_editable_because": NOT_EDITABLE_BECAUSE["derived"],
+        "available": True,
+        "evidence_handle": None,
+        "evidence_handle_absent_because": handle_absent_because or DERIVED_HANDLE_ABSENT,
+        "warning_codes": list(row.get("warning_codes") or ()),
+        "in_model_slice": True,
+    }
+
+
+def _evidence_scope_row(row: Mapping[str, Any], *,
+                        fact_ledger: Sequence[Any]) -> dict[str, Any]:
+    """One `EvidenceScopeFact` as the panel reads it (§7).
+
+    **Labelled as a claim about the evidence and never about the world**, which is the whole
+    reason the type exists. *"The evidence in this package supplies no explanation"* is
+    checkable from the package; *"there was no cause"* is checkable from nothing, and it is the
+    sentence that today reuses a financial-table citation as though the table had said it. So
+    `claim_about` is on the row, the statement is the tool's own and is printed verbatim, and
+    `evidence_handle` is `None` — this fact cites nothing because there is nothing to cite.
+    """
+    used, sentences = _ledger_use(fact_ledger, str(row.get("fact_id", "")))
+    return {
+        "fact_id": row.get("fact_id", ""),
+        "fact_kind": row.get("fact_kind", "evidence_scope"),
+        "statement": row.get("statement", ""),
+        "statement_source": "the derivation tool's own words, minted from this package alone",
+        "claim": row.get("claim", ""),
+        "claim_about": ("what the evidence in this package contains. It is not a claim about "
+                        "the company, the period or the world: the package can be searched and "
+                        "this says what the search found nothing of"),
+        "examined_fact_ids": list(row.get("examined_fact_ids") or ()),
+        "input_fact_ids": [],
+        "value": None,
+        "value_display": "",
+        "unit": "",
+        "source": row.get("source", ""),
+        "source_detail": f"{DETERMINISTIC_BADGE} · tool version {row.get('tool_version', '')}",
+        "deterministic": True,
+        "badge": DETERMINISTIC_BADGE,
+        "tool_version": row.get("tool_version", ""),
+        "used_by_draft": used,
+        "used_in_sentence_indexes": sentences,
+        "authoritative": False,
+        "authority": ("the derivation tool, over this package's own sections. Nothing outside "
+                      "the package was asked, and this row says only what was in it"),
+        "editable": False,
+        "not_editable_because": NOT_EDITABLE_BECAUSE["evidence_scope"],
+        "available": True,
+        "evidence_handle": None,
+        # **Its own sentence, not the derived facts'.** `EvidenceScopeFact` carries no
+        # `citations` field at all — an empty tuple would be a place to put one, and no field is
+        # not — because the failure §7 names is precisely this sentence reusing a financial-table
+        # citation as though the table had said it. "Computed from two filed readings" would be
+        # false about a row that is not a number.
+        "evidence_handle_absent_because": SCOPE_HANDLE_ABSENT,
+        "warning_codes": [],
+        "in_model_slice": True,
+    }
+
+
+def derived_fact_group(
+    derived: Mapping[str, Any] | None,
+    *,
+    display: Any,
+    fact_ledger: Sequence[Any] = (),
+    handle_absent_because: str = "",
+) -> dict[str, Any]:
+    """§4 S6's derived group, built from a run's `derived_facts.json` rather than from a package.
+
+    `derived is None` means the derivation stage never ran on this run — a planner refusal or a
+    provider fault — and that is reported as `ran: false` beside an empty row list rather than
+    as `count: 0`. They are different facts: one is a stage that produced nothing and the other
+    is a stage that never happened, and only the first says anything about the evidence.
+
+    The group has **no section and no ledger**, and both are `None` rather than a plausible
+    stand-in. A section ledger answers *"how many did this section have before the budget bound
+    it"*, and there is no section here to have had any; filling it with the derived count would
+    invent a bound nobody applied.
+    """
+    facts = list((derived or {}).get("facts") or ())
+    scope = list((derived or {}).get("evidence_scope_facts") or ())
+    refusals = list((derived or {}).get("refusals") or ())
+    rows = [_derived_row(row, display=display, fact_ledger=fact_ledger,
+                         handle_absent_because=handle_absent_because) for row in facts]
+    rows += [_evidence_scope_row(row, fact_ledger=fact_ledger) for row in scope]
+    group, label = DERIVED_GROUP
+    return {
+        "group": group,
+        "label": label,
+        "description": GROUP_DESCRIPTION[group],
+        # Empty rather than a section name: this group reads no package section, and naming one
+        # would send `in_model_slice` and the ledger looking for a bound that does not apply.
+        "section": "",
+        "fact_kind": "derived",
+        "count": len(rows),
+        "unavailable": 0,
+        "in_model_slice": True,
+        "ledger": None,
+        # The empty-group sentence, because the four package groups' *"the package carries none
+        # of these"* is false about a group that reads no package. A plan that requested no
+        # derivation is an ordinary plan, and §7 mints nothing when the package does carry an
+        # explanation — so an empty group here is two different findings and says which.
+        "empty_because": ("" if derived is None else
+                          "this run's plan requested no derivation, and the package supplied no "
+                          "absence for §7 to state. Nothing was refused: the refusals a request "
+                          "would have produced are listed above when there are any"),
+        "ran": derived is not None,
+        "not_run_because": ("" if derived is not None else
+                            "the derivation stage never ran on this run: it sits between the "
+                            "plan and the draft, and this run produced no plan. No derivation "
+                            "was requested, refused, or computed"),
+        "derived_count": len(facts),
+        "evidence_scope_count": len(scope),
+        "tool_version": (derived or {}).get("tool_version", ""),
+        # A refused request is not a row and is not dropped either: the planner asked for a
+        # derivation and code would not perform it, which is a finding about the plan.
+        "refusals": [dict(refusal) for refusal in refusals],
+        "rows": rows,
+    }
+
+
 def model_facts(
-    package: StoryEvidencePackage, *, display: Any
+    package: StoryEvidencePackage, *, display: Any,
+    derived: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """§4 S6's *"Facts sent to the model"*, in five groups.
 
     `display` is the number formatter the rest of the API already uses, passed in rather than
     imported: this module holds no formatting rule of its own, and one fact must read the same
     way in every panel (F14).
+
+    `derived` is a run's `derived_facts.json` payload, or `None` where no run has produced one.
+    It is a keyword with a default because `POST /demo/evidence-package` builds a package before
+    any model has run and there is nothing yet to put in the group — the group is still emitted,
+    carrying `ran: false`, because a heading that appears only sometimes reads as a feature that
+    sometimes exists.
+
+    `GET /demo/runs/{id}` is the opposite case and calls `derived_fact_group` on its own: it has
+    a run and no package, so it sends the group alone and the panel substitutes it by name. The
+    argument exists here so that one function is the composition point either way, and so that a
+    caller holding both does not have to splice two payloads itself.
     """
     groups: list[dict[str, Any]] = []
     for group, label, section, kind in FACT_GROUPS:
@@ -515,6 +814,7 @@ def model_facts(
             "ledger": section_summary(package, section),
             "rows": rows,
         })
+    groups.insert(DERIVED_GROUP_POSITION, derived_fact_group(derived, display=display))
     return {
         "groups": groups,
         "total": sum(group["count"] for group in groups),
@@ -608,6 +908,11 @@ def warning_view(
 __all__ = [
     "CATEGORY_LABEL",
     "CONSEQUENCE",
+    "DERIVED_GROUP",
+    "DERIVED_GROUP_POSITION",
+    "DERIVED_HANDLE_ABSENT",
+    "DETERMINISTIC_BADGE",
+    "SCOPE_HANDLE_ABSENT",
     "FACT_GROUPS",
     "GROUP_DESCRIPTION",
     "NOT_EDITABLE_BECAUSE",
@@ -616,6 +921,7 @@ __all__ = [
     "SECTION_DESCRIPTION",
     "SECTION_ORDER",
     "UnroledPassage",
+    "derived_fact_group",
     "fact_cell_marks",
     "in_model_slice",
     "model_facts",
