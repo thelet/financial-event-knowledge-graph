@@ -1038,27 +1038,30 @@ def test_a_system_message_without_its_fixed_rules_is_refused_at_the_wire(config)
 # ---------------------------------------------------------------------------------------
 
 
-#: The two synthetic stores, under the provider directory they moved into at S12. A store is a
-#: *provider's* since `story-generation-v2` — `request_identity` digests the adapter — so the
-#: path carries the provider id and `generations_*.jsonl` no longer sits loose beside the graph
-#: fixtures.
+#: The two stores this file drives, under the provider directory they moved into at S12. A store
+#: is a *provider's* since `story-generation-v2` — `request_identity` digests the adapter — so
+#: the path carries the provider id and `generations_*.jsonl` no longer sits loose beside the
+#: graph fixtures.
+#:
+#: **`ACCEPTED_STORE` is the shipped recording again since the writer prompt's 2.1.0 repair.**
+#: It used to be `generations_accepted_synthetic.jsonl`, which was deleted when the live Qwen
+#: draft started passing §13 on its own — see `test_story_demo.py`'s module docstring. So the
+#: accepted branch this file exercises is now a real model's answer and only the rejected branch
+#: is hand-edited.
 STORE_ROOT = "tests/story/fixtures/story_demo/local_openai_compatible"
 REJECTED_STORE = f"{STORE_ROOT}/generations_rejected_synthetic.jsonl"
-ACCEPTED_STORE = f"{STORE_ROOT}/generations_accepted_synthetic.jsonl"
+ACCEPTED_STORE = f"{STORE_ROOT}/generations.jsonl"
 
 
 def _config_over(config: pipeline.DemoConfig, store: str) -> pipeline.DemoConfig:
-    """The same configuration against one of the two synthetic stores `test_story_demo.py`
-    documents.
+    """The same configuration against one of the two stores `test_story_demo.py` documents.
 
-    Neither is a recording. Both are the genuine refusal with one edit to sentence 2's prose and
-    the declaration untouched: the accepted one states the comparative the way the calculation
-    declares it, the rejected one reverses it so that a true declaration carries a false
-    sentence. **The shipped store is `accepted` again since TABLE_CELL_CITATIONS S7a** — nineteen
-    live calls under the 1.4.0 writer all declared `difference` — so these two are kept for the
-    §13.14 path they take rather than for the disposition they reach: a comparative the
-    calculation supports, and the same comparative inverted. Nothing here presents either file
-    as a recording.
+    One is a recording and one is not, and this function does not pretend otherwise. The
+    accepted branch replays the live Qwen answer whole; the rejected branch is that same answer
+    with sentence 2's two metrics swapped, so a derived fact code computed is stated backwards
+    while every id, rendering and citation stays the model's. The pair is kept for the §13.14
+    path it takes rather than for the dispositions it reaches: a comparative the derivation
+    supports, and the same comparative inverted.
 
     **`raw` is edited beside the field, and that is not tidiness.** `config_hash` is taken over
     `raw` as written and is a `story_run_id` input, so replacing only the dataclass field would
@@ -1091,7 +1094,12 @@ def rejecting_config(config: pipeline.DemoConfig) -> pipeline.DemoConfig:
 
 def accepting_services(graph_services: Mapping[str, Any],
                        config: pipeline.DemoConfig) -> dict[str, Any]:
-    """`graph_services` with the accepted synthetic store swapped in for the shipped one."""
+    """`graph_services` with the accepted store named explicitly rather than by default.
+
+    It resolves to the shipped recording, which is what the default would have given — kept as a
+    swap so the accepted and rejected branches are configured the same way and a future store
+    move touches one function.
+    """
     return {**graph_services,
             "demo_config": lambda: _config_over(config, ACCEPTED_STORE),
             "story_pipeline": committed_inputs_pipeline}
@@ -1102,7 +1110,7 @@ def test_a_replayed_run_produces_an_accepted_post_and_every_artifact(graph_servi
 
     The provider is replay-only over a committed store, so the whole path runs with nothing
     listening on `:8080` — which is what makes this a test rather than a probe. The store is the
-    **accepted synthetic** one since S7, because the genuine recording is rejected; see
+    shipped recording, which is accepted again since the writer prompt's 2.1.0 repair; see
     `_config_over`. The endpoint's accepted rendering is what is under test here, and it needs a
     run that reaches it.
     """
@@ -1509,7 +1517,7 @@ def test_an_accepted_run_whose_post_is_unreadable_is_an_error_and_not_a_silent_n
 def test_a_coherent_accepted_run_carries_no_post_error(graph_services, config):
     """The other half: the new field must be `null` on every run that is actually fine.
 
-    Over the accepted synthetic store, so the run this asserts about is an accepted one — the
+    Over the accepted store, so the run this asserts about is an accepted one — the
     field would be `null` on the rejected genuine recording too, and a test named for the
     accepted branch that never reaches it proves the weaker thing.
     """

@@ -49,6 +49,7 @@ from story.stages.derivation.execute import (
 )
 from story.stages.derivation.offers import (
     ADMITTED_UNITS,
+    OFFERABLE_OPERATIONS,
     SAME_PERIOD_OPERATIONS,
     TWO_PERIOD_OPERATIONS,
     is_offered,
@@ -80,6 +81,7 @@ __all__ = [
     "DETECTOR_SIGNALS",
     "NO_SUPPORTED_CAUSAL_EXPLANATION",
     "NO_SUPPORTED_CAUSAL_EXPLANATION_STATEMENT",
+    "OFFERABLE_OPERATIONS",
     "OPERATIONS",
     "SAME_PERIOD_OPERATIONS",
     "SIGN_CONVENTION_UNVERIFIED",

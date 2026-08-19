@@ -182,7 +182,7 @@ demo:
 
   # The recorded answer stores the deterministic path replays, **one per provider** — real Qwen
   # responses, **re-recorded live on 2026-08-19** from the server named above under
-  # `PLANNER_PROMPT_VERSION` 1.2.0 and `WRITER_PROMPT_VERSION` 2.0.0. Tracked, because §14 keeps
+  # `PLANNER_PROMPT_VERSION` 1.2.0 and `WRITER_PROMPT_VERSION` 2.1.0. Tracked, because §14 keeps
   # `tests/story/fixtures/` and "a small committed answer store for replay tests" in git; the
   # pattern is `benchmarks/extraction/v1/answers/*.jsonl`. `--live` ignores them and calls the
   # server.
@@ -191,17 +191,24 @@ demo:
   # §9.** The two 2026-08-19 moves before it (`story-generation-v2` and `-v3`) were re-keys,
   # valid because the *request* was unchanged. S13 changed both prompts and both schemas — the
   # writer's 2.0.0 removes `calculation` — so the committed answers were answers to a different
-  # question and carrying them across would have been a lie about what was asked. The shipped
-  # recording's disposition is now **rejected** (three `metric_surface_unresolved`); the
-  # accepted branch the tests drive comes from `generations_accepted_synthetic.jsonl`, which is
-  # that recording with its three metric surfaces repaired and one sentence rewritten.
+  # question and carrying them across would have been a lie about what was asked.
+  #
+  # **The store was re-recorded a second time the same day**, for the writer prompt's 2.1.0
+  # repair: the prompt was withholding the only surface that named `gaap_gross_margin`
+  # unambiguously and was printing a derived figure in a spelling no sentence can carry. The
+  # shipped recording's disposition is **accepted** again, with no finding, so
+  # `generations_accepted_synthetic.jsonl` was deleted — a hand-authored accepted store standing
+  # beside a real one asserts nothing the real one does not.
+  # `generations_rejected_synthetic.jsonl` remains, and is that recording with one sentence's
+  # two metrics swapped so a derived fact is stated backwards.
   #
   # **This mapping is authoritative** (MULTI_PROVIDER_OPENAI §5.3). A store is a *provider's*:
   # since `story-generation-v2` `request_identity` digests the adapter, so one provider's rows
   # are a guaranteed miss for another and there is no store that serves both.
   #
   # **There is deliberately no `openai:` row, and the OpenAI fixture exists anyway.** It was
-  # re-recorded from a live `gpt-5.4` run on 2026-08-19 and is committed at
+  # re-recorded from a live `gpt-5.4` run on 2026-08-19 (twice, the second time under 2.1.0) and
+  # is committed at
   # `tests/story/fixtures/story_demo/openai/generations.jsonl` — two rows, planner and writer,
   # reaching the deterministic verifier and refused by it. Adding the key here is what a reader
   # will want to do next, and it is refused on purpose: the shipped configuration having no

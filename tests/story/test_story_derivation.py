@@ -533,16 +533,22 @@ def test_the_detector_signal_is_asserted_against_and_the_fact_records_which_one(
         operation: one(package, candidate, operation, AGP_Q2, AGP_Q3).reused_detector_signal
         for operation in (DerivationOperation.ABSOLUTE_CHANGE,
                           DerivationOperation.PERCENTAGE_CHANGE,
-                          DerivationOperation.CROSSED_ZERO,
-                          DerivationOperation.TREND_DIRECTION)
+                          DerivationOperation.CROSSED_ZERO)
     }
 
     assert reused == {
         DerivationOperation.ABSOLUTE_CHANGE: "delta",
         DerivationOperation.PERCENTAGE_CHANGE: "delta_pct",
         DerivationOperation.CROSSED_ZERO: "crosses_zero",
-        DerivationOperation.TREND_DIRECTION: "direction",
     }
+    # The fourth row of `DETECTOR_SIGNALS` is `trend_direction`/`direction`, and it is no longer
+    # reachable: the operation left `OFFERABLE_OPERATIONS` because the verifier refuses every
+    # binding to it. The entry stays in the table — the operation is still implemented and still
+    # asserts against the signal if it is ever offered again — and this is where the check that
+    # it currently cannot be reached lives, so the mapping is not quietly load-bearing.
+    withdrawn = one(package, candidate, DerivationOperation.TREND_DIRECTION, AGP_Q2, AGP_Q3)
+    assert isinstance(withdrawn, DerivationRefusal)
+    assert withdrawn.code is DerivationRefusalCode.OPERATION_NOT_SUPPORTED
 
 
 @pytest.mark.parametrize(
@@ -551,7 +557,12 @@ def test_the_detector_signal_is_asserted_against_and_the_fact_records_which_one(
         ("delta", -445_000_000.0, DerivationOperation.ABSOLUTE_CHANGE),
         ("delta_pct", -80.0, DerivationOperation.PERCENTAGE_CHANGE),
         ("crosses_zero", True, DerivationOperation.CROSSED_ZERO),
-        ("direction", "increase", DerivationOperation.TREND_DIRECTION),
+        # `("direction", "increase", TREND_DIRECTION)` was the fourth row and is gone with the
+        # operation's withdrawal from `OFFERABLE_OPERATIONS`: a derivation refused before any
+        # arithmetic runs cannot reach the signal comparison, so the row asserted nothing about
+        # the detector and everything about the withdrawal, which
+        # `test_the_detector_signal_is_asserted_against_and_the_fact_records_which_one` states
+        # directly.
     ],
 )
 def test_a_planted_disagreement_with_the_detector_is_a_refusal_and_not_a_preference(
@@ -744,17 +755,21 @@ def test_the_offer_set_is_deterministic_and_holds_no_triple_validation_would_ref
 
 
 def test_the_offer_set_is_exactly_the_operations_this_package_can_support():
-    """Four of the seven, and each absence is a rule rather than an oversight."""
+    """Three of the seven, and each absence is a rule rather than an oversight.
+
+    It was four until `trend_direction` was withdrawn from `OFFERABLE_OPERATIONS`: the verifier
+    refuses every binding to one, so offering it meant showing a planner something no draft could
+    ever state. `gpt-5.4` requested it and was refused for choosing what it was offered.
+    """
     offered = offers(agp_package(), agp_candidate())
 
     assert {request.operation for request in offered} == {
         DerivationOperation.ABSOLUTE_CHANGE,
         DerivationOperation.PERCENTAGE_CHANGE,
         DerivationOperation.CROSSED_ZERO,
-        DerivationOperation.TREND_DIRECTION,
     }
-    # Both orientations of the one pair, for each of the four.
-    assert len(offered) == 8
+    # Both orientations of the one pair, for each of the three.
+    assert len(offered) == 6
 
 
 def test_a_valid_triple_that_was_not_offered_is_refused_rather_than_executed():

@@ -56,6 +56,7 @@ from story.core.models import (
     PassageCitation,
     SentenceKind,
     StatementClass,
+    StoryCandidate,
     StoryEvidencePackage,
 )
 from story.core.numerals import CHANGE_VERBS
@@ -67,6 +68,14 @@ from story.stages.verification.package_index import (
     EVIDENCE_SCOPE_PREFIX,
     PackageIndex,
 )
+# The two ends of one contract, imported from both sides deliberately: a stage may not import a
+# sibling stage, and a **test** is where the agreement between the offer set and the verifier is
+# asserted rather than hoped for.
+from story.stages.derivation.execute import execute
+from story.stages.derivation.offers import OFFERABLE_OPERATIONS, offers
+from story.stages.detection import detector_config
+
+from conftest import make_candidate
 
 # ---------------------------------------------------------------------------------------
 # The §2 candidate, as a package
@@ -896,3 +905,188 @@ def test_the_package_index_resolves_an_observed_or_a_derived_fact_and_keeps_them
     assert index.bound(FALL.fact_id) is FALL
     assert [fact.observation_id for fact in index.derived_inputs(FALL.fact_id)] == [Q2_ID, Q3_ID]
     assert index.derived_inputs(SCOPE.fact_id) == ()
+
+
+# ---------------------------------------------------------------------------------------
+# The repair packet after §11.4 — the offer set and the verifier, as one contract
+# ---------------------------------------------------------------------------------------
+
+
+def _offerable_packages() -> tuple[tuple[StoryEvidencePackage, StoryCandidate], ...]:
+    """Three packages between them exercising every operation `offers` may print.
+
+    One package cannot: `percentage_point_change` needs two **percent** readings in adjacent
+    periods, `compare_levels` and `ratio` need two metrics in **one** period, and
+    `absolute_change` refuses percent. So the shapes are built rather than sampled, and the test
+    below asserts the union covers `OFFERABLE_OPERATIONS` — without which "every offered
+    operation is bindable" would be satisfied by offering nothing.
+    """
+    usd = (make_package(), make_candidate(signals={}))
+
+    margin_q2 = make_fact(
+        observation_id="obs:adjusted-gross-margin:opendoor:2022Q2:normalized-table:aa11bb22cc33",
+        metric_id="adjusted_gross_margin", metric_label="Adjusted Gross Margin",
+        period_key="2022Q2", period_start="2022-04-01", period_end="2022-06-30",
+        value=3.3, unit="percent", currency=None, scale="unit",
+        row_label="Adjusted Gross Margin", column_label=Q2_COLUMN, quoted_text="3.3")
+    margin_q3 = make_fact(
+        observation_id=MARGIN_Q3_ID,
+        metric_id="adjusted_gross_margin", metric_label="Adjusted Gross Margin",
+        value=-12.6, unit="percent", currency=None, scale="unit",
+        row_label="Adjusted Gross Margin", quoted_text="-12.6")
+    percent = (make_package(facts=(margin_q2, margin_q3)), make_candidate(signals={}))
+
+    gaap_q3 = make_fact(
+        observation_id="obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:dd44ee55ff66",
+        metric_id="gaap_gross_margin", metric_label="Gross Margin",
+        value=-28.5, unit="percent", currency=None, scale="unit",
+        row_label="Gross Margin", quoted_text="-28.5")
+    one_period = (
+        make_package(
+            facts=(margin_q3, gaap_q3),
+            metrics=(*METRICS,
+                     PackagedMetric(metric_id="gaap_gross_margin", label="Gross Margin",
+                                    unit="percent", allowed_units=("percent",),
+                                    aliases=("gaap gross margin",)))),
+        make_candidate(signals={}, story_type="cross_metric_divergence"),
+    )
+    return (usd, percent, one_period)
+
+
+def test_every_operation_the_offer_set_may_print_is_one_a_draft_can_bind():
+    """§11.4's first defect, closed at the end that moved, and asserted generally.
+
+    `offers` printed `trend_direction`, `execute_all` computed it, and §6 refused every draft
+    binding one as `derived_operation_not_supported` — so `gpt-5.4` was refused for choosing
+    something it had been offered. The rule that holds now is a statement about the *sets* and
+    not about today's membership: **anything the planner may be shown must be something a draft
+    can state**, whatever the two ends come to hold later.
+
+    Driven rather than declared. The subset assertion alone would pass against a verifier that
+    had stopped refusing anything, so every offer of every package below is executed and put
+    through `integrity_findings`, which is the function that answers
+    `derived_operation_not_supported`.
+    """
+    assert OFFERABLE_OPERATIONS <= derived_rules.RECOMPUTABLE, (
+        sorted(operation.value for operation in
+               OFFERABLE_OPERATIONS - derived_rules.RECOMPUTABLE))
+
+    exercised: set[DerivationOperation] = set()
+    for package, candidate in _offerable_packages():
+        offered = offers(package, candidate)
+        for request in offered:
+            fact = execute(request, package, candidate,
+                           direction=detector_config.quantity_direction, offered=offered)
+            assert isinstance(fact, DerivedFact), (
+                f"{request.operation.value} was offered and then refused: "
+                f"{getattr(fact, 'code', None)} {getattr(fact, 'detail', '')}")
+            found = derived_rules.integrity_findings(fact, PackageIndex(package, (fact,)))
+            assert "derived_operation_not_supported" not in {item.code for item in found}, (
+                f"{request.operation.value} is offered and unbindable")
+            exercised.add(request.operation)
+
+    assert exercised == OFFERABLE_OPERATIONS, (
+        "the packages above no longer exercise every offerable operation, so this test proves "
+        "less than it says: " + str(sorted(
+            operation.value for operation in OFFERABLE_OPERATIONS - exercised)))
+
+
+def test_the_withdrawn_operation_is_still_refused_by_the_verifier_that_forced_the_withdrawal():
+    """Nothing was weakened to close §11.4's first defect: the offer set narrowed and the
+    refusal stayed. A `trend_direction` fact reaching §13 from a replayed artifact — which is
+    the only way one can arrive now — is still `derived_operation_not_supported`."""
+    assert DerivationOperation.TREND_DIRECTION not in OFFERABLE_OPERATIONS
+    assert DerivationOperation.TREND_DIRECTION not in derived_rules.RECOMPUTABLE
+
+    word = make_derived(operation=DerivationOperation.TREND_DIRECTION, result=None,
+                        result_word="decrease", unit="direction", currency=None,
+                        display_semantics=DisplaySemantics.DECREASED)
+    found = derived_rules.integrity_findings(word, PackageIndex(make_package(), (word,)))
+    assert [item.code for item in found] == ["derived_operation_not_supported"]
+
+
+# ---------------------------------------------------------------------------------------
+# The repair packet after §11.3 — a derivation's two periods, covered and checked
+# ---------------------------------------------------------------------------------------
+
+#: The sentence both providers wrote and both were refused for, in its shortest honest form.
+#: `$446 million` is the derived result and the two period phrases are the derivation's own
+#: windows; the endpoint values are deliberately absent, because a sentence that stated them
+#: would need two more bindings and the finding under test is about the *periods*.
+TWO_PERIOD_TEXT = ("Adjusted gross profit fell $446 million from the second quarter of 2022 to "
+                   "the third quarter of 2022.")
+
+
+def test_a_sentence_naming_both_of_a_derivations_periods_leaves_no_numeral_undeclared(verifier):
+    """§11.3's finding, and the one this packet exists for.
+
+    A `FactBinding` declares **one** `period_surface` and §6 fixes it to `to_period`, so before
+    this repair the `from` year was uncovered *by construction*: the live Qwen and `gpt-5.4`
+    drafts of `cand:metric-move:adjusted-gross-profit:…` were both refused `unbound_numeral` on
+    the first `2022` of a true sentence naming the two quarters it computed between. The
+    derivation knows both windows; the binding could only ever name one; so `_covering_spans`
+    reads them off the fact.
+    """
+    verified = verifier.verify(
+        make_draft((fall_sentence(text=TWO_PERIOD_TEXT),)), make_package(), make_plan(), (FALL,))
+
+    assert [found.code for found in verified.all_findings] == []
+    assert verified.passed is True
+    # Three numerals now — `446`, and a year in each of the two period phrases — and the check
+    # examined all three rather than stopping at the covered one.
+    assert verified.check("numbers").examined == 3
+
+
+def test_the_covered_period_is_still_the_one_the_check_reads_and_not_a_licence(verifier):
+    """Coverage is not trust, stated as a test: the same sentence with the `from` window moved
+    to a quarter the derivation does not span is refused, and refused by name.
+
+    §13.1 asks *"can a reader tell which claim this numeral belongs to"* and §13.4 asks *"is the
+    claim true"*. Widening the first must not answer the second, so a phrase resolving to
+    neither `from_period` nor `to_period` is `period_named_in_text_contradicts_binding` —
+    a refusal that did not exist before the widening, because the *any*-rule it replaced passed
+    a sentence as soon as one phrase agreed.
+    """
+    # "the fourth quarter of 2021" and not "the first quarter of 2022": `first` is a
+    # superlative and §13.8 would refuse the sentence for a second, unrelated reason.
+    text = TWO_PERIOD_TEXT.replace("the second quarter of 2022",
+                                   "the fourth quarter of 2021")
+    codes_found = codes(make_draft((fall_sentence(text=text),)))
+
+    assert "period_named_in_text_contradicts_binding" in codes_found
+    assert GATE["period_named_in_text_contradicts_binding"].blocking is True
+
+
+def test_a_sentence_naming_a_third_period_beside_the_two_is_refused(verifier):
+    """The other half of the same rule: two windows are licensed, a third is a claim about a
+    period nothing computed — and its numeral is no longer reported as undeclared, so this is
+    the check that has to catch it."""
+    text = ("Adjusted gross profit fell $446 million from the second quarter of 2022 to the "
+            "third quarter of 2022, against the fourth quarter of 2021.")
+    codes_found = codes(make_draft((fall_sentence(text=text),)))
+
+    assert "period_named_in_text_contradicts_binding" in codes_found
+
+
+def test_a_sentence_that_names_only_the_period_the_claim_is_not_about_is_refused(verifier):
+    """`to_period` is what the binding declares and what `display_semantics` is stated against,
+    so a sentence that names periods and never names that one is refused exactly as it was
+    before this packet — the widening added a refusal and removed none."""
+    text = "Adjusted gross profit fell $446 million from the second quarter of 2022."
+    codes_found = codes(make_draft((fall_sentence(text=text),)))
+
+    assert "period_named_in_text_contradicts_binding" in codes_found
+
+
+def test_the_two_windows_are_matched_through_the_grammar_and_not_by_the_declared_string(verifier):
+    """§13.4's closed grammar, on both windows: a legitimate re-phrasing is not a refusal.
+
+    The declared surface stays `"the third quarter of 2022"` and the prose writes both windows
+    the compact way. Nothing here is a substring of anything the binding declares, so a coverage
+    rule built on string matching would refuse this true sentence.
+    """
+    text = "Adjusted gross profit fell $446 million from Q2 2022 to Q3 2022."
+    verified = verifier.verify(
+        make_draft((fall_sentence(text=text),)), make_package(), make_plan(), (FALL,))
+
+    assert [found.code for found in verified.all_findings] == []

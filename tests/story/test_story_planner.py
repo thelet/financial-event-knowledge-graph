@@ -1081,7 +1081,7 @@ def test_the_offer_set_reaches_the_prompt_spelled_exactly_as_it_must_be_requeste
     offered = offers(package, candidate)
     prompt = planner_prompt(package, offered=offered)
 
-    assert len(offered) == 8, [o.operation.value for o in offered]
+    assert len(offered) == 6, [o.operation.value for o in offered]
     assert f"DERIVATIONS OFFERED ({len(offered)} available" in prompt
     for request in offered:
         assert offer_line(request) in prompt

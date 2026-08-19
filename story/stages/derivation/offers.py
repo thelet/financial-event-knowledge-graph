@@ -103,6 +103,36 @@ SAME_PERIOD_OPERATIONS: frozenset[DerivationOperation] = frozenset({
     DerivationOperation.RATIO,
 })
 
+#: The operations that may be **offered**, which is §4.1's seven minus `trend_direction`.
+#:
+#: **An operation the verifier will always refuse has no business in the offer set, and this is
+#: a defect a live run found rather than a rule the plan wrote** *(2026-08-19)*. `offers` printed
+#: `trend_direction`, `execute_all` computed it, and
+#: `story/stages/verification/derived_facts.py:RECOMPUTABLE` then refused any draft binding it as
+#: `derived_operation_not_supported` — so `gpt-5.4` requested it, wrote a sentence stating it, and
+#: was refused for choosing something it had been shown. The offer set and the verifier are one
+#: contract with two ends, and the end that moved is this one.
+#:
+#: **Withdrawn rather than made checkable, and the reason is what the verifier would have to be
+#: given.** The word is `detector_config.quantity_direction`'s answer over a metric's stored sign
+#: convention — `direct_selling_costs` is negative on 46 of 46 canonical values, so a fall in the
+#: number is a rise in the cost — and that table lives in a sibling stage neither the derivation
+#: stage nor the verifier may import. This stage takes it as an argument from the composition
+#: root, which is right for a *producer*; a verifier that took the same object from the same root
+#: would be a verifier configurable into agreement with the thing it is checking, which is
+#: `derived_facts.py`'s own *"asking the defendant"*.
+#:
+#: **And nothing is lost, which is what makes withdrawal the cheap answer rather than the
+#: resigned one.** `trend_direction` produces no numeral at all (`result=None`, unit `direction`),
+#: so no figure in any post depends on it; the same direction over the same two facts already
+#: reaches the writer as `absolute_change`'s `display_semantics`, where it is a word attached to
+#: a number the verifier **does** recompute and where `orientation_findings` checks the sentence
+#: against it. The verifier's refusal stays exactly where it is and stays reachable — a replayed
+#: artifact carrying a `trend_direction` fact is still refused — so this narrows what a planner
+#: may ask for and weakens no check.
+OFFERABLE_OPERATIONS: frozenset[DerivationOperation] = frozenset(
+    set(DerivationOperation) - {DerivationOperation.TREND_DIRECTION})
+
 #: Which units each operation admits, as §4.1's table. `None` means *"any of the corpus's four"*.
 #:
 #: **`absolute_change` excludes `percent`, which corrects §4.1's own "input unit" column.** The
@@ -182,6 +212,19 @@ def validate(
         # arrive as a string this dispatch has no entry for.
         return _refuse(request, DerivationRefusalCode.OPERATION_NOT_SUPPORTED,
                        f"{request.operation!r} is not one of the seven operations §4.1 declares")
+
+    if request.operation not in OFFERABLE_OPERATIONS:
+        # Refused here and not merely dropped from the enumeration, so that "offered" and "valid"
+        # stay one predicate: a plan replayed from an artifact recorded before this narrowing
+        # names a triple this package would no longer print, and it is refused with the reason
+        # rather than executed into a fact the verifier will refuse afterwards.
+        return _refuse(
+            request, DerivationRefusalCode.OPERATION_NOT_SUPPORTED,
+            f"{request.operation.value} is not in OFFERABLE_OPERATIONS: the verifier cannot "
+            "re-derive its result from the package alone, so a draft binding one is refused as "
+            "`derived_operation_not_supported` and offering it would show a planner something no "
+            "post can state. See that constant for why this operation is out and what carries "
+            "the same claim instead")
 
     by_id = {fact.observation_id: fact for fact in package.facts}
     from_fact, to_fact = by_id.get(request.from_fact_id), by_id.get(request.to_fact_id)
@@ -360,6 +403,7 @@ def is_offered(request: DerivationRequest, offered: Sequence[DerivationRequest])
 
 __all__ = [
     "ADMITTED_UNITS",
+    "OFFERABLE_OPERATIONS",
     "SAME_PERIOD_OPERATIONS",
     "TWO_PERIOD_OPERATIONS",
     "is_offered",

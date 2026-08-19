@@ -4,31 +4,24 @@ Offline by default and from committed fixtures. The `neo4j`-marked tests at the 
 re-derive the candidate and the package from the live graph; the `live`-marked ones call the
 model server.
 
-**Every store in this directory was re-recorded live on 2026-08-19, and none of them was
-re-keyed** (DETERMINISTIC_FACT_TOOLS §9). The two earlier moves this docstring used to describe
-— `story-generation-v2` and `story-generation-v3` — were re-keys, valid precisely because the
-*request was unchanged*: `IDENTITY_VERSION` moved, every `request_sha256` moved, and every
-`raw_content` was carried across untouched. S13 is not that. `PLANNER_PROMPT_VERSION` went
-1.1.0 -> 1.2.0 and `WRITER_PROMPT_VERSION` 1.4.0 -> **2.0.0**, both schemas changed, and the
-writer's 2.0.0 schema *removes* `calculation` — so a row recorded under 1.4.0 is an answer to a
-question nobody asks and carries an object `additionalProperties: false` now refuses. Carrying
-those answers across would have been a lie about what was asked. The old evidence for the two
-re-keys (`test_the_rekeyed_stores_replay_to_the_bytes_they_replayed_to_before_the_rekey`, the
-`BYTES_BEFORE_THE_REKEY` table measured at `d72ca64`) is gone with the answers it pinned, and
-what replaced it is stated where it lives, below `ARTIFACTS_OF_THE_LIVE_RECORDING`.
+**Every store here was re-recorded live on 2026-08-19 and none was re-keyed** — twice on that
+day, and this docstring describes the second pass. The first was
+DETERMINISTIC_FACT_TOOLS §9's, for S13's schema and prompt changes; the second is the repair
+packet that followed §11.2's measured regression, which moved `WRITER_PROMPT_VERSION` 2.0.0 ->
+**2.1.0**. `PLANNER_PROMPT_VERSION` did **not** move and neither did the planner's rendering, so
+the planner row in `local_openai_compatible/generations.jsonl` is byte-for-byte the row the
+first pass recorded — same `request_sha256`, same `content_sha256`
+(`52b3b181e5e4041d…`) — and only the writer's question and answer changed. That is the
+cleanest available statement of what the repair touched.
 
-**The evidence package fixture moved too, and it had to.** S13 added `max_derivations: 12` to
-`BudgetParameters`, which is a `package_content_digest` input, so the live path builds
-`pkg:…:6943b6e1436a` where the committed fixture held `pkg:…:4e4363b11373`. Both prompts embed
-the package id, so a store recorded against the live package would have missed the fixture on
-every lookup. `evidence_package.json` was therefore rebuilt from the graph on 2026-08-19 and is
-the only fixture in the parent directory that moved: `candidate.json`, `graph_identity.json` and
-`freshness_report.json` re-derived byte-identical and were left alone, which is the evidence
-that only the budget parameter moved. *(Verified: the two packages differ in
-`budget.parameters.max_derivations`, `budget.artifact_token_estimate` 6636 -> 6642,
-`package_id` and `package_content_digest`, and in nothing else.)*
+**The evidence package fixture did not move this time.** S13 rebuilt it because
+`max_derivations` entered `BudgetParameters` and therefore `package_content_digest`; the 2.1.0
+repair changes a *prompt*, so the live path still builds
+`pkg:…:6943b6e1436a` and `evidence_package.json` re-derives byte-identical
+(`a347b38c340ce3a8…`). `candidate.json`, `graph_identity.json` and `freshness_report.json` are
+untouched for the same reason.
 
-## The Qwen recording, and what it proves
+## The Qwen recording, and the finding it now carries
 
 `local_openai_compatible/generations.jsonl` is genuine Qwen output, captured 2026-08-19 from
 `http://127.0.0.1:8080` serving `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf` through
@@ -39,92 +32,71 @@ that only the budget parameter moved. *(Verified: the two packages differ in
 | --- | --- |
 | `provider_id` / `model_id` | `local_openai_compatible` / `Qwen3.5-9B-Q4_K_M.gguf` |
 | `provider_model_id` | `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf` |
-| prompt versions | planner `1.2.0`, writer `2.0.0` |
-| tokens | 8,370 prompt, 1,540 completion across the two calls |
-| disposition | **`rejected`**, 3 blocking findings |
-| findings | `metric_surface_unresolved` ×3 |
+| prompt versions | planner `1.2.0`, writer `2.1.0` |
+| tokens | 8,415 prompt, 1,545 completion across the two calls |
+| disposition | **`accepted`**, zero findings |
 
 **Four consecutive `--live` runs produced a byte-identical `generations.jsonl`**
-(`sha256 1e26754afa26930f…` every time), so this is a stable answer and not one run's accident.
+(`sha256 8645d1a95a533b29…` every time), so this is a stable answer and not one run's accident.
+Every one of them minted `story-v1-79fd9ddc03fe` and wrote the same `draft.json` and `post.md`
+the replay above produces.
 
-**The rejection is the model writing the unit where a metric surface belongs** — `"percent"`,
-`"percent"`, `"percentage_points"` — and it is reported as the result rather than shopped
-around. Six length targets were measured live (3, 4, 5, 6, 7, 8) and every one of them is
-refused on the same three findings; targets 5, 6 and 8 add a `binding_rendering_is_not_one_numeral`
-and target 7 adds four more codes on top. No target accepts, so nothing was gained by moving
-`config/story.yaml`'s `length_target` and it was left at 4.
+**It is accepted again, and the two things that were wrong were both in the prompt.** The
+2026-08-19 S13 recording was refused on three `metric_surface_unresolved` findings — the model
+wrote `"percent"`, `"percent"` and `"percentage_points"` where a metric surface belongs — and
+§11.2 recorded, correctly, that no verifier rule should move to fix it. Neither did. What moved
+was measured by ablation against this same server *(four live writer calls, 2026-08-19)*:
 
-**What passes around those three findings is why the fixture is worth keeping.** S13 exists to
-take arithmetic away from the model, and on this recording it did:
+| writer prompt | `metric_surface` values Qwen produced | disposition |
+| --- | --- | --- |
+| 2.0.0 | `percent`, `percent`, `percentage_points` | rejected, `metric_surface_unresolved` ×3 |
+| 2.0.0 + the metric id offered as a surface | `gaap gross margin`, `Adjusted Gross Margin`, `gaap gross margin` | refused at §12: `binding_rendering_not_in_text` on `"15.9 percentage_points"` |
+| 2.1.0, both repairs | the same three surfaces | **accepted**, zero findings |
 
-* the planner **requested a derivation** (`compare_levels`, `adjusted_gross_margin` ->
-  `gaap_gross_margin`, 2022Q3) out of the four `offers()` printed;
-* code executed it — `-15.9 percentage_points`, `lower than` — and the writer bound the result
-  by its `fact:derived:` id like any other fact;
-* the `numbers` check examined six numerals and refused none, the `periods` check resolved a
-  surface for all three bindings, and the `calculation_ledger` holds the gap **code** computed;
-* **the `unbound_numeral` on the bare literal `2022` that plan §2 measured does not appear**,
-  and neither does any period or orientation finding.
+The first repair is §11.4's second defect: `metric_surfaces_for` offered only a metric's `label`
+and `aliases`, `gaap_gross_margin`'s label is `"Gross Margin"` and is dropped as a sub-phrase of
+`"Adjusted Gross Margin"`, so the FACTS row **and** the DERIVED FACTS row computed from it both
+printed *"do not write about this fact"* for the metric the plan's own key point required — while
+`WRITER_SYSTEM` rule 4 told the model to write *"GAAP gross margin"*. `MetricAliasIndex` has
+always accepted the id form. The second is the DERIVED FACTS row's figure: it printed
+`{result} {unit}` in the machine's spelling, and the model copied `percentage_points` into
+`rendered` while writing *"percentage points"* in its text.
 
-Eleven of twelve checks pass and the one that fails is about words.
+**What the recording proves about S13 itself, which is why it is worth keeping.** The planner
+requested a derivation (`compare_levels`, `adjusted_gross_margin` -> `gaap_gross_margin`,
+2022Q3) out of the four `offers()` printed; code executed it — `-15.9 percentage_points`,
+`lower than` — and the writer bound the result by its `fact:derived:` id like any other fact. So
+the one computed figure in an accepted post is one **code** produced, and no numeral in it is
+the model's arithmetic.
 
-**The regression that produced those three findings is in the writer prompt, and it was
-measured rather than guessed.** A control run of the same candidate against the same server in a
-`git worktree` of `643935f` — the commit before S13 — is still **accepted**, and its
-`draft.json` and `post.md` hash to the values `d72ca64` recorded, so neither the model nor the
-server has drifted. An ablation over prompt 2.0.0's two new sections then isolated it *(four
-live writer calls, 2026-08-19)*:
+## The one synthetic store, and the one edit that makes it
 
-| writer prompt | `metric_surface` values Qwen produced |
-| --- | --- |
-| 2.0.0 with DERIVED FACTS and EVIDENCE SCOPE | `percent`, `percent`, `percentage_points` |
-| 2.0.0 with DERIVED FACTS only | `percent`, `percent`, `percentage_points` |
-| 2.0.0 with EVIDENCE SCOPE only | `percent`, `percent`, `percentage points` |
-| 2.0.0 with neither section populated | `GAAP Gross Margin`, `Adjusted Gross Margin`, … |
+`generations_rejected_synthetic.jsonl` is the recording above with **one sentence's two sides
+swapped** and nothing else: *"The adjusted gross margin was 15.9 percentage points lower than the
+GAAP gross margin…"*, which is false by 15.9 points. It carries the recording's planner row byte
+for byte, so the plan, the offer set and the derived fact are identical across both files and
+only the writer's answer moves. **Rejected**, on exactly one blocking finding —
+`comparative_not_supported_by_text`, observed *"adjusted_gross_margin before and
+gaap_gross_margin after"* — which is the attack a recomputation on its own would have accepted.
 
-Either new section alone flips it, so this is a 9B model degrading as the prompt lengthens
-rather than anything either section says. **Nothing in `story/stages/` was changed to make the
-recording pass** — that is the brief's line and it is also the honest reading: the verifier is
-right, `"percent"` names no metric, and a repair belongs in the prompt as its own change with
-its own measurement.
+`generations_accepted_synthetic.jsonl` **was deleted**, and for the reason
+`generations_rejected_recorded.jsonl` was deleted before it: it existed because the shipped
+recording was refused and something here had to reach the accepted branch. The shipped recording
+*is* the accepted branch now, so the file could only have been a second accepted store
+hand-authored beside a real one.
 
-## The two synthetic stores, and what one edit each buys
-
-Both are the recording above with the three `metric_surface` strings repaired and **one
-sentence's prose rewritten**, and neither is a recording. They carry the recording's own planner
-row byte for byte, so the plan, the offer set and the derived fact are identical across all
-three files and only the writer's answer moves.
-
-* `generations_accepted_synthetic.jsonl` — sentence 2 becomes *"The GAAP Gross Margin was 15.9
-  percentage points lower than the Adjusted Gross Margin for the third quarter of 2022."*,
-  which is true and which the derived fact's own `display_semantics` (`lower than`) says.
-  **Accepted**, and the numeral in the post is bound to a `fact:derived:` id — so the accepted
-  branch this suite drives is one where no numeral is the model's arithmetic.
-* `generations_rejected_synthetic.jsonl` — the same sentence with the two sides **swapped**,
-  false by 15.9 points. **Rejected**, `comparative_not_supported_by_text`, observed
-  *"adjusted_gross_margin before and gaap_gross_margin after"* — the same code and the same
-  observed string the pre-S13 synthetic produced, on a derived fact instead of a model-declared
-  calculation. It is the attack a recomputation on its own would have accepted.
-
-*(Measured separately and worth recording: repairing **only** the three `metric_surface`
-strings, leaving the model's own "the difference … is 15.9 percentage points" wording alone,
-also accepts. So the three surfaces were the whole of what the model got wrong.)*
-
-## `generations_rejected_recorded.jsonl` was deleted, and the reason is the re-record
-
-It existed because the shipped store was *accepted* and something in this directory had to
-carry a refusal a real model earned — a 2026-08-13 `--live` run refused on
-`comparative_not_supported_by_text`. The shipped store **is** that refusal now, so keeping the
-file would have meant committing a byte-for-byte duplicate of `generations.jsonl` under a second
-name. `REJECTED_RECORDING` survives as a constant naming `generations.jsonl`, because "which
-branch is this test driving" reads better as a word than as a filename.
+**So there is currently no rejected *recording* of this candidate under Qwen, and that is
+reported rather than manufactured.** The model gets this candidate right. The refusals a real
+model still earns are in `openai/generations.jsonl` below, and the refusal machinery over a
+hand-built draft is `test_story_deterministic_verifier.py`'s, untouched.
 
 ## The OpenAI recording
 
-`openai/generations.jsonl` is a recording too, and it is OpenAI's *(re-recorded 2026-08-19)*.
-Two rows lifted whole out of one `python -m story demo --candidate-id … --live --provider openai
---model gpt-5.4` run against `https://api.openai.com/v1/responses`, over the same candidate, the
-same graph run and the same rebuilt evidence package the Qwen store was recorded against.
+`openai/generations.jsonl` is a recording too, and it is OpenAI's *(re-recorded 2026-08-19,
+second pass)*. Two rows lifted whole out of one `python -m story demo --candidate-id … --live
+--provider openai --model gpt-5.4` run against `https://api.openai.com/v1/responses`, over the
+same candidate, the same graph run and the same evidence package the Qwen store was recorded
+against.
 
 | field | value |
 | --- | --- |
@@ -134,24 +106,19 @@ same graph run and the same rebuilt evidence package the Qwen store was recorded
 | rows | `story_editorial_plan`, `story_post_draft` |
 | `finish_reason` | `completed` — the Responses API's `status`, not the local server's `stop` |
 | `temperature_sent` / `reasoning_effort` / `max_tokens` | `false` / `none` / `2048` |
-| disposition | **`rejected`**, 8 blocking findings |
-| findings | `unbound_numeral` ×2, `metric_surface_ambiguous` ×1, `citation_reused_for_unrelated_claim` ×4 |
+| tokens | 8,347 prompt, 1,624 completion |
+| disposition | **`rejected`**, 7 blocking findings |
+| findings | `unbound_numeral` ×2, `citation_reused_for_unrelated_claim` ×4, `connective_sentence_carries_a_claim` |
 
-Seven blocking findings before the re-record and eight after, on the same three codes:
-`gpt-5.4` wrote five sentences where it used to write four, and the extra explanatory sentence
-carries the extra reused citation. It requested the same `compare_levels` derivation the Qwen
-planner did and then wrote no sentence that binds it, which is why its rejection says nothing
-about the derivation stage and everything about citation discipline.
-
-**What it proves that the Qwen stores cannot.** That the OpenAI adapter's translation produced a
-plan §11 accepted and a draft §12 could construct — so the same schema pair, the same prompts,
-the same offer-set rendering and the same portable subset reached a second server unmodified.
-That a recorded row states its own provider and is a **guaranteed miss** for the other one, in
-both directions, on real files rather than on a relabelled copy. And that §13 is provider-blind
-on real recorded content.
+**`metric_surface_ambiguous` is gone from its findings**, which is the same repair the Qwen
+store measures reaching a second provider: `gpt-5.4` wrote *"gaap gross margin"* where it used to
+write a surface §13.5 refused. What it did instead of the previous run: it requested **no**
+derivation at all (`derivations_requested: 0`), wrote six sentences where it wrote five, and put
+a period in a `connective` sentence. Its two `unbound_numeral`s are on `2022` in sentences that
+name a period and bind nothing — the ordinary rule, not a derived-fact one.
 
 **The rejection is the result and it is reported as one.** No verifier rule and no evidence
-contract was changed to make either recording pass (MULTI_PROVIDER_OPENAI §10,
+contract was changed to make either recording pass or fail (MULTI_PROVIDER_OPENAI §10,
 DETERMINISTIC_FACT_TOOLS §9).
 
 **It is deliberately not in `config/story.yaml`'s `demo.generation_stores`.** The shipped
@@ -274,19 +241,17 @@ ALWAYS_WRITTEN = {
 #: The stores this module's docstring describes. Named rather than spelled at each call site so
 #: that "which branch is this test driving" is one word rather than a filename a reader has to
 #: compare character by character against another filename.
-ACCEPTED_STORE = "generations_accepted_synthetic.jsonl"
+#:
+#: **`ACCEPTED_RECORDING` is a recording and `REJECTED_STORE` is not**, and the asymmetry is the
+#: state of the tree rather than a preference. The shipped Qwen store is accepted again since the
+#: writer prompt's 2.1.0 repair, so `generations_accepted_synthetic.jsonl` was deleted — it would
+#: have been a hand-authored accepted store standing beside a real one, which is the duplication
+#: `generations_rejected_recorded.jsonl` was deleted for at 243a5e0. Nothing here now carries a
+#: Qwen refusal a model earned on this candidate, because the model does not earn one;
+#: `openai/generations.jsonl` is the recorded refusal, and `REJECTED_STORE` is one hand edit —
+#: the two sides of the comparison swapped — which is what drives the rejected branch.
+ACCEPTED_RECORDING = "generations.jsonl"
 REJECTED_STORE = "generations_rejected_synthetic.jsonl"
-
-#: A **recording**, not a synthetic, and since 2026-08-19 it is the shipped store itself.
-#: `generations_rejected_recorded.jsonl` existed because the shipped store was *accepted* and
-#: something in this directory had to carry a refusal a real model earned. Under
-#: DETERMINISTIC_FACT_TOOLS §9's re-record the shipped store **is** that refusal, so a separate
-#: file would have been a byte-for-byte duplicate of it — it was deleted rather than kept as a
-#: copy, and the name survives because "which branch is this test driving" still reads better
-#: as a word than as a filename. The synthetic pair is two hand-edits of one sentence, which
-#: proves the checks fire but not that they fire on anything a model actually writes; this
-#: constant is the end that says they do.
-REJECTED_RECORDING = "generations.jsonl"
 
 
 def _read(name: str) -> Any:
@@ -762,56 +727,51 @@ def test_verification_actually_executes_rather_than_being_recorded_as_having_run
     assert outcome.verified.check("identity_and_freshness").examined == 10
 
 
-def test_the_recorded_qwen_draft_is_rejected_and_the_rejection_names_every_blocking_finding(
+def test_the_recorded_qwen_draft_is_accepted_and_every_check_says_what_it_looked_at(
     tmp_path, config
 ):
-    """A real model mistake, refused — and what every check had to look at to reach it.
+    """A real model's draft, accepted — and what every check had to look at to reach it.
 
-    **Re-recorded live on 2026-08-19 under DETERMINISTIC_FACT_TOOLS §9, not re-keyed**, and the
-    answer moved: the fixture this replaced was a 2026-08-13 refusal on
-    `comparative_not_supported_by_text`, and the store driving this test is now the shipped
-    recording itself. Four consecutive `python -m story demo --live` runs against
-    `http://127.0.0.1:8080` returned a byte-identical `generations.jsonl`
-    (`sha256 1e26754afa26930f…`), and its draft is refused three times over — the model wrote
-    the **unit** into every `metric_surface` it declared: `"percent"`, `"percent"`,
-    `"percentage_points"`.
+    **Re-recorded live on 2026-08-19, second pass, not re-keyed.** The store this replaced was
+    the same candidate under writer prompt 2.0.0, refused three times over because the model
+    wrote the **unit** into every `metric_surface` it declared (`"percent"`, `"percent"`,
+    `"percentage_points"`). Nothing in `story/stages/verification/` moved to clear those
+    findings: `metric_surfaces_for` started offering the metric id, which
+    `MetricAliasIndex` has always accepted and which the prompt was withholding, and the
+    DERIVED FACTS row started handing the figure over in the words a sentence carries. The model
+    then wrote the surfaces it was offered. Four consecutive `python -m story demo --live` runs
+    against `http://127.0.0.1:8080` returned a byte-identical `generations.jsonl`
+    (`sha256 8645d1a95a533b29…`).
 
-    **What this fixture is worth is what passes around those three findings.** S13 exists to
-    take arithmetic away from the model, and on this recording it did: the `numbers` check
-    examined six numerals and refused none, the `periods` check resolved a surface for all
-    three bindings, and the `calculation_ledger` holds the gap **code** computed, recomputed to
-    `-15.9`. The `unbound_numeral` on the bare literal `2022` that plan §2 measured — the
-    finding the whole change is for — does not appear, and neither does any period or
-    orientation finding. Eleven of twelve checks pass and the one that fails is about words.
-
-    Asserting the disposition alone would pass against a verifier that looked at nothing, so the
-    denominators are asserted with it. No check was weakened to reach this verdict and none was
-    loosened to let the accepted synthetic through either:
-    `test_story_deterministic_verifier.py`'s malicious drafts are the guard on that and are
-    untouched.
+    **The disposition alone would pass against a verifier that looked at nothing**, so the
+    denominators are asserted with it — and they are the S13 claim: every numeral was examined,
+    every period surface resolved, and the one computed figure in the post came from the
+    derivation tool rather than from the model.
     """
-    outcome = run_demo(demo_inputs(), provider=replaying(REJECTED_RECORDING), config=config,
+    outcome = run_demo(demo_inputs(), provider=replaying(ACCEPTED_RECORDING), config=config,
                        out_dir=tmp_path / "run")
     assert outcome.verified is not None
 
-    assert outcome.disposition == REJECTED
-    assert outcome.ok is False
-    assert [f.code for f in outcome.verified.all_findings] == ["metric_surface_unresolved"] * 3
-    assert [f.observed for f in outcome.verified.all_findings] == [
-        "percent", "percent", "percentage_points"]
-    assert [check.name for check in outcome.verified.checks if check.findings] == [
-        "metric_identity"]
-    # The three denominators that carry the S13 claim: every numeral was examined and none was
-    # refused, every period surface resolved, and the one computed figure in the post came from
-    # the derivation tool rather than from the model.
+    assert outcome.disposition == ACCEPTED
+    assert outcome.ok is True
+    assert [f.code for f in outcome.verified.all_findings] == []
+    assert [check.name for check in outcome.verified.checks if check.findings] == []
     assert outcome.verified.check("numbers").examined == 6
     assert outcome.verified.check("periods").examined == 3
     assert outcome.verified.check("title").examined == 1
+    assert outcome.verified.check("metric_identity").examined == 5
+    # The computed figure is code's, bound by its own id, and recomputed by the verifier against
+    # the derivation rather than against the draft's arithmetic — there is none.
     assert [entry.rendered for entry in outcome.verified.calculation_ledger] == [
         "15.9 percentage points"]
     assert outcome.verified.calculation_ledger[0].recomputed_value == -15.9
     assert [entry.fact_id for entry in outcome.verified.fact_ledger][2].startswith(
         "fact:derived:compare-levels:")
+    # The three surfaces the 2.0.0 recording got wrong, as the model wrote them under 2.1.0.
+    assert [binding.metric_surface
+            for sentence in outcome.draft.sentences
+            for binding in sentence.fact_bindings] == [
+        "gaap gross margin", "Adjusted Gross Margin", "gaap gross margin"]
 
 
 def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config):
@@ -848,14 +808,11 @@ def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config
 def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
     """The accepted branch: the two files are mutually exclusive.
 
-    Driven by the **accepted synthetic** store, which since the 2026-08-19 re-record is the
-    only store in this directory that reaches this branch: the shipped recording is refused on
-    three `metric_surface_unresolved` findings and the OpenAI one on eight of its own. That is
-    stated rather than hidden — the accepted post this suite asserts about is a hand-repaired
-    draft, and the two things repaired in it were the model's metric surfaces and the direction
-    word in one sentence. The branch is real either way: §13 runs in full over the draft and
-    returns no finding, and `pipeline._write_run` chooses `post.md` on the same condition it
-    always did.
+    Driven by the **shipped recording**, which since the writer prompt's 2.1.0 repair reaches
+    this branch on its own: the post asserted about below is a real model's answer, not a
+    hand-repaired one. It was hand-repaired between the two 2026-08-19 re-records, and that is
+    worth remembering rather than erasing — the draft this replaced was refused on three
+    `metric_surface_unresolved` findings, and what changed is the prompt that produced it.
 
     The prose is rendered from the structured draft and never from the model's own text (§12),
     which is why the post can be asserted to hold a figure the verifier bound — and the second
@@ -863,7 +820,7 @@ def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
     one **code** produced, bound by its `fact:derived:` id, so no numeral in an accepted post is
     the model's arithmetic.
     """
-    outcome = run_demo(demo_inputs(), provider=replaying(ACCEPTED_STORE), config=config,
+    outcome = run_demo(demo_inputs(), provider=replaying(ACCEPTED_RECORDING), config=config,
                        out_dir=tmp_path / "run")
     written = {path.name for path in (tmp_path / "run").iterdir()}
 
@@ -908,38 +865,37 @@ def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
 #: replays the committed store with nothing listening on `:8080` and requires the same bytes —
 #: so a fixture whose answer was quietly edited after capture moves `draft.json`, and a
 #: pipeline that stopped being deterministic moves everything.
+#:
+#: **Re-measured 2026-08-19 on the second re-record**, from `story-v1-79fd9ddc03fe`, which four
+#: consecutive live runs produced identically. `candidate.json`, `evidence_package.json`,
+#: `editorial_plan.json` and `derived_facts.json` hash to what the *first* re-record produced —
+#: the planner prompt and the package did not move, so the plan and the derivation are the same
+#: bytes — and `draft.json` moved because the writer's question did. `post.md` is here and
+#: `rejected.json` is not, which is the accepted branch stated as a file listing.
 ARTIFACTS_OF_THE_LIVE_RECORDING: dict[str, str] = {
     "candidate.json": "e82e92c75de12282dfd5757c04967924787bdbc77ba38a800023a80df88326c1",
     "evidence_package.json": "a347b38c340ce3a8e66f56ce2b4b3c401433b2d3a2bd5b0a45a354bff339bb24",
     "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
     "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
-    "draft.json": "5cc539c3bc1c221ca6da7cad481f57647327b4c8134c8bfff834139a87fe2c3c",
+    "draft.json": "aab096ccce62e94505ccc9550a59980dbb6b62046c7be4dbf29f880a9b6e0138",
     "verification_report.json":
-        "32760fb45c405f09033a09162d8bad51d2300e07110f7ceded7d431153cc0351",
-    "rejected.json": "4bc65a48f1bc6b9ed65f091081e210ed7c28e68cc610df5fcd63e216def0d615",
-    "generations.jsonl": "1e26754afa26930fa8550756bc541f73e34503b48c5dd66ad50c3620af724d2f",
+        "08c554fa79316b40d005b45a45612ffe54106324fc31fa7ab7c87080ab6505eb",
+    "post.md": "2afa5fddece71bc2ea51f43ccb1d4d21cec49b90eb48237c40fd79b6e1cd0d26",
+    "generations.jsonl": "8645d1a95a533b29ad5d2719e55a7137e3e166b0ff04d786f671153e11d87f68",
 }
 
-#: The same, for the two synthetic stores, measured on their first replay after they were
-#: rebuilt to the 2.0.0 schema on 2026-08-19. A regression pin and **not** a live measurement,
-#: which is why they sit in their own table with their own name: nothing recorded these, they
-#: are the recording above with the edits this module's docstring itemises.
+#: The same, for the one synthetic store, measured on its first replay after it was rebuilt from
+#: the 2.1.0 recording. A regression pin and **not** a live measurement, which is why it sits in
+#: its own table with its own name: nothing recorded this, it is the recording above with one
+#: sentence's two sides swapped.
 ARTIFACTS_OF_THE_SYNTHETIC_STORES: dict[str, dict[str, str]] = {
-    ACCEPTED_STORE: {
-        "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
-        "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
-        "draft.json": "1244c3508b7f3ecb689bd53462c0b3d9ecba08679b337c27c81c71873461c033",
-        "verification_report.json":
-            "596901969639cf90ba0414c156f3e6cc1eef61d9e6487194586d6bf401f7462b",
-        "post.md": "140fe533d1abc0612a8fbd5c2355d5b3092992e0ca851bff44d03868d8bb441d",
-    },
     REJECTED_STORE: {
         "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
         "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
-        "draft.json": "7879f1a4c8e0a43a9dad889d5d2ee46fa6965e73f2ca3bdc26d1039b94546de9",
+        "draft.json": "986f5da1eefc019304e14fdeeea769a6f2107a8ddd3eaf798ccc0fe8be7e1538",
         "verification_report.json":
-            "6d71dd79430b74ed0d400427e8c9d1e60009182c1cea14607e3f59b967d77626",
-        "rejected.json": "f08683836b81d44a2e5d702f17c65a7440553f160d53b2535d498268388f94e3",
+            "48f5c2a1393951e3e5e99597eb537fce0226bbedeadd76a745c05833f7f7eb13",
+        "rejected.json": "ce168645ce09aab636721901d691c28e33649b35f1ad2767691e4b228b9a841e",
     },
 }
 
@@ -962,9 +918,10 @@ def test_the_committed_recording_replays_offline_to_the_bytes_the_live_run_wrote
 
     for name, expected in sorted(ARTIFACTS_OF_THE_LIVE_RECORDING.items()):
         assert hashlib.sha256((run / name).read_bytes()).hexdigest() == expected, name
-    # `demo_manifest.json` is deliberately absent above: it holds the clock. `post.md` is absent
-    # because this run is refused and never writes one, which is itself part of the comparison.
-    assert not (run / "post.md").exists()
+    # `demo_manifest.json` is deliberately absent above: it holds the clock. `post.md` **is** in
+    # the table since the 2.1.0 re-record — this run is accepted and writes one — and
+    # `rejected.json` is absent for the same reason, which is itself part of the comparison.
+    assert not (run / "rejected.json").exists()
 
 
 @pytest.mark.parametrize("store_name", sorted(ARTIFACTS_OF_THE_SYNTHETIC_STORES))
@@ -998,24 +955,19 @@ def test_each_synthetic_store_replays_to_the_artifacts_it_was_built_to_produce(
 #: the committed text and finding the recorded value says the row on disk is internally
 #: consistent — a row whose answer was edited without its digest being recomputed fails here.
 #:
-#: **The two synthetics share the recording's planner row byte for byte**, which is the file-level
-#: statement of what the tests above assert through a run: one plan, one derivation, three
-#: writer answers.
+#: **The synthetic shares the recording's planner row byte for byte**, which is the file-level
+#: statement of what the tests above assert through a run: one plan, one derivation, two writer
+#: answers.
 COMMITTED_CONTENT_DIGESTS: dict[str, dict[str, str]] = {
-    "generations.jsonl": {
+    ACCEPTED_RECORDING: {
         "story_editorial_plan":
             "52b3b181e5e4041ddc14302e4d76077fb660c416a0235645018e93c56abafa97",
-        "story_post_draft": "96557db2f8ce7ea9675f9369569d8de2254c2690fad407525b249feee457c2b3",
-    },
-    ACCEPTED_STORE: {
-        "story_editorial_plan":
-            "52b3b181e5e4041ddc14302e4d76077fb660c416a0235645018e93c56abafa97",
-        "story_post_draft": "a8bb6a9101466dc4a68595f42d9028ef317027ddc3ed9d266601cafda9eaa4de",
+        "story_post_draft": "7e36ba674235e20c71c136ca4059be1ef6d0f921c264c233dd553ef0b452f5a7",
     },
     REJECTED_STORE: {
         "story_editorial_plan":
             "52b3b181e5e4041ddc14302e4d76077fb660c416a0235645018e93c56abafa97",
-        "story_post_draft": "d8a55ce6d1608965a521d36cbdb199d0917687a92e872eb0212c03d2f863f26d",
+        "story_post_draft": "8651da315a9d38c96f96144998e942692c8dc2e8d9abb3866c0d324e676bc36b",
     },
 }
 
@@ -1031,8 +983,8 @@ def test_every_committed_row_hashes_to_the_answer_it_carries():
 
     openai_recorded = {
         "story_editorial_plan":
-            "91538d1d0d29a8c5c52a5181a9949fb32e981bc0b4d66a74359854d73f71058f",
-        "story_post_draft": "ac8fdcd5f787d0b84ad6299395b2bd564e84baa104e72d110e20ee7ac0fd5d66",
+            "ebf2f2e0c95550e3045276966fa4ffd75909fbc8eb3f844a2c99484f32d92145",
+        "story_post_draft": "1fe6fb4689d14c3e2c3e885f0698edfaa4d041a48f9b4133603a95bace96b2bd",
     }
     for directory, provider_id, table in (
             (STORES, PROVIDER_ID, COMMITTED_CONTENT_DIGESTS),
@@ -1049,38 +1001,40 @@ def test_every_committed_row_hashes_to_the_answer_it_carries():
                 assert row["provider_id"] == provider_id
 
 
-def test_the_two_synthetics_are_the_recording_with_one_sentence_rewritten():
+def test_the_synthetic_is_the_recording_with_one_sentence_reversed():
     """The claim this module's docstring makes about the pair, checked against the bytes.
 
-    Both synthetics carry the recording's own planner answer unedited, and their writer answers
-    differ from the recording's — and from each other's — in the sentence that states the gap
-    and in the three `metric_surface` strings the model got wrong. Asserting the planner row is
-    identical is what stops a future edit from quietly re-planning one branch of the pair, which
-    would make the accepted/rejected comparison a comparison of two different runs.
+    The synthetic carries the recording's own planner answer unedited, and its writer answer
+    differs from the recording's in the sentence that states the gap: the two metrics swap sides,
+    so the sentence is false by 15.9 points while every id, every rendering and every citation in
+    it stays the recording's. Asserting the planner row is identical is what stops a future edit
+    from quietly re-planning one branch, which would make the accepted/rejected comparison a
+    comparison of two different runs.
+
+    **It was a pair of synthetics until the writer prompt's 2.1.0 repair.** The accepted one was
+    deleted when the recording became accepted again, because a hand-authored accepted store
+    beside a real one asserts nothing the real one does not.
     """
     def rows(name: str) -> dict[str, str]:
         return {row["schema_name"]: row["raw_content"] for row in (
             json.loads(line) for line in
             (STORES / name).read_text(encoding="utf-8").splitlines() if line.strip())}
 
-    recording = rows("generations.jsonl")
-    accepted, rejected = rows(ACCEPTED_STORE), rows(REJECTED_STORE)
+    recording, rejected = rows(ACCEPTED_RECORDING), rows(REJECTED_STORE)
 
-    assert accepted["story_editorial_plan"] == recording["story_editorial_plan"]
     assert rejected["story_editorial_plan"] == recording["story_editorial_plan"]
-    assert accepted["story_post_draft"] != recording["story_post_draft"]
-    assert accepted["story_post_draft"] != rejected["story_post_draft"]
-    # The one edit that separates the pair, in full: the two sides of the comparison swap.
-    assert ("The GAAP Gross Margin was 15.9 percentage points lower than the Adjusted Gross "
-            "Margin") in accepted["story_post_draft"]
-    assert ("The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross "
-            "Margin") in rejected["story_post_draft"]
-    # And the three the model itself got wrong, absent from both and present in the recording.
-    assert '"metric_surface": "percent"' in recording["story_post_draft"]
-    assert '"metric_surface": "percentage_points"' in recording["story_post_draft"]
-    for repaired in (accepted, rejected):
-        assert '"metric_surface": "percent"' not in repaired["story_post_draft"]
-        assert '"metric_surface": "percentage_points"' not in repaired["story_post_draft"]
+    assert rejected["story_post_draft"] != recording["story_post_draft"]
+    # The one edit, in full: the two sides of the comparison swap, and the binding follows the
+    # metric the sentence now puts first — so the store is a draft a model could have produced.
+    assert ("The GAAP gross margin was 15.9 percentage points lower than the Adjusted Gross "
+            "Margin") in recording["story_post_draft"]
+    assert ("The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP gross "
+            "margin") in rejected["story_post_draft"]
+    # And the surfaces the 2.0.0 recording got wrong are in neither: the model wrote metric
+    # surfaces under 2.1.0, so there was nothing to repair by hand.
+    for store in (recording, rejected):
+        assert '"metric_surface": "percent"' not in store["story_post_draft"]
+        assert '"metric_surface": "percentage_points"' not in store["story_post_draft"]
 
 
 #: Every committed store, with the identity `story-generation-v3` says each row must state.
@@ -1088,8 +1042,7 @@ def test_the_two_synthetics_are_the_recording_with_one_sentence_rewritten():
 #: columns were the whole of a row's stated key, and the last two were settings that changed the
 #: request body and reached no digest at all.
 COMMITTED_STORES: tuple[tuple[Path, str, str, bool, str | None], ...] = (
-    (STORES / "generations.jsonl", PROVIDER_LOCAL, MODEL_ID, True, None),
-    (STORES / ACCEPTED_STORE, PROVIDER_LOCAL, MODEL_ID, True, None),
+    (STORES / ACCEPTED_RECORDING, PROVIDER_LOCAL, MODEL_ID, True, None),
     (STORES / REJECTED_STORE, PROVIDER_LOCAL, MODEL_ID, True, None),
     (OPENAI_STORES / "generations.jsonl", PROVIDER_OPENAI, OPENAI_MODEL_ID, False, "none"),
 )
@@ -1330,13 +1283,11 @@ def test_two_runs_alike_but_for_the_provider_mint_two_ids_and_two_directories(
         [qwen.story_run_id, openai.story_run_id])
     # The answers, and therefore the work, are identical: only the label moved.
     assert qwen.plan == openai.plan and qwen.draft == openai.draft
-    # **`rejected` since the 2026-08-19 re-record**, and the assertion is kept pointed at the
-    # recording rather than moved to the accepted synthetic: what this test attributes to the
-    # provider is the *identity*, and holding the answers equal is what makes the attribution
-    # sound. Which verdict those equal answers reach is not this test's subject, and swapping in
-    # a hand-authored store to keep the word "accepted" here would trade a real answer for a
-    # nicer-looking one.
-    assert qwen.disposition == openai.disposition == REJECTED
+    # **The verdict is asserted equal rather than asserted to be a particular word.** What this
+    # test attributes to the provider is the *identity*; which verdict two identical answers
+    # reach is not its subject, and it has been both `rejected` (the 2.0.0 recording) and
+    # `accepted` (the 2.1.0 one) without anything it tests having moved.
+    assert qwen.disposition == openai.disposition == ACCEPTED
     # …and the stores the two runs would write are keyed apart row for row.
     qwen_keys = {row.request_sha256 for row in
                  GenerationStore(qwen.directory / "generations.jsonl").generations()}
@@ -1381,12 +1332,16 @@ def test_the_committed_openai_recording_replays_offline_to_the_run_it_was_captur
     """The live `gpt-5.4` run, reproduced from its own rows with nothing running.
 
     Everything asserted below was measured on the live run
-    (`data/story_demo/story-v1-f7667486551e`, **re-recorded 2026-08-19** under
-    DETERMINISTIC_FACT_TOOLS §9): the draft reached §13, §13 refused it, and the **eight**
-    blocking findings are the three codes in the table in this module's docstring. Seven before
-    the re-record and eight after, on the same three codes — `gpt-5.4` wrote five sentences
-    where it used to write four, and the extra explanatory one carries the extra reused
-    citation. The rejection is the result and no rule was changed to avoid it
+    (`data/story_demo/story-v1-e3c263b28b02`, **re-recorded 2026-08-19**, second pass): the draft
+    reached §13, §13 refused it, and the **seven** blocking findings are the three codes in the
+    table in this module's docstring.
+
+    **`metric_surface_ambiguous` is gone and nothing in §13.5 moved to lose it.** The writer
+    prompt started offering the metric id as a surface, which `MetricAliasIndex` has always
+    resolved uniquely, and `gpt-5.4` wrote *"gaap gross margin"* where it used to write a surface
+    the alias index refuses. What it did differently on its own account: it requested **no**
+    derivation this time, wrote six sentences rather than five, and put a period into a
+    `connective` sentence. The rejection is the result and no rule was changed to avoid it
     (MULTI_PROVIDER_OPENAI §10, DETERMINISTIC_FACT_TOOLS §9).
     """
     outcome = run_demo(demo_inputs(), provider=openai_replaying(), config=config,
@@ -1395,9 +1350,10 @@ def test_the_committed_openai_recording_replays_offline_to_the_run_it_was_captur
 
     assert outcome.disposition == REJECTED
     assert outcome.verified is not None and not outcome.verified.passed
-    assert sum(1 for f in outcome.verified.all_findings if f.blocking) == 8
+    assert sum(1 for f in outcome.verified.all_findings if f.blocking) == 7
     assert {f.code for f in outcome.verified.all_findings} == {
-        "unbound_numeral", "metric_surface_ambiguous", "citation_reused_for_unrelated_claim"}
+        "unbound_numeral", "citation_reused_for_unrelated_claim",
+        "connective_sentence_carries_a_claim"}
     # Both call sites answered, and each block names the *dated* id the API reported rather
     # than the configured one — the distinction `provider_model_id` exists to keep.
     assert manifest["provider_id"] == PROVIDER_OPENAI
@@ -1463,10 +1419,10 @@ def test_each_providers_committed_rows_are_a_miss_under_the_other_in_both_direct
 @pytest.mark.parametrize(
     "label, path, recorded_provider_id, model_id, disposition",
     [
-        ("qwen", STORES / "generations.jsonl", PROVIDER_LOCAL, MODEL_ID, REJECTED),
+        ("qwen", STORES / ACCEPTED_RECORDING, PROVIDER_LOCAL, MODEL_ID, ACCEPTED),
         ("openai", OPENAI_STORES / "generations.jsonl", PROVIDER_OPENAI, OPENAI_MODEL_ID,
          REJECTED),
-        ("accepted", STORES / ACCEPTED_STORE, PROVIDER_LOCAL, MODEL_ID, ACCEPTED),
+        ("rejected", STORES / REJECTED_STORE, PROVIDER_LOCAL, MODEL_ID, REJECTED),
     ],
 )
 def test_the_verifier_reaches_the_same_verdict_whichever_provider_delivered_the_draft(
@@ -1481,14 +1437,12 @@ def test_the_verifier_reaches_the_same_verdict_whichever_provider_delivered_the_
     about a transport, so a difference here would mean something provider-dependent had reached
     it.
 
-    **Three cases since the 2026-08-19 re-record, where there used to be two.** Both live
-    recordings are now refused — Qwen on `metric_surface_unresolved`, `gpt-5.4` on three other
-    codes — so a table of two would have asserted provider-blindness only on drafts the verifier
-    rejects, and "the same verdict" would have been the same verdict *`rejected`* every time.
-    The third row carries the **accepted synthetic** through the same two labels to keep the
-    passing side of §13 in the comparison. It is named `accepted` rather than after a provider
-    because nothing recorded it, and it is the weaker of the three for exactly that reason:
-    the two recordings are what say a real adapter's answer survives the crossing.
+    **Three cases, and the two recordings now sit on opposite sides of the verdict.** The Qwen
+    recording is accepted since the writer prompt's 2.1.0 repair and the `gpt-5.4` one is still
+    refused, so the two rows that carry real adapter answers already cover both branches — which
+    is what the third row used to be needed for. It is kept, pointed at the rejected synthetic,
+    because a hand-built refusal exercises the reporting path with a *single* finding where the
+    OpenAI recording carries seven.
 
     The run ids must still differ, because the provider is a `story_run_id` input: identical
     verification and distinct identity are both required, and this is the one test that holds
@@ -1741,11 +1695,11 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     assert manifest["demo"]["package_id"] == inputs.package.package_id
     assert manifest["demo"]["package_content_digest"] == inputs.package.package_content_digest
     assert manifest["demo"]["graph_input_content_digest"] == inputs.identity.input_content_digest
-    # **`rejected`, and the shipped store is why** — see this module's docstring. The live
-    # 2026-08-19 Qwen recording this replays is refused on three `metric_surface_unresolved`
-    # findings; the accepted branch is asserted from the synthetic store, in
-    # `test_an_accepted_run_writes_the_post_and_no_rejection`.
-    assert manifest["demo"]["disposition"] == REJECTED
+    # **`accepted`, and the shipped store is why** — see this module's docstring. The live
+    # 2026-08-19 Qwen recording this replays is the second re-record, under writer prompt 2.1.0,
+    # and it carries no finding; the rejected branch is asserted from the synthetic store, in
+    # `test_a_rejected_run_writes_its_artifacts_and_writes_no_post`.
+    assert manifest["demo"]["disposition"] == ACCEPTED
     assert manifest["demo"]["generation_mode"] == "replay"
     assert manifest["graph_run_id"] == GRAPH_RUN_ID
     assert manifest["model_id"] == MODEL_ID
@@ -1758,7 +1712,7 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     # The manifest is where a reader sees which wording produced these rows, and these two
     # numbers are why the committed stores had to be re-recorded rather than re-keyed.
     assert manifest["prompt_versions"] == {"story_editorial_plan": "1.2.0",
-                                           "story_post_draft": "2.0.0"}
+                                           "story_post_draft": "2.1.0"}
     assert sorted(manifest["schema_digests"]) == ["story_editorial_plan", "story_post_draft"]
     assert manifest["ranking_policy_version"] == "1.1.0"
     assert manifest["policy_version"] == POLICY_VERSION
@@ -1794,7 +1748,7 @@ def test_the_manifest_records_the_provider_and_both_call_sites_separately(tmp_pa
         "provider_id": PROVIDER_ID,
         "model_id": MODEL_ID,
         "provider_model_id": "/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf",
-        "prompt_version": "2.0.0",
+        "prompt_version": "2.1.0",
         "schema_name": "story_post_draft",
         "max_tokens": config.writer_max_tokens,
     }
@@ -2171,7 +2125,7 @@ def test_the_dispositions_are_a_closed_set_the_run_reports_from(tmp_path, config
         run_demo(inputs, provider=provider, config=config,
                  out_dir=tmp_path / name).disposition
         for name, inputs, provider in (
-            ("accepted", demo_inputs(), replaying(ACCEPTED_STORE)),
+            ("accepted", demo_inputs(), replaying(ACCEPTED_RECORDING)),
             ("rejected", demo_inputs(), replaying(REJECTED_STORE)),
             ("plan", demo_inputs(), RefusedPlannerProvider()),
             ("draft", demo_inputs(), BadWriterProvider()),
@@ -2474,13 +2428,12 @@ def test_the_command_names_the_call_that_got_no_answer_and_not_a_stage_that_refu
 def test_the_command_exits_zero_and_names_the_post_when_the_draft_is_accepted(
     tmp_path, monkeypatch, capsys
 ):
-    """The accepted branch of the same verb, over the **accepted synthetic** store.
+    """The accepted branch of the same verb, over the **shipped recording**.
 
-    Pointed at that store for the same reason `test_an_accepted_run_writes_the_post_and_no_
-    rejection` is: it reaches acceptance through a comparative where the shipped recording
-    reaches it through a `difference`, and the branch — exit 0, the post named on stdout,
-    `post.md` on disk — is what this test exists for. The config is otherwise the shipped one,
-    and the store is swapped the way the rejected test above swaps it.
+    The store is named explicitly rather than left to the default it resolves to, so that this
+    test and the rejected one above are configured the same way and a store move touches both
+    lines. The branch — exit 0, the post named on stdout, `post.md` on disk — is what this test
+    exists for.
     """
     class Closable:
         def close(self) -> None:
@@ -2488,7 +2441,7 @@ def test_the_command_exits_zero_and_names_the_post_when_the_draft_is_accepted(
 
     accepted = DemoConfig(**{
         **vars(DemoConfig.load(REPO_ROOT)),
-        "generation_stores": {PROVIDER_ID: str(STORES / ACCEPTED_STORE)}})
+        "generation_stores": {PROVIDER_ID: str(STORES / ACCEPTED_RECORDING)}})
     monkeypatch.setattr(cli, "build_story_context", lambda *a, **k: Closable())
     monkeypatch.setattr(cli, "resolve_demo_inputs", lambda *a, **k: demo_inputs())
     monkeypatch.setattr(cli.DemoConfig, "load", classmethod(lambda cls, root: accepted))
@@ -2608,17 +2561,17 @@ def test_live_the_demo_runs_end_to_end_from_the_graph_and_the_recorded_store(
     package whose digest had drifted after the prompt was rendered would refuse at §13.13.
     Neither happens, and that is the claim. **The disposition is the recording's content, not
     this test's subject** — the two failure modes above are told apart by the store replaying at
-    all — and since the 2026-08-19 re-record the shipped recording is refused, so the
-    disposition asserted below moved with it. What is asserted alongside is the part that is
-    this test's subject: the identity check, which is the one that compares the graph-built
-    package against the digest the prompt was rendered over, found nothing.
+    all — and it has moved twice on 2026-08-19 without anything this test is about moving:
+    refused under writer prompt 2.0.0, accepted again under 2.1.0. What is asserted alongside is
+    the part that is this test's subject: the identity check, which is the one that compares the
+    graph-built package against the digest the prompt was rendered over, found nothing.
     """
     outcome = run_demo(live_inputs, provider=replaying(), config=config,
                        out_dir=tmp_path / "run")
 
-    assert outcome.disposition == REJECTED
-    assert outcome.verified is not None and outcome.verified.passed is False
-    assert [f.code for f in outcome.verified.all_findings] == ["metric_surface_unresolved"] * 3
+    assert outcome.disposition == ACCEPTED
+    assert outcome.verified is not None and outcome.verified.passed is True
+    assert [f.code for f in outcome.verified.all_findings] == []
     assert outcome.verified.check("identity_and_freshness").findings == ()
     assert outcome.verified.check("identity_and_freshness").examined == 10
     assert (tmp_path / "run" / "demo_manifest.json").is_file()

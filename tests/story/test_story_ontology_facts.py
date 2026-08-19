@@ -458,13 +458,14 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.statement in prompt, fact.fact_id
-    # 2.0.0 since DETERMINISTIC_FACT_TOOLS §5 removed `calculation` from the writer's schema —
-    # the first version to *remove* a field, so a draft recorded under 1.4.0 carries an object
-    # the grammar no longer admits and those rows are unreachable in both directions. 1.4.0 was
-    # TABLE_CELL_CITATIONS S4's evidence handle; 1.3.0 was S6's warning phrases. The literal is
-    # kept beside the constant so a version that stops moving is as loud as one that moves for
-    # the wrong reason.
-    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "2.0.0"
+    # 2.1.0 since the repair packet after DETERMINISTIC_FACT_TOOLS §11.2: `metric_surfaces_for`
+    # offers the metric id, so a metric whose label is ambiguous is writable again, and the
+    # DERIVED FACTS row hands the figure over as a quoted string in words rather than as
+    # `{result} {unit}`. 2.0.0 was §5 removing `calculation` from the schema — the first version
+    # to *remove* a field; 1.4.0 was TABLE_CELL_CITATIONS S4's evidence handle; 1.3.0 was S6's
+    # warning phrases. The literal is kept beside the constant so a version that stops moving is
+    # as loud as one that moves for the wrong reason.
+    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "2.1.0"
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])

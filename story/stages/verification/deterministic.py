@@ -519,7 +519,7 @@ class DeterministicVerifier:
         for sentence in draft.sentences:
             tokens = tokenize_numerals(sentence.text)
             examined += len(tokens)
-            covering = self._covering_spans(sentence)
+            covering = self._covering_spans(sentence, index)
             for token in tokens:
                 if any(span.contains(token.start, token.end) for span in covering):
                     continue
@@ -794,15 +794,41 @@ class DeterministicVerifier:
         return derived_rules.scope_findings(sentence, binding, scope)
 
     def _covering_spans(
-        self, sentence: DraftSentence
+        self, sentence: DraftSentence, index: PackageIndex
     ) -> tuple[language.LexicalMatch, ...]:
-        """§13.1's four ways a numeral may be accounted for, as spans in this sentence.
+        """§13.1's ways a numeral may be accounted for, as spans in this sentence.
 
         A calculation's `period_surface` covers the same way a binding's does, and for the same
         §13.1 reason — *"a year in `in 2022` is not a fact"*. Covering it here is not trusting
         it: `_check_periods` resolves the declared surface through §13.4's grammar and requires
         it to agree with every input observation, so a derivation naming the wrong period is
         refused by that check rather than admitted by this one.
+
+        **A derived binding covers *both* of its derivation's periods, and that is the repair a
+        live run forced** *(2026-08-19)*. A `FactBinding` declares one `period_surface` and §6
+        fixes it to `to_period`, so a sentence stating a two-period derivation — *"…fell from
+        $556 million in the second quarter of 2022 to $110 million in the third quarter of
+        2022"* — had its `to` year covered and its `from` year uncovered **by construction**, and
+        both Qwen and `gpt-5.4` were refused `unbound_numeral` on the first `2022`. The
+        derivation knows both periods; the binding could only ever name one; so the two periods
+        are read off the *fact* rather than off the declaration.
+
+        **What is covered and what is checked are different questions, and this answers only the
+        first.** Covering says *"a person can see which claim this numeral belongs to"* —
+        §13.1's own reason, that a bare numeral cannot be matched back to a fact. Checking says
+        *"the claim is true"*, and that is `_check_periods`: the declared surface is still
+        resolved through §13.4's grammar and still required to equal `to_period` on both
+        endpoints and on kind, and `_derived_period_grounding_findings` still refuses a sentence
+        naming a period the derivation does not span, as
+        `period_named_in_text_contradicts_binding`. So the widening here cannot license a wrong
+        period — it can only stop a *right* one from being reported as an undeclared numeral.
+
+        The two periods are matched through the grammar rather than by string, exactly as a
+        declared surface is: any phrase §13.4 resolves to one of the derivation's two windows
+        covers, so *"Q2 2022"* and *"the second quarter of 2022"* are one answer. `scan` reports
+        no character span — it runs over a lowercased, whitespace-collapsed copy — so each
+        phrase is re-located in the real text by `language.occurrences`, which fails closed: a
+        phrase that cannot be found again covers nothing.
         """
         spans = [language.LexicalMatch(term=b.rendered, start=b.char_start,
                                        end=b.char_end)
@@ -814,9 +840,30 @@ class DeterministicVerifier:
                 needles.append(sentence.calculation.result_rendered)
             if sentence.calculation.period_surface:
                 needles.append(sentence.calculation.period_surface)
+        needles.extend(self._derived_period_needles(sentence, index))
         for needle in needles:
             spans.extend(language.occurrences(sentence.text, needle))
         return tuple(spans)
+
+    @staticmethod
+    def _derived_period_needles(
+        sentence: DraftSentence, index: PackageIndex
+    ) -> list[str]:
+        """The phrases this sentence uses to name a derivation's own `from` and `to` windows."""
+        endpoints: list[PackagedFact] = []
+        for binding in sentence.fact_bindings:
+            derived = index.derived_fact(binding.fact_id)
+            if derived is None:
+                continue
+            endpoints.extend(
+                fact for fact in (index.fact(derived.from_fact_id),
+                                  index.fact(derived.to_fact_id))
+                if fact is not None)
+        if not endpoints:
+            return []
+        return [phrase.text for phrase in period_grammar.scan(sentence.text)
+                if phrase.resolved
+                and any(_endpoints_agree(phrase.period, fact) for fact in endpoints)]
 
     @staticmethod
     def _sole_numeral(rendered: str) -> NumeralToken | None:
@@ -1208,17 +1255,15 @@ class DeterministicVerifier:
 
         The prose grounding runs whatever the sentence's kind, unlike an observation binding.
         `GROUNDED_SENTENCE_KINDS` exempts `calculated` because such a sentence used to carry no
-        bindings; it now carries these, so the exemption's premise is gone. Its rule is an
-        *any* rule — a sentence legitimately naming both endpoints passes on the one that agrees
-        — so *"fell from $556M in the second quarter to $110M in the third"* grounds.
+        bindings; it now carries these, so the exemption's premise is gone. It is
+        `_derived_period_grounding_findings` rather than the generic rule, because a derivation's
+        sentence may legitimately name **two** periods and the generic rule knows about one.
         """
         to_fact = index.fact(derived.to_fact_id)
         if to_fact is None:
             return []  # already refused as derivation_not_offered
-        found = self._period_grounding_findings(
-            sentence, (to_fact,), binding.period_surface,
-            char_start=binding.char_start, char_end=binding.char_end,
-            suggested=self._suggestions(index, to_fact))
+        found = self._derived_period_grounding_findings(
+            sentence, binding, derived, index, to_fact)
         resolved = period_grammar.resolve(binding.period_surface)
         if not resolved.resolved:
             found.append(finding(
@@ -1260,6 +1305,91 @@ class DeterministicVerifier:
             suggested_fact_ids=self._suggestions(index, to_fact),
         ))
         return found
+
+    def _derived_period_grounding_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        derived: DerivedFact,
+        index: PackageIndex,
+        to_fact: PackagedFact,
+    ) -> list[VerificationFinding]:
+        """§13.4 applied to the prose of a sentence stating a derived fact: **two** windows.
+
+        `_period_grounding_findings` asks whether the sentence names the one period its one fact
+        is about. A derivation is about two, and *"…fell from $556 million in the second quarter
+        of 2022 to $110 million in the third quarter of 2022"* is a true sentence that names both
+        — so this rule reads the pair.
+
+        **Two questions, and both have to be answered `yes`.**
+
+        1. Does the sentence name the period the *claim* is about? `to_period` is what the
+           binding declares and what `display_semantics` is stated against, so a sentence that
+           names periods and never names that one is `period_named_in_text_contradicts_binding`,
+           exactly as it was before this function existed.
+        2. Does it name any period the derivation does **not** span? That is the new half, and it
+           is the price of `_covering_spans` covering the `from` window: a numeral inside a
+           period phrase now stops being `unbound_numeral` when the phrase is one of the
+           derivation's two, so *"which phrases are those"* has to be a refusal rather than an
+           assumption. A third window in the sentence is a claim about a period nothing computed.
+
+        The generic rule's *any* semantics survive question 1 and are exactly what question 2
+        closes: under it a sentence naming Q3 and Q1 passed on Q3 and said nothing about Q1.
+
+        An unresolvable phrase is `period_surface_absent_from_text` on the same footing as
+        everywhere else — *"the quarter"* is UNRESOLVABLE in §13.4's own words — and a sentence
+        naming no period at all is left alone, which is `_period_grounding_findings`' deliberate
+        asymmetry and holds here for the same reason: a period is routinely carried by the
+        paragraph, and an assertion nobody made cannot be false.
+        """
+        named = period_grammar.scan(sentence.text)
+        if not named:
+            return []
+        from_fact = index.fact(derived.from_fact_id)
+        spanned = [fact for fact in (from_fact, to_fact) if fact is not None]
+        keys = ", ".join(sorted({fact.period_key for fact in spanned}))
+        common = dict(
+            sentence_index=sentence.index,
+            char_start=binding.char_start, char_end=binding.char_end,
+            fact_ids=(derived.fact_id,),
+            suggested_fact_ids=tuple(self._suggestions(index, to_fact)),
+        )
+        resolvable = [phrase for phrase in named if phrase.resolved]
+        if not resolvable:
+            return [finding(
+                "period_surface_absent_from_text", **common,
+                expected=f"the sentence to name {keys} ({binding.period_surface!r})",
+                observed=("the sentence names "
+                          + ", ".join(repr(phrase.text) for phrase in named)
+                          + ", which §13.4's closed grammar does not resolve"),
+                explanation=(
+                    "§13.4: a period phrase carrying no numeral is invisible to §13.1's coverage "
+                    "rule, so nothing forced a period into the text. \"The quarter\" is "
+                    "UNRESOLVABLE in §13.4's own words, and it is no more resolvable for being "
+                    "written in prose."),
+            )]
+        outside = [phrase for phrase in resolvable
+                   if not any(_endpoints_agree(phrase.period, fact) for fact in spanned)]
+        names_the_claim = any(_endpoints_agree(phrase.period, to_fact)
+                              for phrase in resolvable)
+        if not outside and names_the_claim:
+            return []
+        offending = outside or resolvable
+        return [finding(
+            "period_named_in_text_contradicts_binding", **common,
+            expected=(f"the sentence to name {derived.to_period} and, where it names a second "
+                      f"period, {derived.from_period} — the two windows this derivation spans"),
+            observed=("the sentence names "
+                      + ", ".join(f"{phrase.text!r} ({phrase.period.key})"
+                                  for phrase in offending)
+                      + f"; the declaration says {binding.period_surface!r}"),
+            explanation=(
+                "§13.4: exact equality on both endpoints and on kind, applied to every period "
+                "the sentence names rather than only to the one it declares. A derivation spans "
+                "two windows and its sentence may name both; a third is a period nothing "
+                "computed, and `_covering_spans` no longer reports the numeral inside it as "
+                "undeclared, so it is refused here instead."),
+        )]
 
     def _calculation_period_findings(
         self, sentence: DraftSentence, index: PackageIndex

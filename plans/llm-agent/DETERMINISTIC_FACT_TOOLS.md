@@ -400,3 +400,124 @@ and this section is where the supersession is stated.
 
 `python -m pytest tests/story -m 'not live and not neo4j' -o addopts='' -q` → **3389 passed, 153
 deselected**. The `live` and `neo4j` marks were run separately: **152 passed, 1 skipped**.
+
+---
+
+## 12. The repair packet — §11.3 and §11.4 closed, and both candidates accepted *(2026-08-19)*
+
+**The answer, first.** The four defects §11 reported are fixed, and both candidates now run end
+to end to **accepted** under live Qwen — including
+`cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d`, the candidate §2
+was written about, which went `6 -> 2 -> 0` blocking findings across the three stages of this
+plan. **No verification rule was weakened.** Two rules were made *stricter* and the rest of the
+repair is in the prompt and in the offer set. §11's tables are dated records of what was true
+that morning; this section supersedes them.
+
+### 12.1 `unbound_numeral` on the `from` period — coverage widened, checking widened with it
+
+`_covering_spans` now covers **both** of a derived fact's periods, not only the `to_period` its
+binding declares. The two windows are read off the *fact* — the binding can carry one surface
+and the derivation knows two — and matched through §13.4's closed grammar rather than by string,
+so `"Q2 2022"` and `"the second quarter of 2022"` are one answer.
+
+**Coverage did not become trust, and the pairing is the point.** §13.1 asks *"can a reader tell
+which claim this numeral belongs to"*; §13.4 asks *"is the claim true"*.
+`_derived_period_grounding_findings` replaces the generic prose rule for a derived binding and
+asks two questions where the old one asked one: the sentence must name `to_period`, **and** every
+period it names must be one of the derivation's two. That second half is new — the *any*-rule it
+replaced passed a sentence naming Q3 and Q1 as soon as Q3 agreed — and it is what stops the
+widened coverage from licensing a window nothing computed. Four of the five tests for it fail
+against `243a5e0`.
+
+### 12.2 `trend_direction` — withdrawn from the offer set, still refused by the verifier
+
+`OFFERABLE_OPERATIONS` is §4.1's seven minus `trend_direction`, and `offers.validate` refuses a
+request for it with the reason. **Withdrawn rather than made checkable**, and the argument is
+G3's: the verifier could only recompute the word by being handed
+`detector_config.quantity_direction` from the same composition root that handed it to the
+producer, which is a verifier a caller can configure into agreement with the thing it is
+checking. Nothing is lost — the operation yields **no numeral** (`result=None`, unit `direction`),
+and the same direction over the same two facts already reaches the writer as `absolute_change`'s
+`display_semantics`, attached to a number the verifier does recompute.
+`derived_facts.RECOMPUTABLE` is unchanged, so a `trend_direction` fact arriving from a replayed
+artifact is still `derived_operation_not_supported`. The agreement is asserted generally: every
+operation `offers()` may print is executed and driven through `integrity_findings`, and the test
+fails if the union of operations exercised is not the whole offer set.
+
+### 12.3 A derived fact's `metric_surface` — the prompt was withholding one the verifier accepts
+
+Not "the fact should not be offered": **the prompt was wrong**. `MetricAliasIndex.from_package`
+indexes `(metric_id, label, *aliases)` and `normalise` maps `_` to a space, so `"GAAP Gross
+Margin"` has always resolved uniquely through the `gaap_gross_margin` **id** entry — it is what
+the committed accepted draft binds. `metric_surfaces_for` offered only `label` and `aliases`, and
+that metric's label `"Gross Margin"` is dropped as a sub-phrase of `"Adjusted Gross Margin"`. So
+the FACTS row and the DERIVED FACTS row both printed *"do not write about this fact"* for a
+metric the plan required, while rule 4 told the model to write *"GAAP gross margin"* — no legal
+answer existed. The id is offered now, last, filtered by the same sub-phrase rule as everything
+else, and a test asserts the two ends agree in both directions over the **real** package.
+
+### 12.4 The writer-prompt regression — three live drafts, not an inference
+
+§11.2 concluded the regression was *"a 9B model degrading as the prompt lengthens rather than
+anything either section says"*. **That was wrong**, and the ablation that follows is why: with
+§12.3's one-line change and no other, the three `metric_surface` values went from `percent`,
+`percent`, `percentage_points` to `gaap gross margin`, `Adjusted Gross Margin`, `gaap gross
+margin` on the same server, the same package and the same plan. The prompt length did not move.
+
+| writer prompt | what Qwen produced | disposition |
+| --- | --- | --- |
+| 2.0.0 | `metric_surface`: `percent`, `percent`, `percentage_points` | rejected, `metric_surface_unresolved` ×3 |
+| + the metric id offered | the three surfaces above, and `rendered` `"15.9 percentage_points"` | refused at §12, `binding_rendering_not_in_text` |
+| + `figure:` line, words | the same, `rendered` `"15.9 percentage points"` | **accepted** |
+
+The second row is the second defect in the same line: the DERIVED FACTS row printed
+`{result} {unit}` under a `metric_id`, which is a FACTS reading's shape, and the model copied the
+machine spelling into `rendered` while writing the words in its text. The row now hands the
+figure over as one quoted string a sentence can carry, names the refused spelling beside it, and
+prints a monetary figure at the scale its inputs were filed at (`$446 million`, exact division
+only). That last part was measured too: shown `$446000000.0` — a legal surface — Qwen wrote
+`"446000000.0 USD"`, which carries no unit surface and is `derived_unit_mismatch`; shown
+`$446 million` it wrote `$446 million`, and §2's candidate reached `accepted`.
+
+`WRITER_PROMPT_VERSION` is **2.1.0**. `PLANNER_PROMPT_VERSION` did not move, and the planner row
+in the committed store is byte-for-byte the row §11's re-record captured.
+
+### 12.5 The stores, re-recorded live again
+
+| store | provider / model | disposition | findings |
+| --- | --- | --- | --- |
+| `local_openai_compatible/generations.jsonl` | Qwen3.5-9B-Q4_K_M.gguf | **accepted** | none |
+| `local_openai_compatible/generations_rejected_synthetic.jsonl` | *the row above, two metrics swapped* | **rejected** | `comparative_not_supported_by_text` |
+| `openai/generations.jsonl` | `gpt-5.4` / `gpt-5.4-2026-03-05` | **rejected** | `unbound_numeral` ×2, `citation_reused_for_unrelated_claim` ×4, `connective_sentence_carries_a_claim` |
+
+`generations_accepted_synthetic.jsonl` was **deleted**: the shipped recording is the accepted
+branch now, so the file could only have been a hand-authored accepted store beside a real one —
+the duplication `generations_rejected_recorded.jsonl` was deleted for at 243a5e0. Four
+consecutive `--live` runs produced a byte-identical `generations.jsonl`
+(`sha256 8645d1a95a533b29…`).
+
+**`gpt-5.4` is still refused, and that is the result rather than a target.** Its
+`metric_surface_ambiguous` is gone — §12.3's repair reaching a second provider — and what
+remains is citation discipline: it requested no derivation at all this time, wrote six sentences,
+carried a period into a `connective` one, and re-cited a table span in four sentences that bind
+nothing.
+
+### 12.6 §2's candidate, end to end
+
+| | pre-S13 | S13 (`243a5e0`) | this packet |
+| --- | --- | --- | --- |
+| blocking findings | **6** | **2** | **0** |
+| codes | `unbound_numeral` ×2, `period_unresolvable`, `period_named_in_text_contradicts_binding`, `calculation_result_surface_mismatch`, `comparative_not_supported_by_text` | `unbound_numeral`, `derived_unit_mismatch` | — |
+| disposition | rejected | rejected | **accepted** |
+
+> *"Adjusted Gross Profit decreased by $446 million from the second quarter of 2022 to the third
+> quarter of 2022."*
+
+Both periods named, both covered, both checked; the figure bound to
+`fact:derived:absolute-change:…`; both input cells cited. `story-v1-cf084bb0eb87`.
+
+### 12.7 Suite
+
+`python -m pytest tests/story -m 'not live and not neo4j' -o addopts='' -q` → **3397 passed, 153
+deselected**. The `live` and `neo4j` marks were run separately against both real servers:
+**152 passed, 1 skipped**. Repository-wide offline: **6120 passed, 250 deselected**.

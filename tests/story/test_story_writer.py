@@ -36,6 +36,7 @@ import pytest
 from story.contracts import StoryGenerationProvider
 from story.core.keys import package_content_digest
 from story.core.models import (
+    DERIVED_UNITS,
     BudgetParameters,
     CausalLanguage,
     Counterpoint,
@@ -83,6 +84,7 @@ from story.stages.generation.prompts import (
     WRITER_SCHEMA_NAME,
     WRITER_SYSTEM,
     StyleProfile,
+    _derived_figure,
     metric_surfaces_for,
     period_surface_for,
     writer_prompt,
@@ -115,6 +117,8 @@ from story.stages.derivation.execute import execute
 from story.stages.derivation.offers import offers
 from story.stages.detection import detector_config
 from story.stages.verification import DeterministicVerifier
+from story.stages.verification.metric_surfaces import MetricAliasIndex
+import story.stages.verification.derived_facts as derived_rules
 from story.stages.verification.deterministic import REQUIRED_WARNING_QUALIFIERS
 from story.stages.verification.period_grammar import resolve as resolve_period
 from story.stages.packaging.counter_evidence import MATCH_BASIS_SAME_DOCUMENT
@@ -815,6 +819,157 @@ def test_the_metric_surface_offered_to_the_writer_is_never_the_ambiguous_one():
     assert metric_surfaces_for(package, "gaap_gross_margin") == ("gaap gross margin",)
     assert metric_surfaces_for(package, "adjusted_gross_margin") == ("Adjusted Gross Margin",)
     assert "Gross Margin" not in metric_surfaces_for(package, "gaap_gross_margin")
+
+
+#: The package the demo actually runs on, and the only one in this suite whose `metrics[]` is the
+#: **ontology's** rather than this file's. It is loaded rather than restated because the defect
+#: below turned on a single absent alias: `make_package()` gives `gaap_gross_margin` the aliases
+#: `("gaap gross margin", "GAAP gross margin")`, the real ontology gives it only `"Gross Margin"`,
+#: and every test above therefore passed while the live prompt was refusing to name the metric at
+#: all.
+DEMO_PACKAGE_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "story_demo" / "evidence_package.json")
+
+
+def real_demo_package() -> StoryEvidencePackage:
+    return StoryEvidencePackage.model_validate(
+        json.loads(DEMO_PACKAGE_FIXTURE.read_text(encoding="utf-8")))
+
+
+#: The value every figure below is rendered from. Signed, so the magnitude rule is exercised too.
+FIGURE_VALUE = -446_000_000.0
+
+
+def make_derived_of(unit: str) -> DerivedFact:
+    """`agp_derived()`'s fact with one field moved, for a rendering question about the unit.
+
+    Built by `replace` off a fact the *stage* computed rather than typed out here, so a field
+    the model gains cannot be silently absent from this fixture.
+    """
+    return agp_derived()[0].model_copy(update={
+        "unit": unit, "result": FIGURE_VALUE,
+        "currency": "USD" if unit == "USD" else None})
+
+
+def test_every_figure_the_derived_row_tells_the_writer_to_copy_carries_a_unit_13_2_can_read():
+    """The other half of the same agreement, on the figure instead of the metric surface.
+
+    §13.2 judges a numeral bound to a derived fact against `DERIVED_SURFACES`, and that map is
+    strict where the observation map is tolerant: `USD` admits only a currency-symbol surface and
+    `percentage_points` only the two-word one, so a `SurfaceUnit.NONE` rendering is
+    `derived_unit_mismatch` rather than an unstated unit. The row used to print `{result} {unit}`
+    and the live draft copied it — `"446000000.0 USD"` tokenises as `none`, which is exactly the
+    `derived_unit_mismatch` the metric-move run earned under both providers.
+
+    Asserted over **every** unit a derived fact may carry rather than over the two the demo
+    happens to produce, because the table is what a later unit will be added to.
+    """
+    package = agp_package()
+    for unit in DERIVED_UNITS:
+        if unit in derived_rules.NON_NUMERIC_UNITS:
+            continue  # a word-valued row prints no figure at all; §13.1 refuses a numeral there
+        figure = _derived_figure(make_derived_of(unit), package)
+        tokens = tokenize_numerals(figure)
+        assert len(tokens) == 1, f"{unit}: {figure!r} is not one numeral"
+        assert tokens[0].unit in derived_rules.DERIVED_SURFACES[unit], (
+            f"{unit}: the prompt says to write {figure!r}, which §13.2 reads as "
+            f"{tokens[0].unit.value} and refuses as derived_unit_mismatch")
+        assert tokens[0].value == abs(FIGURE_VALUE)
+
+
+def test_a_monetary_figure_is_offered_at_the_scale_its_inputs_were_filed_at():
+    """`"$446 million"`, and the two ways it falls back to the plain form.
+
+    **Measured, not preferred** *(2026-08-19)*. `"$446000000.0"` is a legal USD surface that a
+    9B model will not write: shown it, Qwen wrote `"446000000.0 USD"` — the shape of the FACTS
+    rows above it, carrying no unit surface at all — and earned `derived_unit_mismatch`. Shown
+    `"$446 million"` it wrote `"$446 million"`, and the §2 candidate reached `accepted` end to
+    end for the first time.
+
+    The division is exact or it does not happen: `_scaled_money` divides in `Decimal` and keeps
+    the quotient only when it multiplies back to the same value, so the offered figure denotes
+    what code computed to the last digit and §13.1's window is still computed from what the
+    draft prints.
+    """
+    package, derived = agp_package(), agp_derived()[0]
+    assert {fact.scale for fact in package.facts} == {"millions"}
+
+    assert _derived_figure(derived, package) == "$446 million"
+    assert tokenize_numerals("$446 million")[0].value == abs(derived.result)
+
+    # A value the scale does not divide exactly keeps every digit code computed.
+    ragged = derived.model_copy(update={"result": -446_000_000.5})
+    assert _derived_figure(ragged, package) == "$446000000.5"
+    # …and a half-million does divide exactly, so the scaled form is not reserved for round
+    # numbers — it is reserved for exact ones.
+    half = derived.model_copy(update={"result": -446_500_000.0})
+    assert _derived_figure(half, package) == "$446.5 million"
+
+    # Inputs filed at different scales name no shared scale, so neither does the figure.
+    mixed = replace_facts(package, (package.facts[0].model_copy(update={"scale": "units"}),
+                                    package.facts[1]))
+    assert _derived_figure(derived, mixed) == "$446000000.0"
+
+
+def replace_facts(package: StoryEvidencePackage, facts) -> StoryEvidencePackage:
+    """A package with its facts swapped, for a rendering question about their scale."""
+    return package.model_copy(update={"facts": tuple(facts)})
+
+
+def test_the_surfaces_the_prompt_offers_and_the_surfaces_the_verifier_accepts_are_one_set():
+    """The agreement stated generally, because stating it about today's two metrics is what let
+    it break.
+
+    Two directions, and the second is the one that was false *(measured 2026-08-19)*:
+
+    1. every surface the prompt offers must resolve **uniquely to that metric** in
+       `MetricAliasIndex`, or the writer is being told to write something §13.5 refuses;
+    2. a metric the index *can* name uniquely must be offered **some** surface, or the writer is
+       told *"do not write about this fact"* about a fact its plan requires.
+
+    `MetricAliasIndex.from_package` indexes `(metric_id, label, *aliases)` and `normalise` maps
+    `_` to a space, so `"GAAP Gross Margin"` has always resolved through the *id* entry — it is
+    what the committed accepted draft binds. `metric_surfaces_for` offered only `label` and
+    `aliases`, and `gaap_gross_margin`'s label `"Gross Margin"` is dropped as a sub-phrase of
+    `"Adjusted Gross Margin"`, so on the real package it offered nothing for a metric the
+    verifier would have accepted three spellings of.
+    """
+    for package in (make_package(), agp_package(), real_demo_package()):
+        index = MetricAliasIndex.from_package(package)
+        for metric in package.metrics:
+            offered = metric_surfaces_for(package, metric.metric_id)
+            for surface in offered:
+                assert index.resolve(surface).unique_metric_id == metric.metric_id, (
+                    f"{package.package_id} offers {surface!r} for {metric.metric_id}, which "
+                    f"§13.5 resolves to {index.resolve(surface).metric_ids}")
+            nameable = [surface for surface in
+                        (metric.metric_id, metric.label, *metric.aliases)
+                        if index.resolve(surface).unique_metric_id == metric.metric_id]
+            assert bool(offered) == bool(nameable), (
+                f"{metric.metric_id} in {package.package_id}: the verifier accepts {nameable} "
+                f"and the prompt offers {list(offered)}")
+
+
+def test_the_real_package_offers_a_surface_for_the_metric_whose_label_is_ambiguous():
+    """§11.4's second defect, on the package it was measured on.
+
+    The demo candidate's `compare_levels` carries `metric_id: gaap_gross_margin`, so both its
+    FACTS row and its DERIVED FACTS row printed *"no surface names this metric uniquely in this
+    package - do not write about this fact"* for the figure the plan's key point requires — while
+    `WRITER_SYSTEM` rule 4 told the model to write *"GAAP gross margin"*. There was no legal
+    answer, and the live draft filled `metric_surface` with the unit.
+    """
+    package = real_demo_package()
+    index = MetricAliasIndex.from_package(package)
+
+    assert [metric.label for metric in package.metrics
+            if metric.metric_id == "gaap_gross_margin"] == ["Gross Margin"]
+    assert index.resolve("Gross Margin").unique_metric_id is None
+    for accepted in ("gaap gross margin", "GAAP Gross Margin", "gaap_gross_margin"):
+        assert index.resolve(accepted).unique_metric_id == "gaap_gross_margin"
+
+    assert metric_surfaces_for(package, "gaap_gross_margin") == ("gaap gross margin",)
+    assert metric_surfaces_for(package, "adjusted_gross_margin") == ("Adjusted Gross Margin",)
 
 
 @pytest.mark.parametrize(
@@ -1563,10 +1718,17 @@ def test_the_writers_own_output_survives_the_deterministic_verifier_end_to_end(v
 def test_the_derived_fact_reaches_the_writer_prompt_in_the_shape_facts_are_printed_in():
     """§5: a new DERIVED FACTS section, printed like FACTS, with everything a binding needs.
 
-    The four things a `FactBinding` carries are all on the row — the id to name, the result to
+    The four things a `FactBinding` carries are all on the row — the id to name, the figure to
     write, the metric surface and the period surface — and one thing FACTS has is deliberately
     absent: an evidence id. No handle is ever minted for a derived fact, so the row names its
     two input facts instead and the writer cites theirs.
+
+    **The figure is handed over as a quoted string and not as `{result} {unit}`, which is the
+    2.1.0 repair.** A FACTS row prints `{value} {unit}` and survives it because its unit is the
+    word a sentence uses; `percentage_points` is not, and a live draft copied
+    `"15.9 percentage_points"` into `rendered` while its own text read *"15.9 percentage
+    points"*. The magnitude is printed rather than `-446000000.0`, because the `says` line
+    already carries the direction and *"decreased by -446000000.0"* is a double negative.
     """
     package, derived = agp_package(), agp_derived()
     prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
@@ -1574,8 +1736,12 @@ def test_the_derived_fact_reaches_the_writer_prompt_in_the_shape_facts_are_print
 
     assert "DERIVED FACTS (1;" in prompt
     assert f"[{derived[0].fact_id}]" in prompt
-    assert "adjusted_gross_profit  -446000000.0 USD" in prompt
-    assert "says: decreased by, 2022Q2 -> 2022Q3" in prompt
+    assert "adjusted_gross_profit, 2022Q2 -> 2022Q3" in prompt
+    assert "says: decreased by" in prompt
+    assert ('figure: write exactly "$446 million" - those characters, never '
+            '"446000000.0 USD"') in prompt
+    assert "-446000000.0" not in prompt.split("DERIVED FACTS")[1].split("METRIC SEMANTICS")[0]
+    assert "percentage_points" not in prompt
     assert 'metric surface: write one of "Adjusted Gross Profit"' in prompt
     assert f"computed from {AGP_Q2_ID} and {AGP_Q3_ID}" in prompt
     # The row carries no handle of its own, and the section says which two to cite instead.

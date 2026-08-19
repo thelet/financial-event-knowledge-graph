@@ -431,9 +431,15 @@ def resolve_demo_inputs(
 
     The gate is first and is not advisory: §17.8's failure is a published post holding numbers
     from a run the graph no longer contains, and every check it runs is cheaper than the load
-    that follows. Only §6.6's D4 detector runs — the demo's candidate is a cross-metric
-    divergence, and running the other three would spend a full canonical pass to produce
-    candidates nothing selects.
+    that follows.
+
+    **One detector runs, and it is the one the requested candidate id names** — `_detect_for`
+    dispatches on the id's own slug since 643935f, so `metric_move`, `crossed_zero` and
+    `unusual_level` candidates are reachable from `python -m story demo` and not only from the
+    demo UI. This docstring said *"only §6.6's D4 detector runs — the demo's candidate is a
+    cross-metric divergence"* until 2026-08-19, which was true of the code it was written for
+    and false of the code beneath it. Running all four would spend a full canonical pass to
+    produce candidates nothing selects, which is the part that has not changed.
 
     Observations are loaded **whole and paged to completeness** by `load_observations`, which is
     the reason the builder is handed records rather than being allowed to fetch its own: §9's
