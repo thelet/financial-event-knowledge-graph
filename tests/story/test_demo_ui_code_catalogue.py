@@ -59,7 +59,12 @@ EXPECTED_SIZES = {
     # the price of the writer no longer declaring its own arithmetic: what used to be checked as
     # `calculation_does_not_recompute` against the model's own expression is now checked against
     # a fact code computed, and a fact code computed can be misquoted in seven distinct ways.
-    FAMILY_VERIFICATION: 99,
+    # 99 until H1, which added two: `derived_direction_not_stated_in_text`, the fail-closed half
+    # of §6's orientation rule — a change verb outside `CHANGE_DIRECTION` made that rule abstain
+    # silently, and a change stated as a level had no verb to match at all — and
+    # `evidence_scope_binding_declares_a_surface`, for the two binding fields no §13 check
+    # resolves against an evidence-scope fact and that `_covering_spans` was nonetheless reading.
+    FAMILY_VERIFICATION: 101,
     FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
     # 11 until DETERMINISTIC_FACT_TOOLS §5 gave §11 `derivation_not_offered` — the plan asking

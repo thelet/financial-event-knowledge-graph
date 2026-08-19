@@ -145,6 +145,13 @@ DERIVED_SURFACES: Mapping[str, frozenset[SurfaceUnit]] = {
 #: means — the metric's sign convention was never measured — and the fact carries
 #: `metric_sign_convention_unverified` beside it, which reaches the draft as
 #: `warned_observation_used` rather than as a direction nobody established.
+#:
+#: **A `None` here is no longer an exit from the rule (H1).** `_direction_findings` refuses every
+#: directional word over a `None` member and demands none, and `_crossing_findings` takes the two
+#: crossing members over to their own vocabulary — so `None` now means *"this derivation states
+#: no direction, and neither may the sentence"* rather than *"nothing to check"*.
+#: `DIRECTION_UNVERIFIABLE` is the sharpest case: a fact that explicitly declined to name a
+#: direction was the one over which any direction word passed.
 SEMANTIC_DIRECTION: Mapping[DisplaySemantics, bool | None] = {
     DisplaySemantics.INCREASED_BY: True,
     DisplaySemantics.HIGHER_THAN: True,
@@ -158,6 +165,15 @@ SEMANTIC_DIRECTION: Mapping[DisplaySemantics, bool | None] = {
     DisplaySemantics.CROSSED_ZERO: None,
     DisplaySemantics.DID_NOT_CROSS_ZERO: None,
     DisplaySemantics.DIRECTION_UNVERIFIABLE: None,
+}
+
+#: The two members that answer a **sign question** rather than a direction question, and the
+#: reason `SEMANTIC_DIRECTION` leaves both at `None`: a crossing is not a rise or a fall.
+#: `True` asserts the quantity crossed zero. Read by `_crossing_findings`, which is the prose
+#: rule H1 added — before it, these two members reached no check at all.
+CROSSING_SEMANTICS: Mapping[DisplaySemantics, bool] = {
+    DisplaySemantics.CROSSED_ZERO: True,
+    DisplaySemantics.DID_NOT_CROSS_ZERO: False,
 }
 
 
@@ -593,7 +609,7 @@ def _result_findings(
 def orientation_findings(
     sentence: DraftSentence, binding: FactBinding, derived: DerivedFact
 ) -> list[VerificationFinding]:
-    """§6's other orientation rule: the sentence's own **change verb** against the fact's.
+    """§6's other orientation rule: the sentence's own **words** against the fact's word code.
 
     A two-period derivation states a movement, and `display_semantics` is the closed word code
     computed for it — the field that exists so the writer cannot infer a direction from the sign
@@ -603,49 +619,193 @@ def orientation_findings(
     the metric, and §13.14's direction rule only ever ran behind a declared `Calculation`, which
     §6 retires.
 
-    **Change verbs only, and comparatives are `claims.py`'s.** A change verb has one subject —
-    the metric the derivation is of — so the word alone decides the claim. A comparative has two
-    sides, and *"GAAP gross margin was 15.9 points **lower** than adjusted"* and *"adjusted was
-    15.9 points **higher** than GAAP"* are the same true claim in opposite words; deciding
-    between them needs the alias index over the text either side of the term, which is
-    `claims._comparison_sides_findings`' machinery and is where the `compare_levels` half lives.
+    **H1 turned this from an abstaining rule into a rule, and the asymmetry it removes is the
+    argument.** As shipped, the check ran only if `language.change_verbs` matched one of
+    `CHANGE_DIRECTION`'s thirteen words, so any synonym outside them made it fall silent: the
+    review drove `grew`, `climbed`, `surged`, `gained`, `jumped` and `expanded` through it and
+    every one was **accepted** over a fact reading `decreased by` / `-446000000.0`, as was
+    *"Adjusted gross profit **was** $446 million"* — a change stated as a level, with no verb to
+    match at all. Meanwhile the comparative half of the same question failed **closed**:
+    `claims._comparison_text_findings` refuses a `compare_levels` sentence carrying no
+    recognised comparative, and `comparative_direction` returning `None` is a refusal by its own
+    docstring. Two halves of one guarantee cannot fail in opposite directions. So the vocabulary
+    no longer decides whether the check runs — a directional derivation whose sentence states no
+    word carrying the computed direction is `derived_direction_not_stated_in_text`, and
+    `CHANGE_DIRECTION` was widened in the same change so that the refusal lands on prose that
+    says nothing rather than on prose that says it differently.
 
-    A word `CHANGE_DIRECTION` leaves at `None` states no direction of the stored number —
-    `improved`, `widened`, `narrowed` — and the rule abstains rather than inventing a claim the
-    sentence did not make. `DisplaySemantics` members with no direction abstain the same way,
-    `DIRECTION_UNVERIFIABLE` among them: that fact carries
-    `metric_sign_convention_unverified` and reaches the reader as `warned_observation_used`.
+    **Change verbs and crossing phrases; comparatives are `claims.py`'s.** A change verb has one
+    subject — the metric the derivation is of — so the word alone decides the claim. A
+    comparative has two sides, and *"GAAP gross margin was 15.9 points **lower** than
+    adjusted"* and *"adjusted was 15.9 points **higher** than GAAP"* are the same true claim in
+    opposite words; deciding between them needs the alias index over the text either side of the
+    term, which is `claims._comparison_sides_findings`' machinery and is where the
+    `compare_levels` half lives. A `crossed_zero` derivation answers in neither vocabulary and is
+    dispatched to `_crossing_findings`.
     """
     if derived.operation not in TWO_PERIOD_OPERATIONS:
         return []
+    crossing = CROSSING_SEMANTICS.get(derived.display_semantics)
+    if crossing is not None:
+        return _crossing_findings(sentence, derived, crossing)
+    return _direction_findings(sentence, derived)
+
+
+def _direction_findings(
+    sentence: DraftSentence, derived: DerivedFact
+) -> list[VerificationFinding]:
+    """The change-verb half. Two refusals, and the second is the one H1 adds.
+
+    1. **A word carrying the opposite direction** — unchanged in force and wider in reach, since
+       `CHANGE_DIRECTION` now carries the synonyms the review walked through it.
+    2. **No word carrying the computed direction at all.** A derivation whose
+       `display_semantics` states a direction is a claim about which way the quantity moved, and
+       a sentence that binds its number without saying so has stated a level where code computed
+       a change. *"Adjusted gross profit was $446 million in the third quarter of 2022"* is
+       false — the 2022Q3 level is $110M — and every declared field in it is valid.
+
+    **A `display_semantics` with no direction refuses every direction word and requires none**,
+    which is the fail-closed reading of the two such members a two-period operation can actually
+    produce. `UNCHANGED` says the quantity did not move, so any directional verb contradicts it
+    and there is no direction to demand. `DIRECTION_UNVERIFIABLE` is the stronger case: the
+    metric's sign convention was never measured — `direct_selling_costs` is stored negative on
+    46 of 46 canonical values — so *nobody* established which way it went, and a sentence that
+    names a direction is asserting what the derivation explicitly declined to. Both abstained
+    entirely before H1, and the second is the sharper miss: the one fact that says *"the
+    direction is unknown"* was the one over which any direction word passed. `EQUAL_TO` and
+    `TIMES` are `SEMANTIC_DIRECTION`'s other `None`s and belong to `compare_levels` and `ratio`,
+    which `orientation_findings` returns on before reaching here.
+
+    A word `CHANGE_DIRECTION` leaves at `None` — `improved`, `widened`, `turned` — neither
+    contradicts nor satisfies: it states desirability, magnitude or an unnamed sign change and
+    not the direction of the stored number. Under rule 2 a sentence carrying only such words is
+    refused for not stating the direction, which is where the abstention went.
+
+    **The whole sentence is scanned for every binding, and one sentence stating two derivations
+    that moved opposite ways is therefore refused.** *"X fell $446 million while Y rose $12
+    million"* raises `derived_fact_orientation_reversed` on both. That is a true sentence lost,
+    and it is left standing: attributing a verb to one of two bindings needs clause attribution
+    this module does not have and `FactBinding` carries no field for, which is the same reason
+    §13.10 conditions 3 and 6 are recorded as unimplementable in `language.py`'s docstring. The
+    widened lexicon makes it likelier than it was, so it is named here rather than discovered.
+    Rule 1 already had this shape before H1; rule 2 does not add to it, because a sentence with
+    an agreeing word for each fact satisfies both.
+    """
     wanted = SEMANTIC_DIRECTION.get(derived.display_semantics)
+    stated = [
+        (match, language.change_direction(match.term))
+        for match in language.change_verbs(sentence.text)
+    ]
+    directional = [(match, direction) for match, direction in stated if direction is not None]
+    contradicting = [match for match, direction in directional if direction is not wanted]
+    if contradicting:
+        match = contradicting[0]
+        return [finding(
+            "derived_fact_orientation_reversed",
+            sentence_index=sentence.index,
+            char_start=match.start, char_end=match.end,
+            fact_ids=(derived.fact_id,),
+            expected=(f"a word agreeing with {derived.display_semantics.value!r} "
+                      f"({derived.from_period} -> {derived.to_period})"
+                      if wanted is not None else
+                      f"no direction word: this derivation says "
+                      f"{derived.display_semantics.value!r}"),
+            observed=f"the sentence says {match.term!r}",
+            explanation=(
+                "§6: `display_semantics` is a closed word code computed, and it exists so the "
+                "writer cannot infer a direction from the sign of `result` — "
+                "`direct_selling_costs` is stored negative on 46 of 46 canonical values, so a "
+                "fall in the number is a rise in the cost. A sentence stating the opposite "
+                "direction is the same number and the opposite claim, and a sentence stating "
+                "any direction over a derivation that established none is a claim nothing "
+                "computed."),
+        )]
     if wanted is None:
         return []
-    stated = [
-        (match, direction)
-        for match, direction in (
-            (match, language.change_direction(match.term))
-            for match in language.change_verbs(sentence.text)
-        )
-        if direction is not None and direction is not wanted
-    ]
-    if not stated:
+    if any(direction is wanted for _match, direction in directional):
         return []
-    match, _ = stated[0]
     return [finding(
-        "derived_fact_orientation_reversed",
+        "derived_direction_not_stated_in_text",
         sentence_index=sentence.index,
-        char_start=match.start, char_end=match.end,
         fact_ids=(derived.fact_id,),
-        expected=(f"a word agreeing with {derived.display_semantics.value!r} "
-                  f"({derived.from_period} -> {derived.to_period})"),
-        observed=f"the sentence says {match.term!r}",
+        expected=(f"a word saying the quantity went "
+                  f"{'up' if wanted else 'down'} — {derived.display_semantics.value!r} over "
+                  f"{derived.from_period} -> {derived.to_period}"),
+        observed=("the sentence states no change word: "
+                  + (", ".join(repr(match.term) for match, _ in stated)
+                     if stated else "none at all")
+                  + f" — {sentence.text!r}"),
         explanation=(
-            "§6: `display_semantics` is a closed word code computed, and it exists so the writer "
-            "cannot infer a direction from the sign of `result` — `direct_selling_costs` is "
-            "stored negative on 46 of 46 canonical values, so a fall in the number is a rise in "
-            "the cost. A sentence stating the opposite direction is the same number and the "
-            "opposite claim."),
+            "§6: a directional derivation is a claim about which way a quantity moved, and a "
+            "sentence carrying its number without saying so has stated a level where code "
+            "computed a change. Measured: *\"Adjusted gross profit was $446 million in the "
+            "third quarter of 2022\"* was accepted over the -$446M fall, and the 2022Q3 level "
+            "is $110M. The rule refuses rather than abstains because an abstaining rule is not "
+            "a rule — six synonyms outside the old lexicon each turned this check off."),
+    )]
+
+
+def _crossing_findings(
+    sentence: DraftSentence, derived: DerivedFact, crossed: bool
+) -> list[VerificationFinding]:
+    """`crossed_zero`'s prose, which nothing checked at all before H1.
+
+    The operation is offerable, its result is recomputable — `_result_findings` re-derives the
+    word from the package's own values — and **the sentence stating it was unchecked in every
+    direction**: `SEMANTIC_DIRECTION[CROSSED_ZERO]` is `None` so the change-verb rule abstained,
+    the fact carries no numeral so §13.1 had nothing to compare, and `language.ungrounded_words`
+    was applied only to an `EvidenceScopeFact`. *"Adjusted gross profit **turned negative**
+    between the second quarter of 2022 and the third quarter of 2022."* was accepted with zero
+    findings over `$556M -> $110M`, which does not cross.
+
+    Two refusals, on `_direction_findings`' shape: a phrase asserting the opposite, and no
+    phrase at all. The second is what makes this a rule rather than a lexicon — an unlisted
+    paraphrase costs a true sentence instead of admitting a false one, which is the direction
+    §13.14 says the failure should point.
+
+    **Withdrawing `crossed_zero` from the offer set was the alternative and it was rejected.**
+    That is what §12.2 did to `trend_direction`, on the ground that the verifier could not
+    recompute the word at all without importing a sibling stage's sign-convention table. This
+    verifier *can* recompute this word, from two values it already holds; only the prose was
+    unguarded, and the repair for unguarded prose is a guard.
+    """
+    stated = [
+        (match, language.crossing_direction(match.term))
+        for match in language.crossing_claims(sentence.text)
+    ]
+    contradicting = [match for match, asserts in stated if asserts is not crossed]
+    if contradicting:
+        match = contradicting[0]
+        return [finding(
+            "derived_fact_orientation_reversed",
+            sentence_index=sentence.index,
+            char_start=match.start, char_end=match.end,
+            fact_ids=(derived.fact_id,),
+            expected=(f"a phrase agreeing with {derived.display_semantics.value!r} "
+                      f"({derived.from_period} -> {derived.to_period}: "
+                      f"{derived.from_value!r} -> {derived.to_value!r})"),
+            observed=f"the sentence says {match.term!r}",
+            explanation=(
+                "§4.1: `crossed_zero` is strictly across — a step that lands on zero has not "
+                "crossed it — and the answer is a word, not a number, so no numeral rule "
+                "reaches the sentence stating it. A phrase asserting the opposite sign change "
+                "is the whole claim reversed with every declared field still valid."),
+        )]
+    if stated:
+        return []
+    return [finding(
+        "derived_direction_not_stated_in_text",
+        sentence_index=sentence.index,
+        fact_ids=(derived.fact_id,),
+        expected=(f"a phrase stating {derived.display_semantics.value!r} for "
+                  f"{derived.from_period} -> {derived.to_period}"),
+        observed=f"the sentence states no sign-crossing phrase — {sentence.text!r}",
+        explanation=(
+            "§4.1 and §6: a `crossed_zero` derivation answers in `result_word` and has no "
+            "numeral, so the only thing a verifier can hold a sentence to is the phrase that "
+            "states the crossing. A sentence binding the fact and stating none has bound a word "
+            "code nothing in its own text expresses, and the reader is left with whatever the "
+            "rest of the sentence implies."),
     )]
 
 
@@ -667,11 +827,46 @@ def scope_findings(
        that licenses this claim, so *"the evidence in this package supplies no explanation"*
        grounds and *"there was no cause"* does not. This is what makes *"impossible to use one
        to claim something about the world"* a check rather than an intention.
-    The third refusal — *"no citation on the sentence at all"* — is `citations.py`'s, because
+    3. **No metric surface and no period surface on the binding** (H1). `FactBinding` requires
+       both fields, and for an evidence-scope fact **nothing resolves either**: `_check_periods`,
+       `_check_units` and `_check_metric_identity` all reach `index.fact()` and
+       `index.derived_fact()`, get `None` from both, and `continue`. The review found the free
+       `period_surface` was not merely unchecked but *load-bearing* — `_covering_spans` consumed
+       it from every binding unconditionally, so a model-written string licensed §13.1 coverage
+       for whatever numerals it happened to contain, and
+       *"…no explanation for the 92 percent collapse to 7 from 9999."* was **accepted with zero
+       findings** carrying three fabricated numerals. `_covering_spans` no longer reads a surface
+       no check resolves; this refuses the declaration as well, because a field two of §13's
+       checks would resolve for any other fact and none resolves for this one is a declaration
+       the reader has no way to test. The fact is of no metric and over no period, and the honest
+       spelling of both fields is empty.
+    The fourth refusal — *"no citation on the sentence at all"* — is `citations.py`'s, because
     that is where a sentence's citations are walked and where the finding's denominator lives.
     `EvidenceScopeFact` carries no `citations` field and mints no evidence handle, so any
     `PassageCitation` beside one is a filed passage presented as the source of a claim about
     what the filings do not contain.
+
+    **No model can reach this function today, and that is a decision rather than an oversight
+    (H1).** `prompts._evidence_scope_lines` prints the statement and deliberately not the
+    `fact_id`, and writer system rule 17 reads *"it is a limit on what you may write and never a
+    sentence to write: obey it and do not report it"*. So §7's fact is a **constraint on the
+    prompt**, and the binding path below is exercised only by a hand-authored or replayed draft.
+    Plan §7's claim that this makes `counter_evidence_cited_as_support` *"stop being the only
+    thing standing between the draft and that claim"* is therefore not true of the tree, and the
+    plan says so now.
+
+    **Why the machinery is still worth carrying, and why the alternative was rejected.** Making
+    the fact bindable means printing an id, adding a writer rule that permits the sentence, and
+    reversing rule 17 — a change to what the product is willing to publish, not a repair — and
+    it re-records both fixtures live and moves `WRITER_PROMPT_VERSION` for it. Against that: the
+    verifier is authoritative independently of the writer (`codes.py`'s own argument for
+    `operation_not_recomputable`, which is likewise unreachable from `WRITER_OPERATIONS`), a
+    draft can arrive from a replayed artifact or a future prompt, and a rule written only once a
+    prompt invites the failure is a rule written after the incident. What H1 refused to leave is
+    the *asymmetry* the review named — unreachable machinery guarding a reachable hole. The
+    hole was `period_surface` licensing §13.1 coverage from a binding no check resolves; it is
+    closed at both ends, by refusal 3 here and by
+    `DeterministicVerifier._period_surface_is_checked` there.
     """
     found: list[VerificationFinding] = []
     numerals = tokenize_numerals(binding.rendered)
@@ -687,6 +882,26 @@ def scope_findings(
                 "§7: an evidence-scope fact states what the package does not contain and holds "
                 "no value. A numeral bound to it is a quantity §13.1 has nothing to compare "
                 "against, which is the state that rule exists to make impossible."),
+        ))
+
+    declared = [f"{name}={value!r}" for name, value in
+                (("metric_surface", binding.metric_surface),
+                 ("period_surface", binding.period_surface)) if value]
+    if declared:
+        found.append(finding(
+            "evidence_scope_binding_declares_a_surface",
+            sentence_index=sentence.index,
+            char_start=binding.char_start, char_end=binding.char_end,
+            fact_ids=(scope.fact_id,),
+            expected="metric_surface and period_surface both empty on an evidence-scope binding",
+            observed=", ".join(declared),
+            explanation=(
+                "§7: the fact states what this *package's evidence* does not contain. It is of "
+                "no metric and over no period, so §13.4's grammar and §13.5's alias index have "
+                "nothing to resolve either surface against and both checks skip the binding. A "
+                "declared surface no check resolves is a claim with no reader — and the period "
+                "one was worse than idle: `_covering_spans` licensed §13.1 numeral coverage from "
+                "it, so a model-written string admitted the numerals inside itself."),
         ))
 
     ungrounded = language.ungrounded_words(binding.rendered, scope.statement)
@@ -712,6 +927,7 @@ def scope_findings(
 
 __all__ = [
     "CROSSED",
+    "CROSSING_SEMANTICS",
     "DERIVED_SURFACES",
     "DID_NOT_CROSS",
     "NON_NUMERIC_UNITS",

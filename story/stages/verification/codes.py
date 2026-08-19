@@ -289,6 +289,23 @@ _ENTRIES: tuple[GateEntry, ...] = (
     _refuse("derived_operation_not_supported", Remedy.DROP_SENTENCE, "6"),
     _refuse("derived_unit_mismatch", Remedy.ADD_PERCENTAGE_POINT_QUALIFIER, "6"),
 
+    # -- H1's two, both REFUSE, both closing a rule that abstained -------------------------
+    #
+    # `derived_direction_not_stated_in_text` is the fail-closed half of §6's orientation rule.
+    # The seven above ask *"is the derived fact right"*; this one asks *"does the sentence say
+    # what it computed"*, which nothing asked: a change verb outside `CHANGE_DIRECTION`'s
+    # thirteen words made the rule abstain silently, and a change stated as a level had no verb
+    # to match at all. It is a separate code from `derived_fact_orientation_reversed` because
+    # the two are different faults with different repairs — one sentence says the opposite thing
+    # and the other says no thing — and a shared name would make the panel's remedy wrong for
+    # whichever it was not written for. DROP_SENTENCE, because the repair is in the words and
+    # not in the binding.
+    #
+    # `evidence_scope_binding_declares_a_surface` is §7's, and it is the one code here whose
+    # subject is a field nothing reads. See `derived_facts.scope_findings` refusal 3.
+    _refuse("derived_direction_not_stated_in_text", Remedy.DROP_SENTENCE, "6"),
+    _refuse("evidence_scope_binding_declares_a_surface", Remedy.REBIND_TO_FACT, "7"),
+
     # -- §13.10 causation ------------------------------------------------------------------
     _refuse("causal_construction_forbidden", Remedy.REMOVE_CAUSAL_CONSTRUCTION, "13.10"),
     _refuse("causal_attribution_frame_missing", Remedy.ADD_ATTRIBUTION_FRAME, "13.10"),

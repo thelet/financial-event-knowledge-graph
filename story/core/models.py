@@ -814,10 +814,22 @@ class PackagedFact(StoryModel):
     quoted_text: str | None = None
     #: Set instead of `passage_id` when the fact's evidence names no filed passage (§13.7.2).
     evidence_source_id: str | None = None
-    #: `OBSERVED` by default because every row this package has ever carried is one reading of
-    #: one filed cell. A derived quantity is the writer's `Calculation` today and is not a
-    #: packaged fact; the member exists so it cannot arrive by widening `OBSERVED`.
-    fact_kind: FactKind = FactKind.OBSERVED
+    #: `OBSERVED`, and since 2026-08-19 that is the **only** value this field may hold
+    #: (DETERMINISTIC_FACT_TOOLS §3). Every row this package carries is one reading of one filed
+    #: cell. A derived quantity was the writer's `Calculation` until S13 removed that field from
+    #: the writer schema, and it is now a `DerivedFact` in its own artifact — it cannot be a
+    #: `PackagedFact` at all, because this type requires a passage or an evidence source and a
+    #: computed quantity has neither.
+    #:
+    #: **Narrowed to a `Literal` rather than left permissive**, because a permissive field was
+    #: found to fail silently: an adversarial review built a package holding a
+    #: `fact_kind=DERIVED` row, and it rendered in **no** group of the evidence panel — the
+    #: observed group filters it out and the derived group now reads the run's own artifact —
+    #: while the verifier resolved and bound it normally, since `PackageIndex` never reads this
+    #: field. A row visible to the model and invisible to its reader is the one arrangement §10
+    #: exists to prevent, and refusing it at construction is cheaper than teaching two readers
+    #: about a state nothing should produce.
+    fact_kind: Literal[FactKind.OBSERVED] = FactKind.OBSERVED
     #: The concordant sources §6.1 collapsed into this one canonical fact. Sorted and unique for
     #: `_require_sorted_unique`'s reason: these are digest inputs by way of the package digest,
     #: and two orderings of one set would be two byte sequences describing one thing.

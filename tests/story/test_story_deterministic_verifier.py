@@ -254,7 +254,17 @@ def make_package(**overrides: object) -> StoryEvidencePackage:
 
 AGM_TEXT = "Adjusted gross margin was 3.3% in the third quarter of 2022."
 GGM_TEXT = "GAAP gross margin was -12.6% in the third quarter of 2022."
-GAP_TEXT = "The gap between the two measures was 15.9 percentage points."
+# H1 named both metrics in this sentence, and the old wording — *"the gap between the two
+# measures"* — is now `metric_surface_absent_from_text`. The rule that refuses it is the
+# derived half of §13.5's prose grounding, which did not exist: a derived binding skipped
+# `_metric_grounding_findings` on every sentence kind, so *"Revenue fell $446 million"* over
+# a derivation of adjusted gross profit was accepted. The observed half has refused a
+# metric-free sentence since R8 and the live accepted draft names both margins, so this
+# wording was the fixture disagreeing with the corpus rather than a legal sentence lost.
+# No comparative and no change verb, deliberately: `claims.py` records that this sentence
+# "states that quantity and asserts no direction at all", and that is still what it does.
+GAP_TEXT = ("The gap between adjusted gross margin and GAAP gross margin was 15.9 "
+            "percentage points.")
 WARNING_TEXT = (
     "Both figures come from the same table, whose filing date is not recorded in this run.")
 

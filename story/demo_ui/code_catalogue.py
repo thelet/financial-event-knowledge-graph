@@ -134,7 +134,10 @@ class CodeExplanation:
         }
 
 
-# -- §13's gate, 85 codes ----------------------------------------------------------------------
+# -- §13's gate, 101 codes ---------------------------------------------------------------------
+#
+# The count read 85 until H1 and had been stale for three plans; `EXPECTED_SIZES` in
+# `test_demo_ui_code_catalogue.py` is the pin that actually holds and it read 99.
 #
 # Each sentence is derived from the code's own call site and the section `GATE` cites, not from
 # the name. Where a description says *why* rather than only *what*, the reason is the one the
@@ -238,6 +241,12 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
         "The unit written for a calculated figure is not the unit that calculation produces — a "
         "gap between two percentages stated as a percent rather than in percentage points, or a "
         "ratio stated as money.",
+    "derived_direction_not_stated_in_text":
+        "The calculation says which way the figure moved and the sentence does not — it states "
+        "the change as a level, or uses a word that carries no direction.",
+    "evidence_scope_binding_declares_a_surface":
+        "A sentence bound to a statement about what the evidence does not contain also declared "
+        "a metric or a period for it, and that statement is of no metric and over no period.",
 
     # §13.4 periods
     "period_unresolvable":

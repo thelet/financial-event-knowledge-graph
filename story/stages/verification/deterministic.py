@@ -276,8 +276,17 @@ _CHANGE_VERB = re.compile(
 #: therefore runs for **every** derived binding whatever the sentence's kind
 #: (`_derived_period_findings`), which is a strengthening: the demo's original refusal was a
 #: period the model forgot to declare, and this is the rule that reads the one it wrote instead.
-#: The set below is unchanged, because it governs the *metric* rule as well and a `calculated`
-#: sentence's metric grounding is a separate question nobody has measured.
+#:
+#: **The metric half followed at H1, and the sentence that used to stand here was the hole.** It
+#: read *"the set below is unchanged, because it governs the metric rule as well and a
+#: `calculated` sentence's metric grounding is a separate question nobody has measured"*. It has
+#: been measured: bound to a derivation of `adjusted_gross_profit`, *"Adjusted gross **margin**
+#: fell $446 million"* — a percent metric stated in dollars — and *"**Revenue** fell $446
+#: million"* were both **accepted with zero findings**, and so were the same two sentences
+#: declared `reported`, so this was never only the `calculated` exemption. `metric_identity` now
+#: runs `_derived_metric_grounding_findings` for every derived binding whatever the kind, on the
+#: same footing as the period rule. **The set below is genuinely unchanged now**: it governs
+#: only the two *observed* rules, and both exemptions above still hold for them.
 GROUNDED_SENTENCE_KINDS: frozenset[SentenceKind] = frozenset(
     {SentenceKind.REPORTED, SentenceKind.EXPLANATORY})
 
@@ -833,7 +842,8 @@ class DeterministicVerifier:
         spans = [language.LexicalMatch(term=b.rendered, start=b.char_start,
                                        end=b.char_end)
                  for b in sentence.fact_bindings]
-        needles = [b.period_surface for b in sentence.fact_bindings if b.period_surface]
+        needles = [b.period_surface for b in sentence.fact_bindings
+                   if b.period_surface and self._period_surface_is_checked(b, index)]
         needles.extend(self._literal_ok)
         if sentence.calculation is not None:
             if sentence.calculation.result_rendered:
@@ -844,6 +854,36 @@ class DeterministicVerifier:
         for needle in needles:
             spans.extend(language.occurrences(sentence.text, needle))
         return tuple(spans)
+
+    @staticmethod
+    def _period_surface_is_checked(binding: FactBinding, index: PackageIndex) -> bool:
+        """Whether §13.4 resolves this binding's `period_surface` — H1's gate on coverage.
+
+        **A surface that licenses coverage and that nothing resolves is a hole, and the review
+        walked through it.** `_check_periods` reaches `index.fact()` and then
+        `index.derived_fact()`; for an **evidence-scope** binding both answer `None` and the
+        check `continue`s, as do `_check_units` and `_check_metric_identity`. The field stayed a
+        free string the model wrote — and this function's caller consumed it from *every*
+        binding unconditionally, so those characters licensed §13.1 coverage for any numeral
+        they contained:
+
+            "The evidence in this package supplies no explanation for the 92 percent collapse
+             to 7 from 9999."      period_surface = "92 percent collapse to 7 from 9999"
+
+        passed with zero findings, three fabricated numerals in an accepted post. §13.1's
+        docstring above is explicit that covering a declared surface *"is not trusting it:
+        `_check_periods` resolves the declared surface"* — that sentence was the licence, and
+        for one binding kind it was false. So coverage is now taken only from a binding whose
+        surface a check does in fact resolve, and `derived_facts.scope_findings` refuses the
+        declaration outright from the other end.
+
+        A binding whose id resolves to neither is already `fact_not_in_package` or
+        `derived_fact_not_in_run` and the draft is refused whatever this answers; excluding it
+        here costs nothing and keeps the predicate one sentence — *"a surface some check
+        resolves"* — rather than an enumeration of the kinds that happen to be safe.
+        """
+        return (index.fact(binding.fact_id) is not None
+                or index.derived_fact(binding.fact_id) is not None)
 
     @staticmethod
     def _derived_period_needles(
@@ -1558,6 +1598,15 @@ class DeterministicVerifier:
                         examined += 1
                         found.extend(self._derived_metric_findings(
                             sentence, binding, derived, aliases))
+                        # Whatever the sentence's kind, unlike an observation binding and for
+                        # `_derived_period_findings`' reason: `GROUNDED_SENTENCE_KINDS` exempts
+                        # `calculated` because such a sentence used to carry no bindings, and
+                        # §6 is what put these on it. Counted in `examined` for the same reason
+                        # the observed grounding is: a check that ran and a check that was
+                        # skipped must not report the same denominator.
+                        examined += 1
+                        found.extend(self._derived_metric_grounding_findings(
+                            sentence, binding, derived, aliases))
                     continue
                 examined += 1
                 resolution = aliases.resolve(binding.metric_surface)
@@ -1745,6 +1794,86 @@ class DeterministicVerifier:
                 "margin\", so one word moves the sentence to the other metric while every "
                 "declared field stays valid. Both margins are in this package and they read "
                 "+3.3 and -12.6 in 2022Q3."),
+        )]
+
+    def _derived_metric_grounding_findings(
+        self,
+        sentence: DraftSentence,
+        binding: FactBinding,
+        derived: DerivedFact,
+        aliases: MetricAliasIndex,
+    ) -> list[VerificationFinding]:
+        """§13.5 applied to the **prose** of a sentence stating a derived fact (H1).
+
+        **The hole this closes, reproduced by the review.** `_derived_metric_findings` above
+        checks the *declared* `metric_surface` and nothing else. The prose rule that catches a
+        renamed metric for an observation — `_metric_grounding_findings` — lives in the observed
+        branch, behind `GROUNDED_SENTENCE_KINDS`, and a derived binding `continue`s past it on
+        **every** sentence kind, `reported` included. So both of these were accepted with zero
+        findings, bound to a derivation of `adjusted_gross_profit`:
+
+            "Adjusted gross margin fell $446 million in the third quarter of 2022."
+            "Revenue fell $446 million in the third quarter of 2022."
+
+        The first names a **percent** metric over a USD figure; the second names a metric the
+        package does not carry. The identical sentences over an *observed* binding are
+        `metric_named_in_text_contradicts_binding`, which is the asymmetry:
+        `GROUNDED_SENTENCE_KINDS`' own comment recorded the `calculated` exemption as *"a
+        separate question nobody has measured"*, and S13 is what moved every derived figure into a `calculated` sentence.
+        The unmeasured gap became the whole guard on which metric a derived number is attributed
+        to.
+
+        **Two metrics are admissible, for `_derived_metric_findings`' reason.** R2 permits a
+        second metric only under a `DIVERGENCE` claim — `compare_levels` and `ratio` — so a
+        sentence stating the demo's gap may name either margin, or both, and that is what the
+        committed accepted draft does. Everywhere else `from_metric_id` equals `metric_id`.
+
+        Same two codes and the same alias index as the observed rule, because it is the same
+        fault: a sentence naming no metric at all is `metric_surface_absent_from_text` and one
+        naming a metric this derivation is not of is
+        `metric_named_in_text_contradicts_binding`. A declared-ambiguous surface in the prose —
+        *"gross margin"* — licenses either margin here, exactly as it does there: refusing a
+        writer for *declaring* it is `metric_surface_ambiguous`'s job.
+        """
+        admissible = {derived.metric_id, derived.from_metric_id}
+        named = aliases.scan(sentence.text)
+        if any(occurrence.licenses(metric_id)
+               for occurrence in named for metric_id in admissible):
+            return []
+        common = dict(
+            sentence_index=sentence.index,
+            char_start=binding.char_start, char_end=binding.char_end,
+            fact_ids=(derived.fact_id,),
+        )
+        expected = ("the sentence to name "
+                    + " or ".join(sorted(admissible))
+                    + f" ({binding.metric_surface!r})")
+        if not named:
+            return [finding(
+                "metric_surface_absent_from_text", **common,
+                expected=expected,
+                observed=sentence.text,
+                explanation=(
+                    "§13.5: a metric surface carries no numeral, so nothing else in §13 forces "
+                    "it into the sentence — and a derived figure is the case where that matters "
+                    "most, because the number is the one thing in the sentence code computed "
+                    "and the metric it is attributed to was never read. Measured: a $446 "
+                    "million fall in adjusted gross profit, written about revenue, passed."),
+            )]
+        return [finding(
+            "metric_named_in_text_contradicts_binding", **common,
+            expected=expected,
+            observed=("the sentence names "
+                      + ", ".join(sorted({metric_id for occurrence in named
+                                          for metric_id in occurrence.metric_ids}))
+                      + f"; the binding declares {binding.metric_surface!r}"),
+            explanation=(
+                "§13.5 with longest match: \"gross margin\" is inside \"adjusted gross "
+                "margin\", so one word moves the sentence to another metric while every "
+                "declared field stays valid. Over a derivation the two metrics need not even "
+                "share a unit — *\"Adjusted gross margin fell $446 million\"* states a "
+                "percent metric in dollars — and the declared surface, which is the only thing "
+                "the rule above reads, is still correct."),
         )]
 
     # -- §13.6 / §13.11 subject ----------------------------------------------------------

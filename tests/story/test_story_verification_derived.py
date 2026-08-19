@@ -414,17 +414,24 @@ def test_a_sentence_that_states_the_opposite_direction_is_refused():
         make_draft(sentences=(fall_sentence(text=text),)))
 
 
-def test_a_change_verb_the_lexicon_gives_no_polarity_is_left_alone():
-    """`CHANGE_DIRECTION`'s three `None`s are an abstention, not a refusal.
+def test_a_change_verb_the_lexicon_gives_no_polarity_states_no_direction():
+    """`CHANGE_DIRECTION`'s `None`s do not *contradict* the fact — and no longer excuse it.
 
     *"Improved"* is a statement about the quantity's desirability and not about its sign —
     `direct_selling_costs` is stored negative on 46 of 46 canonical values, so a cost that
-    improves is a *rise* in the stored number. Refusing on it would invent a claim the sentence
-    did not make.
+    improves is a *rise* in the stored number — so refusing it as **reversed** would invent a
+    claim the sentence did not make. That half is unchanged.
+
+    **What changed at H1 is where the abstention goes.** The sentence still has to say which way
+    the quantity moved, and a word that states desirability has not said it, so the draft is
+    refused for stating no direction rather than accepted for stating none. The old assertion —
+    `derived_fact_orientation_reversed not in codes` — was true then and is true now, and on its
+    own it was the shape the review walked through six times.
     """
     text = FALL_TEXT.replace("fell", "improved")
-    assert "derived_fact_orientation_reversed" not in codes(
-        make_draft(sentences=(fall_sentence(text=text),)))
+    found = codes(make_draft(sentences=(fall_sentence(text=text),)))
+    assert "derived_fact_orientation_reversed" not in found
+    assert "derived_direction_not_stated_in_text" in found
 
 
 def test_the_change_verb_lexicon_states_a_polarity_for_every_verb_numerals_knows():
@@ -758,14 +765,21 @@ SCOPE_TEXT = "The evidence in this package supplies no explanation for the fall.
 
 def scope_sentence(text: str = SCOPE_TEXT, rendered: str | None = None,
                    **overrides: object) -> DraftSentence:
+    """§7's binding, with **both surfaces empty**, which is the only shape H1 accepts.
+
+    They were `"Adjusted gross profit"` and `"the third quarter of 2022"` here until H1, and
+    that fixture was the review's fourth finding in miniature: an evidence-scope fact is of no
+    metric and over no period, `_check_metric_identity`, `_check_units` and `_check_periods` all
+    resolve neither branch for it and `continue`, and `_covering_spans` was reading the period
+    string anyway. See `test_an_evidence_scope_binding_may_declare_no_metric_and_no_period`.
+    """
     span = rendered or "The evidence in this package supplies no explanation"
     fields: dict[str, object] = dict(
         index=0, text=text, kind=SentenceKind.EXPLANATORY,
         fact_bindings=(FactBinding(
             fact_id=SCOPE.fact_id, rendered=span,
             char_start=text.index(span), char_end=text.index(span) + len(span),
-            metric_surface="Adjusted gross profit",
-            period_surface="the third quarter of 2022"),),
+            metric_surface="", period_surface=""),),
     )
     fields.update(overrides)
     return DraftSentence(**fields)  # type: ignore[arg-type]
@@ -1090,3 +1104,281 @@ def test_the_two_windows_are_matched_through_the_grammar_and_not_by_the_declared
         make_draft((fall_sentence(text=text),)), make_package(), make_plan(), (FALL,))
 
     assert [found.code for found in verified.all_findings] == []
+
+
+# ---------------------------------------------------------------------------------------
+# H1 — the four holes an adversarial review reproduced, each with its own repro
+# ---------------------------------------------------------------------------------------
+#
+# The verdict being repaired: *"any calculation the post uses is first turned into a
+# deterministic trusted fact"* held, and *"the model only chooses how to express that fact"* did
+# not. Every sentence below was **accepted with zero findings** against `ead0290`, bound to a
+# derivation whose number was right.
+
+
+def _crossing_fact(**overrides: object) -> DerivedFact:
+    """`crossed_zero` over `$556M -> $110M`: two positive readings, so `did_not_cross`."""
+    fields: dict[str, object] = dict(
+        operation=DerivationOperation.CROSSED_ZERO,
+        result=None, result_word=derived_rules.DID_NOT_CROSS,
+        unit="boolean", currency=None,
+        display_semantics=DisplaySemantics.DID_NOT_CROSS_ZERO,
+        reused_detector_signal="crosses_zero")
+    fields.update(overrides)
+    return make_derived(**fields)
+
+
+def _bound(derived: DerivedFact, text: str, span: str,
+           kind: SentenceKind = SentenceKind.CALCULATED, **binding: object) -> DraftSentence:
+    """One sentence binding `derived` at `span`, with both input cells cited."""
+    fields: dict[str, object] = dict(
+        fact_id=derived.fact_id, rendered=span,
+        char_start=text.index(span), char_end=text.index(span) + len(span),
+        metric_surface="Adjusted gross profit",
+        period_surface=derived.period_surface_hint)
+    fields.update(binding)
+    return DraftSentence(
+        index=0, text=text, kind=kind,
+        fact_bindings=(FactBinding(**fields),),  # type: ignore[arg-type]
+        citations=(Q2_CITATION, Q3_CITATION))
+
+
+# -- F1: the prose may name a different metric than the derivation is of -------------------
+
+
+@pytest.mark.parametrize("kind", [SentenceKind.CALCULATED, SentenceKind.REPORTED])
+def test_a_derived_binding_whose_prose_names_another_metric_is_refused(kind):
+    """**The hole, in the words that reproduced it.** *"Adjusted gross margin fell $446
+    million"* is a **percent** metric stated in dollars, bound to a derivation of
+    `adjusted_gross_profit`, with a correct number, a correct period and a correct declared
+    surface — and it passed.
+
+    `_derived_metric_findings` read the *declared* `metric_surface` and nothing else, and the
+    prose rule that catches this for an observation lives in the observed branch behind
+    `GROUNDED_SENTENCE_KINDS`, which a derived binding `continue`s past on **every** sentence
+    kind. Parametrised over both kinds because `reported` was accepted too: this was never only
+    the `calculated` exemption `GROUNDED_SENTENCE_KINDS` records as *"a separate question nobody
+    has measured"*.
+    """
+    text = "Adjusted gross margin fell $446 million in the third quarter of 2022."
+    assert "metric_named_in_text_contradicts_binding" in codes(
+        make_draft(sentences=(_bound(FALL, text, "$446 million", kind),)))
+
+
+@pytest.mark.parametrize("kind", [SentenceKind.CALCULATED, SentenceKind.REPORTED])
+def test_a_derived_binding_whose_prose_names_no_metric_at_all_is_refused(kind):
+    """The other half of §13.5's prose rule, reaching a derived binding.
+
+    *"Revenue fell $446 million"* names a metric this package does not carry, so the alias index
+    finds nothing to license and the sentence has attributed a code-computed number to a metric
+    no reader can check. The observed rule has refused this shape since R8; the derived one
+    skipped it entirely.
+    """
+    text = "Revenue fell $446 million in the third quarter of 2022."
+    assert "metric_surface_absent_from_text" in codes(
+        make_draft(sentences=(_bound(FALL, text, "$446 million", kind),)))
+
+
+def test_the_prose_rule_admits_either_metric_of_a_two_metric_derivation():
+    """Not a stricter rule than the declared surface gets: R2's two metrics both license.
+
+    `compare_levels` is the one claim kind that carries a second metric, and a sentence stating
+    the demo's gap may name either margin — which is what the committed accepted draft does. The
+    same admissible set `_derived_metric_findings` uses for the declaration.
+    """
+    gap = make_derived(
+        operation=DerivationOperation.COMPARE_LEVELS,
+        from_fact_id=Q3_ID, to_fact_id=Q3_ID,
+        from_period="2022Q3", to_period="2022Q3",
+        from_value=110_000_000.0, to_value=110_000_000.0,
+        result=0.0, display_semantics=DisplaySemantics.EQUAL_TO,
+        metric_id="adjusted_gross_profit", from_metric_id="adjusted_gross_margin")
+    text = "Adjusted gross margin was the other reading of the third quarter of 2022."
+    sentence = _bound(gap, text, "Adjusted gross margin",
+                      metric_surface="Adjusted gross profit")
+    found = codes(make_draft(sentences=(sentence,)), derived=(gap,))
+    assert "metric_named_in_text_contradicts_binding" not in found
+    assert "metric_surface_absent_from_text" not in found
+
+
+# -- F2: the prose may state the opposite direction, or no direction at all -----------------
+
+
+@pytest.mark.parametrize(
+    "verb", ["grew", "climbed", "surged", "gained", "jumped", "expanded", "rose"])
+def test_a_change_verb_outside_the_old_lexicon_no_longer_turns_the_rule_off(verb):
+    """**Six of these seven were accepted**, over a fact reading `decreased by` / `-446000000.0`.
+
+    Only `rose` refused, because only `rose` was one of `CHANGE_DIRECTION`'s thirteen words. The
+    rule read the lexicon to decide whether it ran at all, so ordinary investor English walked
+    around it — the identical failure `COMPARATIVE_TERMS` records R8 measuring for comparatives,
+    in the same module, one release later. Widening the lexicon is why these seven now land on
+    `derived_fact_orientation_reversed` rather than on the fail-closed code below; the rule not
+    depending on the lexicon is why an eighth synonym would still be refused.
+    """
+    text = FALL_TEXT.replace("fell", verb)
+    assert "derived_fact_orientation_reversed" in codes(
+        make_draft(sentences=(fall_sentence(text=text),)))
+
+
+def test_an_unlisted_change_word_is_refused_rather_than_abstained_on():
+    """The fail-closed half, driven with a word no lexicon carries.
+
+    *"Adjusted gross profit ballooned $446 million"* states a direction English readers can see
+    and `CHANGE_DIRECTION` cannot. Widening a word list can never be the guarantee; refusing a
+    sentence that states nothing the map recognises is, and it is what stops the next synonym
+    from being the next hole.
+    """
+    text = FALL_TEXT.replace("fell", "ballooned")
+    assert "derived_direction_not_stated_in_text" in codes(
+        make_draft(sentences=(fall_sentence(text=text),)))
+
+
+def test_a_change_stated_as_a_level_is_refused():
+    """**No verb is needed to break it, which is why widening alone was not the fix.**
+
+    *"Adjusted gross profit **was** $446 million in the third quarter of 2022."* was accepted.
+    The actual 2022Q3 level is $110M; `$446 million` is the *fall*. Every declared field is
+    valid and the sentence is false, and there is no word in it for a lexicon to catch.
+    """
+    text = "Adjusted gross profit was $446 million in the third quarter of 2022."
+    assert "derived_direction_not_stated_in_text" in codes(
+        make_draft(sentences=(_bound(FALL, text, "$446 million"),)))
+
+
+def test_a_derivation_whose_direction_was_never_established_admits_no_direction_word():
+    """`DIRECTION_UNVERIFIABLE` is the strongest of the three `None` semantics, and it abstained.
+
+    The metric's sign convention was never measured, so *nobody* established which way the
+    quantity moved — and the rule that should say so was the rule that fell silent. Any
+    directional word over such a fact is now refused, and none is demanded, because there is no
+    computed direction for the sentence to state.
+    """
+    unverifiable = make_derived(display_semantics=DisplaySemantics.DIRECTION_UNVERIFIABLE)
+    found = codes(make_draft(sentences=(fall_sentence(unverifiable),)),
+                  derived=(unverifiable,))
+    assert "derived_fact_orientation_reversed" in found
+    neutral = "Adjusted gross profit moved $446 million in the third quarter of 2022."
+    assert codes(make_draft(sentences=(_bound(unverifiable, neutral, "$446 million"),)),
+                 derived=(unverifiable,)) == set()
+
+
+# -- F3: a word-valued derived fact had no prose check whatsoever ---------------------------
+
+
+@pytest.mark.parametrize("phrase", ["turned negative", "swung from profit to loss"])
+def test_a_crossed_zero_fact_refuses_a_sentence_claiming_the_opposite(phrase):
+    """**Accepted with zero findings before H1, both of them.**
+
+    `crossed_zero` over `$556M -> $110M` computes `did_not_cross`. `SEMANTIC_DIRECTION` leaves
+    both crossing members at `None` so the change-verb rule abstained; the fact carries no
+    numeral so §13.1 had nothing to compare; `language.ungrounded_words` reached only an
+    `EvidenceScopeFact`. Three rules, three different reasons to look away from the same
+    sentence.
+    """
+    fact = _crossing_fact()
+    text = (f"Adjusted gross profit {phrase} between the second quarter of 2022 and the third "
+            "quarter of 2022.")
+    assert "derived_fact_orientation_reversed" in codes(
+        make_draft(sentences=(_bound(fact, text, phrase),)), derived=(fact,))
+
+
+def test_a_crossed_zero_sentence_that_states_no_crossing_at_all_is_refused():
+    """Fail closed, the same way the change-verb half now does.
+
+    The fact answers in a word and has no numeral, so the phrase stating the crossing is the
+    only thing a verifier can hold the sentence to. A sentence binding it and stating none has
+    bound a word code nothing in its own text expresses.
+    """
+    fact = _crossing_fact()
+    text = "Adjusted gross profit is discussed for the third quarter of 2022 here."
+    assert "derived_direction_not_stated_in_text" in codes(
+        make_draft(sentences=(_bound(fact, text, "Adjusted gross profit"),)), derived=(fact,))
+
+
+def test_a_crossed_zero_sentence_that_states_what_the_tool_computed_passes():
+    """The rule refuses wrong sentences and not the operation: a true wording is accepted.
+
+    **And a measurement H1 did not expect, recorded rather than smoothed over.** The *most*
+    natural true wording — *"did not cross zero"* — is refused, and not by this rule: `"did
+    not"` is a §13.14 `ABSENCE_TERMS` member and the sentence earns `unsupported_absence_claim`,
+    a check that predates S13 and that H1 may not weaken. So on the `did_not_cross` branch the
+    writable surfaces are the ones that state the fact positively — *"remained positive"*,
+    *"stayed positive"*, *"on the same side of zero"* — and every negated spelling collides with
+    §13.14. That is a real narrowing of what a `crossed_zero` derivation can say, it is the
+    conservative direction, and it is a reason to ask whether the operation earns its place in
+    the offer set at all rather than a reason to loosen either rule.
+    """
+    fact = _crossing_fact()
+    text = ("Adjusted gross profit remained positive between the second quarter of 2022 and "
+            "the third quarter of 2022.")
+    assert codes(make_draft(sentences=(_bound(fact, text, "remained positive"),)),
+                 derived=(fact,)) == set()
+
+
+def test_the_crossing_lexicon_states_a_polarity_for_every_phrase_it_scans():
+    """`COMPARATIVE_DIRECTION`'s discipline, asserted for the lexicon H1 adds.
+
+    Totality is what lets `_crossing_findings` read a `None` as *"the caller passed a phrase the
+    scan did not produce"* rather than as a silent abstention — which is the fault this whole
+    section repairs.
+    """
+    for phrase in language.CROSSING_TERMS:
+        assert language.crossing_direction(phrase) is not None
+    text = " ".join(language.CROSSING_TERMS)
+    assert {match.term.lower() for match in language.crossing_claims(text)}
+
+
+# -- F4: an evidence-scope binding's period_surface licensed numeral coverage ---------------
+
+
+def test_an_evidence_scope_binding_may_declare_no_metric_and_no_period():
+    """§7's fact is of no metric and over no period, and two checks resolve neither.
+
+    `_check_periods` reaches `index.fact()` and then `index.derived_fact()`, gets `None` from
+    both and `continue`s — as do `_check_units` and `_check_metric_identity`. So both fields
+    were free strings nothing read, and one of them was read: see the test below.
+    """
+    found = codes(make_draft(sentences=(scope_sentence(
+        fact_bindings=(FactBinding(
+            fact_id=SCOPE.fact_id, rendered=SCOPE_TEXT[:51],
+            char_start=0, char_end=51,
+            metric_surface="Adjusted gross profit",
+            period_surface="the third quarter of 2022"),)),)), derived=(SCOPE,))
+    assert "evidence_scope_binding_declares_a_surface" in found
+
+
+def test_an_evidence_scope_period_surface_licenses_no_numeral():
+    """**The repro, verbatim: three fabricated numerals in an accepted post.**
+
+        "The evidence in this package supplies no explanation for the 92 percent collapse to 7
+         from 9999."          period_surface = "92 percent collapse to 7 from 9999"
+
+    `_covering_spans` consumed `binding.period_surface` from **every** binding unconditionally,
+    and its own docstring's justification — *"covering it here is not trusting it:
+    `_check_periods` resolves the declared surface"* — was false for this binding kind. All
+    three numerals are `unbound_numeral` now, which is §13.1 working as written the moment the
+    licence it never granted is taken back.
+    """
+    text = ("The evidence in this package supplies no explanation for the 92 percent collapse "
+            "to 7 from 9999.")
+    span = "The evidence in this package supplies no explanation"
+    sentence = scope_sentence(text=text, fact_bindings=(FactBinding(
+        fact_id=SCOPE.fact_id, rendered=span, char_start=0, char_end=len(span),
+        metric_surface="", period_surface="92 percent collapse to 7 from 9999"),))
+    verified = DeterministicVerifier().verify(
+        make_draft(sentences=(sentence,)), make_package(), make_plan(), (SCOPE,))
+    assert [found.code for found in verified.all_findings].count("unbound_numeral") == 3
+    assert verified.passed is False
+
+
+def test_a_derived_bindings_period_surface_still_covers_what_it_always_covered():
+    """The coverage gate narrows to *"a surface some check resolves"* and to nothing less.
+
+    §12.1's widening — both of a derivation's periods covered, both checked — is the thing most
+    at risk from a rule that stops reading `period_surface`, so the two-period sentence that
+    repair was made for is driven again here.
+    """
+    text = ("Adjusted gross profit fell $446 million from the second quarter of 2022 to the "
+            "third quarter of 2022.")
+    assert codes(make_draft(sentences=(_bound(FALL, text, "$446 million"),))) == set()

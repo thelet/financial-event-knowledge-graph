@@ -136,19 +136,124 @@ COMPARATIVE_DIRECTION: Mapping[str, bool] = {
 #: guards: a sentence that says *"fell"* over a derived fact whose `display_semantics` is
 #: *"increased by"*.
 #:
-#: **Three of the thirteen are `None`, and each is a measurement rather than a hedge.**
+#: **H1 widened this from thirteen words, and the widening is only half the repair.** The
+#: adversarial review drove ordinary investor English past the thirteen and every one was
+#: **accepted** over a fact whose `display_semantics` is *"decreased by"* and whose `result` is
+#: `-446000000.0`: `grew`, `climbed`, `surged`, `gained`, `jumped`, `expanded`. The rule read
+#: this map to decide whether it ran at all, so an unlisted synonym made it abstain silently —
+#: exactly the arrangement `COMPARATIVE_TERMS` records R8 finding for comparatives, in the same
+#: place, one release later. Widening alone would only move the boundary, so
+#: `derived_facts._direction_findings` no longer lets the vocabulary decide whether it runs: a
+#: directional derivation whose sentence states **no** word this map gives the computed
+#: direction to is `derived_direction_not_stated_in_text`. The list below is what keeps that
+#: from refusing true sentences; it is not what makes the check sound.
+#:
+#: **`None` is desirability or magnitude, never a hedge, and the boundary is a measurement.**
 #: `improved` is a statement about the quantity's desirability and not about its sign —
 #: `direct_selling_costs` is stored negative on 46 of 46 canonical values, so a cost that
-#: improves is a *rise* in the stored number. `widened` and `narrowed` describe a magnitude:
-#: a widening loss is a fall. A `None` here makes the orientation rule abstain for that word,
-#: which is the opposite of `comparative_direction`'s `None` — there the sentence *declared* a
-#: comparison and an unreadable word is a refusal; here the word is incidental prose and
-#: refusing on it would be inventing a claim the sentence did not make.
+#: improves is a *rise* in the stored number — and `worsened`, `deteriorated`, `strengthened`,
+#: `weakened` and `recovered` say the same thing about the same convention. `widened` and
+#: `narrowed` describe a magnitude: a widening loss is a fall. `turned`, `swung`, `flipped` and
+#: `reversed` name a sign change without saying which way, which is `CROSSING_TERMS`' question
+#: and not this one. Under the H1 rule a `None` word no longer means the check abstains — it
+#: means that word does not *state* the direction, so a sentence carrying only `None` words is
+#: refused for saying nothing rather than accepted for saying nothing.
+#:
+#: **`drop`, `drops` and `dropping` are deliberately absent while `dropped` is present**, for
+#: `STATE_TERMS`' reason: §16's read-only scan reads every string constant in `story/`
+#: case-folded against the Cypher keyword list, and a three-letter `"drop"` is `DROP`. `fell`,
+#: `declined`, `slipped` and `dropped` cover the same claim. `contract` and `contracts` are
+#: absent for a second reason — `"contracts"` is a `DECLARED_AMBIGUOUS` **metric** surface in
+#: this ontology — while `contracted` and `contraction` are unambiguous and are listed.
 CHANGE_DIRECTION: Mapping[str, bool | None] = {
-    "rose": True, "increased": True, "up": True, "higher": True,
-    "fell": False, "declined": False, "decreased": False, "dropped": False,
-    "down": False, "lower": False,
-    "improved": None, "widened": None, "narrowed": None,
+    # -- the quantity went up ----------------------------------------------------------------
+    "rose": True, "rise": True, "rises": True, "risen": True, "rising": True,
+    "increased": True, "increase": True, "increases": True, "increasing": True,
+    "up": True, "higher": True,
+    "grew": True, "grow": True, "grows": True, "growing": True, "grown": True,
+    "growth": True,
+    "climbed": True, "climb": True, "climbs": True, "climbing": True,
+    "surged": True, "surge": True, "surges": True, "surging": True,
+    "jumped": True, "jump": True, "jumps": True, "jumping": True,
+    "gained": True, "gain": True, "gains": True, "gaining": True,
+    "expanded": True, "expand": True, "expands": True, "expanding": True,
+    "expansion": True,
+    "rebounded": True, "rebound": True, "rebounds": True,
+    "doubled": True, "tripled": True,
+    # -- the quantity went down --------------------------------------------------------------
+    "fell": False, "fall": False, "falls": False, "fallen": False, "falling": False,
+    "declined": False, "decline": False, "declines": False, "declining": False,
+    "decreased": False, "decrease": False, "decreases": False, "decreasing": False,
+    "dropped": False, "down": False, "lower": False,
+    "slipped": False, "slip": False, "slips": False, "slipping": False,
+    "slid": False, "slide": False, "slides": False, "sliding": False,
+    "shrank": False, "shrunk": False, "shrink": False, "shrinks": False, "shrinking": False,
+    "contracted": False, "contracting": False, "contraction": False,
+    "plunged": False, "plunge": False, "plunges": False, "plunging": False,
+    "tumbled": False, "tumble": False, "tumbles": False, "tumbling": False,
+    "sank": False, "sunk": False, "sinking": False,
+    "reduced": False, "reduce": False, "reduces": False, "reducing": False,
+    "reduction": False,
+    "halved": False, "retreated": False, "retreat": False, "retreats": False,
+    "eased": False, "softened": False,
+    # -- desirability, magnitude or an unstated sign change: no direction of the number -------
+    "improved": None, "improve": None, "improves": None, "improving": None,
+    "improvement": None,
+    "worsened": None, "worsen": None, "worsens": None, "worsening": None,
+    "deteriorated": None, "deteriorate": None, "deteriorates": None, "deteriorating": None,
+    "strengthened": None, "strengthen": None, "strengthens": None, "strengthening": None,
+    "weakened": None, "weaken": None, "weakens": None, "weakening": None,
+    "recovered": None, "recover": None, "recovers": None, "recovering": None,
+    "recovery": None,
+    "widened": None, "widen": None, "widens": None, "widening": None,
+    "narrowed": None, "narrow": None, "narrows": None, "narrowing": None,
+    "changed": None, "change": None, "changes": None, "changing": None,
+    "moved": None, "move": None, "moves": None, "moving": None,
+    "swung": None, "swing": None, "swings": None,
+    "turned": None, "turn": None, "turns": None,
+    "flipped": None, "flip": None, "flips": None,
+    "reversed": None, "reverse": None, "reverses": None,
+}
+
+#: Which way a **sign-crossing** phrase points: `True` when it asserts the quantity crossed
+#: zero, `False` when it asserts it did not (§6, over a `crossed_zero` derivation).
+#:
+#: **This lexicon exists because a word-valued derived fact had no prose check at all.** H1's
+#: third finding, reproduced: `crossed_zero` over `$556M -> $110M` computes `did_not_cross`,
+#: `SEMANTIC_DIRECTION[CROSSED_ZERO]` is `None` so the change-verb rule abstained, the fact
+#: carries no numeral so §13.1 had nothing to compare, and `ungrounded_words` reached only an
+#: `EvidenceScopeFact`. *"Adjusted gross profit **turned negative** between the second quarter
+#: of 2022 and the third quarter of 2022."* was **accepted with zero findings** over a fact
+#: saying it did not cross.
+#:
+#: **Total by construction — every member states a polarity — and the rule that reads it fails
+#: closed.** `derived_facts._crossing_findings` refuses a sentence stating a phrase that
+#: disagrees *and* a sentence stating none at all, so an unlisted paraphrase costs a true
+#: sentence rather than admitting a false one. That is the direction §13.14 says the failure
+#: should point, and it is the opposite of the arrangement this lexicon replaces.
+CROSSING_TERMS: Mapping[str, bool] = {
+    # -- asserts a crossing ------------------------------------------------------------------
+    "crossed zero": True, "crosses zero": True, "cross zero": True, "crossing zero": True,
+    "crossed into negative territory": True, "crossed into positive territory": True,
+    "into negative territory": True, "into positive territory": True,
+    "turned negative": True, "turned positive": True,
+    "turns negative": True, "turns positive": True,
+    "went negative": True, "went positive": True,
+    "swung to a loss": True, "swung to a profit": True,
+    "swung from a profit to a loss": True, "swung from profit to loss": True,
+    "swung from a loss to a profit": True, "swung from loss to profit": True,
+    "from profit to loss": True, "from loss to profit": True,
+    "flipped negative": True, "flipped positive": True,
+    "flipped to a loss": True, "flipped to a profit": True,
+    "fell below zero": True, "rose above zero": True,
+    "reversed sign": True, "changed sign": True, "sign reversal": True,
+    # -- asserts no crossing -----------------------------------------------------------------
+    "did not cross zero": False, "did not cross": False, "does not cross zero": False,
+    "without crossing zero": False, "on the same side of zero": False,
+    "stayed positive": False, "stayed negative": False,
+    "remained positive": False, "remained negative": False,
+    "did not turn negative": False, "did not turn positive": False,
+    "held its sign": False, "kept its sign": False,
 }
 
 #: What a sentence says *about* a metric: a direction, a level, or a financial state. Read only
@@ -265,6 +370,7 @@ _STATE = _compile(STATE_TERMS)
 _FORWARD = _compile(FORWARD_LOOKING_TERMS)
 _FOREIGN = _compile(FOREIGN_SUBJECTS)
 _CHANGE = _compile(tuple(CHANGE_DIRECTION))
+_CROSSING = _compile(tuple(CROSSING_TERMS))
 
 #: Clause boundaries for §13.10 condition 5's *"within the same clause"*. A comma **is** a
 #: boundary here and is not one in `numerals._clauses`, and the difference is deliberate:
@@ -349,11 +455,29 @@ def change_verbs(text: str) -> tuple[LexicalMatch, ...]:
 def change_direction(term: str) -> bool | None:
     """`True` for a word saying the quantity rose, `False` fell, `None` for one saying neither.
 
-    `None` is *"this word states no direction"* and a caller abstains on it — see
-    `CHANGE_DIRECTION`, which is where the three `None`s are argued. That is deliberately not
-    `comparative_direction`'s contract, where `None` means *"unreadable, refuse"*.
+    `None` is *"this word states no direction"*, and after H1 a caller may not treat it as
+    *"nothing to check"*: `derived_facts._direction_findings` requires a word whose answer is
+    the computed direction, so a `None` word neither contradicts the fact nor satisfies it. A
+    term this map does not carry at all answers `None` too, and the same rule catches it — which
+    is the whole of H1's second finding, where six unlisted synonyms each made the check abstain.
     """
     return CHANGE_DIRECTION.get(re.sub(r"\s+", " ", term.strip().lower()))
+
+
+def crossing_claims(text: str) -> tuple[LexicalMatch, ...]:
+    """Every sign-crossing phrase in `text` (§6's rule over a `crossed_zero` derivation)."""
+    return _scan(_CROSSING, text)
+
+
+def crossing_direction(term: str) -> bool | None:
+    """`True` for a phrase asserting the quantity crossed zero, `False` for one asserting it did
+    not, `None` for a phrase this lexicon does not carry.
+
+    `None` is `comparative_direction`'s contract and not `change_direction`'s: every member of
+    `CROSSING_TERMS` states a polarity, so `None` here can only mean the caller passed a phrase
+    the scan did not produce.
+    """
+    return CROSSING_TERMS.get(re.sub(r"\s+", " ", term.strip().lower()))
 
 
 def state_terms(text: str) -> tuple[LexicalMatch, ...]:
@@ -432,6 +556,7 @@ __all__ = [
     "COMPARATIVE_DIRECTION",
     "COMPARATIVE_TERMS",
     "CONNECTIVE_LEXICON",
+    "CROSSING_TERMS",
     "FOREIGN_SUBJECTS",
     "FORWARD_LOOKING_TERMS",
     "FRAME_DOCUMENT_TYPES",
@@ -447,6 +572,8 @@ __all__ = [
     "change_verbs",
     "comparative_direction",
     "comparatives",
+    "crossing_claims",
+    "crossing_direction",
     "foreign_subjects",
     "forward_looking",
     "frame_document_type",

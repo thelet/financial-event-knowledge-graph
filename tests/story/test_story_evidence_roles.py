@@ -264,6 +264,29 @@ def test_a_packaged_fact_is_an_observation_unless_something_says_otherwise():
     assert fact.corroborating_document_ids == ()
 
 
+def test_a_packaged_fact_cannot_claim_to_be_derived():
+    """Narrowed 2026-08-19 after an adversarial review built the row and nothing caught it.
+
+    `fact_kind` was a permissive `FactKind`, so a package could carry a `DERIVED` row. The
+    verifier resolved and bound it normally — `PackageIndex` never reads the field — while the
+    evidence panel rendered it in **no** group at all: the observed group filters on
+    `OBSERVED`, and since DETERMINISTIC_FACT_TOOLS §3 the derived group reads the run's own
+    `derived_facts.json` rather than the package. A row the model can cite and the reader cannot
+    see is the one arrangement §10 exists to prevent.
+
+    Refused at construction rather than taught to two readers, because nothing should produce
+    one: a derived quantity has no passage and no evidence source, which this type requires.
+    """
+    fields = {**observed_fact().model_dump(mode="json"), "fact_kind": "derived"}
+
+    with pytest.raises(ValidationError):
+        PackagedFact.model_validate(fields)
+
+    # And the observed value still round-trips, so the narrowing did not cost the field its job.
+    assert PackagedFact.model_validate(
+        {**fields, "fact_kind": "observed"}).fact_kind is FactKind.OBSERVED
+
+
 def test_the_five_discarded_sources_have_somewhere_to_go_without_minting_a_second_fact():
     """§1.1's measurement, as a shape: six concordant observations, one canonical fact.
 

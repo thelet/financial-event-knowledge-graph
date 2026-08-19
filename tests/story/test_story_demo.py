@@ -759,7 +759,11 @@ def test_the_recorded_qwen_draft_is_accepted_and_every_check_says_what_it_looked
     assert outcome.verified.check("numbers").examined == 6
     assert outcome.verified.check("periods").examined == 3
     assert outcome.verified.check("title").examined == 1
-    assert outcome.verified.check("metric_identity").examined == 5
+    # 5 until H1 gave a derived binding the prose-grounding rule an observed binding has had
+    # since R8. The extra examination is that rule running on the `compare_levels` sentence:
+    # before it, a derived binding skipped §13.5's prose check on every sentence kind, and
+    # *"Revenue fell $446 million"* over a derivation of adjusted gross profit was accepted.
+    assert outcome.verified.check("metric_identity").examined == 6
     # The computed figure is code's, bound by its own id, and recomputed by the verifier against
     # the derivation rather than against the draft's arithmetic — there is none.
     assert [entry.rendered for entry in outcome.verified.calculation_ledger] == [
@@ -878,8 +882,12 @@ ARTIFACTS_OF_THE_LIVE_RECORDING: dict[str, str] = {
     "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
     "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
     "draft.json": "aab096ccce62e94505ccc9550a59980dbb6b62046c7be4dbf29f880a9b6e0138",
+    # H1 moved this one digest and nothing else in the table: `metric_identity.examined` went
+    # 5 -> 6 when the derived prose-grounding rule started counting what it checks. Confirmed by
+    # a live re-run against `:8080` whose report differs from the recorded one on that single
+    # field and whose `generations.jsonl` is byte-for-byte the row below — no prompt moved.
     "verification_report.json":
-        "08c554fa79316b40d005b45a45612ffe54106324fc31fa7ab7c87080ab6505eb",
+        "008cd057f86c66de0a357d9b28773ea0bde15b8252997ff9ce40e64cab8a3201",
     "post.md": "2afa5fddece71bc2ea51f43ccb1d4d21cec49b90eb48237c40fd79b6e1cd0d26",
     "generations.jsonl": "8645d1a95a533b29ad5d2719e55a7137e3e166b0ff04d786f671153e11d87f68",
 }
@@ -893,9 +901,13 @@ ARTIFACTS_OF_THE_SYNTHETIC_STORES: dict[str, dict[str, str]] = {
         "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
         "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
         "draft.json": "986f5da1eefc019304e14fdeeea769a6f2107a8ddd3eaf798ccc0fe8be7e1538",
+        # Both moved at H1 and both for one reason: they embed the verification report, whose
+        # `metric_identity.examined` went 5 -> 6. The refusal is unchanged — one finding, in
+        # `language_safety`, `comparative_not_supported_by_text` — and every other digest in
+        # this table is untouched, which is the statement that the writer's answer did not move.
         "verification_report.json":
-            "48f5c2a1393951e3e5e99597eb537fce0226bbedeadd76a745c05833f7f7eb13",
-        "rejected.json": "ce168645ce09aab636721901d691c28e33649b35f1ad2767691e4b228b9a841e",
+            "a1bfb7bf088cac7dd4adb25bda7d00ddf93911c97a8ac933a1ec6b1949a10ffd",
+        "rejected.json": "9b22ee44d1ca66e9d2f9ca9847da3ebc1f2f49c12b39900a587b20ad4107ddd6",
     },
 }
 
