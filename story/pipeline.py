@@ -47,7 +47,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import yaml
 
@@ -77,13 +77,21 @@ from story.providers.public import (
 from story.stages.detection import (
     POLICY_VERSION,
     canonicalize,
+    detect_acceleration,
     detect_cross_metric_divergence,
+    detect_metric_moves,
+    detect_trend_reversals,
     load_observations,
 )
 # `DETECTOR_ID` and `DETECTOR_VERSION` are deliberately not re-exported by the detection
 # package — a flat alias would mint a second package-level name for a value §6.11 digests into
 # every `candidate_id` — so they are reached through the module that declares them.
-from story.stages.detection import cross_metric_divergence
+from story.stages.detection import (
+    acceleration,
+    cross_metric_divergence,
+    metric_move,
+    trend_reversal,
+)
 from story.stages.freshness import FreshnessReport, check_freshness
 from story.stages.generation import (
     PLANNER_MAX_TOKENS,
@@ -407,9 +415,8 @@ def resolve_demo_inputs(
     retriever = BoundedGraphRetriever(context.executor)
     load = load_observations(retriever)
     points = canonicalize(load.records)
-    detected = detect_cross_metric_divergence(build_series(points), graph_run_id=graph_run_id)
-    candidate = select_candidate(
-        {found.candidate_id: found for found in detected.candidates}, candidate_id)
+    detected, detector_versions = _detect_for(candidate_id, points, graph_run_id=graph_run_id)
+    candidate = select_candidate({found.candidate_id: found for found in detected}, candidate_id)
 
     builder = BoundedEvidencePackageBuilder(
         retriever, identity=identity, records=load.records, points=points,
@@ -420,10 +427,57 @@ def resolve_demo_inputs(
         freshness=report,
         candidate=candidate,
         package=package,
-        detector_versions={cross_metric_divergence.DETECTOR_ID:
-                           cross_metric_divergence.DETECTOR_VERSION},
+        detector_versions=detector_versions,
         policy_version=POLICY_VERSION,
     )
+
+
+#: The detector each candidate id names, keyed by the slug `story.core.keys.candidate_id` puts
+#: in its second segment — `slug(detector_id.split(":", 1)[-1])`, so `detector:metric_move`
+#: reads `metric-move`. Every value is `(module, run)`; `run` takes the canonical points and
+#: returns the candidates, which is the one shape the four detectors do **not** share —
+#: `detect_cross_metric_divergence` wants a series where the other three want points.
+_DETECTORS: dict[str, tuple[Any, Any]] = {
+    "metric-move": (metric_move,
+                    lambda points, run: detect_metric_moves(points, graph_run_id=run)),
+    "acceleration": (acceleration,
+                     lambda points, run: detect_acceleration(points, graph_run_id=run)),
+    "trend-reversal": (trend_reversal,
+                       lambda points, run: detect_trend_reversals(points, graph_run_id=run)),
+    "cross-metric-divergence": (
+        cross_metric_divergence,
+        lambda points, run: detect_cross_metric_divergence(build_series(points),
+                                                           graph_run_id=run)),
+}
+
+
+def _detect_for(candidate_id: str, points: Any, *, graph_run_id: str
+                ) -> tuple[Sequence[StoryCandidate], dict[str, str]]:
+    """Run **the one detector the requested id names**, and record the version that ran.
+
+    §8b's demo ran `detect_cross_metric_divergence` and nothing else, with a stated reason:
+    *"running the other three would spend a full canonical pass to produce candidates nothing
+    selects"*. That reason is still right, and it is **not** an argument for the divergence
+    detector specifically — it is an argument against running four. Hard-coding one of them made
+    every `metric_move`, `acceleration` and `trend_reversal` candidate unreachable from
+    `python -m story demo`, which is how
+    `cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d` came to have
+    four recorded runs and no way to reproduce one from the CLI
+    *(measured 2026-08-19, DETERMINISTIC_FACT_TOOLS §2)*.
+
+    Dispatching on the id's own detector segment keeps the cost at one detector and makes all
+    four reachable. The segment is not parsed hopefully: an id naming no known detector is
+    refused here, with the four names, rather than producing an empty candidate set and a
+    `CandidateNotFound` that would blame the id for naming a candidate that was never looked for.
+    """
+    segments = candidate_id.split(":")
+    slug = segments[1] if len(segments) > 1 else ""
+    found = _DETECTORS.get(slug)
+    if found is None:
+        raise CandidateNotFound(candidate_id, tuple(sorted(_DETECTORS)))
+    module, run = found
+    return (tuple(run(points, graph_run_id).candidates),
+            {module.DETECTOR_ID: module.DETECTOR_VERSION})
 
 
 # -- the model half ----------------------------------------------------------------------------
