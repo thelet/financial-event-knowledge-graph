@@ -64,7 +64,7 @@ EXPECTED_SIZES = {
     # silently, and a change stated as a level had no verb to match at all — and
     # `evidence_scope_binding_declares_a_surface`, for the two binding fields no §13 check
     # resolves against an evidence-scope fact and that `_covering_spans` was nonetheless reading.
-    FAMILY_VERIFICATION: 101,
+    FAMILY_VERIFICATION: 102,
     FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
     # 11 until DETERMINISTIC_FACT_TOOLS §5 gave §11 `derivation_not_offered` — the plan asking

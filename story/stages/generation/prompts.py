@@ -718,7 +718,32 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: `metric_surface_unresolved` to **accepted**, and
 #: `cand:metric-move:adjusted-gross-profit:…` — the candidate DETERMINISTIC_FACT_TOOLS §2 exists
 #: for — from `unbound_numeral` + `derived_unit_mismatch` to **accepted**.
-WRITER_PROMPT_VERSION = "2.1.0"
+#:
+#: **2.2.0**: one rendering repair, and it is 2.1.0's second bullet finishing its own argument.
+#: That bullet taught the DERIVED FACTS row to print money at the scale its inputs were filed
+#: at, and left the FACTS row printing `556000000.0 USD`. Two shapes for one kind of thing, and
+#: at H2 the model reconciled them the wrong way round: asked for two derivations instead of
+#: one, it scaled the FACTS reading itself to write *"Adjusted Gross Profit of 556 million
+#: USD"*, then copied that spelling onto a derived row whose own line read `write exactly "$446
+#: million" - those characters, never "446000000.0 USD"`. It obeyed the same instruction on the
+#: percentage row. `446 million USD` carries no currency surface — legal against an observation,
+#: `derived_unit_mismatch` against a derivation — and that one span was the whole difference
+#: between accepted and rejected. `_observed_figure` does the scaling the model was doing by
+#: hand, through the function the derived row already used.
+#:
+#: **A minor bump and a narrow one.** The schema is untouched, no rule's wording moved, and the
+#: new line is printed **only** for a `USD` reading filed at a scale word — so a package of
+#: percentages renders byte-identically.
+#:
+#: **No fixture was re-recorded, and the reason corrects an assumption H3 started from.** This
+#: constant is **not** a `request_identity` input — that digest is over the prompt *text*, the
+#: system message, the schema and seven request settings — and the demo candidate carries two
+#: `percent` facts, so its writer prompt does not move at all. A live Qwen run after the change
+#: returned `generations.jsonl 8645d1a95a533b29…`, byte-for-byte the committed store, and the
+#: `openai/` store still replays. What the bump does is make the change *visible* in a manifest
+#: and in `Draft.prompt_version`, which is what a version is for; 2.0.0 had to re-record because
+#: the **schema** moved, and that is a different thing.
+WRITER_PROMPT_VERSION = "2.2.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -1261,6 +1286,9 @@ def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
         lines.append(f"  [{fact.observation_id}]")
         printed = f'  printed "{fact.printed_form}"' if fact.printed_form else ""
         lines.append(f"      {fact.metric_id}  {fact.value} {fact.unit}{printed}")
+        figure = _observed_figure(fact)
+        if figure is not None:
+            lines.append(f'      figure: write "{figure}"')
         surfaces = metric_surfaces_for(package, fact.metric_id)
         if surfaces:
             lines.append("      metric surface: write one of "
@@ -1297,6 +1325,41 @@ def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
         if fact.warning_codes:
             lines.append("      warnings " + ", ".join(fact.warning_codes))
     return lines
+
+
+def _observed_figure(fact: PackagedFact) -> str | None:
+    """A money reading spelled the way a sentence carries it, or `None` for every other row.
+
+    **H3, and the whole of it.** The FACTS row prints the value as the package stores it —
+    `556000000.0 USD` — and the DERIVED FACTS row beside it prints `$446 million`, because
+    `_derived_figure` renders a derived money figure at the scale its inputs were filed at.
+    Those are two shapes for one kind of thing, and a 9B model reconciled them the wrong way:
+    it scaled `556000000.0` itself to write *"Adjusted Gross Profit of 556 million USD"*, and
+    then copied **that** spelling onto the derived row, which had told it in so many words to
+    write `$446 million`. `446 million USD` carries no currency surface, so §13.2 refused it
+    (`derived_unit_mismatch`) — legal against an observation and illegal against a derivation —
+    and the run went from accepted to rejected on that one span *(measured live against
+    Qwen3.5-9B-Q4_K_M, 2026-08-19; see plan §14.7 for the control run)*.
+
+    So the scaling the model was doing by hand is done here, once, by the function the derived
+    row already used. The two sections now print one money value in one shape.
+
+    **`None` for anything that is not money at a filed scale, and the restraint is the point.**
+    A `percent` reading is already writable as it stands — the committed accepted draft writes
+    *"-12.6 percent"* — and `_DERIVED_FIGURE_FORMATS` would spell it `-12.6%`, which is a
+    narrowing of legal prose bought for nothing. Only the shape that forced the model to compute
+    is replaced; every other row prints exactly what it printed before, which is why the demo
+    candidate's writer prompt is byte-identical across this change.
+
+    **Offered rather than mandated, and the asymmetry with `_derived_figure_line` is real.**
+    §13.2 admits several surfaces for an *observed* numeral and admits only the currency-symbol
+    one for a derived USD result, so the derived row says *"write exactly … never …"* and this
+    one says *"write"*. Saying `never "556000000.0 USD"` here would be false: that spelling is
+    legal on an observation, and this module's rule is that a wording names a real failure.
+    """
+    if fact.unit != "USD":
+        return None
+    return _scaled_money(fact.value, fact.scale or "")
 
 
 # ---------------------------------------------------------------------------------------
@@ -1455,7 +1518,7 @@ def _derived_figure(fact: DerivedFact, package: StoryEvidencePackage) -> str:
     magnitude = (abs(fact.result) if fact.display_semantics in _DIRECTIONAL_SEMANTICS
                  else fact.result)
     if fact.unit == "USD":
-        scaled = _scaled_money(magnitude, fact, package)
+        scaled = _derived_money(magnitude, fact, package)
         if scaled is not None:
             return scaled
     template = _DERIVED_FIGURE_FORMATS.get(
@@ -1476,25 +1539,43 @@ _SCALE_WORDS: Mapping[str, str] = {"thousands": "thousand", "millions": "million
 _SCALED_MONEY_DECIMALS = 1
 
 
-def _scaled_money(magnitude: float, fact: DerivedFact,
-                  package: StoryEvidencePackage) -> str | None:
-    """`"$446 million"` when both inputs were filed in millions and the division is exact.
+def _derived_money(magnitude: float, fact: DerivedFact,
+                   package: StoryEvidencePackage) -> str | None:
+    """`_scaled_money` at the scale **both** of a derivation's inputs were filed at.
 
-    `None` — meaning *"print the plain form"* — whenever anything is uncertain: the inputs are
-    not both in this package, they disagree about scale, the scale is `units` or unknown, or the
-    quotient does not multiply back to the same value. A prompt that guessed here would be
-    choosing the digits §13.1's tolerance window is computed from.
+    `None` — meaning *"print the plain form"* — when the inputs are not both in this package or
+    disagree about scale. A derived figure has no scale of its own; it inherits one only where
+    the two readings agree, and where they do not the prompt says so by printing the long form.
     """
     inputs = [row for row in package.facts
               if row.observation_id in (fact.from_fact_id, fact.to_fact_id)]
     scales = {row.scale for row in inputs}
     if len(inputs) != 2 or len(scales) != 1:
         return None
-    scale = next(iter(scales)) or ""
+    return _scaled_money(magnitude, next(iter(scales)) or "")
+
+
+def _scaled_money(magnitude: float, scale: str) -> str | None:
+    """`"$446 million"` when the reading was filed in millions and the division is exact.
+
+    `None` — meaning *"print the plain form"* — whenever anything is uncertain: the scale is
+    `units` or unknown, or the quotient does not multiply back to the same value. A prompt that
+    guessed here would be choosing the digits §13.1's tolerance window is computed from.
+
+    **One function for a FACTS row and a DERIVED FACTS row, which is H3's whole repair.** The
+    two sections printed a money value in two shapes — an observation as `556000000.0 USD` and a
+    derivation as `$446 million` — so a writer that wanted a sentence had to scale the first one
+    itself, and the spelling it invented doing that (`"556 million USD"`) is the spelling it then
+    copied onto the derived row, where §13.2 refuses it. See `_observed_figure`.
+    """
     word = _SCALE_WORDS.get(scale)
     if word is None:
         return None
-    exact = Decimal(str(magnitude))
+    # The sign goes **outside** the symbol. Both `-$110 million` and `$-110 million` tokenise to
+    # the same value and unit, and the first is the one a filing writes; a reading that is
+    # negative in the corpus — a loss — has to be spellable, so this is not a hypothetical.
+    sign = "-" if magnitude < 0 else ""
+    exact = Decimal(str(abs(magnitude)))
     try:
         quotient = exact / SCALE_MULTIPLIERS[scale]
         if quotient * SCALE_MULTIPLIERS[scale] != exact:
@@ -1506,7 +1587,7 @@ def _scaled_money(magnitude: float, fact: DerivedFact,
             return None
     except InvalidOperation:
         return None
-    return f"${quotient.normalize():f} {word}"
+    return f"{sign}${quotient.normalize():f} {word}"
 
 
 def _derived_figure_line(fact: DerivedFact, package: StoryEvidencePackage) -> str:

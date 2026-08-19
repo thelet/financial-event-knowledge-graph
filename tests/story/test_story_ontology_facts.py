@@ -465,7 +465,7 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     # to *remove* a field; 1.4.0 was TABLE_CELL_CITATIONS S4's evidence handle; 1.3.0 was S6's
     # warning phrases. The literal is kept beside the constant so a version that stops moving is
     # as loud as one that moves for the wrong reason.
-    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "2.1.0"
+    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "2.2.0"
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])

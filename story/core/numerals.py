@@ -247,9 +247,18 @@ def tokenize_numerals(text: str) -> tuple[NumeralToken, ...]:
     """Every numeral in `text`, left to right, with exact spans (§13.1).
 
     Years, ordinals and threshold values tokenise like anything else. §13.1 requires *every*
-    numeral to be covered by a binding, a calculation, a period surface or the `literal_ok`
-    allowlist, so a tokeniser that quietly skipped `"2022"` would be deciding a question the
-    gate exists to ask.
+    numeral to be covered by something the verifier resolves — a fact binding's rendered span, a
+    period surface some check resolves, or the two period windows a derived fact's binding
+    carries — so a tokeniser that quietly skipped `"2022"` would be deciding a question the gate
+    exists to ask.
+
+    **The covering mechanisms this sentence used to name are pre-S13 and two of them are gone**
+    *(corrected 2026-08-19)*. It listed *"a calculation"*, which `WRITER_OPERATIONS` and the
+    draft schema no longer carry — §6 replaced a declared `Calculation` with a `DerivedFact`
+    binding — and *"the `literal_ok` allowlist"*, which is constructor-only, is read from no
+    configuration file and is `()` on every pipeline, demo-UI and test run. H2 corrected the same
+    two strings in `unbound_numeral`'s own refusal message and named this docstring as the
+    remaining copy; `deterministic._covering_spans` is the authority on the list.
     """
     return tuple(_token(match, text) for match in _NUMERAL.finditer(text))
 

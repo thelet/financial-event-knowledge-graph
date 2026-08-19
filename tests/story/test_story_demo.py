@@ -21,6 +21,32 @@ repair changes a *prompt*, so the live path still builds
 (`a347b38c340ce3a8…`). `candidate.json`, `graph_identity.json` and `freshness_report.json` are
 untouched for the same reason.
 
+## H3 moved `WRITER_PROMPT_VERSION` to 2.2.0 and **no store was re-recorded** *(2026-08-19)*
+
+The packet expected to re-record both — *"that moves the request digest"* — and it does not.
+`request_identity` digests the prompt **text**, the system message and the schema; the version
+constant is not one of its ten inputs, and neither store's row even carries it
+(`prompt_version` is `""` in every recorded row). 2.2.0's whole change is `_observed_figure`,
+which prints a `figure:` line for a **USD** reading filed at a scale word and nothing else — and
+this candidate's two facts are `percent` at `units`. So the writer prompt for this package is
+byte-identical across the change.
+
+**Measured rather than argued.** A live Qwen run of this candidate on 2026-08-19, after the
+change, returned a `generations.jsonl` hashing to `8645d1a95a533b29…` — byte-for-byte the
+committed store, for the fourth packet running — and the committed `openai/` store still
+replays with the same `request_sha256`s
+(`test_the_committed_openai_recording_replays_offline_to_the_run_it_was_captured_from`). Both
+stores are the same captures the 2.1.0 pass recorded, and the tables below say so.
+
+**What did move is a version stamp and not an answer.** `Draft.prompt_version` is a field of
+`draft.json`, so `draft.json` moved; `verification_report.json` embeds `draft_content_sha256`,
+so it moved; `rejected.json` embeds the report; and the manifest's `prompt_versions` and
+`writer_provider_model.prompt_version` read `2.2.0`. Every pinned digest in
+`ARTIFACTS_OF_THE_LIVE_RECORDING` that is not downstream of that field — `candidate.json`,
+`evidence_package.json`, `editorial_plan.json`, `derived_facts.json`, `post.md` and
+`generations.jsonl` — is unchanged, which is the sharpest available statement that the model's
+answer did not move.
+
 ## The Qwen recording, and the finding it now carries
 
 `local_openai_compatible/generations.jsonl` is genuine Qwen output, captured 2026-08-19 from
@@ -876,18 +902,25 @@ def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
 #: the planner prompt and the package did not move, so the plan and the derivation are the same
 #: bytes — and `draft.json` moved because the writer's question did. `post.md` is here and
 #: `rejected.json` is not, which is the accepted branch stated as a file listing.
+#:
+#: **Two values moved at H3 and no store was re-recorded**, which the module docstring argues
+#: at length: `WRITER_PROMPT_VERSION` went 2.1.0 -> 2.2.0, `draft.json` carries that field, and
+#: `verification_report.json` carries `draft_content_sha256`. `generations.jsonl` is the same
+#: capture — confirmed by a live run against `:8080` after the change — and `post.md` is
+#: byte-identical, so the model's answer and the published text are both untouched. That pair of
+#: unmoved digests beside the pair that moved is what says which kind of change this was.
 ARTIFACTS_OF_THE_LIVE_RECORDING: dict[str, str] = {
     "candidate.json": "e82e92c75de12282dfd5757c04967924787bdbc77ba38a800023a80df88326c1",
     "evidence_package.json": "a347b38c340ce3a8e66f56ce2b4b3c401433b2d3a2bd5b0a45a354bff339bb24",
     "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
     "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
-    "draft.json": "aab096ccce62e94505ccc9550a59980dbb6b62046c7be4dbf29f880a9b6e0138",
+    "draft.json": "70b77ef91595e0145fb35c349dac39f60c9ec4754d3c96b5dc004cf6b3e4256c",
     # H1 moved this one digest and nothing else in the table: `metric_identity.examined` went
     # 5 -> 6 when the derived prose-grounding rule started counting what it checks. Confirmed by
     # a live re-run against `:8080` whose report differs from the recorded one on that single
     # field and whose `generations.jsonl` is byte-for-byte the row below — no prompt moved.
     "verification_report.json":
-        "008cd057f86c66de0a357d9b28773ea0bde15b8252997ff9ce40e64cab8a3201",
+        "d01a6c05e6ef5a58f0279dcc421bbd4a12bb3cc6c0e6cb021c833e4f8302704a",
     "post.md": "2afa5fddece71bc2ea51f43ccb1d4d21cec49b90eb48237c40fd79b6e1cd0d26",
     "generations.jsonl": "8645d1a95a533b29ad5d2719e55a7137e3e166b0ff04d786f671153e11d87f68",
 }
@@ -900,14 +933,14 @@ ARTIFACTS_OF_THE_SYNTHETIC_STORES: dict[str, dict[str, str]] = {
     REJECTED_STORE: {
         "editorial_plan.json": "813eb1829fa6c8fbb7f9dd65f54c1467d3da7f25b4d8bf5c5796bf555b6c25fe",
         "derived_facts.json": "fab099e89f87d5044b12cd626a3097e45986f1b4b6a2c9b161156e1dc6326820",
-        "draft.json": "986f5da1eefc019304e14fdeeea769a6f2107a8ddd3eaf798ccc0fe8be7e1538",
+        "draft.json": "7b66ae62363f5e7e6a03a4f9ec0c4983f74ea7ed6406bf87726e96ba020eafb8",
         # Both moved at H1 and both for one reason: they embed the verification report, whose
         # `metric_identity.examined` went 5 -> 6. The refusal is unchanged — one finding, in
         # `language_safety`, `comparative_not_supported_by_text` — and every other digest in
         # this table is untouched, which is the statement that the writer's answer did not move.
         "verification_report.json":
-            "a1bfb7bf088cac7dd4adb25bda7d00ddf93911c97a8ac933a1ec6b1949a10ffd",
-        "rejected.json": "9b22ee44d1ca66e9d2f9ca9847da3ebc1f2f49c12b39900a587b20ad4107ddd6",
+            "4b2d02099f488b52d1013630b3705dfe63e60644928b07e59338e37e13130a0a",
+        "rejected.json": "ed98746ac985c0d0d802bc79109deebb1c82d1a56ff97be085b6552102cbe515",
     },
 }
 
@@ -1724,7 +1757,7 @@ def test_the_manifest_records_the_selection_mode_the_identities_and_the_disposit
     # The manifest is where a reader sees which wording produced these rows, and these two
     # numbers are why the committed stores had to be re-recorded rather than re-keyed.
     assert manifest["prompt_versions"] == {"story_editorial_plan": "1.2.0",
-                                           "story_post_draft": "2.1.0"}
+                                           "story_post_draft": "2.2.0"}
     assert sorted(manifest["schema_digests"]) == ["story_editorial_plan", "story_post_draft"]
     assert manifest["ranking_policy_version"] == "1.1.0"
     assert manifest["policy_version"] == POLICY_VERSION
@@ -1760,7 +1793,7 @@ def test_the_manifest_records_the_provider_and_both_call_sites_separately(tmp_pa
         "provider_id": PROVIDER_ID,
         "model_id": MODEL_ID,
         "provider_model_id": "/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf",
-        "prompt_version": "2.1.0",
+        "prompt_version": "2.2.0",
         "schema_name": "story_post_draft",
         "max_tokens": config.writer_max_tokens,
     }

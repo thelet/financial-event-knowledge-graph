@@ -2078,7 +2078,8 @@ class DeterministicVerifier:
                     seen_derived.add(derived.fact_id)
                     found.extend(derived_rules.integrity_findings(
                         derived, index, sentence_index=sentence.index))
-                found.extend(derived_rules.orientation_findings(sentence, binding, derived))
+                found.extend(
+                    derived_rules.orientation_findings(sentence, binding, derived, index))
         return CheckResult(name="reported_vs_calculated", examined=examined,
                            findings=tuple(found))
 

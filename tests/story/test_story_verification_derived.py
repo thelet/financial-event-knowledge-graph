@@ -55,6 +55,7 @@ from story.core.models import (
     PackagedSubject,
     PassageCitation,
     SentenceKind,
+    Severity,
     StatementClass,
     StoryCandidate,
     StoryEvidencePackage,
@@ -1376,8 +1377,9 @@ def test_the_did_not_cross_branch_has_wordings_that_are_legal_and_wholly_checked
     Each phrase here is legal on three counts at once: §13.14 sees no absence term, H1's
     `_crossing_findings` sees a phrase agreeing with the computed word, and the phrase asserts
     nothing the derivation did not compute. That last clause is what separates them from
-    *"remained positive"*, and `test_a_crossed_zero_polarity_claim_is_unchecked` measures why
-    it matters.
+    *"remained positive"*, and `test_a_crossed_zero_sentence_naming_the_wrong_side_of_zero_is_refused`
+    measures why it matters. H2 named that test before it existed and reported the hole instead;
+    H3 wrote it.
     """
     fact = _crossing_fact()
     text = (f"Adjusted gross profit {phrase} between the second quarter of 2022 and the third "
@@ -1398,6 +1400,194 @@ def test_the_crossing_lexicon_states_a_polarity_for_every_phrase_it_scans():
         assert language.crossing_direction(phrase) is not None
     text = " ".join(language.CROSSING_TERMS)
     assert {match.term.lower() for match in language.crossing_claims(text)}
+
+
+# -- H3: the crossing rule checked one axis of a two-axis claim -----------------------------
+#
+# H2 §14.3 reported this with the repro and was scoped out of the repair. `_crossing_findings`
+# asked *"does the prose agree the quantity crossed"* and never *"does the prose put the readings
+# on the side they are actually on"*, so over two **negative** readings — which do not cross —
+# *"remained positive"* was accepted with zero findings.
+
+
+def _cell(value: float) -> str:
+    """The two rows quoted the way a filing quotes them, parentheses and all.
+
+    `table_quote_does_not_reconstruct` reads a cited quote back to the row's value, so a row
+    reading `-556,000,000` whose cited characters are `556` is a different defect than the one
+    under test. The scale is `millions`, which is the fixture's.
+    """
+    return f"({abs(value) / 1e6:g})" if value < 0 else f"{value / 1e6:g}"
+
+
+def _signed_rows(from_value: float, to_value: float) -> tuple[str, str, str]:
+    """`(passage text, Q2 row, Q3 row)` for a pair of readings of either sign."""
+    q2_row = f"{Q2_COLUMN} {_cell(from_value)}"
+    q3_row = f"{Q3_COLUMN} {_cell(to_value)}"
+    return f"Adjusted Gross Profit (in millions)\n{q2_row}\n{q3_row}\n", q2_row, q3_row
+
+
+def _signed_package(from_value: float, to_value: float) -> StoryEvidencePackage:
+    """`make_package` with the two readings' **values** replaced and nothing else.
+
+    The ids, the metric, the periods and the passage id are the fixture's, because the question
+    is what the sign of a row does to a sentence and every other field is a variable that would
+    make the answer harder to read.
+    """
+    text, _q2_row, _q3_row = _signed_rows(from_value, to_value)
+    q3 = make_fact(value=to_value, quoted_text=_cell(to_value))
+    q2 = make_fact(observation_id=Q2_ID, period_key="2022Q2", period_start="2022-04-01",
+                   period_end="2022-06-30", value=from_value, column_label=Q2_COLUMN,
+                   quoted_text=_cell(from_value))
+    return make_package(facts=(q2, q3), primary_passages=(PackagedPassage(
+        passage_id=PASSAGE_ID, document_id=DOCUMENT_ID, text=text,
+        char_count=len(text), passage_kind="normalized_table",
+        role=EvidenceRole.PRIMARY_SUPPORT),))
+
+
+def _signed_sentence(
+    derived: DerivedFact, phrase: str, from_value: float, to_value: float
+) -> DraftSentence:
+    """`_bound`, with the two cells of `_signed_rows`' passage cited instead."""
+    sentence = (f"Adjusted gross profit {phrase} between the second quarter of 2022 and the "
+                "third quarter of 2022.")
+    text, q2_row, q3_row = _signed_rows(from_value, to_value)
+    package = _signed_package(from_value, to_value)
+    citations = tuple(
+        PassageCitation(
+            passage_id=PASSAGE_ID, document_id=DOCUMENT_ID,
+            char_start=text.index(row), char_end=text.index(row) + len(row),
+            evidence_handle=fact.evidence_handle)
+        for fact, row in zip(package.facts, (q2_row, q3_row)))
+    return DraftSentence(
+        index=0, text=sentence, kind=SentenceKind.CALCULATED,
+        fact_bindings=(FactBinding(
+            fact_id=derived.fact_id, rendered=phrase,
+            char_start=sentence.index(phrase), char_end=sentence.index(phrase) + len(phrase),
+            metric_surface="Adjusted gross profit",
+            period_surface=derived.period_surface_hint),),
+        citations=citations)
+
+
+def _signed_codes(
+    phrase: str,
+    from_value: float = -556_000_000.0,
+    to_value: float = -110_000_000.0,
+    **overrides: object,
+) -> set[str]:
+    """Every code a one-sentence draft binding a `crossed_zero` fact over these readings earns."""
+    fact = _crossing_fact(from_value=from_value, to_value=to_value, **overrides)
+    return codes(
+        make_draft(sentences=(_signed_sentence(fact, phrase, from_value, to_value),)),
+        package=_signed_package(from_value, to_value), derived=(fact,))
+
+
+@pytest.mark.parametrize("phrase", ["remained positive", "stayed positive"])
+def test_a_crossed_zero_sentence_naming_the_wrong_side_of_zero_is_refused(phrase):
+    """**The repro, verbatim from H2 §14.3, and it was accepted with zero findings.**
+
+        readings   -556,000,000 -> -110,000,000     both negative, so `did_not_cross`
+        sentence   "Adjusted gross profit remained positive between the second quarter of
+                    2022 and the third quarter of 2022."
+
+    Every other rule agreed: the operation's word is right, the crossing axis is right — the
+    quantity really did not cross — the metric is named, both periods are named and covered, and
+    the fact carries no numeral for §13.1 to reach. The one false word in the sentence was the
+    one nothing read.
+    """
+    assert "derived_fact_polarity_contradicted" in _signed_codes(phrase)
+
+
+@pytest.mark.parametrize("phrase", ["remained negative", "stayed negative"])
+def test_the_same_sentence_naming_the_right_side_of_zero_is_accepted(phrase):
+    """The rule refuses a false sign and not the wording: the true half of the same pair passes.
+
+    Together with `test_a_crossed_zero_sentence_that_states_what_the_tool_computed_passes` —
+    *"remained positive"* over the **positive** fixture — this is the same four phrases scored
+    both ways round, which is what makes the check a check rather than a ban.
+    """
+    assert _signed_codes(phrase) == set()
+
+
+@pytest.mark.parametrize("phrase", POLARITY_NEUTRAL_CROSSING_PHRASES)
+def test_the_polarity_neutral_phrases_stay_legal_on_either_sign(phrase):
+    """H2's four wordings assert no side, so the new axis has nothing to refuse them for.
+
+    They were legal over two positive readings before H3 and they are legal over two negative
+    ones after it, which is the property that makes them the safe surface: they state the
+    operation's answer and nothing else.
+    """
+    assert _signed_codes(phrase) == set()
+
+
+def test_a_polarity_claim_about_the_from_end_is_checked_too():
+    """A phrase can name **both** sides, and the first one is where this sentence is false.
+
+    `-556,000,000 -> 110,000,000` really does cross, so *"swung from a profit to a loss"* agrees
+    with the operation on the crossing axis and gets the `to` end right by accident — it ended
+    negative in the phrase's terms and positive in the rows'. `CROSSING_POLARITY` carries a pair
+    per phrase for this reason: a rule reading only the end state would accept
+    *"swung from a loss to a profit"* and refuse nothing about the quarter it started in.
+    """
+    def found(phrase: str) -> set[str]:
+        return _signed_codes(phrase, from_value=-556_000_000.0, to_value=110_000_000.0,
+                             result_word=derived_rules.CROSSED,
+                             display_semantics=DisplaySemantics.CROSSED_ZERO)
+
+    assert "derived_fact_polarity_contradicted" in found("swung from a profit to a loss")
+    assert found("swung from a loss to a profit") == set()
+
+
+def test_a_reading_of_exactly_zero_satisfies_neither_side():
+    """`crossed_zero` is strictly across, and the sign question is read the same way.
+
+    A quarter that reads `0` is not positive and is not negative, so both spellings of
+    *"remained …"* are refused rather than one of them being arguable. This is the fail-closed
+    reading and it is `recompute`'s own: *"a step that lands on zero has not crossed it"*.
+    """
+    for phrase in ("remained positive", "remained negative"):
+        assert "derived_fact_polarity_contradicted" in _signed_codes(
+            phrase, from_value=0.0, to_value=-110_000_000.0)
+    assert _signed_codes(
+        "on the same side of zero", from_value=0.0, to_value=-110_000_000.0) == set()
+
+
+def test_the_polarity_lexicon_answers_for_every_phrase_the_crossing_scan_produces():
+    """Totality, asserted the way `CROSSING_TERMS`' own is, and in both directions.
+
+    `_polarity_findings` refuses a phrase this map does not carry rather than abstaining on it,
+    so a missing key costs a true sentence instead of admitting a false one — but the honest
+    place to catch it is here, where the two lexicons are compared as sets.
+    """
+    assert set(derived_rules.CROSSING_POLARITY) == set(language.CROSSING_TERMS)
+    for phrase, claim in derived_rules.CROSSING_POLARITY.items():
+        assert len(claim) == 2, phrase
+        assert all(side in (True, False, None) for side in claim), phrase
+
+
+def test_a_crossing_phrase_with_no_recorded_polarity_is_refused_not_skipped():
+    """H1's finding, applied to the lexicon H3 adds: the vocabulary may not decide whether the
+    rule runs.
+
+    Simulated by taking one phrase out of `CROSSING_POLARITY` while leaving it in the scan,
+    which is exactly the state a future edit to `CROSSING_TERMS` alone would create. The
+    sentence is otherwise true — the readings are negative and it says so — and it is refused,
+    because *"I cannot read this claim"* and *"this claim is false"* have the same safe answer.
+    """
+    without = {phrase: claim for phrase, claim in derived_rules.CROSSING_POLARITY.items()
+               if phrase != "remained negative"}
+    original = derived_rules.CROSSING_POLARITY
+    derived_rules.CROSSING_POLARITY = without  # type: ignore[misc]
+    try:
+        assert "derived_fact_polarity_contradicted" in _signed_codes("remained negative")
+    finally:
+        derived_rules.CROSSING_POLARITY = original  # type: ignore[misc]
+    assert _signed_codes("remained negative") == set()
+
+
+def test_the_polarity_refusal_is_in_the_gate_and_refuses():
+    """A new code is a new refusal only if `GATE` carries it, which is where §6 is enforced."""
+    assert GATE["derived_fact_polarity_contradicted"].severity is Severity.REFUSE
 
 
 # -- F4: an evidence-scope binding's period_surface licensed numeral coverage ---------------

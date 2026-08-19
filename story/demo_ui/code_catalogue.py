@@ -134,10 +134,11 @@ class CodeExplanation:
         }
 
 
-# -- §13's gate, 101 codes ---------------------------------------------------------------------
+# -- §13's gate, 102 codes ---------------------------------------------------------------------
 #
 # The count read 85 until H1 and had been stale for three plans; `EXPECTED_SIZES` in
-# `test_demo_ui_code_catalogue.py` is the pin that actually holds and it read 99.
+# `test_demo_ui_code_catalogue.py` is the pin that actually holds — 99 before H1, 101 after it,
+# and 102 once H3 gave a `crossed_zero` sentence's **sign** claim a refusal of its own.
 #
 # Each sentence is derived from the code's own call site and the section `GATE` cites, not from
 # the name. Where a description says *why* rather than only *what*, the reason is the one the
@@ -244,6 +245,10 @@ VERIFICATION_DESCRIPTIONS: Mapping[str, str] = {
     "derived_direction_not_stated_in_text":
         "The calculation says which way the figure moved and the sentence does not — it states "
         "the change as a level, or uses a word that carries no direction.",
+    "derived_fact_polarity_contradicted":
+        "The sentence says which side of zero the figure sits on and the readings say the other "
+        "one — a quarter described as remaining positive over two negative readings. The "
+        "calculation answers only whether the sign changed, never which sign it is.",
     "evidence_scope_binding_declares_a_surface":
         "A sentence bound to a statement about what the evidence does not contain also declared "
         "a metric or a period for it, and that statement is of no metric and over no period.",

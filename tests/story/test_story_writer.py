@@ -67,7 +67,7 @@ from story.core.models import (
     StoryEvidencePackage,
     TableCellRef,
 )
-from story.core.numerals import tokenize_numerals
+from story.core.numerals import SurfaceUnit, tokenize_numerals
 from story.core.table_cells import resolve_cell
 from story.providers.portable_schema import PORTABLE_KEYWORDS, validate_portable_schema
 from story.providers.public import (
@@ -85,6 +85,7 @@ from story.stages.generation.prompts import (
     WRITER_SYSTEM,
     StyleProfile,
     _derived_figure,
+    _observed_figure,
     metric_surfaces_for,
     period_surface_for,
     writer_prompt,
@@ -909,6 +910,84 @@ def test_a_monetary_figure_is_offered_at_the_scale_its_inputs_were_filed_at():
     mixed = replace_facts(package, (package.facts[0].model_copy(update={"scale": "units"}),
                                     package.facts[1]))
     assert _derived_figure(derived, mixed) == "$446000000.0"
+
+
+def test_the_facts_section_offers_money_at_the_same_scale_the_derived_row_does():
+    """**H3, and it is 2.1.0's own repair finishing its argument.**
+
+    2.1.0 taught the DERIVED FACTS row to print `$446 million` and left the FACTS row printing
+    `556000000.0 USD`. Two shapes for one kind of thing, and at H2 — with the offer set narrowed
+    and the planner asking for two derivations instead of one — the model reconciled them the
+    wrong way round: it scaled the FACTS reading itself to write *"Adjusted Gross Profit of 556
+    million USD"*, then copied **that** invented spelling onto a derived row whose own line said
+    `write exactly "$446 million"`. It obeyed the same instruction on the percentage row in the
+    same draft. `446 million USD` carries no currency surface, so §13.2 refused it, and that one
+    span was the whole difference between accepted and rejected *(plan §14.7)*.
+
+    Both sections go through `_scaled_money` now, so the sentence the writer builds from a FACTS
+    row is already spelled the way the derived row wants it.
+    """
+    package = agp_package()
+    prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
+                           derived_facts=agp_derived(), length_target=3)
+    facts = prompt.split("FACTS")[1].split("DERIVED FACTS")[0]
+
+    assert 'figure: write "$556 million"' in facts
+    assert 'figure: write "$110 million"' in facts
+    # The reading itself is still printed — the figure line says how to *write* it, and the
+    # value is what the package holds.
+    assert "556000000.0 USD" in facts
+    # One spelling of money in the whole prompt, which is the property the repair is about.
+    assert '"$446 million"' in prompt
+    for token in ("556 million USD", "110 million USD", "446 million USD"):
+        assert token not in prompt
+
+
+def test_only_money_at_a_filed_scale_gains_a_figure_line_and_the_restraint_is_deliberate():
+    """A `percent` reading is already writable, so nothing is offered for it.
+
+    The committed accepted draft writes *"-12.6 percent"*; `_DERIVED_FIGURE_FORMATS` would spell
+    the same reading `-12.6%`, which narrows legal prose and buys nothing. Only the shape that
+    forced the model to do arithmetic in its head is replaced — which is also why the demo
+    candidate's writer prompt is byte-identical across H3, and why its committed store still
+    replays with no re-record.
+    """
+    assert _observed_figure(agp_package().facts[0]) == "$556 million"
+
+    percent = make_package()
+    assert {fact.unit for fact in percent.facts} == {"percent"}
+    for fact in percent.facts:
+        assert _observed_figure(fact) is None
+    assert "figure: write" not in writer_prompt(
+        percent, make_plan(), writer_passages(percent)).split("DERIVED FACTS")[0]
+
+
+def test_a_negative_money_reading_puts_the_sign_outside_the_currency_symbol():
+    """A loss has to be spellable, and `-$110 million` is how a filing writes one.
+
+    `$-110 million` tokenises to the same value and unit, so this is a rendering judgment rather
+    than a correctness one — and it is made here rather than left to the model, which is the
+    whole of why the line exists.
+    """
+    package = agp_package()
+    loss = package.facts[1].model_copy(update={"value": -110_000_000.0})
+    assert _observed_figure(loss) == "-$110 million"
+    token, = tokenize_numerals("-$110 million")
+    assert (token.value, token.unit) == (-110_000_000.0, SurfaceUnit.USD)
+
+
+def test_an_observed_figure_falls_back_to_the_plain_form_on_the_same_two_conditions():
+    """`_scaled_money` is one function, so a FACTS row inherits the derived row's caution.
+
+    A scale the value does not divide exactly, and a scale word the corpus does not carry, both
+    print nothing rather than a rounded figure — the prompt never chooses the digits §13.1's
+    tolerance window is computed from.
+    """
+    fact = agp_package().facts[0]
+    assert _observed_figure(fact.model_copy(update={"value": 556_000_000.5})) is None
+    assert _observed_figure(fact.model_copy(update={"scale": "units"})) is None
+    assert _observed_figure(fact.model_copy(update={"scale": ""})) is None
+    assert _observed_figure(fact.model_copy(update={"value": 556_500_000.0})) == "$556.5 million"
 
 
 def replace_facts(package: StoryEvidencePackage, facts) -> StoryEvidencePackage:

@@ -828,6 +828,10 @@ and `to_value` in `_crossing_findings`, which is a **new** refusal and weakens n
 to whichever packet owns that function; H2 was scoped out of it and says so here rather than
 leaving it to be found again.
 
+**Closed in §15.1**, which corrects two details of this paragraph: the sign is read from the
+**package's** rows rather than from the fact's own `from_value`/`to_value`, and the count above is
+wrong — thirteen `False` members, six of them naming a side.
+
 ### 14.4 F6 — the cap selects, and what the slice was doing at full budget
 
 `offers()` enumerates operation-major and used to slice `[:max_derivations]`, so the budget went
@@ -938,6 +942,10 @@ or name this spelling beside the other refused one — which is a `WRITER_PROMPT
 live re-record of both stores. This packet owns neither. §9's line still holds: *"the target is
 not an accepted post"*, and no numeral in this rejected draft is the model's arithmetic.
 
+**Closed in §15.2 by the first of those two options, and the re-record turned out not to be
+needed** — `WRITER_PROMPT_VERSION` is not a `request_identity` input and this candidate's writer
+prompt does not move, so the committed stores replay unchanged. §15.4 has the measurement.
+
 ### 14.8 Suite
 
 `python -m pytest tests/story -m 'not live and not neo4j' -o addopts='' -q` → **3434 passed, 153
@@ -959,3 +967,172 @@ demonstrated by a run instead, in §14.5: an accepted draft, zero findings,
 `tests/story/test_story_planner.py` moved and is outside the packet's named scope: two of its
 tests asserted the six-line offer set F5 narrowed, and one of them now asserts the narrowing
 instead — a planner spelling an offered triple backwards is `derivation_not_offered`.
+
+---
+
+## 15. Packet H3 — the sign a crossing sentence asserts, and one money spelling in two shapes *(2026-08-19)*
+
+**The answer, first.** The two findings H2 reported and did not own are closed. `_crossing_findings`
+now checks the **polarity** a crossing phrase asserts against the package's own two readings, which
+is a new refusal that weakens nothing; and the FACTS section prints money at the scale it was filed
+at, the way the DERIVED FACTS section already did, which puts §2's driving candidate back to
+**accepted** under live Qwen with two derivations instead of one. **No verification rule was
+weakened, and no rule was touched to make a model pass** — the money repair is entirely in
+`prompts.py`.
+
+**And a correction to this packet's own brief, measured before it was acted on.** The brief said
+the version bump *"moves the request digest, so both stores must be re-recorded live"*. It does
+not: `request_identity`'s ten inputs are the prompt **text**, the system message, the schema and
+seven request settings, and `WRITER_PROMPT_VERSION` is none of them. §14.6's row is the proof in
+the other direction — a recorded row's `prompt_version` field is `""`. **Neither store was
+re-recorded and neither needed to be**, and §15.4 shows the live run that proves it.
+
+### 15.1 F10 — the polarity a crossing phrase asserts, which nothing read
+
+H2 §14.3 reproduced this with a script and was scoped out of the repair. Reproduced again here
+before anything was changed, over a package whose two rows are both **negative**:
+
+```
+rows: -556000000.0 -> -110000000.0 | computed: did_not_cross
+remained positive            ACCEPTED
+stayed positive              ACCEPTED
+remained negative            ACCEPTED
+stayed negative              ACCEPTED
+on the same side of zero     ACCEPTED
+held its sign                ACCEPTED
+```
+
+Four true sentences and two false ones, and the verifier could not tell them apart. `crossed_zero`
+answers *whether* the quantity changed sign; twelve of `CROSSING_TERMS`' forty-four phrases also
+name a **side**, and no rule read that half. The fact carries no numeral, so §13.1 reaches nothing
+in the sentence; the crossing axis agreed, because the quantity really did not cross.
+
+`derived_facts.CROSSING_POLARITY` is the repair: phrase → `(from end, to end)`, `True` for
+positive, `False` for negative, `None` for an end the phrase says nothing about.
+`derived_fact_polarity_contradicted` (REFUSE, DROP_SENTENCE) is raised when a named end disagrees
+with the package's reading for that period, and the same code is raised when the phrase is one the
+map does not carry — H1's rule, that the vocabulary may not decide whether the rule runs, with
+totality against `language.CROSSING_TERMS` asserted by test in both directions.
+
+| the decision | what was decided, and why |
+| --- | --- |
+| both ends, not just the end state | *"swung from a profit to a loss"* names both. Over `-556M -> +110M` — a real crossing — a `to`-only rule accepts it, because the phrase's end state is negative and so is nothing. |
+| the **package's** readings, not `derived.from_value`/`to_value` | Nothing validates those two fields against the rows they were read from. `_result_findings` compares the recomputed *result*, and a `crossed_zero` result is one bit — a fact declaring `(556, 110)` over rows reading `(-556, -110)` recomputes to `did_not_cross` either way. The module's own sentence governs: *the artifact does not get to be the tie-breaker for its own arithmetic*. `orientation_findings` takes a `PackageIndex` for this and for nothing else. This is a correction to the brief, which pointed at the fact's fields. |
+| a reading of exactly `0` satisfies neither side | `recompute`'s *"strictly across"* read on the other axis. Both spellings of *"remained …"* are refused over a zero end rather than one of them being arguable. |
+| *"did not turn negative"* asserts a positive `to` end | Literally it is true of a quantity that was already negative; as an investor reads it, it says the quantity is not negative **now**. The rule takes the second reading — it costs a pedantically-true sentence and admits no false one. Both `did not …` phrases collide with §13.14's `ABSENCE_TERMS` anyway, so neither is writable today for a reason that predates S13. |
+| the seven neutral phrases stay legal on either sign | *"on the same side of zero"*, *"held its sign"*, *"kept its sign"*, *"without crossing zero"* and the three `did not cross` spellings state the operation's answer and nothing else. §14.3's table of legal wordings is unchanged, and a parametrised test now runs it over **negative** readings too. |
+
+Seven tests fail against `7141f82`: four demonstrate the defect (`remained positive` and `stayed
+positive` over negative rows, the `from`-end claim, the zero end) and three fail on the symbol or
+the code H3 introduces. `GATE` goes 101 → **102**, and `demo_ui/code_catalogue.py` gains the
+sentence that makes it total again.
+
+### 15.2 F11 — one money value, two shapes, and the spelling the model invented between them
+
+§14.7 measured the whole chain and named the repair as *"teach the FACTS section and the DERIVED
+FACTS section to print money the same way"*. That is what 2.2.0 does, and the reproduction came
+first: a live Qwen run of the driving candidate at `7141f82` returned `generations.jsonl`
+`33d7496772f6514e` — byte-for-byte the hash §14.7 recorded — **rejected**, one
+`derived_unit_mismatch` on `446 million USD`.
+
+What the prompt looked like at `7141f82`, both sections side by side:
+
+```
+FACTS
+      adjusted_gross_profit  556000000.0 USD  printed "556"
+DERIVED FACTS
+      figure: write exactly "$446 million" - those characters, never "446000000.0 USD"
+```
+
+The model obeyed the derived instruction on the percentage row (`80.215827338%`, exactly as
+printed), and on the money row wrote the spelling its own FACTS sentences used — *"Adjusted Gross
+Profit of **556 million USD**"* — which it had produced by scaling `556000000.0` itself. Legal
+against an observation, `derived_unit_mismatch` against a derivation.
+
+`_observed_figure` does that scaling now, through `_scaled_money`, the function the derived row
+already used. A FACTS row for a USD reading filed at a scale word gains one line,
+`figure: write "$556 million"`, and nothing else changes.
+
+**Three restraints, each a decision rather than an omission.** The line is printed **only** for
+`USD` at a scale word — a `percent` reading is already writable and the committed accepted draft
+writes *"-12.6 percent"*, so spelling it `-12.6%` would narrow legal prose for nothing. It says
+*"write"* and not *"write exactly … never …"*, because §13.2 admits several surfaces for an
+observed numeral and only the currency-symbol one for a derived USD result; naming
+`556000000.0 USD` as refused would be false. And the sign goes outside the symbol —
+`-$110 million` — because a loss has to be spellable.
+
+### 15.3 §2's candidate, end to end, and the one span that was the whole difference
+
+| | H2 (`7141f82`) | H3 |
+| --- | --- | --- |
+| offers printed | 3 | 3 |
+| derivations requested | `absolute_change`, `percentage_change` | `absolute_change`, `percentage_change` |
+| sentences | 4 | 4 |
+| the money sentence | *"…decreased by **446 million USD** from…"* | *"…decreased by **$446 million** from…"* |
+| the two FACTS sentences | *"Adjusted Gross Profit of **556 million USD**"* | *"Adjusted Gross Profit of **$556 million**"* |
+| blocking findings | 1, `derived_unit_mismatch` | **0** |
+| `generations.jsonl` | `33d7496772f6514e` | `12730ee3754ef7bb` (two consecutive runs, identical) |
+| disposition | rejected | **accepted**, `story-v1-b536d3bdfc24` |
+
+> *"Opendoor reported Adjusted Gross Profit of $556 million in the second quarter of 2022. Opendoor
+> reported Adjusted Gross Profit of $110 million in the third quarter of 2022. Adjusted Gross Profit
+> decreased by $446 million from the second quarter of 2022 to the third quarter of 2022. The
+> decline in Adjusted Gross Profit was 80.215827338% from the second quarter of 2022 to the third
+> quarter of 2022."*
+
+Ten numerals, two of them code-computed and bound by `fact:derived:` ids, both input cells cited on
+both calculated sentences, every period named and covered. §14.7's *"repairing that one span and
+touching nothing else accepts"* is confirmed by a run rather than by inspection.
+
+### 15.4 The four live runs, and why no store was re-recorded
+
+All four made 2026-08-19 against `http://127.0.0.1:8080` (`Qwen3.5-9B-Q4_K_M.gguf`) and
+`https://api.openai.com/v1/responses` (`gpt-5.4` / `gpt-5.4-2026-03-05`).
+
+| candidate / provider | offered | requested | executed | disposition | findings | tokens (prompt/completion) |
+| --- | --- | --- | --- | --- | --- | --- |
+| divergence / **Qwen** | 4 | 1 `compare_levels` | `-15.9 percentage_points`, `lower than` | **accepted** | none | 8,415 / 1,545 |
+| divergence / **gpt-5.4** | 4 | **0** | — | rejected | `unbound_numeral` ×2, `citation_reused_for_unrelated_claim` ×4 | 8,215 / 1,232 |
+| metric-move / **Qwen** | 3 | 2: `absolute_change`, `percentage_change` | `-446,000,000 USD` *decreased by* (asserted against `delta`); `-80.215827338 percent` *decreased by* (against `delta_pct`) | **accepted** | none | 10,079 / 1,936 |
+| metric-move / **gpt-5.4** | 3 | **0** | — | rejected | `unbound_numeral` ×2, `unsupported_comparative`, `connective_sentence_carries_a_claim` | 9,449 / 1,097 |
+
+**`gpt-5.4` requested no derivation on either candidate, and that is the result rather than a
+target.** It wrote four sentences each time, bound only observations, and earned §13.1's ordinary
+`unbound_numeral` on a bare `2022` in a sentence that names a period and binds nothing, plus §13.14
+refusals for a comparative over deltas and for a `connective` sentence carrying a metric. **No
+numeral in either rejected draft is the model's arithmetic** — it stated no computed figure at all.
+It did take the new FACTS line: both its `reported` sentences write `$556 million` and
+`$110 million`.
+
+**No store was re-recorded, and here is the measurement.** The live Qwen run of the demo candidate
+after the change returned `generations.jsonl` `8645d1a95a533b29…` — byte-for-byte §12.5's committed
+store, for the fourth packet running — because `request_identity` digests the prompt *text* and this
+package carries two `percent` facts, so `_observed_figure` prints nothing for it. The committed
+`openai/generations.jsonl` still replays for the same reason. What moved is a version stamp:
+`draft.json` carries `Draft.prompt_version`, `verification_report.json` carries
+`draft_content_sha256`, and `rejected.json` embeds the report — four pinned digests in
+`test_story_demo.py`, while `candidate.json`, `evidence_package.json`, `editorial_plan.json`,
+`derived_facts.json`, `post.md` and `generations.jsonl` are all unchanged.
+
+### 15.5 What is now stale elsewhere, and one thing left open
+
+* `story/core/numerals.tokenize_numerals`' docstring recited the pre-S13 covering mechanisms —
+  *"a calculation"* and *"the `literal_ok` allowlist"* — which §14.6 named and could not reach.
+  Fixed, with the correction stated in place.
+* §14.3's *"eight of `CROSSING_TERMS`' twelve `False` members assert a polarity"* is off on both
+  counts: there are **thirteen** `False` members and **six** of them name a side. The neutral seven
+  are the four §14.3 lists plus the three `did not cross` spellings. The finding it reported was
+  right; the arithmetic beside it was not.
+* **Left open.** `orientation_findings` scans the whole sentence for every binding, so one sentence
+  stating two derivations that moved opposite ways is refused on both (§13.3's recorded cost). H3
+  adds a second axis with the same shape: one sentence binding two `crossed_zero` facts of opposite
+  sign is refused on both. Attributing a phrase to one of two bindings needs clause attribution
+  `FactBinding` has no field for, which is `language.py`'s recorded reason, and this packet did not
+  reopen it.
+
+### 15.6 Suite
+
+`python -m pytest tests/story -m 'not live and not neo4j' -o addopts='' -q` → **3452 passed, 153
+deselected** (3434 before H3; **+18**). The `live` and `neo4j` marks were run separately against
+both real servers: **152 passed, 1 skipped**. Repository-wide offline: **6175 passed, 250
+deselected**.

@@ -176,6 +176,81 @@ CROSSING_SEMANTICS: Mapping[DisplaySemantics, bool] = {
     DisplaySemantics.DID_NOT_CROSS_ZERO: False,
 }
 
+#: Which **side of zero** each of `language.CROSSING_TERMS`' phrases asserts, as
+#: `(from end, to end)`: `True` for *"this reading is positive"*, `False` for *"negative"*,
+#: `None` for *"this phrase says nothing about that end"*.
+#:
+#: **This lexicon exists because H1's crossing rule checked one axis of a two-axis claim.**
+#: `_crossing_findings` asked only *"does the prose agree that the quantity crossed"*, and most
+#: of the phrases it scans assert a polarity as well. H2 §14.3 reproduced the consequence and
+#: left it: over a `crossed_zero` fact whose readings are `-556,000,000 -> -110,000,000` — both
+#: **negative**, so `did_not_cross` — *"Adjusted gross profit **remained positive** between the
+#: second quarter of 2022 and the third quarter of 2022"* was **accepted with zero findings**.
+#: The operation's own answer was right, the crossing axis agreed, and the sentence stated the
+#: opposite sign. `crossed_zero` carries no numeral, so §13.1 reaches nothing in that sentence
+#: and no other rule was going to.
+#:
+#: **Both ends, because a phrase can name both.** *"swung from a profit to a loss"* asserts a
+#: positive `from` and a negative `to`; *"turned negative"* asserts only the `to`; *"remained
+#: positive"* asserts both are positive. The pair is what lets one map answer all three without
+#: a second rule per shape.
+#:
+#: **The seven neutral members are neutral about the sign and not about the crossing.** *"on the
+#: same side of zero"*, *"held its sign"*, *"kept its sign"*, *"without crossing zero"*, *"did
+#: not cross"*, *"did not cross zero"* and *"does not cross zero"* say the two readings share a
+#: side without saying which, which is exactly `crossed_zero`'s own answer; the four `crossed`
+#: members that name no side — *"crossed zero"*, *"reversed sign"*, *"changed sign"*, *"sign
+#: reversal"* — are the same case in the other branch. They are the wordings that assert
+#: nothing beyond what code computed, which is why `POLARITY_NEUTRAL_CROSSING_PHRASES` in the
+#: tests is the `did_not_cross` half of this row.
+#:
+#: **`did not turn negative` asserts a positive `to` end, and that is a judgment worth stating.**
+#: Read literally it is true of a quantity that was already negative — it did not *turn*. Read
+#: as an investor reads it, it says the quantity is not negative now, and over `-556M -> -110M`
+#: that is false. The rule takes the second reading, which costs a pedantically-true sentence
+#: and admits no false one; both phrases collide with §13.14's `ABSENCE_TERMS` on `"did not"`
+#: anyway, so neither is writable today for a reason that predates S13.
+#:
+#: Totality against `language.CROSSING_TERMS` is asserted by test, and `_crossing_findings`
+#: refuses a phrase this map does not carry rather than abstaining on it —
+#: `crossing_direction`'s discipline, for the reason H1 wrote it down: a lexicon that decides
+#: whether a rule runs is not a rule.
+CROSSING_POLARITY: Mapping[str, tuple[bool | None, bool | None]] = {
+    # -- asserts a crossing, naming neither side ---------------------------------------------
+    "crossed zero": (None, None), "crosses zero": (None, None),
+    "cross zero": (None, None), "crossing zero": (None, None),
+    "reversed sign": (None, None), "changed sign": (None, None),
+    "sign reversal": (None, None),
+    # -- asserts a crossing, naming the side it ended on -------------------------------------
+    "crossed into negative territory": (None, False),
+    "crossed into positive territory": (None, True),
+    "into negative territory": (None, False),
+    "into positive territory": (None, True),
+    "turned negative": (None, False), "turned positive": (None, True),
+    "turns negative": (None, False), "turns positive": (None, True),
+    "went negative": (None, False), "went positive": (None, True),
+    "swung to a loss": (None, False), "swung to a profit": (None, True),
+    "flipped negative": (None, False), "flipped positive": (None, True),
+    "flipped to a loss": (None, False), "flipped to a profit": (None, True),
+    "fell below zero": (None, False), "rose above zero": (None, True),
+    # -- asserts a crossing, naming both sides -----------------------------------------------
+    "swung from a profit to a loss": (True, False),
+    "swung from profit to loss": (True, False),
+    "swung from a loss to a profit": (False, True),
+    "swung from loss to profit": (False, True),
+    "from profit to loss": (True, False),
+    "from loss to profit": (False, True),
+    # -- asserts no crossing, naming no side -------------------------------------------------
+    "did not cross zero": (None, None), "did not cross": (None, None),
+    "does not cross zero": (None, None), "without crossing zero": (None, None),
+    "on the same side of zero": (None, None),
+    "held its sign": (None, None), "kept its sign": (None, None),
+    # -- asserts no crossing, naming the side both readings sit on ---------------------------
+    "stayed positive": (True, True), "stayed negative": (False, False),
+    "remained positive": (True, True), "remained negative": (False, False),
+    "did not turn negative": (None, True), "did not turn positive": (None, False),
+}
+
 
 def round_delta(value: float) -> float:
     """Every derived quantity compared here, rounded once, at `core`'s own precision.
@@ -607,7 +682,7 @@ def _result_findings(
 
 
 def orientation_findings(
-    sentence: DraftSentence, binding: FactBinding, derived: DerivedFact
+    sentence: DraftSentence, binding: FactBinding, derived: DerivedFact, index: PackageIndex
 ) -> list[VerificationFinding]:
     """§6's other orientation rule: the sentence's own **words** against the fact's word code.
 
@@ -642,12 +717,21 @@ def orientation_findings(
     term, which is `claims._comparison_sides_findings`' machinery and is where the
     `compare_levels` half lives. A `crossed_zero` derivation answers in neither vocabulary and is
     dispatched to `_crossing_findings`.
+
+    **`index` is taken for the crossing branch's sign question, and taking it is the point.** H3's
+    polarity rule asks which side of zero each reading sits on, and it asks the *package* rather
+    than the fact's own `from_value`/`to_value`: nothing validates those two fields against the
+    rows they were read from — `_result_findings` compares the recomputed *result* and a
+    `crossed_zero` result is one bit, so a fact declaring `(556, 110)` over rows reading
+    `(-556, -110)` recomputes to `did_not_cross` either way and passes. `_result_findings`' own
+    sentence governs here too: *the artifact does not get to be the tie-breaker for its own
+    arithmetic*, and a sign is arithmetic.
     """
     if derived.operation not in TWO_PERIOD_OPERATIONS:
         return []
     crossing = CROSSING_SEMANTICS.get(derived.display_semantics)
     if crossing is not None:
-        return _crossing_findings(sentence, derived, crossing)
+        return _crossing_findings(sentence, derived, crossing, index)
     return _direction_findings(sentence, derived)
 
 
@@ -746,7 +830,7 @@ def _direction_findings(
 
 
 def _crossing_findings(
-    sentence: DraftSentence, derived: DerivedFact, crossed: bool
+    sentence: DraftSentence, derived: DerivedFact, crossed: bool, index: PackageIndex
 ) -> list[VerificationFinding]:
     """`crossed_zero`'s prose, which nothing checked at all before H1.
 
@@ -758,16 +842,32 @@ def _crossing_findings(
     between the second quarter of 2022 and the third quarter of 2022."* was accepted with zero
     findings over `$556M -> $110M`, which does not cross.
 
-    Two refusals, on `_direction_findings`' shape: a phrase asserting the opposite, and no
-    phrase at all. The second is what makes this a rule rather than a lexicon — an unlisted
-    paraphrase costs a true sentence instead of admitting a false one, which is the direction
-    §13.14 says the failure should point.
+    Three refusals, on `_direction_findings`' shape: a phrase asserting the opposite crossing,
+    a phrase asserting a **sign** the readings do not have, and no phrase at all. The last is
+    what makes this a rule rather than a lexicon — an unlisted paraphrase costs a true sentence
+    instead of admitting a false one, which is the direction §13.14 says the failure should
+    point.
+
+    **The sign question is H3's, and H2 §14.3 reported it as a hole with the repro.** The
+    crossing axis is one of two axes most of these phrases run on. Over a fact whose readings
+    are `-556,000,000 -> -110,000,000` the operation answers `did_not_cross` and *"remained
+    positive"*, *"stayed positive"*, *"remained negative"* and *"on the same side of zero"* all
+    agreed with that answer — the first two while asserting the opposite sign, accepted with
+    zero findings. `_polarity_findings` is the second axis, read off `CROSSING_POLARITY` and
+    checked against the **package's** two readings.
+
+    **Order: crossing first, then sign, and only the first refusal is reported.** A phrase that
+    gets the crossing wrong has already lost the operation's own answer, and adding a second
+    finding about the sign of a claim that was never the claim would name one fault twice —
+    `integrity_findings`' ordering argument, applied to prose.
 
     **Withdrawing `crossed_zero` from the offer set was the alternative and it was rejected.**
     That is what §12.2 did to `trend_direction`, on the ground that the verifier could not
     recompute the word at all without importing a sibling stage's sign-convention table. This
     verifier *can* recompute this word, from two values it already holds; only the prose was
-    unguarded, and the repair for unguarded prose is a guard.
+    unguarded, and the repair for unguarded prose is a guard. H3 does not reopen the decision:
+    the second axis is recomputable from the same two values, so the argument that kept the
+    operation is the argument that closes this hole.
     """
     stated = [
         (match, language.crossing_direction(match.term))
@@ -792,7 +892,7 @@ def _crossing_findings(
                 "is the whole claim reversed with every declared field still valid."),
         )]
     if stated:
-        return []
+        return _polarity_findings(sentence, derived, [match for match, _ in stated], index)
     return [finding(
         "derived_direction_not_stated_in_text",
         sentence_index=sentence.index,
@@ -807,6 +907,94 @@ def _crossing_findings(
             "code nothing in its own text expresses, and the reader is left with whatever the "
             "rest of the sentence implies."),
     )]
+
+
+def _has_sign(value: float, positive: bool) -> bool:
+    """Strictly greater than zero is positive, strictly less is negative, and **zero is neither**.
+
+    `recompute`'s own reading of `crossed_zero` — *"strictly across, so a step that lands on zero
+    has not crossed it"* — applied to the other axis. It is the fail-closed answer: a reading of
+    exactly `0` makes *"remained positive"* and *"remained negative"* both false rather than both
+    arguable.
+    """
+    return value > 0 if positive else value < 0
+
+
+def _polarity_findings(
+    sentence: DraftSentence,
+    derived: DerivedFact,
+    matches: Sequence[language.LexicalMatch],
+    index: PackageIndex,
+) -> list[VerificationFinding]:
+    """The second axis of a crossing claim: which **side of zero** the prose puts each reading on.
+
+    Read against the package's two rows, never against `derived.from_value` and
+    `derived.to_value` — see `orientation_findings` for why those two fields are not evidence of
+    their own sign.
+
+    **A phrase `CROSSING_POLARITY` does not carry is refused, not skipped.** The map is total
+    against `language.CROSSING_TERMS` by test, so a miss is a source edit that added a scanned
+    phrase without deciding what it asserts, and the honest answer to *"I cannot read this
+    claim"* is the same as to *"this claim is false"*: refuse. `crossing_direction`'s `None`
+    already reaches `_crossing_findings`' first refusal by the same route, and H1's whole finding
+    was that the alternative — abstain on what the lexicon does not know — is not a rule.
+
+    **Unreachable when the package does not carry an input, and deliberately silent there.**
+    `integrity_findings` has already refused that fact under `derivation_not_offered`, which is
+    the same fault, and §6's ordering rule is that a refusal never rests on an answer an earlier
+    refusal invalidated.
+    """
+    from_fact = index.fact(derived.from_fact_id)
+    to_fact = index.fact(derived.to_fact_id)
+    if from_fact is None or to_fact is None:
+        return []
+
+    readings = ((derived.from_period, from_fact), (derived.to_period, to_fact))
+    for match in matches:
+        claim = CROSSING_POLARITY.get(" ".join(match.term.lower().split()))
+        if claim is None:
+            return [_polarity_finding(
+                sentence, derived, match,
+                expected="a phrase `CROSSING_POLARITY` states a side of zero for",
+                observed=f"{match.term!r} is scanned by `CROSSING_TERMS` and absent from "
+                         f"`CROSSING_POLARITY`, so what it asserts about the sign is unread")]
+        for wants, (period, fact) in zip(claim, readings):
+            if wants is None or _has_sign(fact.value, wants):
+                continue
+            return [_polarity_finding(
+                sentence, derived, match,
+                expected=f"{period} {'positive' if wants else 'negative'}, which is what "
+                         f"{match.term!r} asserts",
+                observed=f"{period} reads {fact.value!r} ({fact.observation_id})")]
+    return []
+
+
+def _polarity_finding(
+    sentence: DraftSentence,
+    derived: DerivedFact,
+    match: language.LexicalMatch,
+    *,
+    expected: str,
+    observed: str,
+) -> VerificationFinding:
+    """One code for both halves, because a sign claim the verifier cannot confirm is refused
+    whether it is false or unreadable, and the panel's repair is the same sentence either way."""
+    return finding(
+        "derived_fact_polarity_contradicted",
+        sentence_index=sentence.index,
+        char_start=match.start, char_end=match.end,
+        fact_ids=(derived.fact_id,),
+        expected=expected,
+        observed=observed,
+        explanation=(
+            "§4.1 and §6: `crossed_zero` answers *whether* the quantity changed sign and never "
+            "*which* sign it holds, so a phrase naming a side of zero asserts something beyond "
+            "the operation's answer. The fact carries no numeral, so §13.1 reaches nothing in "
+            "the sentence stating it, and the crossing axis agreeing is not the sign agreeing: "
+            "over readings of -556,000,000 -> -110,000,000 the computed word is "
+            "`did_not_cross` and *\"remained positive\"* agrees with it while stating the "
+            "opposite sign. Checked against the package's own two rows."),
+    )
 
 
 def scope_findings(
@@ -927,6 +1115,7 @@ def scope_findings(
 
 __all__ = [
     "CROSSED",
+    "CROSSING_POLARITY",
     "CROSSING_SEMANTICS",
     "DERIVED_SURFACES",
     "DID_NOT_CROSS",

@@ -304,6 +304,17 @@ _ENTRIES: tuple[GateEntry, ...] = (
     # `evidence_scope_binding_declares_a_surface` is §7's, and it is the one code here whose
     # subject is a field nothing reads. See `derived_facts.scope_findings` refusal 3.
     _refuse("derived_direction_not_stated_in_text", Remedy.DROP_SENTENCE, "6"),
+    # `derived_fact_polarity_contradicted` is the second axis of a `crossed_zero` sentence, and
+    # it is a third fault again rather than either of the two above. `crossed_zero` answers
+    # *whether* the sign changed; most of the phrases that state that answer also name a
+    # **side** — *"remained positive"*, *"swung to a loss"* — and the operation establishes no
+    # side at all. H2 §14.3 reproduced it: over readings of -556,000,000 -> -110,000,000 the
+    # computed word is `did_not_cross`, *"remained positive"* agrees with the computed word, and
+    # the sentence is false. Not `derived_fact_orientation_reversed`, because the orientation is
+    # not reversed and telling a writer it is would send the repair at the right half of a
+    # sentence whose wrong half is the adjective. DROP_SENTENCE for
+    # `derived_direction_not_stated_in_text`'s reason: the binding is sound and the words are not.
+    _refuse("derived_fact_polarity_contradicted", Remedy.DROP_SENTENCE, "6"),
     _refuse("evidence_scope_binding_declares_a_surface", Remedy.REBIND_TO_FACT, "7"),
 
     # -- §13.10 causation ------------------------------------------------------------------
