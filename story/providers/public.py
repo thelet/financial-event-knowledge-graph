@@ -142,10 +142,19 @@ DEFAULT_OPENAI_MODELS: tuple[Mapping[str, Any], ...] = (
     {"id": "gpt-4.1-mini", "supports_temperature": True},
 )
 
-#: The four values the Responses API accepts for `reasoning.effort`. Refused rather than passed
-#: through, because a misspelt effort is a 400 at the far end of a request that carries a whole
-#: evidence package.
-REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high"})
+#: The values the Responses API accepts for `reasoning.effort`, as a **union across models**.
+#: Refused rather than passed through, because a misspelt effort is a 400 at the far end of a
+#: request that carries a whole evidence package.
+#:
+#: **The vocabulary is per model, and this set cannot express that** *(measured 2026-08-19,
+#: while running the §10 comparison)*. `gpt-5-nano` takes `minimal`; `gpt-5.4` refuses it —
+#: `Unsupported value: 'minimal' is not supported with the 'gpt-5.4' model. Supported values
+#: are: 'none', 'low', 'medium', 'high', and 'xhigh'.` So this check catches a typo and nothing
+#: more: the value that is actually right for a model is declared beside that model in
+#: `config/story.yaml`, verified against the API, and a wrong-but-spelled-correctly effort is a
+#: 400 that arrives as `StoryProviderResponseError` with the API's own sentence in it. Narrowing
+#: this to one model's list would refuse a legal value for another, which is worse than the 400.
+REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
 
 #: §4.3's sentence, verbatim and in one place: the catalogue renders it and the provider raises
 #: it, and two spellings of the same fact would be two things to keep in step.

@@ -99,6 +99,22 @@ provider:
       - id: gpt-4.1-mini        # verified present on the account 2026-08-19
         supports_temperature: true
 
+      # Added after the first live runs, because two small models failing the same deterministic
+      # gates does not distinguish "OpenAI behaves differently" from "a small model does"
+      # (MULTI_PROVIDER_OPENAI §10). Probed 2026-08-19: `reasoning.effort: medium` returns 200,
+      # `temperature` returns the same 400 as every other gpt-5 model.
+      # `none`, and measured rather than chosen: at `medium` the writer call spends its whole
+      # 2048-token budget reasoning and returns `status: incomplete`
+      # (`incomplete_details.reason: max_output_tokens`) with no message item at all — the same
+      # failure LOCAL_RUNTIME_VALIDATED.md §4 recorded for llama.cpp with thinking enabled, from
+      # the other direction. `max_tokens` is a `request_identity` input, so raising
+      # `generation.writer_max_tokens` to suit one model would re-key every committed Qwen row;
+      # the budget stays and the effort gives way. `minimal` is **not** accepted by this model
+      # (it is by `gpt-5-nano`) — the effort vocabulary differs per model.
+      - id: gpt-5.4
+        supports_temperature: false
+        reasoning_effort: none
+
 # §11 and §12's two call sites. `planner_max_tokens` and `writer_max_tokens` are digest inputs
 # to `request_identity`, so changing one re-keys that stage's stored generations by design.
 generation:
