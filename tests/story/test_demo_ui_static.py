@@ -325,6 +325,7 @@ REQUIRED_IDS = (
     "candidate-detail", "candidate-title", "candidate-properties", "score-breakdown",
     "build-package", "package-summary", "facts-list", "package-bounds",
     "prompt-preset", "prompt-reset", "prompt-diff-toggle", "prompt-diff",
+    "provider-select", "model-select", "provider-notice",
     "planner-instructions", "writer-instructions", "style-guidance", "prompt-lengths",
     "prompt-warnings", "fixed-rules", "replay-notice", "generate-post", "trace-events",
     # Output region.
@@ -421,7 +422,15 @@ STANDING_STATEMENTS = (
     "Deterministic verification remains authoritative",
     "computed from a stored property, not read as its own record",
     "The graph stores no nulls, so an absent property means the value was not recorded",
-    "No credential, provider setting or environment value is shown anywhere in this interface",
+    # **Corrected at S12, not deleted.** The old sentence read "No credential, provider setting
+    # or environment value is shown anywhere in this interface", and a provider control made half
+    # of it false: the page now shows a provider label and a model id, which are ids the server
+    # published and which every manifest the panel renders already carries. What has to stay true
+    # is the other half, and it is now said in the words that are true — no credential, no
+    # endpoint, no environment value. `test_no_asset_names_a_credential_or_an_environment_value`
+    # below is the half that proves the claim rather than matching the sentence.
+    "shows a provider label and a model id, and shows no credential, no endpoint and no "
+    "environment value",
 )
 
 
@@ -458,13 +467,49 @@ def test_the_detail_card_says_absent_rather_than_filling_a_gap() -> None:
 
 
 def test_no_asset_names_a_credential_or_an_environment_value() -> None:
-    """The API sends none and the interface must not invent a place to put one."""
+    """The footer's corrected sentence, proved rather than matched.
+
+    **The list grew at S12 and that is the point of the correction.** The page gained two
+    provider controls, so "shows no credential, no endpoint and no environment value" stopped
+    being true by virtue of the page not mentioning providers at all and started being a claim
+    about *which* provider fields reach it. The six catalogue fields — `provider_id`, `label`,
+    `available`, `unavailable_reason`, `models`, `default_model_id` — are ids and sentences the
+    server published; every field of `StoryProviderConfig` that is not one of them is banned
+    here by name, alongside the two environment prefixes this repository reads.
+
+    `timeout_seconds` is deliberately **absent** from the list and that is not an oversight: the
+    projection payload carries a query timeout under that name and `app.js` renders it in the
+    graph disclosure, so banning the bare string would fail on a value that has nothing to do
+    with a provider. The provider's own is unreachable because the payload has no such field —
+    `ProviderOption.as_dict` is written out field by field, and `test_demo_ui_api.py` asserts the
+    absence on the payload itself, which is the side the rule can actually be enforced from.
+    """
     banned = ("NEO4J_PASSWORD", "NEO4J_USER", "process.env", "localStorage.setItem",
-              "api_key", "apiKey", "Authorization")
+              "api_key", "apiKey", "Authorization",
+              # S12: the provider's configuration, none of which is in the catalogue payload.
+              "OPENAI_API_KEY", "STORY_LLM_", "STORY_OPENAI_", "base_url", "max_retries",
+              "context_tokens", "store_responses", "max_output_tokens")
     for path in assets():
         text = path.read_text(encoding="utf-8")
         for name in banned:
             assert name not in text, f"{path.name} names {name}"
+
+
+def test_the_shell_offers_a_provider_and_a_model_and_no_field_to_type_one_into() -> None:
+    """The positive half of the sentence above: the two controls exist, and they *select*.
+
+    A `<select>` can only return one of the options the server put in it, which is what makes
+    "no endpoint may arrive from the browser" a property of the shell and not only of the API's
+    allowlist. An `<input>` beside them would be a way to type one, so the prompt row is checked
+    for having none.
+    """
+    text = read("index.html")
+    row = text[text.index('<div id="prompt-preset-row">'):text.index('id="provider-notice"')]
+    assert '<select id="provider-select">' in row
+    assert '<select id="model-select">' in row
+    assert '<label for="provider-select">Provider</label>' in row
+    assert '<label for="model-select">Model</label>' in row
+    assert "<input" not in row, "the provider row carries a field a URL could be typed into"
 
 
 # ---------------------------------------------------------------------------------------

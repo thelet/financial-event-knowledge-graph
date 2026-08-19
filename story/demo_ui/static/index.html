@@ -82,8 +82,9 @@
           <label><input type="checkbox" id="setting-motion" checked> Animate highlights</label>
           <label><input type="checkbox" id="setting-synthesised" checked> Mark derived nodes and edges</label>
           <p class="note">
-            No credential, provider setting or environment value is shown anywhere in this
-            interface. The API sends none, and this panel is not a place to put one.
+            This interface shows a provider label and a model id, and shows no credential, no
+            endpoint and no environment value. The API sends none, and this panel is not a
+            place to put one.
           </p>
         </div>
       </details>
@@ -213,12 +214,30 @@
         </div>
 
         <div id="panel-prompts" role="tabpanel" aria-labelledby="tab-prompts" tabindex="0" hidden>
+          <!--
+            Provider and model sit in this row and not in Settings, because they are a choice
+            about the run about to be made rather than a preference about the page. They carry
+            ids and labels the server published and nothing else: there is no field here for an
+            endpoint or a credential, and the API refuses one rather than ignoring it.
+          -->
           <div id="prompt-preset-row">
             <label for="prompt-preset">Preset</label>
             <select id="prompt-preset"></select>
+            <label for="provider-select">Provider</label>
+            <select id="provider-select"></select>
+            <label for="model-select">Model</label>
+            <select id="model-select"></select>
             <button type="button" id="prompt-reset">Reset to preset</button>
             <button type="button" id="prompt-diff-toggle" aria-pressed="false">Diff against default</button>
           </div>
+
+          <!--
+            Shown, never hidden. A provider this build knows but this machine cannot reach says
+            so here in the server's own words — "OpenAI is not configured" and "OpenAI does not
+            exist" are different facts, and an interface that dropped the unavailable option
+            would tell a reader the second when the first is true.
+          -->
+          <div id="provider-notice" role="status"></div>
 
           <fieldset id="prompt-editable">
             <legend>Editable instructions</legend>
@@ -312,7 +331,7 @@
       <li>Deterministic verification remains authoritative.</li>
       <li>A node or edge marked as derived was computed from a stored property, not read as its own record.</li>
       <li>The graph stores no nulls, so an absent property means the value was not recorded.</li>
-      <li>No credential, provider setting or environment value is shown anywhere in this interface.</li>
+      <li>This interface shows a provider label and a model id, and shows no credential, no endpoint and no environment value.</li>
     </ul>
   </footer>
 

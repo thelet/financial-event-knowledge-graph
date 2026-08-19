@@ -544,6 +544,23 @@ legend { font-size: 12px; color: var(--ink-faint); padding: 0 0.3rem; }
 #prompt-editable label { display: block; margin: 0.5rem 0 0.2rem; font-size: 12px; color: var(--ink-soft); }
 #prompt-preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 12px; }
 
+/* A disabled provider stays in the list and has to *look* unusable rather than merely refuse a
+   click, since "OpenAI is not configured" is a fact the reader is meant to take away from the
+   control itself and not only from the notice under it. */
+#provider-select option:disabled, #model-select option:disabled { color: var(--ink-faint); }
+
+/* `:not(:empty)` for the reason `#prompt-warnings` uses it: the element is written on every
+   catalogue render and an empty box with a border would be a panel that never goes away. */
+#provider-notice:not(:empty) {
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.5rem;
+  background: var(--surface-sunk);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+#provider-notice p { margin: 0.2rem 0; }
+#provider-notice .mono { font-family: var(--mono); color: var(--ink-soft); }
+
 #prompt-fixed { background: var(--surface-sunk); }
 #fixed-rules { font-size: 12px; white-space: pre-wrap; color: var(--ink-soft); font-family: var(--mono); }
 #prompt-warnings:not(:empty) {

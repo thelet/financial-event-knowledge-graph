@@ -47,11 +47,11 @@ style box is safe by construction.
 
 **Two corrections to the brief this module was written from, both found by reading the code.**
 
-1. *Editing a prompt does **not** move `story_run_id`.* `pipeline.py:534-536` puts
+1. *Editing a prompt does **not** move `story_run_id`.* `pipeline.py:583-584` puts
    `prompt_version=(planner=…;writer=…)` — the two module **constants** — into the id, not the
    prompt text. So two demo sessions with different edited prompts mint the *same*
    `story_run_id` for the same package and configuration. What an edit does move is
-   `request_identity` (`providers/generation_store.py:108-118`), which digests the `system` and
+   `request_identity` (`providers/generation_store.py:96-118`), which digests the `system` and
    `prompt` strings, so an edited prompt misses every recorded generation and needs `--live`.
    That asymmetry is exactly why this module returns a per-composition
    `effective_prompt_sha256` and per-stage digests: it is the only identifier in the demo that
@@ -1298,7 +1298,13 @@ class EditedSystemProvider:
 
     `model_id` is delegated because `write_story` and `pipeline` both read it off the provider
     with `getattr`, and a wrapper without it would silently record an empty model identity in
-    every stored generation.
+    every stored generation. `provider_id` is delegated for the sharper version of the same
+    reason: since S12 it is a `request_identity` and a `story_run_id` input, and unlike
+    `model_id` a blank one is **refused** rather than recorded — so a wrapper that did not
+    forward it failed every demo run with `EmptyIdentityError` instead of quietly mislabelling
+    one. `config` follows `store`: the manifest's `provider_settings` block is read off the
+    adapter's own `StoryProviderConfig`, and hiding it would report a live run as having sent
+    nothing.
     """
 
     inner: StoryGenerationProvider
@@ -1307,6 +1313,15 @@ class EditedSystemProvider:
     @property
     def model_id(self) -> str:
         return str(getattr(self.inner, "model_id", "") or "")
+
+    @property
+    def provider_id(self) -> str:
+        return str(getattr(self.inner, "provider_id", "") or "")
+
+    @property
+    def config(self) -> Any:
+        """The inner adapter's `StoryProviderConfig`, or `None` on a replay-only run."""
+        return getattr(self.inner, "config", None)
 
     @property
     def store(self) -> Any:

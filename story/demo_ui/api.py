@@ -45,11 +45,20 @@ and its docstring says what each of its three jobs is for.
 **What is never in a response, and each is a test.** `GenerationResult.raw_content`, which is
 the model's unstructured output and the one thing §3's no-chain-of-thought rule is about; the
 text of any exception, because a provider failure carries a URL and a filesystem failure
-carries a path; anything read from the process environment, which this module never reads;
-any absolute path — a run directory is reported relative to the repository root; and the
-authority of any URI, because the freshness gate's `graph_reachable` check composes
-`bolt://<host>:<port> database=<name>` into prose. `_scrub_paths` is where the last two are
-enforced and its docstring records that both were found in shipped bodies, not predicted.
+carries a path; the *value* of anything read from the process environment; any absolute path —
+a run directory is reported relative to the repository root; and the authority of any URI,
+because the freshness gate's `graph_reachable` check composes `bolt://<host>:<port>
+database=<name>` into prose. `_scrub_paths` is where the last two are enforced and its
+docstring records that both were found in shipped bodies, not predicted.
+
+That third clause used to read *"anything read from the process environment, which this module
+never reads"*, and **S12 made the second half of it true and the first half not** — so it is
+corrected rather than left standing. This module still names no environment variable and calls
+no `os.environ`; `GET /demo/providers` serves one boolean per provider derived from whether a
+key resolves, and, when it is false, a sentence naming the *variable* that is missing. A
+variable's name is not its value, and the difference is the endpoint's whole purpose: "OpenAI
+is not configured" and "OpenAI does not exist" are different facts, and a payload that could
+not distinguish them would show a missing credential as a missing feature.
 
 **A third correction, 2026-08-05: this module no longer packages through
 `pipeline.resolve_demo_inputs`.** That function re-derives with §6.6's D4 alone, so nineteen of
@@ -126,6 +135,9 @@ ERRORS: Mapping[str, tuple[int, str]] = {
     "unknown_story_type": (400, "that story type is not one any detector in this run produces"),
     "invalid_prompt_request": (400, "a prompt field in the request body was refused; the "
                                     "presets endpoint states every bound"),
+    "invalid_provider_selection": (400, "that provider and model pair is not one this server "
+                                        "offers; the providers endpoint lists every pair, and "
+                                        "no endpoint or credential may be supplied with one"),
     "wrong_phase": (400, "that run belongs to the other half of the demo"),
     "field_too_long": (413, "a text field in the request is longer than this server accepts"),
     "unknown_candidate": (404, "no candidate with that id is held by this process; run "
@@ -139,6 +151,9 @@ ERRORS: Mapping[str, tuple[int, str]] = {
     "stale_graph": (409, "the freshness gate refused the loaded graph"),
     "edited_prompt_requires_live": (409, "an edited prompt is a different request and is not "
                                          "in the recorded store; ask for a live run"),
+    "provider_requires_live": (409, "no recorded answer store is configured for that provider, "
+                                    "and one provider's rows are a miss under another by "
+                                    "design; ask for a live run"),
     "generation_not_recorded": (409, "the recorded store holds no answer for this request; ask "
                                      "for a live run"),
     "graph_unavailable": (503, "the graph is not reachable from this process"),
@@ -251,12 +266,31 @@ HONEST_LABELS: tuple[str, ...] = (
     "The graph view is a bounded visual projection, not the whole graph.",
 )
 
-#: The two keys `POST /demo/generate` consumes itself. `prompt_presets.PromptRequest`
+#: The four keys `POST /demo/generate` consumes itself. `prompt_presets.PromptRequest`
 #: projects an allowlist of five out of the same body and reports every other key as ignored,
-#: so these two would arrive back at the client as *"you sent something that did nothing"* —
+#: so these would arrive back at the client as *"you sent something that did nothing"* —
 #: which would be false. They are removed from that list here and nowhere else, so a genuinely
 #: stray key is still reported.
-GENERATE_OWN_FIELDS: frozenset[str] = frozenset({"candidate_id", "live"})
+#:
+#: `provider_id` and `model_id` joined the set at S12. They are a **selection** and not a
+#: configuration: each is checked against the server's own catalogue before it is used, and the
+#: pair that survives is the only thing about the provider a request can move.
+GENERATE_OWN_FIELDS: frozenset[str] = frozenset(
+    {"candidate_id", "live", "provider_id", "model_id"})
+
+#: What a browser may never send about a provider, refused outright rather than ignored.
+#:
+#: Ignoring would be the smaller diff and the worse answer: a client that sent `base_url` and
+#: got a 202 would have been told its endpoint was honoured, and the operator debugging a run
+#: against the wrong server would have no record that anything was refused. A URL, a key, a
+#: timeout and a retry bound are the process's configuration; the interface selects among what
+#: the process already holds and supplies none of it. `_DETAIL_PATTERN` lets the offending key
+#: name travel back, so the refusal says which one it was without quoting its value.
+FORBIDDEN_PROVIDER_FIELDS: frozenset[str] = frozenset({
+    "api_base", "api_key", "api_token", "authorization", "base_url", "context_tokens",
+    "endpoint", "key", "max_retries", "openai_api_key", "provider_base_url", "store_responses",
+    "timeout_seconds", "token", "url",
+})
 
 #: §13's twelve checks, grouped onto the four `checking_*` stages `trace.py` declares. A table
 #: rather than a prefix rule, because `identity_and_freshness` and `disclosures` are named for
@@ -633,7 +667,7 @@ def _prompt_request(body: Mapping[str, Any]) -> Any:
 class ObservedProvider:
     """A `StoryGenerationProvider` that reports its calls, forwards `store`, and delivers style.
 
-    Three jobs, and each is a seam the objects it sits between do not have:
+    Four jobs, and each is a seam the objects it sits between do not have:
 
     * **Reporting.** `run_demo` is one blocking call, so without a hook the whole generation
       half would reach the trace panel at once. The schema name it is handed says which call
@@ -652,6 +686,14 @@ class ObservedProvider:
       was given, which is the stage's default, so a custom-style run has a system message from
       one profile and a recorded id from another. That is reported in the outcome under
       `style_delivery` rather than smoothed over.
+    * **`provider_id` and `config`, added at S12 and each closing a hole this wrapper opened.**
+      `pipeline._provider_id` reads `provider.provider_id` off whatever object it is handed and
+      `mint_story_run_id` refuses a blank one; a decorator that did not forward it therefore
+      turned every demo run into `EmptyIdentityError: provider_id carries no characters`, which
+      is exactly the failure the refusal exists to produce rather than a run silently keyed to
+      no provider. `config` is forwarded for the same reason `store` is — `_provider_settings`
+      reads the adapter's `StoryProviderConfig` through it to record what actually reached the
+      wire, and a wrapper that hid it would put `null` settings in the manifest of a live run.
     """
 
     def __init__(self, inner: Any, *, composed: Any, store: Any = None,
@@ -667,8 +709,16 @@ class ObservedProvider:
         return str(getattr(self._inner, "model_id", "") or "")
 
     @property
+    def provider_id(self) -> str:
+        return str(getattr(self._inner, "provider_id", "") or "")
+
+    @property
     def store(self) -> Any:
         return self._store
+
+    @property
+    def config(self) -> Any:
+        return getattr(self._inner, "config", None)
 
     def health(self) -> Any:
         return self._inner.health()
@@ -1256,45 +1306,185 @@ def prompt_preset_catalogue(request: Request) -> JsonResponse:
 
 
 # ---------------------------------------------------------------------------------------
+# Endpoint: providers, and the selection one generate request may make.
+# ---------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProviderSelection:
+    """The provider and model one run is pinned to. Resolved once, on the request thread.
+
+    Frozen, and a value rather than a lookup deferred to the worker, because *when* it is
+    resolved is the whole property: `start_generation` validates the pair against the catalogue
+    and builds the adapter before `_start_run` is called, so the background thread never reads
+    the request body and there is no window in which a second request, an edited config file or
+    an exported `OPENAI_API_KEY` could move a run already in flight. A test proves it by
+    mutating the catalogue after the 202 and reading the finished run's manifest.
+
+    Both fields are ids the server itself published. Neither is a URL, and there is no third
+    field: MULTI_PROVIDER_OPENAI §6's rule is that a browser selects among what the process
+    already holds and supplies none of it.
+    """
+
+    provider_id: str
+    model_id: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {"provider_id": self.provider_id, "model_id": self.model_id}
+
+
+def _catalogue(config: Any) -> tuple[Any, ...]:
+    """`story.providers.public.provider_catalogue`, imported where it is used.
+
+    The lazy import is the module's existing discipline and not decoration: `story/providers/
+    __init__.py` resolves its adapters on attribute access precisely so that naming
+    `providers.public` does not pull `httpx` into `sys.modules`, and a module-level import here
+    would put `story.providers` in `demo_ui`'s import closure where
+    `test_the_endpoint_layer_names_no_composition_root_and_no_driver` reads it.
+
+    `provider_catalogue` never raises by contract — an unconfigured provider is an ordinary
+    option carrying its own reason — so the guard below is for the configuration it is handed,
+    not for the catalogue itself: a `provider:` block holding a committed secret fails on first
+    read, and that failure names a file.
+    """
+    from story.providers.public import provider_catalogue
+
+    try:
+        return tuple(provider_catalogue(config.raw))
+    except Exception as exc:  # noqa: BLE001 - a configuration failure names a path
+        _log("the provider catalogue could not be read", exc)
+        raise ApiError("provider_unavailable", detail="catalogue") from None
+
+
+def provider_options(request: Request) -> JsonResponse:
+    """`GET /demo/providers` — every provider this build knows, and whether it can be used.
+
+    **Six fields per provider and four per model, written out by `ProviderOption.as_dict` and
+    `ModelOption.as_dict` field by field.** No base URL, no key, no environment value, no
+    timeout and no retry bound: the payload is the same shape `ComposedPrompts.as_dict` already
+    argues for, so a field added to `StoryProviderConfig` cannot reach a browser by being added
+    to a config object.
+
+    **What does come from the environment, stated rather than buried.** This module reads no
+    environment variable itself and the structural test that says so still holds; what it serves
+    here is one boolean per provider and, when that boolean is false, a sentence naming the
+    *variable* — `OPENAI_API_KEY is not set …`. The name of a variable is not its value, and the
+    distinction is the point of the endpoint: "OpenAI is not configured" and "OpenAI does not
+    exist" are different facts, and an interface that could not tell them apart would present a
+    missing credential as a missing feature.
+    """
+    from story.providers.public import default_provider_id
+
+    config = _config(request)
+    return JsonResponse({
+        "providers": [option.as_dict() for option in _catalogue(config)],
+        "default_provider_id": default_provider_id(config.raw),
+        "honest_labels": list(HONEST_LABELS),
+    })
+
+
+def _provider_selection(body: Mapping[str, Any], config: Any) -> ProviderSelection:
+    """The `provider_id`/`model_id` pair a generate body asked for, checked against the server's
+    own catalogue, or a typed refusal.
+
+    Three refusals, and they are deliberately one code (`invalid_provider_selection`) with a
+    `detail` naming the field rather than three codes: from the browser's side they have one
+    remedy — re-read `GET /demo/providers` and pick a pair off it — and a client that could tell
+    "unknown provider" from "unavailable provider" by status alone would be a client probing the
+    operator's environment.
+
+    Omitting both fields resolves the configured default, which is what keeps every call site
+    written before S12 — the tests in this file, the CLI's own path — behaving exactly as it did.
+    """
+    for name in sorted(FORBIDDEN_PROVIDER_FIELDS):
+        if name in body:
+            raise ApiError("invalid_provider_selection", detail=name)
+
+    requested_provider = _text(body, "provider_id", maximum=64).strip()
+    requested_model = _text(body, "model_id", maximum=128).strip()
+    catalogue = _catalogue(config)
+
+    from story.providers.public import default_provider_id
+
+    provider_id = requested_provider or default_provider_id(config.raw)
+    option = next((entry for entry in catalogue if entry.provider_id == provider_id), None)
+    if option is None or not option.available:
+        raise ApiError("invalid_provider_selection", detail="provider_id")
+
+    model_id = requested_model or option.default_model_id
+    if model_id not in {model.model_id for model in option.models}:
+        raise ApiError("invalid_provider_selection", detail="model_id")
+    return ProviderSelection(provider_id=provider_id, model_id=model_id)
+
+
+# ---------------------------------------------------------------------------------------
 # Endpoint: generation. The substantive one.
 # ---------------------------------------------------------------------------------------
 
 
-def _provider_for(request: Request, config: Any, *, live: bool) -> Any:
-    """`story/cli.py:_provider`, mirrored — the same object on both paths.
+def _provider_for(config: Any, *, live: bool, selection: ProviderSelection) -> Any:
+    """`story/cli.py:_provider`, mirrored — the same object on both paths, for one selection.
 
     Replay is a store with no inner provider, so a miss raises rather than quietly reaching for
     a GPU. Live is the same replaying decorator around the HTTP adapter, so a live run captures
     what it generated and can be replayed afterwards. `httpx` enters `sys.modules` only on the
     live path, exactly as the CLI arranges it.
+
+    **The store is chosen per provider and is never shared** (MULTI_PROVIDER_OPENAI §5.3). Since
+    `story-generation-v2` a recorded row is keyed on the adapter that produced it, so another
+    provider's file would not answer a single request; `DemoConfig.generation_store_for` returns
+    `None` rather than falling back, and `provider_requires_live` names the provider here rather
+    than letting the run start and die later on a `MissingGenerationError` about a digest.
+
+    `provider_id` is passed to the replaying decorator explicitly on both paths. It could be
+    inferred — from the inner adapter live, from the rows on replay — but inferring it is what
+    would let a run be keyed to a provider nobody selected, and the whole point of resolving the
+    pair on the request thread is that one value decides the adapter, the store and the manifest.
+
+    It takes no `Request`. It never used the one it was declared with, and once the selection
+    became an argument the parameter was a claim that this function reads the body — which is
+    the one thing §6 says it must not do.
     """
     from story.providers.generation_store import (
         GenerationStore,
         ReplayingStoryGenerationProvider,
     )
-    from story.providers.public import load_provider_config
+    from story.providers.public import PROVIDER_OPENAI, load_provider_config
 
     try:
-        provider_config = load_provider_config(config.raw)
+        provider_config = load_provider_config(
+            config.raw, provider_id=selection.provider_id, model_id=selection.model_id)
     except Exception as exc:  # noqa: BLE001 - a configuration failure names a path
         _log("the provider configuration could not be read", exc)
         raise ApiError("provider_unavailable", detail="config") from None
     if live:
         try:
-            from story.providers.openai_compatible import StoryOpenAICompatibleProvider
+            if selection.provider_id == PROVIDER_OPENAI:
+                from story.providers.openai_responses import (
+                    StoryOpenAIResponsesProvider as Adapter,
+                )
+            else:
+                from story.providers.openai_compatible import (  # type: ignore[assignment]
+                    StoryOpenAICompatibleProvider as Adapter,
+                )
         except ImportError:
             raise ApiError("provider_unavailable", detail="http_adapter") from None
         try:
-            inner = StoryOpenAICompatibleProvider(provider_config)
+            inner = Adapter(provider_config)
         except Exception as exc:  # noqa: BLE001 - the message carries the server's URL
             _log("the live provider could not be constructed", exc)
             raise ApiError("provider_unavailable", detail="live") from None
         return ReplayingStoryGenerationProvider(
-            GenerationStore(), inner, model_id=provider_config.model)
-    store = GenerationStore(config.resolved_path(config.generation_store))
+            GenerationStore(), inner, provider_id=selection.provider_id,
+            model_id=provider_config.model)
+    path = config.generation_store_for(selection.provider_id)
+    if path is None:
+        raise ApiError("provider_requires_live", detail=selection.provider_id)
+    store = GenerationStore(path)
     if not len(store):
         raise ApiError("generation_store_empty")
-    return ReplayingStoryGenerationProvider(store, model_id=provider_config.model)
+    return ReplayingStoryGenerationProvider(
+        store, provider_id=selection.provider_id, model_id=provider_config.model)
 
 
 class _GenerationTrace:
@@ -1417,24 +1607,62 @@ def _emit_outcome(emitter: TraceEmitter, outcome: Any, accepted: str, *,
     emitter.emit("rendering", "complete")
 
 
-def _manifest_payload(manifest: Any) -> dict[str, Any]:
-    """§14's manifest, with the one field that is a filesystem path reduced to its basename.
+#: Said once, because it is now attached in three places and three spellings of one fact would
+#: be three things to keep in step.
+PROVIDER_MODEL_ID_NOTE = (
+    "the filename only. The server reports an absolute path to the model file, which names the "
+    "operator's filesystem; the run's own manifest on disk keeps it whole.")
 
-    **Found by a test rather than predicted.** `provider_model_id` is what the *server* called
-    itself, and the local runtime answers with an absolute `.gguf` path — which names the
+#: Every block of a manifest that carries a `provider_model_id` of its own. A table rather than
+#: a walk of the whole payload: the redaction below reduces a *path* to its basename, and
+#: applying that blindly to every string named `provider_model_id`-ish elsewhere in a manifest
+#: would be a rule nobody could predict from reading the manifest's own field list.
+PROVIDER_MODEL_BLOCKS: tuple[str, ...] = ("planner_provider_model", "writer_provider_model")
+
+
+def _manifest_payload(manifest: Any) -> dict[str, Any]:
+    """§14's manifest, with every field that is a filesystem path reduced to its basename.
+
+    **Found by a test rather than predicted, twice.** `provider_model_id` is what the *server*
+    called itself, and the local runtime answers with an absolute `.gguf` path — which names the
     operator's home directory and their username. The distinction the manifest draws between
     the configured `model_id` and the reported one is worth keeping, and the part of it a
     browser needs is the filename; the run directory's own `demo_manifest.json` keeps the whole
     value, because that is the artifact a reviewer reads and it is not served to anyone.
+
+    **The second time was S12, and it is why this is a loop over a table rather than one line.**
+    MULTI_PROVIDER_OPENAI §5.2 added `planner_provider_model` and `writer_provider_model`, each
+    carrying that call's *own* `provider_model_id` — and the redaction reached only the top-level
+    scalar, so `/home/<user>/models/…/Qwen3.5-9B-Q4_K_M.gguf` went back to the browser inside two
+    new blocks while the field beside them was still being reduced. A redaction that covers one
+    spelling of a value is not a redaction; it is a coincidence that held while there was only
+    one place to look. The manifest on disk is right to hold the real path in all three.
     """
     payload = manifest.as_dict()
-    reported = str(payload.get("provider_model_id") or "")
-    if reported:
-        payload["provider_model_id"] = PurePosixPath(reported.replace("\\", "/")).name
-        payload["provider_model_id_note"] = (
-            "the filename only. The server reports an absolute path to the model file, which "
-            "names the operator's filesystem; the run's own manifest on disk keeps it whole.")
+    _redact_provider_model_id(payload)
+    for name in PROVIDER_MODEL_BLOCKS:
+        block = payload.get(name)
+        if isinstance(block, dict):
+            _redact_provider_model_id(block)
     return payload
+
+
+def _redact_provider_model_id(block: dict[str, Any]) -> None:
+    """Reduce one block's `provider_model_id` to its basename, in place, and say that it was.
+
+    In place is safe because `StoryRunManifest.as_dict` is `dataclasses.asdict`, which deep-copies
+    every nested mapping — the manifest object this endpoint was handed is not the one being
+    edited, and the artifact already on disk was written before any of this ran.
+
+    An empty value is left alone rather than annotated: a run whose planner never returned has an
+    empty block (`_call_site_provenance` returns `{}`), and stamping a redaction note onto it
+    would claim something was removed from a block that never held anything.
+    """
+    reported = str(block.get("provider_model_id") or "")
+    if not reported:
+        return
+    block["provider_model_id"] = PurePosixPath(reported.replace("\\", "/")).name
+    block["provider_model_id_note"] = PROVIDER_MODEL_ID_NOTE
 
 
 def _cost_panel(outcome: Any, *, live: bool) -> dict[str, Any]:
@@ -1862,6 +2090,14 @@ def start_generation(request: Request) -> JsonResponse:
     recorded store is keyed by that digest — so the request cannot be in it. Refusing here costs
     a round trip; letting the run start would cost a full graph read and a packaging pass before
     reaching the same answer through `MissingGenerationError`.
+
+    **The provider and model are resolved here and nowhere else** (MULTI_PROVIDER_OPENAI §6).
+    `_provider_selection` checks the requested pair against the server's own catalogue and
+    `_provider_for` builds the adapter from it, both on this thread and both before `_start_run`
+    — so `work` below closes over an object, not over a choice still to be made, and the worker
+    never touches `request.body`. Mid-run change is therefore structurally impossible rather
+    than merely unlikely, which is what makes it testable: the catalogue is mutated after the
+    202 and the finished run's manifest still names the pair that was frozen.
     """
     candidate_id = _candidate_id(request.body)
     live = _flag(request.body, "live")
@@ -1870,6 +2106,10 @@ def start_generation(request: Request) -> JsonResponse:
     # 503 on the request that started the run, rather than a run that starts and dies.
     _context(request)
     config = _config(request)
+    # Before the graph is read and before anything is composed: an unknown pair is a 400 the
+    # client can fix, and spending a packaging pass to reach the same answer would make a typo
+    # cost the same as a run.
+    selection = _provider_selection(request.body, config)
     baseline = int(config.length_target)
     composed = prompt_presets.compose(_prompt_request(request.body),
                                       baseline_length_target=baseline)
@@ -1889,7 +2129,18 @@ def start_generation(request: Request) -> JsonResponse:
     # moves `request_identity` and not the run id.
     run_config = (config if composed.length_target == baseline
                   else dataclasses.replace(config, length_target=composed.length_target))
-    provider_base = _provider_for(request, config, live=live)
+    try:
+        provider_base = _provider_for(config, live=live, selection=selection)
+    except ApiError as exc:
+        if exc.code != "provider_requires_live":
+            raise
+        # The same shape `edited_prompt_requires_live` returns, for the same reason: the refusal
+        # is a consequence of a choice the client just made, and the choice travels back beside
+        # it so the panel can say *which* provider needs a live run rather than only that one
+        # does. §5.3's rule is in the error's own sentence — a row recorded under one provider
+        # is a miss under another, so there is nothing to fall through to.
+        return JsonResponse({"error": exc.payload(), "provider_selection": selection.as_dict()},
+                            status=exc.status)
     run = request.app.registry.create("generation")
 
     def work(emitter: TraceEmitter) -> Mapping[str, Any]:
@@ -1942,6 +2193,10 @@ def start_generation(request: Request) -> JsonResponse:
         "status": run.status,
         "candidate_id": candidate_id,
         "live": live,
+        # The frozen pair, echoed rather than reflected: this is what `_provider_for` resolved
+        # and what the manifest will record, not what the body asked for. They differ whenever
+        # the body asked for nothing.
+        "provider_selection": selection.as_dict(),
         "events_url": f"/demo/runs/{run.run_id}/events",
         "result_url": f"/demo/runs/{run.run_id}",
         "sources_url": f"/demo/runs/{run.run_id}/sources",
@@ -1979,8 +2234,9 @@ def generation_sources(request: Request) -> JsonResponse:
 # Registration.
 # ---------------------------------------------------------------------------------------
 
-#: §5's table, in the plan's order. A tuple rather than twelve `register(...)` calls, so the
-#: set of endpoints is a value a test can read and compare against the plan.
+#: §5's table, in the plan's order, plus MULTI_PROVIDER_OPENAI §6's thirteenth. A tuple rather
+#: than thirteen `register(...)` calls, so the set of endpoints is a value a test can read and
+#: compare against the plan.
 ENDPOINTS: tuple[tuple[str, str, Callable[[Request], Any]], ...] = (
     ("GET", "/demo/graph/overview", graph_overview),
     ("GET", "/demo/graph/subgraph", graph_subgraph),
@@ -1990,6 +2246,7 @@ ENDPOINTS: tuple[tuple[str, str, Callable[[Request], Any]], ...] = (
     ("GET", "/demo/candidates/{candidate_id}", candidate_detail),
     ("POST", "/demo/evidence-package", build_package),
     ("GET", "/demo/prompt-presets", prompt_preset_catalogue),
+    ("GET", "/demo/providers", provider_options),
     ("POST", "/demo/generate", start_generation),
     ("GET", "/demo/runs/{run_id}/events", generation_events),
     ("GET", "/demo/runs/{run_id}", generation_result),
@@ -2022,7 +2279,8 @@ def _guarded(handler: Callable[[Request], Any]) -> Callable[[Request], Any]:
 
 
 def register_endpoints(router: Router | None = None) -> Router:
-    """Add §5's twelve routes to `router`, or to the process-wide one. Idempotent.
+    """Add §5's twelve routes and S12's thirteenth to `router`, or to the process-wide one.
+    Idempotent.
 
     Called by the composition root — `story/cli.py:cmd_ui` — rather than at import time. See
     the module docstring for the committed test that decides it, and for the third `services`
@@ -2043,13 +2301,17 @@ __all__ = [
     "GENERATE_OWN_FIELDS",
     "ENDPOINTS",
     "ERRORS",
+    "FORBIDDEN_PROVIDER_FIELDS",
     "HONEST_LABELS",
+    "PROVIDER_MODEL_BLOCKS",
+    "PROVIDER_MODEL_ID_NOTE",
     "STATE",
     "URI_PLACEHOLDER",
     "VERIFICATION_STAGES",
     "ApiError",
     "DemoState",
     "ObservedProvider",
+    "ProviderSelection",
     "build_package",
     "candidate_detail",
     "discovery_events",
@@ -2060,6 +2322,7 @@ __all__ = [
     "graph_overview",
     "graph_subgraph",
     "prompt_preset_catalogue",
+    "provider_options",
     "register_endpoints",
     "start_discovery",
     "start_generation",

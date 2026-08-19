@@ -1,6 +1,11 @@
 /**
- * The panel logic: one page, thirteen endpoints, and no value on screen that a payload did not
- * carry.
+ * The panel logic: one page, thirteen endpoints, and no value on screen that a payload did
+ * not carry.
+ *
+ * The count is the `ENDPOINTS` table's, and it was **wrong before S12 rather than made wrong
+ * by it**: this line already read "thirteen" when the table held twelve. It holds thirteen
+ * now, so the sentence is true for the first time; the number is corrected here rather than
+ * left to be read as the count of something else.
  *
  * Responsibility: own the network, own the state of one local session, and own every element of
  * `index.html` except the three `graph.js` writes. Boundaries, and they are the ones the
@@ -92,6 +97,7 @@ export const ENDPOINTS = Object.freeze({
   candidate: '/demo/candidates/{candidate_id}',
   evidencePackage: '/demo/evidence-package',
   promptPresets: '/demo/prompt-presets',
+  providers: '/demo/providers',
   generate: '/demo/generate',
   runEvents: '/demo/runs/{run_id}/events',
   runResult: '/demo/runs/{run_id}',
@@ -204,6 +210,9 @@ const dom = {
   packageBounds: document.getElementById('package-bounds'),
 
   promptPreset: document.getElementById('prompt-preset'),
+  providerSelect: document.getElementById('provider-select'),
+  modelSelect: document.getElementById('model-select'),
+  providerNotice: document.getElementById('provider-notice'),
   promptReset: document.getElementById('prompt-reset'),
   promptDiffToggle: document.getElementById('prompt-diff-toggle'),
   promptDiff: document.getElementById('prompt-diff'),
@@ -262,6 +271,24 @@ export const LABELS = Object.freeze({
   requiresLive:
     'Editing a prompt changes the request identity, so the run misses the replay store and '
     + 'needs a live provider.',
+  providerSelection:
+    'The provider and the model are chosen from what this server already holds. Only their ids '
+    + 'travel with the request \u2014 no endpoint, no credential and no timeout is sent from '
+    + 'this page, and the API refuses one rather than ignoring it.',
+  providerUnavailable:
+    'This build knows this provider, and this machine cannot use it yet. The reason below is '
+    + 'the server\u2019s own and names the setting that is missing, never its value.',
+  providerRequiresLive:
+    'That provider has no recorded answer store, and one provider\u2019s recorded rows are a '
+    + 'miss under another by design \u2014 the request digest names the adapter. Run it live, '
+    + 'or choose the provider the recorded store belongs to.',
+  temperaturePinned:
+    'This model accepts the pinned temperature, so the run sends it and the manifest records '
+    + 'the value that reached the wire.',
+  temperatureRefused:
+    'This model refuses a temperature, measured against the API rather than inferred from its '
+    + 'name. None is sent, and the manifest records that none was sent rather than a number '
+    + 'nothing carried.',
   rejectedRun:
     'This run was refused. What follows is the refused draft and the findings that refused it; '
     + 'no post was written and none is shown.',
@@ -483,6 +510,13 @@ const state = {
   presets: null,
   presetById: new Map(),
   selectedPresetId: null,
+  // The catalogue as the server published it, and the pair this session has chosen out of it.
+  // Both ids and nothing else: there is no base URL and no key in this object because there is
+  // none in the payload it is built from.
+  providers: [],
+  providerById: new Map(),
+  selectedProviderId: null,
+  selectedModelId: null,
   composed: null,
   requiresLiveOffered: false,
   generationRunId: null,
@@ -642,6 +676,7 @@ function reportQuiet(phase, runId) {
   state.busy = false;
   dom.runDiscovery.disabled = false;
   dom.generatePost.disabled = false;
+  setSelectionEnabled(true);
   const seconds = Math.round(QUIET_AFTER_MS / 1000);
   showNotice(`${LABELS.runQuiet} No event has arrived from ${runId} for ${seconds} s.`);
   setPipelineState(`${phase} run ${runId} · quiet for ${seconds} s · no terminal state reported`);
@@ -1875,6 +1910,135 @@ async function loadPresets() {
   }
 }
 
+/**
+ * The provider catalogue, fetched beside the presets and rendered as two selects.
+ *
+ * **Every provider the server knows is listed, and an unusable one is disabled rather than
+ * dropped.** Dropping would be the smaller render and the dishonest one: a reader who cannot see
+ * OpenAI cannot tell whether this build lacks it or this machine has not been given a key, and
+ * those are different problems with different fixes. The reason is the server's own sentence and
+ * it names a setting, never a value — there is nothing in the payload that could name a value.
+ *
+ * Nothing here can be typed. The two controls choose among ids the server published, and the
+ * request carries those ids alone; `api.py` refuses a body carrying a URL, a key or a timeout
+ * rather than ignoring it, so "this page cannot reconfigure the server" is enforced at both ends.
+ */
+async function loadProviders() {
+  try {
+    const payload = await getJson(ENDPOINTS.providers);
+    state.providers = payload.providers ?? [];
+    state.providerById = new Map(state.providers.map((entry) => [entry.provider_id, entry]));
+    const select = clear(dom.providerSelect);
+    for (const provider of state.providers) {
+      const option = document.createElement('option');
+      option.value = provider.provider_id;
+      option.textContent = provider.available
+        ? provider.label
+        : `${provider.label} — ${provider.unavailable_reason}`;
+      option.disabled = !provider.available;
+      select.append(option);
+    }
+    const chosen = state.providerById.get(payload.default_provider_id)?.available === true
+      ? payload.default_provider_id
+      : (state.providers.find((entry) => entry.available) ?? {}).provider_id ?? '';
+    select.value = chosen;
+    applyProvider(chosen);
+    clearError();
+  } catch (failure) {
+    showError('loading the provider catalogue', failure);
+  }
+}
+
+/** Repopulate the model list from the chosen provider's own declared models. */
+function applyProvider(providerId) {
+  const provider = state.providerById.get(providerId);
+  state.selectedProviderId = provider ? providerId : null;
+  const select = clear(dom.modelSelect);
+  const models = provider ? provider.models ?? [] : [];
+  for (const model of models) {
+    const option = document.createElement('option');
+    option.value = model.model_id;
+    option.textContent = model.label;
+    select.append(option);
+  }
+  const preferred = provider ? provider.default_model_id : '';
+  state.selectedModelId = models.some((model) => model.model_id === preferred)
+    ? preferred
+    : (models[0] ?? {}).model_id ?? null;
+  select.value = state.selectedModelId ?? '';
+  select.disabled = models.length === 0;
+  renderProviderNotice();
+}
+
+/**
+ * The provider and model controls follow the Generate button's busy latch exactly.
+ *
+ * Not decoration: the pair is frozen on the server when the 202 is issued, so a select that
+ * still moved during a run would show one provider while the run recorded another — the
+ * interface would be the only thing that had changed, and it would be lying about the run.
+ */
+function setSelectionEnabled(enabled) {
+  dom.providerSelect.disabled = !enabled;
+  dom.modelSelect.disabled = !enabled || dom.modelSelect.options.length === 0;
+}
+
+function applyModel(modelId) {
+  state.selectedModelId = modelId === '' ? null : modelId;
+  renderProviderNotice();
+}
+
+/**
+ * What the two controls mean, what the selected model does with a temperature, and every
+ * provider this machine cannot use, with the server's reason for each.
+ *
+ * The temperature line is a measured capability the catalogue carries per model, not a
+ * preference: a model that refuses the parameter has none sent and its manifest says so, and the
+ * panel is the only place a reader would otherwise have to guess which of the two they picked.
+ */
+function renderProviderNotice() {
+  const host = clear(dom.providerNotice);
+  host.append(make('p', 'note', LABELS.providerSelection));
+
+  const unavailable = state.providers.filter((provider) => !provider.available);
+  if (unavailable.length > 0) {
+    host.append(make('p', 'note', LABELS.providerUnavailable));
+    for (const provider of unavailable) {
+      host.append(make('p', 'mono', `${provider.label}: ${provider.unavailable_reason}`));
+    }
+  }
+
+  const provider = state.providerById.get(state.selectedProviderId);
+  const models = provider ? provider.models ?? [] : [];
+  const model = models.find((entry) => entry.model_id === state.selectedModelId);
+  if (!model) return;
+  host.append(make('p', 'note', model.supports_temperature
+    ? LABELS.temperaturePinned
+    : LABELS.temperatureRefused));
+  if (model.reasoning_effort) {
+    host.append(make('p', 'mono', `reasoning effort ${model.reasoning_effort}`));
+  }
+}
+
+/**
+ * The 409 a provider with no recorded store returns, rendered as the thing to do next.
+ *
+ * `provider_requires_live` mirrors `edited_prompt_requires_live` on purpose and is answered the
+ * same way: the body carries the frozen selection beside the error, so the panel names the
+ * provider that needs a live run instead of saying only that something does.
+ */
+function renderProviderRequiresLive(failure) {
+  const selection = (failure.body ?? {}).provider_selection ?? {};
+  const host = dom.providerNotice;
+  host.append(make('p', null, failure.message));
+  host.append(make('p', 'note', LABELS.providerRequiresLive));
+  host.append(make('p', 'mono',
+    `${selection.provider_id ?? ''} · ${selection.model_id ?? ''}`));
+  state.requiresLiveOffered = true;
+  dom.generatePost.textContent = 'Generate post (live run)';
+  setPipelineState('the selected provider needs a live run');
+  selectTab(dom.tabPrompts);
+}
+
 function applyPreset(presetId) {
   const preset = state.presetById.get(presetId);
   if (!preset) return;
@@ -2092,6 +2256,7 @@ async function generatePost() {
   if (state.busy) return;
   state.busy = true;
   dom.generatePost.disabled = true;
+  setSelectionEnabled(false);
   resetTrace();
   state.streamLost = false;
   state.quiet = false;
@@ -2105,6 +2270,11 @@ async function generatePost() {
     preset_id: state.selectedPresetId,
     ...editableFields(),
   };
+  // Two ids and never a third field. The server validates the pair against its own catalogue
+  // and freezes it; omitting them would be a run against the configured default, which is what
+  // every call site written before there was a second provider still gets.
+  if (state.selectedProviderId !== null) request.provider_id = state.selectedProviderId;
+  if (state.selectedModelId !== null) request.model_id = state.selectedModelId;
   if (state.requiresLiveOffered) request.live = true;
 
   try {
@@ -2136,8 +2306,13 @@ async function generatePost() {
   } catch (failure) {
     state.busy = false;
     dom.generatePost.disabled = false;
+    setSelectionEnabled(true);
     if (failure instanceof ApiFailure && failure.code === 'edited_prompt_requires_live') {
       renderRequiresLive(failure);
+      return;
+    }
+    if (failure instanceof ApiFailure && failure.code === 'provider_requires_live') {
+      renderProviderRequiresLive(failure);
       return;
     }
     showError('starting the generation run', failure);
@@ -2236,6 +2411,7 @@ async function finishGeneration(params) {
     if (isCurrentRun('generation', runId)) {
       state.busy = false;
       dom.generatePost.disabled = false;
+      setSelectionEnabled(true);
     }
   }
 }
@@ -3258,6 +3434,8 @@ function wire() {
   dom.generatePost.addEventListener('click', generatePost);
 
   dom.promptPreset.addEventListener('change', () => applyPreset(dom.promptPreset.value));
+  dom.providerSelect.addEventListener('change', () => applyProvider(dom.providerSelect.value));
+  dom.modelSelect.addEventListener('change', () => applyModel(dom.modelSelect.value));
   dom.promptReset.addEventListener('click', () => applyPreset(dom.promptPreset.value));
   dom.promptDiffToggle.addEventListener('click', () => {
     const shown = dom.promptDiffToggle.getAttribute('aria-pressed') === 'true';
@@ -3274,6 +3452,7 @@ function start() {
   wire();
   loadOverview();
   loadPresets();
+  loadProviders();
 }
 
 if (document.readyState === 'loading') {

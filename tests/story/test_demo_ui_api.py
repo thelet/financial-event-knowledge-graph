@@ -43,7 +43,13 @@ from story.demo_ui import (
     projection,
     prompt_presets,
 )
-from story.demo_ui.runs import RunRegistry
+from story.demo_ui.runs import RunRegistry, UnknownRun
+from story.providers.public import (
+    ENV_OPENAI_API_KEY,
+    OPENAI_KEY_MISSING_REASON,
+    PROVIDER_LOCAL,
+    PROVIDER_OPENAI,
+)
 from story.demo_ui.server import (
     ROUTER,
     DemoUiError,
@@ -78,8 +84,9 @@ MODEL_ID = "Qwen3.5-9B-Q4_K_M.gguf"
 ENV_MARKER_NAME = "STORY_DEMO_UI_API_TEST_MARKER"
 ENV_MARKER_VALUE = "s3cr3t-neo4j-password-4d19"
 
-#: §5's table, transcribed from INTERACTIVE_DEMO_UI. Written out rather than read off
-#: `api.ENDPOINTS`, so a route silently renamed in the implementation fails here.
+#: §5's twelve, transcribed from INTERACTIVE_DEMO_UI, plus MULTI_PROVIDER_OPENAI §6's
+#: thirteenth. Written out rather than read off `api.ENDPOINTS`, so a route silently renamed in
+#: the implementation fails here.
 PLANNED_ROUTES: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/demo/graph/overview"),
     ("GET", "/demo/graph/subgraph"),
@@ -89,6 +96,7 @@ PLANNED_ROUTES: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/demo/candidates/{candidate_id}"),
     ("POST", "/demo/evidence-package"),
     ("GET", "/demo/prompt-presets"),
+    ("GET", "/demo/providers"),
     ("POST", "/demo/generate"),
     ("GET", "/demo/runs/{run_id}/events"),
     ("GET", "/demo/runs/{run_id}"),
@@ -1030,8 +1038,13 @@ def test_a_system_message_without_its_fixed_rules_is_refused_at_the_wire(config)
 # ---------------------------------------------------------------------------------------
 
 
-REJECTED_STORE = "tests/story/fixtures/story_demo/generations_rejected_synthetic.jsonl"
-ACCEPTED_STORE = "tests/story/fixtures/story_demo/generations_accepted_synthetic.jsonl"
+#: The two synthetic stores, under the provider directory they moved into at S12. A store is a
+#: *provider's* since `story-generation-v2` — `request_identity` digests the adapter — so the
+#: path carries the provider id and `generations_*.jsonl` no longer sits loose beside the graph
+#: fixtures.
+STORE_ROOT = "tests/story/fixtures/story_demo/local_openai_compatible"
+REJECTED_STORE = f"{STORE_ROOT}/generations_rejected_synthetic.jsonl"
+ACCEPTED_STORE = f"{STORE_ROOT}/generations_accepted_synthetic.jsonl"
 
 
 def _config_over(config: pipeline.DemoConfig, store: str) -> pipeline.DemoConfig:
@@ -1055,8 +1068,21 @@ def _config_over(config: pipeline.DemoConfig, store: str) -> pipeline.DemoConfig
     the store in `config/story.yaml`, which is how an operator would do it, moves both.
     """
     raw = json.loads(json.dumps(config.raw))
-    raw.setdefault("demo", {})["generation_store"] = store
-    return dataclasses.replace(config, raw=raw, generation_store=store)
+    demo = raw.setdefault("demo", {})
+    # **The mapping and not the scalar, since S12.** This used to write `demo.generation_store`
+    # alone, and it worked only because `api._provider_for` read that field directly. The store
+    # is now chosen through `DemoConfig.generation_store_for(provider_id)`, for which
+    # `demo.generation_stores` is authoritative and the scalar is a local-only fallback consulted
+    # when the mapping names nothing — and the shipped mapping *does* name the local store. So
+    # writing the scalar alone would leave both runs replaying the shipped rows and this file's
+    # two dispositions would collapse into one. Both are written: the scalar because
+    # `config_hash` covers `raw` as written and an operator editing the file would move it too.
+    stores = dict(demo.get("generation_stores") or {})
+    stores[PROVIDER_LOCAL] = store
+    demo["generation_stores"] = stores
+    demo["generation_store"] = store
+    return dataclasses.replace(config, raw=raw, generation_store=store,
+                               generation_stores=stores)
 
 
 def rejecting_config(config: pipeline.DemoConfig) -> pipeline.DemoConfig:
@@ -1419,16 +1445,351 @@ def test_a_generation_run_that_raises_is_failed_and_holds_no_outcome(graph_servi
 
 def test_a_request_the_store_does_not_hold_is_actionable_rather_than_a_traceback(
         graph_services, config, tmp_path):
-    """The replay-only store's own refusal, surfaced as a code with a remedy in its sentence."""
+    """The replay-only store's own refusal, surfaced as a code with a remedy in its sentence.
+
+    The empty store is installed in `demo.generation_stores`, not in the scalar: since S12 the
+    mapping is what `DemoConfig.generation_store_for` reads, and pointing the scalar alone at an
+    empty file would leave the run replaying the shipped rows and reaching `accepted`.
+    """
     empty = tmp_path / "empty.jsonl"
     empty.write_text("", encoding="utf-8")
     harness = Harness(services={
         "story_context": graph_services["story_context"],
-        "demo_config": lambda: dataclasses.replace(config, generation_store=str(empty)),
+        "demo_config": lambda: dataclasses.replace(
+            config, generation_stores={PROVIDER_LOCAL: str(empty)}),
         "story_pipeline": committed_inputs_pipeline})
     status, payload = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
     assert (status, payload["error"]["code"]) == (503, "generation_store_empty")
     assert "live" in payload["error"]["message"]
+
+
+# ---------------------------------------------------------------------------------------
+# Provider and model selection. MULTI_PROVIDER_OPENAI §6.
+#
+# **Every test here plants `OPENAI_API_KEY` rather than reading it.** The repository-root `.env`
+# carries a real key on the machine this was written on and carries none on a fresh checkout, so
+# a catalogue assertion that depended on it would pass here and fail there — and the value of a
+# real key is the one thing these tests must never touch. The process environment is layered over
+# `.env` by `load_provider_config`, so setting the variable decides the answer in both directions
+# and the planted value is a string this file knows the whole of.
+# ---------------------------------------------------------------------------------------
+
+#: Shaped like a credential, belonging to nothing, and never sent anywhere: the only provider
+#: this suite constructs is the replaying one, which opens no socket.
+OPENAI_KEY_MARKER = "sk-test-0000-not-a-real-key-6f2b19c4"
+
+#: The six fields a browser may know about a provider, and the four about a model. Written out
+#: rather than read off `ProviderOption.as_dict`, so a field added there arrives here as a
+#: failing test instead of as a value in a response.
+PROVIDER_FIELDS = frozenset({"provider_id", "label", "available", "unavailable_reason",
+                             "models", "default_model_id"})
+MODEL_FIELDS = frozenset({"model_id", "label", "supports_temperature", "reasoning_effort"})
+
+
+@pytest.fixture
+def openai_configured(monkeypatch):
+    monkeypatch.setenv(ENV_OPENAI_API_KEY, OPENAI_KEY_MARKER)
+
+
+@pytest.fixture
+def openai_unconfigured(monkeypatch):
+    """§4.3's rule: an exported-but-empty key is an absent key, not an override to empty."""
+    monkeypatch.setenv(ENV_OPENAI_API_KEY, "")
+
+
+def _catalogue_of(harness: Harness) -> dict[str, Any]:
+    status, payload = harness.json("GET", "/demo/providers")
+    assert status == 200
+    return {entry["provider_id"]: entry for entry in payload["providers"]}
+
+
+def test_the_catalogue_offers_every_provider_this_build_knows_and_names_the_default(
+        graph_services, openai_configured):
+    """Both adapters, whether or not either is reachable, and which one a request that chose
+    nothing gets."""
+    harness = Harness(services=graph_services)
+    status, payload = harness.json("GET", "/demo/providers")
+
+    assert status == 200
+    assert [entry["provider_id"] for entry in payload["providers"]] == [
+        PROVIDER_LOCAL, PROVIDER_OPENAI]
+    assert payload["default_provider_id"] == PROVIDER_LOCAL
+    local = _catalogue_of(harness)[PROVIDER_LOCAL]
+    assert local["available"] is True and local["unavailable_reason"] == ""
+    assert local["default_model_id"] == MODEL_ID
+    assert [model["model_id"] for model in local["models"]] == [MODEL_ID]
+    openai = _catalogue_of(harness)[PROVIDER_OPENAI]
+    assert openai["available"] is True
+    assert openai["default_model_id"] in {model["model_id"] for model in openai["models"]}
+
+
+def test_a_provider_with_no_key_is_offered_as_unavailable_and_says_which_setting_is_missing(
+        graph_services, openai_unconfigured):
+    """**Offered, not dropped.** "OpenAI is not configured" and "OpenAI does not exist" are
+    different facts, and an interface that could not tell them apart would present a missing
+    credential as a missing feature. The reason names the *variable* and never its value."""
+    harness = Harness(services=graph_services)
+    openai = _catalogue_of(harness)[PROVIDER_OPENAI]
+
+    assert openai["available"] is False
+    assert openai["unavailable_reason"] == OPENAI_KEY_MISSING_REASON
+    assert ENV_OPENAI_API_KEY in openai["unavailable_reason"]
+    # The models are still declared: what is missing is the credential, not the model list.
+    assert openai["models"] != []
+    # And the local provider is unaffected, which is the whole reason the catalogue never raises.
+    assert _catalogue_of(harness)[PROVIDER_LOCAL]["available"] is True
+
+
+def test_the_catalogue_carries_no_url_no_key_no_environment_value_and_no_timeout(
+        graph_services, config, openai_configured):
+    """§6's rule as a set comparison rather than as a scan.
+
+    A scan for `http` would pass a payload that grew a `timeout_seconds`; the field sets are what
+    make "these fields and nothing else" checkable. The scan is kept as well, because a value can
+    arrive inside a field that is allowed — `unavailable_reason` is prose, and prose is where a
+    base URL would hide.
+    """
+    harness = Harness(services=graph_services)
+    status, payload = harness.json("GET", "/demo/providers")
+    assert status == 200
+    assert set(payload) == {"providers", "default_provider_id", "honest_labels"}
+
+    for provider in payload["providers"]:
+        assert set(provider) == PROVIDER_FIELDS, provider["provider_id"]
+        for model in provider["models"]:
+            assert set(model) == MODEL_FIELDS, model["model_id"]
+
+    body = json.dumps(payload, sort_keys=True)
+    assert OPENAI_KEY_MARKER not in body
+    assert str(config.raw["provider"]["base_url"]) not in body
+    assert str(config.raw["provider"]["openai"]["base_url"]) not in body
+    for banned in ("http://", "https://", "api_key", "timeout", "max_retries",
+                   "context_tokens", "store_responses", "STORY_LLM"):
+        assert banned not in body, f"the catalogue payload carries {banned}"
+
+
+def test_a_selected_pair_reaches_the_run_and_the_manifest_records_that_exact_pair(
+        graph_services, config):
+    """Selection is not decoration: the pair chosen in the request is the pair the run's own
+    §14 manifest is keyed on, in the three places S12 added it."""
+    harness = Harness(services=accepting_services(graph_services, config))
+    local = _catalogue_of(harness)[PROVIDER_LOCAL]
+    status, started = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID,
+        "provider_id": PROVIDER_LOCAL,
+        "model_id": local["default_model_id"]})
+
+    assert status == 202
+    assert started["provider_selection"] == {"provider_id": PROVIDER_LOCAL,
+                                             "model_id": local["default_model_id"]}
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    manifest = payload["outcome"]["manifest"]
+    assert manifest["provider_id"] == PROVIDER_LOCAL
+    assert manifest["model_id"] == local["default_model_id"]
+    for block in ("planner_provider_model", "writer_provider_model"):
+        assert manifest[block]["provider_id"] == PROVIDER_LOCAL
+        assert manifest[block]["model_id"] == local["default_model_id"]
+
+
+def test_omitting_the_pair_resolves_the_configured_default_exactly_as_before(
+        graph_services, config):
+    """The compatibility half, and the reason every other test in this file still passes: a body
+    that names no provider gets `provider.default`, which is the local server."""
+    harness = Harness(services=accepting_services(graph_services, config))
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    assert started["provider_selection"] == {"provider_id": PROVIDER_LOCAL,
+                                             "model_id": MODEL_ID}
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    assert payload["outcome"]["manifest"]["provider_id"] == PROVIDER_LOCAL
+
+
+def test_the_selection_is_frozen_at_the_202_and_a_later_catalogue_change_cannot_move_it(
+        graph_services, config, monkeypatch):
+    """**Mid-run, and demonstrably so.** The run is held inside `resolve_candidate` until the
+    test has replaced the catalogue with one that offers nothing at all; if the worker consulted
+    it — or re-read the request body — the run could not finish, let alone finish naming the pair
+    that was frozen before it started."""
+    entered = threading.Event()
+    released = threading.Event()
+
+    def gated(context, **kwargs):
+        entered.set()
+        assert released.wait(60), "the test never released the run"
+        return committed_resolution()
+
+    monkeypatch.setattr(api.candidate_resolution, "resolve_candidate", gated)
+    harness = Harness(services=accepting_services(graph_services, config))
+    local = _catalogue_of(harness)[PROVIDER_LOCAL]
+    _, started = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID,
+        "provider_id": PROVIDER_LOCAL,
+        "model_id": local["default_model_id"]})
+    assert entered.wait(60), "the run never reached the graph half"
+
+    monkeypatch.setattr(api, "_catalogue", lambda _config: ())
+    monkeypatch.setenv("STORY_LLM_MODEL", "a-model-nobody-selected")
+    assert api._catalogue(config) == ()
+    released.set()
+
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    manifest = payload["outcome"]["manifest"]
+    assert manifest["provider_id"] == PROVIDER_LOCAL
+    assert manifest["model_id"] == local["default_model_id"]
+    assert manifest["model_id"] != "a-model-nobody-selected"
+
+
+def test_a_provider_this_server_does_not_offer_is_refused_before_anything_is_read(
+        graph_services, config, executor):
+    """One code with a field name, not three codes: from the client's side an unknown provider
+    and an unavailable one have one remedy — re-read the catalogue and pick a pair off it — and a
+    status that told them apart would be a way to probe the operator's environment."""
+    harness = Harness(services=accepting_services(graph_services, config))
+    executor.calls.clear()
+    status, payload = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID, "provider_id": "anthropic"})
+
+    assert (status, payload["error"]["code"]) == (400, "invalid_provider_selection")
+    assert payload["error"]["detail"] == "provider_id"
+    assert executor.calls == [], "the graph was read for a request that could not run"
+
+
+def test_a_model_the_chosen_provider_does_not_declare_is_refused(graph_services, config):
+    """A model absent from the catalogue has never been measured against the API — whether it
+    accepts a temperature is unknown — so it cannot be selected."""
+    harness = Harness(services=accepting_services(graph_services, config))
+    status, payload = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID, "provider_id": PROVIDER_LOCAL,
+        "model_id": "gpt-5-nano"})
+
+    assert (status, payload["error"]["code"]) == (400, "invalid_provider_selection")
+    assert payload["error"]["detail"] == "model_id"
+
+
+def test_a_provider_the_environment_has_not_configured_cannot_be_selected(
+        graph_services, config, openai_unconfigured):
+    """The catalogue says unavailable and the endpoint agrees, so a client that ignored the
+    `disabled` attribute reaches the same answer rather than a construction failure deeper in."""
+    harness = Harness(services=accepting_services(graph_services, config))
+    assert _catalogue_of(harness)[PROVIDER_OPENAI]["available"] is False
+    status, payload = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID, "provider_id": PROVIDER_OPENAI})
+
+    assert (status, payload["error"]["code"]) == (400, "invalid_provider_selection")
+    assert payload["error"]["detail"] == "provider_id"
+    assert OPENAI_KEY_MARKER not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("base_url", "http://evil.example/v1"),
+    ("api_key", "sk-supplied-by-the-browser"),
+    ("url", "http://127.0.0.1:9999"),
+    ("endpoint", "http://127.0.0.1:9999"),
+    ("timeout_seconds", 1),
+    ("max_retries", 99),
+    ("api_token", "tok-planted-9c1f"),
+    ("authorization", "Bearer planted-9c1f"),
+])
+def test_a_url_a_key_or_a_transport_setting_from_the_browser_is_refused_not_ignored(
+        graph_services, config, field, value):
+    """**Refused rather than ignored, and that is the decision.** Ignoring is the smaller change
+    and the worse answer: a client that sent `base_url` and got a 202 would have been told its
+    endpoint was honoured, and the operator debugging a run against the wrong server would have
+    no record that anything had been dropped. The refusal names the key and never its value."""
+    harness = Harness(services=accepting_services(graph_services, config))
+    status, payload = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID, field: value})
+
+    assert (status, payload["error"]["code"]) == (400, "invalid_provider_selection")
+    assert payload["error"]["detail"] == field
+    assert str(value) not in json.dumps(payload)
+
+
+def test_selecting_a_provider_with_no_recorded_store_names_it_and_reads_no_other_provider_rows(
+        graph_services, config, openai_configured):
+    """§5.3's refusal, reached through the endpoint.
+
+    The shipped repository has a local store and **no** OpenAI store — the OpenAI fixture is
+    captured from the live run in §10 or it does not exist — so this is the real configuration
+    and not one the test invented. What must not happen is a fall-through: a row recorded under
+    one provider is a guaranteed miss under another since `story-generation-v2`, so replaying
+    Qwen's rows for an OpenAI selection would produce a run whose every request missed, reported
+    as a digest nobody can look up.
+    """
+    harness = Harness(services=accepting_services(graph_services, config))
+    openai = _catalogue_of(harness)[PROVIDER_OPENAI]
+    assert openai["available"] is True
+
+    status, payload = harness.json("POST", "/demo/generate", {
+        "candidate_id": CANDIDATE_ID, "provider_id": PROVIDER_OPENAI,
+        "model_id": openai["default_model_id"]})
+
+    assert (status, payload["error"]["code"]) == (409, "provider_requires_live")
+    assert payload["error"]["detail"] == PROVIDER_OPENAI
+    # The shape mirrors `edited_prompt_requires_live`: the choice travels back beside the error.
+    assert payload["provider_selection"] == {"provider_id": PROVIDER_OPENAI,
+                                             "model_id": openai["default_model_id"]}
+    assert "live" in payload["error"]["message"]
+
+    # No run was ever created, so nothing opened a store at all.
+    with pytest.raises(UnknownRun):
+        harness.registry.get("run-generation-0001")
+    # And the mapping refuses rather than falling back: the local store is right there and is
+    # not what an OpenAI selection resolves to.
+    assert config.generation_store_for(PROVIDER_OPENAI) is None
+    assert config.generation_store_for(PROVIDER_LOCAL) is not None
+
+
+def test_the_live_path_builds_the_adapter_the_selection_names(config, openai_configured):
+    """The one thing only the live branch decides, and the only test here that names `httpx`.
+
+    Nothing is sent: constructing an adapter opens no socket, and this asserts which class was
+    built and not what it would do. It is worth a test because the branch is a two-way dispatch
+    on the selection — a live OpenAI run that quietly built the local llama.cpp adapter would
+    talk to `127.0.0.1:8080` about a model it has never heard of and record `openai` in the
+    manifest, which is precisely the confusion `provider_id` was made a digest input to prevent.
+    """
+    from story.providers.openai_compatible import StoryOpenAICompatibleProvider
+    from story.providers.openai_responses import StoryOpenAIResponsesProvider
+
+    provider_block = config.raw["provider"]
+    expected_url = {PROVIDER_LOCAL: str(provider_block["base_url"]),
+                    PROVIDER_OPENAI: str(provider_block["openai"]["base_url"])}
+    catalogue = {entry.provider_id: entry for entry in api._catalogue(config)}
+
+    for provider_id, adapter in ((PROVIDER_LOCAL, StoryOpenAICompatibleProvider),
+                                 (PROVIDER_OPENAI, StoryOpenAIResponsesProvider)):
+        option = catalogue[provider_id]
+        provider = api._provider_for(config, live=True, selection=api.ProviderSelection(
+            provider_id=provider_id, model_id=option.default_model_id))
+
+        assert provider.provider_id == provider_id
+        assert provider.model_id == option.default_model_id
+        # Which server it would reach, and — through the private handle, deliberately — which
+        # wire format it would use to reach it. The base URL alone would pass a local adapter
+        # pointed at OpenAI, and the two send structurally different bodies for one request.
+        assert provider.config.base_url == expected_url[provider_id]
+        assert isinstance(provider._inner, adapter)
+
+
+def test_no_response_carries_a_planted_openai_key(graph_services, config, openai_configured):
+    """The key is in the process environment for the whole of this call and in none of the
+    bodies. `_drive_every_endpoint` includes the catalogue and a refused selection, which are the
+    two paths that touch the credential at all."""
+    inputs = demo_inputs()
+    harness = Harness(services={**graph_services, "story_pipeline": committed_inputs_pipeline})
+    _, discovery_run = harness.json("POST", "/demo/story-suggestions", {})
+    harness.wait(discovery_run["run_id"])
+    _, generation_run = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(generation_run["run_id"])
+    run_ids = {"discovery": discovery_run["run_id"], "generation": generation_run["run_id"]}
+    assert inputs.candidate.candidate_id == CANDIDATE_ID
+
+    for body in _drive_every_endpoint(harness, run_ids):
+        assert OPENAI_KEY_MARKER not in body
+        assert "sk-" not in body
 
 
 # ---------------------------------------------------------------------------------------
@@ -1565,7 +1926,9 @@ def _drive_every_endpoint(harness: Harness, run_ids: Mapping[str, str]) -> list[
         ("GET", f"/demo/candidates/{CANDIDATE_ID}", None),
         ("POST", "/demo/evidence-package", {"candidate_id": CANDIDATE_ID}),
         ("GET", "/demo/prompt-presets", None),
+        ("GET", "/demo/providers", None),
         ("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID}),
+        ("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID, "provider_id": "nope"}),
         ("GET", f"/demo/runs/{run_ids['generation']}", None),
         ("GET", f"/demo/runs/{run_ids['generation']}/sources", None),
     ]
@@ -1636,7 +1999,7 @@ def test_no_response_carries_the_models_raw_content(driven):
     rather than a stand-in.
     """
     rows = [json.loads(line)
-            for line in (FIXTURES / "generations.jsonl").read_text(
+            for line in (FIXTURES / "local_openai_compatible" / "generations.jsonl").read_text(
                 encoding="utf-8").splitlines() if line.strip()]
     assert rows, "the committed store is empty"
     harness, run_ids = driven
@@ -1690,10 +2053,22 @@ def test_no_response_carries_an_absolute_path(driven):
     manifest = payload["outcome"]["manifest"]
     assert manifest["provider_model_id"] == MODEL_ID
     assert manifest["provider_model_id_note"]
-    # The artifact on disk is unredacted, which is the half a reviewer needs.
+    # **The second leak this test found, and the reason the redaction is a loop.** S12 added a
+    # `provider_model_id` per call site; the reduction reached only the scalar beside them, so the
+    # model's absolute path went back to the browser inside two brand-new blocks while the field
+    # above them was still being redacted. Every block that carries the value is checked, not the
+    # one that happened to be there first.
+    for block in api.PROVIDER_MODEL_BLOCKS:
+        assert manifest[block]["provider_model_id"] == MODEL_ID
+        assert manifest[block]["provider_model_id_note"] == api.PROVIDER_MODEL_ID_NOTE
+    # The artifact on disk is unredacted, which is the half a reviewer needs — in all three.
     on_disk = json.loads((REPO_ROOT / directory / "demo_manifest.json").read_text(
         encoding="utf-8"))
     assert on_disk["provider_model_id"].endswith(MODEL_ID)
+    assert Path(on_disk["provider_model_id"]).is_absolute()
+    for block in api.PROVIDER_MODEL_BLOCKS:
+        assert Path(on_disk[block]["provider_model_id"]).is_absolute()
+        assert "provider_model_id_note" not in on_disk[block]
 
 
 def test_every_error_code_this_module_can_raise_has_a_status_and_a_sentence():

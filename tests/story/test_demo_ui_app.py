@@ -181,9 +181,110 @@ def test_the_panel_module_carries_no_inline_event_handler() -> None:
 
 
 def test_the_panel_module_names_no_credential_and_no_environment_value() -> None:
+    """The shell's corrected sentence, from `app.js`'s side.
+
+    **S12 is why the list is longer than it was.** The page gained a provider control, so
+    "shows no credential, no endpoint and no environment value" became a claim about which
+    provider fields this file can reach rather than a claim about a subject it never mentioned.
+    Every `StoryProviderConfig` field that is not one of the six the catalogue publishes is
+    banned by name, and so are the two environment prefixes this repository reads.
+
+    `timeout_seconds` is not in the list, deliberately: the graph projection's own query timeout
+    is called that and is rendered in the disclosure line, so banning the bare string would fail
+    on a value with no provider in it. The provider's timeout cannot reach here because it is not
+    in the payload — `test_demo_ui_api.py` asserts that on the payload, which is the side where
+    the rule is enforceable.
+    """
     for name in ("NEO4J_PASSWORD", "NEO4J_USER", "process.env", "localStorage",
-                 "sessionStorage", "api_key", "apiKey", "Authorization"):
+                 "sessionStorage", "api_key", "apiKey", "Authorization",
+                 "OPENAI_API_KEY", "STORY_LLM_", "STORY_OPENAI_", "base_url", "max_retries",
+                 "context_tokens", "store_responses", "max_output_tokens"):
         assert name not in app_source(), f"app.js names {name}"
+
+
+def test_the_provider_control_renders_only_what_the_catalogue_publishes() -> None:
+    """The positive half: the two selects are built from the payload's six fields and no seventh.
+
+    Read as source, like everything else here. What it proves is that there is no *code path*
+    from this file to a provider setting: every property named against a catalogue entry is one
+    of the six `ProviderOption.as_dict` writes or one of the four `ModelOption.as_dict` writes,
+    and the request body carries the two ids alone.
+    """
+    source = app_source()
+    block = source[source.index("async function loadProviders("):
+                   source.index("function applyModel(")]
+    for field in ("provider_id", "label", "available", "unavailable_reason", "models",
+                  "default_model_id", "model_id"):
+        assert field in block, f"loadProviders/applyProvider never reads {field}"
+    assert "option.disabled = !provider.available" in block, (
+        "an unavailable provider is not disabled, so it can be selected")
+    assert "provider.unavailable_reason" in block, (
+        "the reason the server gave is not rendered, so the page cannot tell a missing "
+        "credential from a missing feature")
+
+
+def test_an_unavailable_provider_is_shown_with_its_reason_rather_than_dropped() -> None:
+    """"OpenAI is not configured" and "OpenAI does not exist" are different facts.
+
+    The list is built by iterating `state.providers` whole — there is no `.filter(` on
+    `available` anywhere in the two functions that build it — and the notice prints the
+    server's own sentence for every entry that is unavailable.
+    """
+    source = app_source()
+    build = source[source.index("async function loadProviders("):
+                   source.index("function applyModel(")]
+    assert "filter(" not in build, (
+        "the option list is filtered, so an unconfigured provider would vanish instead of "
+        "saying why it cannot be used")
+    notice = source[source.index("function renderProviderNotice("):
+                    source.index("function renderProviderRequiresLive(")]
+    assert "!provider.available" in notice
+    assert "provider.unavailable_reason" in notice
+    assert "LABELS.providerUnavailable" in notice
+
+
+def test_the_generate_request_carries_the_two_ids_and_nothing_else_about_the_provider() -> None:
+    """No URL and no key may ever arrive from the browser, checked from the sending side.
+
+    The API refuses one rather than ignoring it, and this is the other end of that rule: the
+    body this file assembles has exactly two provider keys, both of them ids the server itself
+    published, and both omitted when nothing has been chosen so the default path is untouched.
+    """
+    source = app_source()
+    generate = source[source.index("async function generatePost("):
+                      source.index("function renderRequiresLive(")]
+    body = generate[generate.index("  const request = {"):generate.index("  try {")]
+    assert "request.provider_id = state.selectedProviderId" in body
+    assert "request.model_id = state.selectedModelId" in body
+    for forbidden in ("base_url", "api_key", "endpoint", "url:"):
+        assert forbidden not in body, f"the generate body carries {forbidden}"
+
+
+def test_the_provider_controls_follow_the_same_busy_latch_as_the_button() -> None:
+    """A select that still moved during a run would show one provider while the run recorded
+    another, and the interface would be the only thing that had changed."""
+    source = app_source()
+    assert "function setSelectionEnabled(" in source
+    generate = source[source.index("async function generatePost("):
+                      source.index("function renderRequiresLive(")]
+    assert "setSelectionEnabled(false)" in generate, "the controls stay live during a run"
+    assert "setSelectionEnabled(true)" in generate, "a refused start leaves them dead"
+    finish = source[source.index("async function finishGeneration("):
+                    source.index("function renderRunFailure(")]
+    assert "setSelectionEnabled(true)" in finish
+    quiet = source[source.index("function reportQuiet("):source.index("// ------", source.index(
+        "function reportQuiet("))]
+    assert "setSelectionEnabled(true)" in quiet, (
+        "the quiet watchdog re-enables the button and leaves the selects dead")
+
+
+def test_the_catalogue_is_fetched_at_startup_beside_the_other_two() -> None:
+    """An endpoint nothing calls is an endpoint nobody demonstrated, and the two selects are
+    empty until this runs."""
+    source = app_source()
+    start = source[source.index("function start() {"):source.index("if (document.readyState")]
+    for call in ("loadOverview();", "loadPresets();", "loadProviders();"):
+        assert call in start, f"start() does not call {call}"
 
 
 # ---------------------------------------------------------------------------------------
@@ -247,6 +348,7 @@ def test_the_panel_module_looks_up_enough_of_the_shell_to_be_the_panel_logic() -
     requested = set(requested_ids())
     for identifier in ("app-error", "run-discovery", "candidate-list", "score-breakdown",
                        "facts-list", "prompt-preset", "fixed-rules", "generate-post",
+                       "provider-select", "model-select", "provider-notice",
                        "trace-events", "post-output", "verification-findings",
                        "coverage-figures", "sources-list", "verdict-badge", "graph-canvas"):
         assert identifier in requested, f"app.js never looks up #{identifier}"
@@ -327,7 +429,8 @@ def test_every_path_the_panel_module_fetches_is_a_path_the_router_registers() ->
 
 
 def test_the_panel_module_reaches_every_endpoint_the_plan_lists() -> None:
-    """§5's twelve, all of them. An endpoint no panel calls is an endpoint nobody demonstrated."""
+    """§5's twelve and S12's thirteenth, all of them. An endpoint no panel calls is an endpoint
+    nobody demonstrated."""
     missing = sorted(registered_templates() - set(endpoint_table().values()))
     assert missing == [], f"app.js never fetches: {missing}"
 
