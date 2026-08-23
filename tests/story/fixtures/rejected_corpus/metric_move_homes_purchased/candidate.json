@@ -1,0 +1,55 @@
+{
+  "anchor_observation_ids": [
+    "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5",
+    "obs:homes-purchased:opendoor:2022Q3:normalized-table:f1337d613f5c",
+    "obs:homes-purchased:opendoor:2022Q4:normalized-table:3081cc60d5b2",
+    "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+  ],
+  "anchor_period_keys": [
+    "2022Q3",
+    "2022Q4"
+  ],
+  "audience": "external",
+  "candidate_id": "cand:metric-move:homes-purchased:opendoor:2022Q3_2022Q4:e9046b6818c9",
+  "detector_id": "detector:metric_move",
+  "detector_version": "1.0.0",
+  "event_ids": [],
+  "evidence_request": {
+    "event_ids": [],
+    "metric_ids": [
+      "homes_purchased"
+    ],
+    "observation_ids": [
+      "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5",
+      "obs:homes-purchased:opendoor:2022Q3:normalized-table:f1337d613f5c",
+      "obs:homes-purchased:opendoor:2022Q4:normalized-table:3081cc60d5b2",
+      "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+    ],
+    "period_keys": [
+      "2022Q3",
+      "2022Q4"
+    ],
+    "want_counter_evidence": true,
+    "want_explanatory_search": false
+  },
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "metric_ids": [
+    "homes_purchased"
+  ],
+  "policy_version": "canon-policy:1.0.0",
+  "signals": {
+    "crosses_zero": false,
+    "delta": -4953.0,
+    "delta_pct": -59.105011933,
+    "direction": "decrease",
+    "fired_on": "pct,abs",
+    "period_shape": "quarter",
+    "polarity": "count",
+    "threshold_abs_min": 1000.0,
+    "threshold_pct_min": 40.0,
+    "value_floor": 442.70000000000005
+  },
+  "story_type": "metric_move",
+  "subject_entity_id": "opendoor",
+  "warnings": []
+}

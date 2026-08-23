@@ -1,0 +1,61 @@
+{
+  "candidate_id": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Adjusted Gross Profit was 556 million USD in 2022Q2.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit was 110 million USD in 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit decreased from 2022Q2 to 2022Q3.",
+      "required_citation_passage_ids": [],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "calculated"
+    }
+  ],
+  "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
+  "package_id": "pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:92d6a28d56d2",
+  "prohibited_claims": [
+    "GAAP gross profit figures",
+    "inventory valuation adjustment amounts",
+    "formula version history"
+  ],
+  "prompt_version": "1.2.0",
+  "requested_derivations": [
+    {
+      "from_fact_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+      "operation": "absolute_change",
+      "to_fact_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+    }
+  ],
+  "required_warnings": [],
+  "structure": [
+    "introduction",
+    "body",
+    "conclusion"
+  ],
+  "thesis": "Opendoor's Adjusted Gross Profit collapsed from 2022Q2 to 2022Q3.",
+  "uncertainty": "none",
+  "unusable_evidence": [],
+  "why_it_matters": "The metric dropped significantly, indicating a sharp contraction in core profitability."
+}

@@ -4,6 +4,11 @@
 instance started on port 8799 and killed afterwards; response shapes marked **(measured live)**
 are copied from real HTTP bodies.
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §12, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated.
+
 ---
 
 ## 1. The answer first
@@ -92,6 +97,10 @@ loads from another host.
 ---
 
 ## 3. Endpoint inventory (13)
+
+> **Superseded at `ff3b08f`** — there are now **14**: S12 added `GET /demo/providers`, and
+> `POST /demo/generate`'s 202 gained a `provider_selection` key beside a second 409,
+> `provider_requires_live`. See §12.
 
 Source of truth: `api.py::ENDPOINTS` (1947-1960) plus `server.py:318`. The frontend mirror is
 `app.js::ENDPOINTS` (86-99), which `tests/story/test_demo_ui_app.py` compares against what
@@ -222,6 +231,10 @@ recorded."*
 
 ### 4.3 The side panel (right) — four tabs
 
+> **Superseded at `ff3b08f`** — the Prompts tab now also carries a **Provider** and a **Model**
+> select and a `#provider-notice`, and the Facts tab's *Derived* group is no longer a package
+> group: it reads the run's own `derived_facts.json`. See §12.
+
 1. **Story** — a `Find candidate stories` button and a `#discovery-state` readout; an explainer
    that suggestions are not computed on page load; then one row per suggestion showing
    `#position · story type`, `score X · rank Y`, the metric ids joined by ` vs `, anchor periods,
@@ -247,6 +260,9 @@ recorded."*
    `.is-blocking`, `warning` → `.is-warning`. Clicking a step highlights what it named.
 
 ### 4.4 The output region — three tabs
+
+> **Superseded at `ff3b08f`** — the Post tab's per-sentence *calculation line* is gone. A derived
+> value is now an ordinary fact binding and renders as a chip like any other figure. See §12.
 
 * **Post** — rendered Markdown for an accepted run; for a refused run, `Refused · <disposition>`,
   the refusal stage/artifact, one block per refusal code with the catalogue's description and
@@ -553,6 +569,10 @@ run rather than something the serialiser arranged.
 
 ## 7. LLM generation from the UI, and its safeguards
 
+> **Superseded at `ff3b08f`** — a second 409, `provider_requires_live`, now shares the two-click
+> path described here, and a live call can also be reached by choosing a provider with no recorded
+> store rather than only by editing a prompt. §7.1–§7.4 are unchanged. See §12.
+
 `POST /demo/generate` → `api.py::start_generation` (1813-1914) → `pipeline.run_demo(...)` on a
 daemon thread. This is the real pipeline: planner, writer, deterministic verifier, artifacts.
 Nothing is reimplemented.
@@ -649,6 +669,10 @@ for. `ADVISORY_DISCLAIMER` is a **required field of the payload**, not a tooltip
 ---
 
 ## 8. UI vs the story agent — explicit answers
+
+> **Superseded at `ff3b08f`** — the "only through five bounded values" row is now seven, and the
+> two new ones (`provider_id`, `model_id`) travel by a **separate** path that is not the prompt
+> allowlist. Every other row stands. See §12.
 
 | Question | Answer | Evidence |
 | --- | --- | --- |
@@ -784,6 +808,12 @@ browser" enforcement order, `quoted_text` on the `EVIDENCED_BY` edge, and the si
 
 ### 11.2 Stale claims inside the code — more consequential than the plan drift
 
+> **Superseded at `ff3b08f`** — **C2 is half-resolved.** The two section headings are now computed
+> from the parsed rule lists, so the user-visible symptom is gone; the prose drift survives and the
+> measured counts have moved again. C1 still stands verbatim (`server.py` is byte-identical to
+> the baseline); C3's arithmetic shifted by one; C4 still stands, at `app.js:2051` rather than
+> `:1798`. See §12.
+
 | # | Where | Claim | Reality |
 | --- | --- | --- | --- |
 | **C1** | `server.py:18`, `:294-295` | "`api.py` owns the endpoints and **calls `register(...)` at import time**" | It does not and cannot; `api.py:22-31` records the committed test that forbids it. Registration is `api.py::register_endpoints()` called from `story/cli.py:208`. The `api.py` docstring corrects it; `server.py` was never updated. |
@@ -804,3 +834,229 @@ Not bugs, but they change what "the UI can do" means:
    process-local.
 5. **No node expansion.** The only ways into more graph are the candidate subgraph and a cluster
    zoom.
+
+---
+
+## 12. What changed since `33b0d7f`
+
+**Measured 2026-08-23 at commit `ff3b08f`.** Everything above this line is the 2026-08-13 record
+and is not restated. Two changes account for all of it: **S12** (`MULTI_PROVIDER_OPENAI`) made the
+model provider selectable, and **S13** (`DETERMINISTIC_FACT_TOOLS`) moved every derived quantity
+out of the model's output and into a deterministic stage.
+
+**`story/demo_ui/projection.py` and `story/demo_ui/static/graph.js` are byte-identical to the
+baseline**, and so are `server.py`, `runs.py`, `discovery.py` and `candidate_resolution.py`
+(`git diff 33b0d7f ff3b08f` over each returns nothing). §5 in its entirety, §1's framework answers,
+§2.3, §3.1–§3.2, §4.1, §4.2, §4.5, §7.1–§7.4, §8's remaining rows, §11.1's D1–D9 and §11.3's five
+capability gaps therefore stand unedited.
+
+### 12.1 Fourteen endpoints, and one new one
+
+`api.py::ENDPOINTS` (`story/demo_ui/api.py:2498-2512`) now holds **13**; with
+`GET /demo-ui/health` (`server.py:318`) the process serves **14**.
+
+| # | Method | Path | Handler | Change |
+| --: | --- | --- | --- | --- |
+| 9 | GET | `/demo/providers` | `api.py::provider_options` (2507) | **new at S12** |
+
+`GET /demo/providers` returns `providers[]`, `default_provider_id` and `honest_labels`. Six fields
+per provider and four per model, *"written out … field by field. No base URL, no key, no
+environment value, no timeout and no retry bound"* — so *"a field added to `StoryProviderConfig`
+cannot reach a browser by being added to a config object."*
+
+What it deliberately **does** expose is one boolean per provider and, when that boolean is false, a
+sentence naming the *variable*: `OPENAI_API_KEY is not set …`. The handler argues the distinction
+rather than hiding it: *"The name of a variable is not its value… 'OpenAI is not configured' and
+'OpenAI does not exist' are different facts, and an interface that could not tell them apart would
+present a missing credential as a missing feature."* §3.2's "nothing reads `os.environ`" row
+(`server.py:35-36`, `api.py:11`) is still true of this module — the boolean is computed elsewhere.
+
+`POST /demo/generate` changed in two places:
+
+| | Baseline | Today |
+| --- | --- | --- |
+| 202 body | `run_id`, `candidate_id`, `live`, `events_url`, `result_url`, `sources_url`, `prompt`, `style_delivery` | **plus `provider_selection`** (`api.py:2457`) — *"The frozen pair, echoed rather than reflected: this is what `_provider_for` resolved and what the manifest will record, not what the body asked for."* |
+| 409 | `edited_prompt_requires_live` | **plus `provider_requires_live`** (`api.py:155`, raised at `:1538`) — no recorded answer store is configured for that provider |
+
+The 409 body for `provider_requires_live` carries `provider_selection` beside the error
+(`api.py:2395`), so a browser that must escalate knows which pair it is escalating for. The
+two-click path §7 describes is unchanged in shape: `app.js:2488` handles the new code exactly as
+`:2484` handles the old one, and `app.js:2199` records that this is deliberate —
+*"`provider_requires_live` mirrors `edited_prompt_requires_live` on purpose and is answered the
+same way."*
+
+### 12.2 `api.py::ERRORS` holds 25 codes, not 22
+
+`story/demo_ui/api.py:130-170`. The three additions are all S12's:
+
+| Code | Status | Meaning |
+| --- | ---: | --- |
+| `invalid_provider_selection` | 400 | that provider and model pair is not one this server offers |
+| `provider_requires_live` | 409 | no recorded answer store is configured for that provider |
+| `provider_unavailable` | 503 | the selected provider cannot be reached |
+
+`invalid_provider_selection` covers three distinct refusals under one code on purpose
+(`api.py:1448-1452`): *"from the browser's side they have one remedy — re-read
+`GET /demo/providers` and pick a pair off it — and a client that could tell 'unknown provider'
+from 'unavailable provider' by status alone would be a client probing the operator's
+environment."* `server.py::_ERRORS` still holds 13.
+
+### 12.3 Seven bounded values, and two of them do not travel by the allowlist
+
+§8's row reads *"Only through five bounded values… plus `candidate_id` and `live`."* It is now
+**seven**, and the shape of the new pair is the part worth carrying:
+
+| Value | Path into the request |
+| --- | --- |
+| `preset_id`, `planner_instructions`, `writer_instructions`, `style_guidance`, `length_target` | `prompt_presets.PromptRequest.from_payload`'s five-key allowlist — unchanged |
+| `provider_id`, `model_id` | **`api.py::_provider_selection` (1444-1473)**, a separate check against the server's own catalogue |
+
+They were removed from the allowlist's ignored-fields report rather than added to the allowlist
+(`api.py:279-280`, `GENERATE_OWN_FIELDS`), because reporting them back as ignored *"would arrive
+back at the client as 'you sent something that did nothing' — which would be false."* The
+docstring names the category they belong to: *"They are a **selection** and not a configuration:
+each is checked against the server's own catalogue before it is used, and the pair that survives is
+the only thing about the provider a request can move."*
+
+Omitting both resolves the configured default, *"which is what keeps every call site written
+before S12 — the tests in this file, the CLI's own path — behaving exactly as it did."*
+
+**Fifteen provider fields are refused by name, not ignored** (`api.py:290-294`,
+`FORBIDDEN_PROVIDER_FIELDS`): `api_base`, `api_key`, `api_token`, `authorization`, `base_url`,
+`context_tokens`, `endpoint`, `key`, `max_retries`, `openai_api_key`, `provider_base_url`,
+`store_responses`, `timeout_seconds`, `token`, `url`. The reason is recorded as a choice between
+two diffs: *"Ignoring would be the smaller diff and the worse answer: a client that sent `base_url`
+and got a 202 would have been told its endpoint was honoured, and the operator debugging a run
+against the wrong server would have no record that anything was refused."*
+
+### 12.4 The Prompts tab gained a Provider and a Model select
+
+`story/demo_ui/static/index.html:226-229` puts `#provider-select` and `#model-select` in
+`#prompt-preset-row` beside the existing preset `<select>`; `:240` adds `#provider-notice`, a
+`role="status"` region. `app.js:2102-2117` fills them from `GET /demo/providers`.
+
+`#provider-notice` is *"Shown, never hidden"* (`index.html:235-239`): a provider this build knows
+but this machine cannot reach says so in the server's own words, because *"an interface that
+dropped the unavailable option would tell a reader the second when the first is true."*
+
+**A standing sentence in the page was replaced, and it had to be.** `index.html:85` and `:315` read
+*"No credential, provider setting or environment value is shown anywhere in this interface"* at the
+baseline. A provider label and a model id are now on screen, so that sentence is literally false as
+it stood. It now reads, at `index.html:85-87` and `:334`:
+
+> This interface shows a provider label and a model id, and shows no credential, no endpoint and
+> no environment value. The API sends none, and this panel is not a place to put one.
+
+This document never quoted the old sentence, so nothing above needed correcting. It is recorded
+because a reader checking §3.2's environment row against the page will meet it.
+
+### 12.5 The Derived facts group stopped being a package group
+
+§4.3's Facts tab lists five `<details>` groups, of which *Derived* was one. `package_view.py` now
+builds **four** groups from the package (`FACT_GROUPS`,
+`story/demo_ui/package_view.py:335-340`) and the Derived group separately, from the run's own
+`derived_facts.json` (`derived_fact_group`, `:748`).
+
+The reason is a determinism constraint, and it is the sharpest single argument S13 produced
+(`package_view.py:325-331`):
+
+> "a derived fact may not enter `StoryEvidencePackage.facts` at all, because
+> `package_content_digest` is a `story_run_id` input and the planner *selects* the derivations, so
+> a package carrying one would put a model's choice inside a run id."
+
+Leaving the old filter in place would have been the flattering failure: *"a panel saying 'no
+derivation' about a post whose central number is a derivation."* The new group also distinguishes
+`ran: false` from `count: 0` — *"one is a stage that produced nothing and the other is a stage that
+never happened, and only the first says anything about the evidence"* (`:757-760`).
+
+### 12.6 Three new trace stages, and a fourth refused
+
+`story/demo_ui/trace.py::STAGES_BY_PHASE`, generation phase, now reads:
+
+```text
+building_evidence_package · resolving_primary_sources · freshness · planning
+  · offering_derivations · executing_derivations · derived_facts_added
+  · binding_facts_and_citations · drafting
+  · checking_numbers_and_units · checking_metrics_and_periods
+  · checking_citation_support · checking_causal_language · rendering
+```
+
+`offering_derivations` is `offers(package, candidate)`, which runs before the planner and decides
+what it may ask for; `executing_derivations` is the plan's requests validated and computed;
+`derived_facts_added` is what entered the writer's trusted context, evidence-scope facts included.
+
+**The plan asked for four and the fourth is deliberately absent** (`trace.py:76-85`).
+`validating_derivations` is not here because `execute.py` validates and computes in one call per
+request, so *"every refusal *is* a validation outcome and every granted fact passed every clause. A
+`validating_derivations` row would therefore carry the same three numbers as
+`executing_derivations` for every run that can exist… Two rows reporting one measurement is the
+`ranking`-twice defect with the names swapped."* That is the same rule that added `metric_history`
+on 2026-08-05, applied in the other direction.
+
+### 12.7 The Post tab's calculation line is gone
+
+§4.4 lists a *calculation line* among what `renderDraft` puts on each sentence row. There is no
+longer anything for it to render: `DraftSentence.calculation` left the writer's schema at S13, so a
+derived value binds like any other fact and shows as a chip. `app.js:2972-2979` states why the
+branch was deleted rather than left to render "absent":
+
+> "The field left the writer schema; a computed value is now bound like any other fact, so the chip
+> is where it shows and there is nothing left for a `calculated:` line to say. A branch on a field
+> that no schema can produce would be dead code that read as a feature."
+
+The Verification tab's **calculation ledger** is unaffected and still populated — a replayed demo
+run today produces one row, `compare_levels(…)` recomputed to `-15.9` against
+`rendered: "15.9 percentage points"`.
+
+### 12.8 §11.2's C2 is half-resolved, and the surviving half moved
+
+| | Baseline (2026-08-13) | Today (2026-08-23) |
+| --- | --- | --- |
+| Actual rules | 8 planner / 18 writer | **9 planner / 17 writer** |
+| Section headings | hard-coded *"Planner rules 1-7"* / *"Writer rules 1-17"* | **computed** — `f"Planner rules 1-{len(PLANNER_RULES)}"` (`prompt_presets.py:361`), `f"Writer rules 1-{len(WRITER_RULES)}"` (`:383`) |
+| Prose | "seven planner rules", "seventeen writer rules" | unchanged text at `:147`, `:643`, `:647`, `:1152`, `:1156` |
+
+**The user-visible symptom C2 named is gone.** The headings are derived from the parsed rule lists,
+so a rule added upstream can no longer leave a panel claiming a smaller number.
+
+**The prose drift is not gone, and it is now wrong on one half rather than two.** "Seven planner
+rules" is wrong — there are nine. "Seventeen writer rules" is **correct again**: the writer list
+went from 18 back to 17 when S13 collapsed four arithmetic rules into two
+(`prompt_presets.py:389-392`: *"Rules 5 and 7 are what is left of four rules about arithmetic the
+writer used to declare. It declares none now: code computes every derived quantity and the writer
+binds the result."*).
+
+> **Correction to the repair checklist that produced this section.** It stated C2 was "now wrong on
+> both halves (9 planner / 17 writer)". The counts are right; the characterisation is not. The
+> writer half of the prose matches the code today, by coincidence rather than by edit.
+
+Four rules still render with empty `refusal_codes` — planner 7 and 9, writer 16 and 17 — but they
+now do so under headings that name the right totals, which is the part C2 called *"the one drift
+with a user-visible symptom."*
+
+C1 (`server.py:18`) stands **verbatim**: `server.py` is byte-identical to the baseline, so it still
+says `api.py` "calls `register(...)` at import time" and still cannot. C4 stands too, having moved
+from `app.js:1798-1800` to `:2051`. C3's arithmetic shifted by one and its shape did not:
+`api.py:2540` now reads *"§5's twelve routes and S12's thirteenth"* — correct for `ENDPOINTS` —
+while `app.js:2` still says "thirteen endpoints", correct for the frontend mirror, and the process
+serves fourteen.
+
+### 12.9 Test and module counts
+
+| | 2026-08-13 | 2026-08-23 |
+| --- | ---: | ---: |
+| `test_demo_ui_*.py` files | 14 | **15** |
+| Collected tests from those files | 744 | **858** |
+
+The new file is `tests/story/test_demo_ui_table_grid.py` (27 collected), covering
+`story/demo_ui/table_grid.py`. Per-file collected counts that moved: `test_demo_ui_api.py`
+62 → **93**, `test_demo_ui_app.py` 53 → **67**, `test_demo_ui_code_catalogue.py` 170 → **189**,
+`test_demo_ui_package_view.py` 21 → **33**, `test_demo_ui_static.py` 142 → **146**,
+`test_demo_ui_trace.py` 45 → **52**. The other eight files are unchanged in count.
+
+§2.2's module tree gains one entry, `table_grid.py` (373 lines), taking it from eleven to twelve.
+Line counts that moved: `api.py` 2,029 → **2,587**, `code_catalogue.py` 746 → **851**,
+`package_view.py` 560 → **967**, `prompt_presets.py` 1,395 → **1,445**, `trace.py` 456 → **489**,
+`app.js` 3,042 → **3,704**, `index.html` 329 → **348**, `style.css` 547 → **682**.
+`projection.py` (1,129), `graph.js` (1,562), `server.py` (718), `discovery.py` (1,410),
+`candidate_resolution.py` (413), `runs.py` (330) and `__init__.py` (113) are unchanged.

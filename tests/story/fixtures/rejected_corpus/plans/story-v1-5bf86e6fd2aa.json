@@ -1,0 +1,61 @@
+{
+  "candidate_id": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Adjusted Gross Profit was 556000000.0 USD in 2022Q2.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit was 110000000.0 USD in 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit decreased from 2022Q2 to 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133",
+        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "reported"
+    }
+  ],
+  "model_id": "gpt-5.4",
+  "package_id": "pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:92d6a28d56d2",
+  "prohibited_claims": [
+    "Do not state any computed absolute change, percentage change, ratio, or percentage-point change.",
+    "Do not claim why Adjusted Gross Profit changed between 2022Q2 and 2022Q3.",
+    "Do not describe what Opendoor Technologies Inc. does or what market it operates in.",
+    "Do not generalize from quarterly figures to any annual result or longer-period trend.",
+    "Do not imply a move below zero or a loss figure, because both reported values are positive and no such claim is supported here."
+  ],
+  "prompt_version": "1.2.0",
+  "requested_derivations": [],
+  "required_warnings": [],
+  "structure": [
+    "Lead with the quarter-to-quarter movement thesis.",
+    "State the 2022Q2 reported Adjusted Gross Profit.",
+    "State the 2022Q3 reported Adjusted Gross Profit.",
+    "Close by restating that the metric moved down from 2022Q2 to 2022Q3 without explaining why."
+  ],
+  "thesis": "Opendoor Technologies Inc. reported a much lower Adjusted Gross Profit in 2022Q3 than in 2022Q2.",
+  "uncertainty": "Use only the reported levels and the direction of movement. Do not infer reasons for the change, and note that the package may omit additional context because the evidence slice was token-budget trimmed.",
+  "unusable_evidence": [],
+  "why_it_matters": "The package supports a clean quarter-to-quarter movement claim for Adjusted Gross Profit, using directly comparable reported figures for 2022Q2 and 2022Q3."
+}

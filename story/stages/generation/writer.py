@@ -1,12 +1,22 @@
-"""The second model call: an accepted plan in, a structured `Draft` out. Never prose alone.
+"""The second model call: an accepted plan in, sentence templates out. Never prose alone.
 
 Responsibility: assemble the writer's slice of one package **by code**, build one request, read
-one answer, and refuse the answer if it names anything the slice does not hold or points at
-characters its own text does not carry. **No graph, no retrieval, no tools, no verifier.** This
-module has a `StoryGenerationProvider`, a `StoryEvidencePackage` and an `EditorialPlan`, and
-nothing else — the structural half of that claim is asserted by
+one answer, and refuse the answer if it names a passage handle the run does not hold, writes a
+brace the slot grammar cannot read, or rests on nothing the plan asked for. **No graph, no
+retrieval, no tools, no verifier, and no draft compiler.** This module has a
+`StoryGenerationProvider`, a `StoryEvidencePackage`, an `EditorialPlan` and a slot table it was
+handed, and nothing else — the structural half of that claim is asserted by
 `tests/story/test_story_writer.py::test_the_writer_module_reaches_no_graph_no_retrieval_and_no_verifier`,
 which reads this file's imports rather than trusting this paragraph.
+
+**What this stage returns changed at S4 of
+`docs/2026-08-23-deterministic-draft-compiler/`.** It used to return a `Draft` with every
+`FactBinding` and every `PassageCitation` already resolved. It now returns
+`tuple[SentenceTemplate, ...]` — the sentences with their slots unfilled — and
+`story/stages/composition/compile.py` turns those into the same `Draft` type the verifier has
+always consumed, inserting every figure from a trusted row and recording the span it wrote into.
+The model no longer declares a rendering, a metric surface, a period surface or a citation,
+because there is no field left in its schema for any of them.
 
 **§10.2.1 point 3 is the reason this module exists in the shape it does.** The writer's passage
 set is derived from *fact bindings* by code — `writer_passages` — and never from the plan's
@@ -15,57 +25,51 @@ writer the plan plus the passages the plan cites", and that would have let one m
 next model's universe (§0c item 11). `writer_passages(package)` takes no plan argument at all,
 which is that correction stated as a signature rather than as a promise.
 
-**What the model declares and what code computes.** §12 gives every binding and every citation a
-`char_start`/`char_end`. Asking a 9B model to count characters in its own sentence would fail on
-essentially every call, so neither is ever asked for — but the two halves are no longer answered
-the same way, and that difference is TABLE_CELL_CITATIONS S4.
+**Which refusals live here now, and which moved.** §12's question is *"may this answer be built
+from at all"*; the compiler's is *"what does this template mean"*. The split is by subject and
+not by convenience.
 
-* A **binding** declares the exact substring `rendered` of the model's *own* `text`, and this
-  module locates it: once, deterministically, refusing a substring that occurs twice rather than
-  choosing between the occurrences. Unchanged, and untouchable — the sentence is the only text
-  the model is the authority on.
-* A **citation** declares one `evidence_id`, the `PackagedFact.evidence_handle` the package
-  minted, and this module resolves the span from `PackagedFact.cell` through
-  `story.core.table_cells.resolve_cell`. It used to declare a retyped `quote`. That contract was
-  **unsatisfiable for a fifth of the corpus**: `EVIDENCED_BY.quoted_text` is a bare cell value
-  of median 4 characters, it occurs more than once in its own passage for **523 of 2,704**
-  observations (worst case 32), the prompt rendered `quoting "7"`, and the gate below refused
-  that exact string as ambiguous *(all verified live 2026-08-13)*. No model output satisfied
-  both. What is removed is a typing test, not a check: the model was never the authority on
-  which bytes support a fact, and §13.7 now has **more** to check, not less (§3.4 checks 3–7).
+Here, over the model's answer:
 
-The consequence is worth stating plainly: a draft that leaves this module can never fail §13.1's
-`binding_span_does_not_match_text` or §13.7's `citation_span_not_in_passage`, because a draft
-that would have is refused here first.
+1. the answer has at least one sentence (`no_sentences`);
+2. every sentence's `kind` is a `SentenceKind` and its `rests_on` is a list of strings
+   (`draft_not_constructible`) — §15.3 has an `enum` for the first and nothing for the second;
+3. no sentence carries a brace the slot grammar cannot read (`malformed_slot`);
+4. only an `explanatory` sentence rests on a passage (`rests_on_without_explanatory_sentence`),
+   and every handle it rests on is a **passage** handle of this run's slot table
+   (`rests_on_not_a_passage_handle`);
+5. the templates rest on the plan: they name at least one row the plan's key points named
+   (`thesis_abandoned`). A draft that shares no fact with the plan it was given is a different
+   story, which is §12's *"the writer must not change the thesis"* in the only form the contract
+   can express — there is no `thesis` field on a template to compare.
 
-**Five rules are code after the call, not instructions in the prompt** — §15.3 can express none
-of them, since it has no `pattern`, no `minItems` and no way to say "this string must occur in
-that string":
+There, over what a template *means*: an unknown handle, an unknown field, a field the row does
+not offer, a field slot with no value slot beside it, a row with no legal rendering, a bound fact
+with no evidence handle. Those are R3, R4 and R6 of the architecture document, they need the slot
+table's `offers` to answer, and a weaker copy of them here would be exactly the second authority
+`story/stages/composition/` exists to remove.
 
-1. every binding's `fact_id` resolves — in the package, or in **this run's derived facts**;
-2. every `rendered` occurs exactly once in its own sentence's `text`;
-3. every `evidence_id` is a handle **this package minted**, its fact's passage is in the
-   writer's own slice, and its coordinates resolve inside that passage's text;
-4. the draft rests on the plan: it binds at least one fact the plan's key points named. A draft
-   that shares no fact with the plan it was given is a different story, which is §12's *"the
-   writer must not change the thesis"* in the only form the draft contract can express — there
-   is no `thesis` field on a `Draft` to compare;
-5. the draft has at least one sentence.
+**The two spans this module used to compute are both gone, and each was a real contract.** A
+binding used to declare `rendered`, a substring of the model's own sentence, and this module
+located it — refusing a substring occurring twice rather than choosing between the occurrences.
+A citation used to declare an `evidence_id`, and this module resolved the cell behind it through
+`story.core.table_cells`. That second contract replaced a worse one: the model used to retype a
+`quote`, which was **unsatisfiable for a fifth of the corpus** — `EVIDENCED_BY.quoted_text` is a
+bare cell value of median 4 characters occurring more than once in its own passage for **523 of
+2,704** observations *(verified live 2026-08-13)*. Both survive below in `draft_from`, unused by
+this path; on the S4 path the compiler writes the span because it did the substitution (R2) and
+mints the citation from the row's own `evidence_handles` (R5), so the model is asked for neither.
 
-**It was six, and the sixth is gone with the field it guarded** (DETERMINISTIC_FACT_TOOLS §5).
-*"A sentence carries at most one calculation"* existed because the schema spelled an optional
-object as an array of zero or one, and a model could put two in it. There is no `calculation` in
-the writer's schema now: `additionalProperties: false` refuses one before a draft is built, and
-`more_than_one_calculation` was retired rather than kept as a code nothing can raise. `draft_from`
-also no longer resolves a calculation's `input_observation_ids`, because there are none — the
-inputs of a derived quantity are `DerivedFact.from_fact_id`/`to_fact_id`, which code chose.
-
-**`derived_facts` is what rule 1 grew, and it is a `Sequence` this stage is handed rather than
-anything it computes.** §3 forbids a derived fact from entering `StoryEvidencePackage.facts` —
-that would put a model's selection inside `package_content_digest`, a `story_run_id` input — so
-the writer's universe is now two lists, and neither is derivable from the other here. The
-default is empty, which makes a binding to a derived id `unresolvable_fact_id`: the honest
-answer for a caller that ran no derivation stage.
+**`derived_facts` and `slots` are both sequences this stage is handed rather than anything it
+computes, for two different reasons.** §3 forbids a derived fact from entering
+`StoryEvidencePackage.facts` — that would put a model's selection inside
+`package_content_digest`, a `story_run_id` input — so there is nothing here to recompute one
+from. The slot rows are `story.stages.composition.slot_table`'s, and this stage may not import
+that module at all; `story/pipeline.py` is the composition root and hands the same rows to this
+call and to `compile_draft`, so the prompt prints exactly what the compiler will fill from.
+Both default to empty, which is the safe direction in both cases: a caller that ran no derivation
+stage writes a post with no derived figure in it, and a caller that built no slot table earns
+`thesis_abandoned` rather than a post built from handles nothing knows.
 
 **What this module deliberately does not check.** Percentage-point surfaces, causal language,
 superlatives, period grammar, metric ambiguity, calculation recomputation, required warnings and
@@ -82,6 +86,7 @@ and `DraftRejected` is not a provider error, because nothing is wrong with the s
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -115,6 +120,7 @@ from story.stages.generation.prompts import (
     PLAIN_INVESTOR_STYLE,
     WRITER_PROMPT_VERSION,
     WRITER_SCHEMA_NAME,
+    SlotRowView,
     StyleProfile,
     writer_prompt,
     writer_schema,
@@ -160,6 +166,53 @@ NO_SENTENCES = "no_sentences"
 PLAN_NAMES_ANOTHER_PACKAGE = "plan_names_another_package"
 DRAFT_NOT_CONSTRUCTIBLE = "draft_not_constructible"
 
+# -- the three template faults, added at S4 -----------------------------------------------------
+#
+# Each names something the **writer** did to its own answer, and each is caught here rather than
+# in `story/stages/composition/` for one reason: the composition stage refuses a template it
+# cannot compile, and its vocabulary is about the *template* — `template_not_compilable`,
+# `rests_on_without_explanatory_kind`, `passage_handle_unknown`. These three say the same three
+# things about the **model's answer**, before a compiler is asked, so a repair loop knows which
+# stage to send the fault back to. The codes are deliberately spelled differently from the
+# compiler's for that reason and not by accident; a shared string would make a §12 refusal and a
+# composition refusal indistinguishable in the rejection panel.
+
+#: `{{F3` that never closes, `{{ f3 }}`, `{{F3.Metric}}` — a brace the slot grammar cannot read.
+#: Refused here rather than left in the text, because a template that reaches the compiler
+#: carrying one is refused there anyway and a post is never built from it either way; what this
+#: buys is the refusal naming *the model wrote a slot wrong* instead of *the compiler could not
+#: read a template*.
+MALFORMED_SLOT = "malformed_slot"
+#: `rests_on` on a `reported`, `calculated` or `connective` sentence. The compiler resolves
+#: citations by kind and only `explanatory` rests on a passage; every other kind cites the
+#: evidence behind the facts its slots name, so a `rests_on` there is asking for a citation the
+#: kind cannot carry.
+RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE = "rests_on_without_explanatory_sentence"
+#: A `rests_on` entry that is not a passage handle in this run's slot table: an unknown handle,
+#: or a fact row's handle (`rests_on: ["F1"]`). Both are the same mistake — `rests_on` names the
+#: passage a claim paraphrases, and a fact is not a passage — so both land here.
+RESTS_ON_NOT_A_PASSAGE_HANDLE = "rests_on_not_a_passage_handle"
+
+#: `story.stages.composition.public.SlotKind.PASSAGE`'s value. A checked copy of one string, in
+#: the shape this repository already uses for a constant that must not drift across a boundary
+#: it cannot import over (`WARNING_QUALIFIER_PHRASES`, `slot_table.TWO_PERIOD_OPERATIONS`):
+#: `tests/story/test_story_writer.py::test_the_passage_row_marker_is_the_composition_enums_own`
+#: asserts it equals the enum member. `SlotKind` is a `str` enum precisely so the value is what
+#: travels, so the comparison is exact rather than approximate.
+PASSAGE_ROW = "passage"
+
+#: `{{H}}` and `{{H.field}}`, and there is no third form. **A checked copy of
+#: `story.stages.composition.compile.SLOT_PATTERN`**, asserted identical by
+#: `tests/story/test_story_writer.py::test_the_slot_grammar_here_is_the_compilers_own`, for the
+#: reason above the codes: this stage may not import that one, and a §12 refusal for a brace the
+#: grammar cannot read has to know what the grammar is. The copy is narrow — one regex, one line
+#: — and the alternative was leaving `MALFORMED_SLOT` unreachable and the fault to surface a
+#: stage later under a code that names the compiler rather than the writer.
+SLOT_PATTERN = re.compile(r"\{\{\s*([A-Z][0-9]+)(?:\.([a-z_]+))?\s*\}\}")
+
+#: The braces no template may still carry once its well-formed slots are removed.
+_UNREADABLE_BRACES = ("{{", "}}")
+
 
 @dataclass(frozen=True, slots=True)
 class DraftViolation:
@@ -200,16 +253,68 @@ class DraftRejected(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class WrittenStory:
-    """The accepted draft and the generation that produced it.
+class SentenceTemplate:
+    """One sentence as the model wrote it, before any slot is filled.
 
-    Two values for `PlannedStory`'s reason: §14's manifest needs the token counts, the latency
-    and the content digest, and a function returning only the draft would leave the runner to
-    re-derive them from a store that deliberately does not record them.
+    **This is `story.stages.composition.public.SentenceTemplate`, field for field, and it is a
+    copy because this stage may not import that one.**
+    `tests/story/test_story_package_structure.py::test_no_stage_imports_another_stage` forbids one
+    stage importing another from the module path alone, and §4.5 of
+    `docs/2026-08-23-deterministic-draft-compiler/01-TARGET-ARCHITECTURE.md` puts the compiler in
+    its own stage and *"template parsing rules"* in this one. So the type this function returns is
+    named in a module this module cannot reach, and something had to give.
+
+    **The three options, and why this one.** Moving the type to `story/core/models.py` would put a
+    contract in the shared layer that only two stages speak, and re-key nothing but would still be
+    a `core` change made from inside a stage that does not own that file. Returning plain
+    dictionaries would move the parsing rules' output outside the type system exactly where the
+    §12 refusals are decided. A copy asserted equal by a test is the repository's established
+    answer to *"one value, two sides of a boundary that cannot be imported over"* —
+    `prompts.WARNING_QUALIFIER_PHRASES` against the verifier's table,
+    `slot_table.TWO_PERIOD_OPERATIONS` against the derivation stage's two sets,
+    `renderings.NON_NUMERIC_DERIVED_UNITS` — and it is the one taken here.
+    `tests/story/test_story_writer.py::test_the_template_this_stage_returns_is_the_compilers_own`
+    compares `dataclasses.fields` on both and drives a tuple of these through `compile_draft`, so
+    a field added on either side fails loudly rather than at the seam.
+
+    `index` is positional and is not the model's — `Draft` requires `0..n-1` in order, and a model
+    that numbered its own sentences would eventually skip one and make every §13 finding
+    unaddressable. `templates_from` assigns it.
     """
 
-    draft: Draft
+    index: int
+    #: Carries `{{H}}` and `{{H.field}}` placeholders. Everything outside them is the model's
+    #: own prose and is copied through untouched.
+    text: str
+    kind: SentenceKind
+    #: Passage handles, `explanatory` only. Required-and-possibly-empty because
+    #: `story/providers/portable_schema.py` forbids optional properties.
+    rests_on: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class WrittenStory:
+    """The accepted templates and the generation that produced them.
+
+    Two values for `PlannedStory`'s reason: §14's manifest needs the token counts, the latency
+    and the content digest, and a function returning only the answer would leave the runner to
+    re-derive them from a store that deliberately does not record them.
+
+    **`draft` became `templates`, and the name of the dataclass did not** (S4). What this stage
+    returns is no longer a `Draft` — it is the sentences before any slot is filled, and the
+    `Draft` is `story/stages/composition/compile.py`'s to build. Keeping the type name means the
+    manifest code, the runner and the demo UI keep their variable, and the one field that moved
+    fails at every call site that reads it rather than silently carrying something else.
+
+    `title` rides on `templates`' side of the boundary as a plain string because the compiler
+    takes it as an argument: a title carries no slot (`claims.py` gives it no binding, so every
+    numeral in it but a period key of the package's own is refused), so there is nothing to
+    parse and nothing to fill.
+    """
+
+    templates: tuple[SentenceTemplate, ...]
     generation: GenerationResult
+    title: str = ""
 
 
 # -- the writer's universe, derived by code ---------------------------------------------------
@@ -387,6 +492,181 @@ def _citation_violations(
 _occurrences = _core_occurrences
 
 
+# -- the answer, as templates -------------------------------------------------------------------
+
+
+def templates_from(
+    content: Mapping[str, Any],
+    package: StoryEvidencePackage,
+    plan: EditorialPlan,
+    *,
+    slots: Sequence[SlotRowView] = (),
+) -> tuple[SentenceTemplate, ...]:
+    """One schema-conformant answer as sentence templates, or `DraftRejected`.
+
+    **This is `draft_from`'s parsing half under the S4 contract, and it is a different function
+    rather than a branch of that one.** `draft_from` builds a `Draft`: it locates every
+    `rendered` in its own sentence, resolves every `evidence_id` to a span and mints the four
+    §12 types. None of that exists here — the model declares no rendering, no surface and no
+    citation — so the two share nothing but the sentence index and the `kind`. `draft_from`
+    stays, unused by this path, as the reader for the 50 recorded `data/story_demo/*/draft.json`
+    artifacts and the pre-3.0.0 replay stores.
+
+    **What survives from §12, in the vocabulary that still applies.**
+
+    * `no_sentences` — an answer with an empty `sentences` array. Unchanged.
+    * `draft_not_constructible` — the schema re-check at the grain a JSON schema cannot express:
+      a `kind` outside `SentenceKind`, a `rests_on` that is not a list of strings. §15.3 has an
+      `enum` for the first and nothing at all for the second.
+    * `thesis_abandoned` — now computed over the **slot handles** the templates name, resolved to
+      real ids through `slots`. The plan's key points name `obs:` ids; a template names `F2`; the
+      row is what joins them. A model handed no slot table names no resolvable handle and earns
+      this refusal, which is the honest answer for a caller that built no table.
+
+    **Three refusals are new, and each is a fault a template can carry that no §13 code names**
+    — `malformed_slot`, `rests_on_without_explanatory_sentence`, `rests_on_not_a_passage_handle`.
+    They are caught here rather than left to the compiler because they are statements about the
+    *model's answer*, and §12's job is to refuse an answer before anything is built from it. What
+    is deliberately **not** caught here is every refusal about whether a slot can be *filled* — an
+    unknown handle, an unknown field, a field the row does not offer, a field slot with no value
+    slot beside it. Those are R3 and R4, they are the compiler's, and a weaker copy of them in
+    this module would be the second authority `story/stages/composition/` exists to avoid.
+
+    `plan_names_another_package` is not raised here either, and stays in `write_story`: it is the
+    one refusal that fires *before* a request is built, and spending a generation to discover it
+    would put a wrong answer in the replay store under a request that looked legitimate.
+    """
+    rows = {row.handle: row for row in slots}
+    violations: list[DraftViolation] = []
+    templates: list[SentenceTemplate] = []
+    for index, row in enumerate(content.get("sentences") or ()):
+        template, found = _template_from(index, row, rows)
+        violations.extend(found)
+        if template is not None:
+            templates.append(template)
+
+    if not templates and not violations:
+        violations.append(DraftViolation(NO_SENTENCES, "the draft carries no sentence"))
+
+    # Every sentence the model wrote, not only the ones that became templates. A sentence with
+    # a violation of its own is dropped from `templates`, and reading the thesis off what
+    # survived made a `rests_on` mistake in one sentence report `thesis_abandoned` as well —
+    # measured 2026-08-23, on a draft whose very first slot named a fact the plan required. A
+    # cascading finding names the wrong repair, which is the whole reason these codes are
+    # separate constants.
+    violations.extend(_thesis_violations(
+        [str(row.get("text") or "") for row in (content.get("sentences") or ())], plan, rows))
+    if violations:
+        raise DraftRejected(
+            "the writer's answer is refused before compilation (§12): "
+            + "; ".join(str(violation) for violation in violations), violations)
+    return tuple(templates)
+
+
+def _template_from(
+    index: int, row: Mapping[str, Any], rows: Mapping[str, SlotRowView]
+) -> tuple[SentenceTemplate | None, list[DraftViolation]]:
+    """One schema row as a `SentenceTemplate`, with the three template faults refused.
+
+    The text is copied through **untouched** — no stripping, no normalising, no brace repair.
+    Every character outside a slot is the model's own prose and reaches the reader, and a module
+    that tidied it would be a module that could change a sentence's meaning between the check and
+    the post.
+    """
+    where = f"sentences[{index}]"
+    text = str(row.get("text") or "")
+    violations: list[DraftViolation] = []
+
+    residue = SLOT_PATTERN.sub("", text)
+    if any(brace in residue for brace in _UNREADABLE_BRACES):
+        violations.append(DraftViolation(
+            MALFORMED_SLOT,
+            f"{where} carries braces the slot grammar cannot read: {text!r}. A slot is "
+            "{{H}} or {{H.field}}, H matching [A-Z][0-9]+ and the field lower case, and there "
+            "is no third form, no nesting and no escape"))
+
+    try:
+        kind = SentenceKind(str(row.get("kind") or ""))
+    except ValueError as exc:
+        # The schema's `enum` should have caught this before the answer reached here. It is still
+        # checked, because `schema_violations` runs against the schema this stage built and a
+        # replaying provider hands back whatever was recorded — an answer stored under an older
+        # enum is exactly the shape that arrives with a `kind` no member holds.
+        return None, violations + [DraftViolation(DRAFT_NOT_CONSTRUCTIBLE, f"{where}: {exc}")]
+
+    declared = row.get("rests_on") or ()
+    if isinstance(declared, str) or not isinstance(declared, Sequence):
+        return None, violations + [DraftViolation(
+            DRAFT_NOT_CONSTRUCTIBLE,
+            f"{where} declares rests_on {declared!r}, which is not a list of passage handles")]
+    rests_on = tuple(str(handle) for handle in declared)
+
+    if rests_on and kind is not SentenceKind.EXPLANATORY:
+        violations.append(DraftViolation(
+            RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE,
+            f"{where} is {kind.value} and rests on {', '.join(rests_on)}; only an explanatory "
+            "sentence rests on a passage, and every other kind is cited from the evidence "
+            "behind the facts its slots name"))
+    for handle in rests_on:
+        found = rows.get(handle)
+        if found is None or found.kind != PASSAGE_ROW:
+            violations.append(DraftViolation(
+                RESTS_ON_NOT_A_PASSAGE_HANDLE,
+                f"{where} rests on {handle!r}, which is not a passage handle in this run's slot "
+                "table; rests_on names the passage a claim paraphrases, and the PASSAGES "
+                "section prints every handle it may hold"))
+
+    if violations:
+        return None, violations
+    return SentenceTemplate(index=index, text=text, kind=kind, rests_on=rests_on), []
+
+
+def _thesis_violations(
+    texts: Sequence[str],
+    plan: EditorialPlan,
+    rows: Mapping[str, SlotRowView],
+) -> list[DraftViolation]:
+    """§12's *"the writer must not change the thesis"*, read off slot handles instead of bindings.
+
+    The rule is unchanged and only its evidence moved: a draft that shares no fact with the plan
+    it was given is a different story, and there is no `thesis` field on a template to compare.
+    What the draft rests on used to be `FactBinding.fact_id`; it is now the id of the row behind
+    every handle a template names.
+
+    **Every handle a template names counts, not only its value slots.** A `{{F3.period}}` with no
+    `{{F3}}` beside it is refused by the compiler under R4, so a template naming a planned fact
+    only in a field slot cannot become a post either way — and treating it as *"the thesis was
+    abandoned"* would name the wrong fault for a sentence that is one slot short of correct.
+    Passage rows are excluded because a plan's `required_fact_ids` never holds a passage id.
+
+    **The argument is every sentence's raw text, not the templates that survived parsing.** A
+    sentence refused for something else is dropped before it reaches here, and reading the
+    thesis off the survivors made one unrelated mistake report two findings — the second of
+    them false, and pointing a repair at a sentence that was already right.
+    """
+    named = {rows[match.group(1)].fact_id
+             for text in texts
+             for match in SLOT_PATTERN.finditer(text)
+             if match.group(1) in rows and rows[match.group(1)].kind != PASSAGE_ROW}
+    planned = {fact_id for point in plan.key_points for fact_id in point.required_fact_ids}
+    if planned and not (named & planned):
+        return [DraftViolation(
+            THESIS_ABANDONED,
+            f"the plan's key points rest on {sorted(planned)} and the templates name "
+            f"{sorted(named) or 'no fact at all'}; §12 — the writer may not change the thesis")]
+    return []
+
+
+# -- the answer, as a draft: the pre-3.0.0 parser, kept for what is already on disk --------------
+#
+# **Nothing on the pipeline path calls `draft_from` or `draft_violations` any more, and neither
+# is dead code** (S4). They parse the writer schema as it stood at `WRITER_PROMPT_VERSION`
+# 2.2.0 — a sentence with a `fact_bindings` array and a `citations` array — which is the shape of
+# all 50 recorded `data/story_demo/*/draft.json` artifacts and of every generation in the
+# pre-3.0.0 replay stores. A `Draft` read back from one of those still has to resolve, and the
+# §12 rules that judge it are these. Their violation codes stay registered for the same reason:
+# `_unresolved_violation`'s rule is that deleting a *reachable* code is worse than keeping one
+# that has not fired, and every one of these is reachable from a replayed artifact.
 # -- the answer, as a draft --------------------------------------------------------------------
 
 
@@ -731,8 +1011,9 @@ def write_story(
     length_target: int,
     max_tokens: int,
     derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
+    slots: Sequence[SlotRowView] = (),
 ) -> WrittenStory:
-    """§12's whole stage: an accepted plan and its package in, a structured draft out.
+    """§12's whole stage: an accepted plan and its package in, sentence templates out.
 
     There is no `retriever`, no `terms` and no passage argument: the slice is computed here from
     the package's own fact bindings, which is §10.2.1 point 3 as a signature.
@@ -745,6 +1026,14 @@ def write_story(
     Passing it is therefore the only honest shape, and defaulting it to empty means a caller who
     ran no derivation stage writes a post with no derived figure in it rather than one with a
     figure nothing computed.
+
+    **`slots` is an argument for a structural reason and not an editorial one** (S4). The rows
+    come from `story.stages.composition.slot_table`, and this stage may not import that one —
+    `test_no_stage_imports_another_stage` reads the rule off the module path. `story/pipeline.py`
+    is the composition root, builds the table once, and hands the same rows to this call and to
+    `compile_draft`, so the prompt prints exactly what the compiler will fill from. The default
+    is empty and produces a prompt with no writable slot in it, which is the safe direction: a
+    caller that forgot the table gets a refusal, not a post built from handles nothing knows.
 
     `max_tokens` and `length_target` are keyword-only with no default because both enter the
     request identity §14 keys on — the first directly, the second through the prompt text.
@@ -771,8 +1060,8 @@ def write_story(
 
     result = provider.generate(
         system=writer_system(style),
-        prompt=writer_prompt(package, plan, passages, derived_facts=derived_facts,
-                             length_target=length_target),
+        prompt=writer_prompt(package, plan, passages, slots=slots,
+                             derived_facts=derived_facts, length_target=length_target),
         schema=schema,
         schema_name=WRITER_SCHEMA_NAME,
         max_tokens=max_tokens,
@@ -791,19 +1080,18 @@ def write_story(
                 f"the writer's answer does not satisfy schema {WRITER_SCHEMA_NAME!r}: "
                 + "; ".join(violations), violations)
 
-        draft = draft_from(
-            result.content, package, plan,
-            passages=passages,
-            derived_facts=derived_facts,
-            # The *configured* identity where the provider states one, not the `.gguf` path the
-            # server reports back — the distinction `generation_store` keeps as two fields.
-            model_id=getattr(provider, "model_id", "") or result.model_id,
-            style_profile_id=style.profile_id,
-            prompt_version=WRITER_PROMPT_VERSION)
+        templates = templates_from(result.content, package, plan, slots=slots)
     except (DraftRejected, StoryProviderSchemaError) as exc:
         exc.generation = result
         raise
-    return WrittenStory(draft=draft, generation=result)
+    # The five identity fields `draft_from` used to stamp — `candidate_id`, `package_id`,
+    # `prompt_version`, `model_id`, `style_profile_id` — are `compile_draft`'s to write now,
+    # because it is the function that builds the `Draft`. Two of them name *this* stage's prompt
+    # and profile, which is why they are arguments there rather than values that module could
+    # read: a compiler that knew the writer's prompt version would be a compiler importing the
+    # writer.
+    return WrittenStory(templates=templates, generation=result,
+                        title=str(result.content.get("title") or ""))
 
 
 __all__ = [
@@ -813,18 +1101,25 @@ __all__ = [
     "CITATION_QUOTE_NOT_IN_PASSAGE",
     "DRAFT_NOT_CONSTRUCTIBLE",
     "EVIDENCE_HANDLE_OUT_OF_BOUNDS",
+    "MALFORMED_SLOT",
     "NO_SENTENCES",
+    "PASSAGE_ROW",
     "PLAN_NAMES_ANOTHER_PACKAGE",
+    "RESTS_ON_NOT_A_PASSAGE_HANDLE",
+    "RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE",
+    "SLOT_PATTERN",
     "THESIS_ABANDONED",
     "UNRESOLVABLE_EVIDENCE_HANDLE",
     "UNRESOLVABLE_FACT_ID",
     "UNRESOLVABLE_PASSAGE_ID",
     "DraftRejected",
     "DraftViolation",
+    "SentenceTemplate",
     "WrittenStory",
     "draft_from",
     "draft_violations",
     "render_markdown",
+    "templates_from",
     "write_story",
     "writer_passages",
 ]

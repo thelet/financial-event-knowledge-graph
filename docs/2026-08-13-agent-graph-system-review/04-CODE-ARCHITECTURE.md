@@ -3,6 +3,11 @@
 **Audit date:** 2026-08-13. **Code commit at audit:** `33b0d7f` (`Resolve a table cell from its
 coordinates, and keep the span it occupies`).
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §10, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated.
+
 Every claim below was read out of the code at that commit. Where a docstring or a plan
 contradicts the code, the code is documented and the contradiction is named.
 
@@ -239,6 +244,10 @@ than writing a file. Enforced by `tests/graph/test_export_determinism.py`, and
 
 ### 3.6 `story/` — detection through verification
 
+> **Superseded at `ff3b08f`** — S13 added an eighth stage directory, `story/stages/derivation/`,
+> between packaging and generation, so the stage table and the "six of seven" count below are
+> both one short. See §10.
+
 Seven stage directories, run in this order by `story/pipeline.py::run_demo` and
 `::resolve_demo_inputs`:
 
@@ -256,6 +265,10 @@ Six of seven stages contain no model call. `story/stages/generation/__init__.py:
 boundary in its own words: the two modules that call a model, *and neither has a tool*.
 
 ### 3.7 `story/providers/` — the outside world
+
+> **Superseded at `ff3b08f`** — S12 added a second HTTP adapter, so `openai_compatible.py` is no
+> longer the only `httpx` importer in `story/`, and the enforced rule was always the `providers/`
+> package rather than that one file. See §10.
 
 * `neo4j_connection.py` — the **only** module in `story/` importing `neo4j` (line 53). It
   converts driver types (`neo4j.graph.Entity`, `neo4j.time.DateTime`, `neo4j.spatial.Point`, …)
@@ -338,6 +351,11 @@ There is **no import from `graph.stages` or `extraction.stages` anywhere in `sto
 ---
 
 ## 5. Types and contracts — the chain that connects the stages
+
+> **Superseded at `ff3b08f`** — the type chain gains `DerivationRequest`, `DerivedFact` and
+> `EvidenceScopeFact` between the plan and the draft, `Calculation` becomes read-back only, and
+> two of the six story protocols changed signature (`StoryGenerationProvider.provider_id`,
+> `DraftVerifier.verify(..., derived_facts=())`). See §10.
 
 Actual class names, all in `story/core/models.py` unless noted. `story/core/models.py` is 2,010
 lines and defines 64 classes, 48 of them frozen Pydantic models on the `StoryModel` base (line 79); the rest are the enums listed below.
@@ -494,6 +512,9 @@ finished projection. `verify` prints **every** failing check rather than the fir
 
 ### Story generation
 
+> **Superseded at `ff3b08f`** — `demo` gained `--provider` and `--model`, and `--live`'s replay
+> store moved to a per-provider path selected by `config/story.yaml`. See §10.
+
 ```bash
 python -m story demo --candidate-id <CANDIDATE_ID> [--out DIR] [--live]
 python -m story ui [--host H] [--port P]
@@ -639,3 +660,190 @@ transport. Both are a handful of lines.
 The story layer's 37,927 lines against the graph layer's 9,634 is the clearest structural signal
 in the repository: the machinery that keeps a model honest is roughly four times the machinery
 that builds the graph it reads.
+
+
+---
+
+## 10. What changed since `33b0d7f`
+
+**Measured 2026-08-23 at commit `ff3b08f`.** Everything above this line is the 2026-08-13 record
+and is not restated. Two changes account for all of it: **S12** (`MULTI_PROVIDER_OPENAI`) added a
+second model provider, and **S13** (`DETERMINISTIC_FACT_TOOLS`) added a derivation stage that
+computes every derived quantity in code. `acquisition/`, `normalization/`, `ontology/`,
+`extraction/` and `graph/` are **byte-identical** to the baseline (`git diff --stat 33b0d7f
+ff3b08f` over those five trees is empty), so §3.1–§3.5, §4's boundary answers, §6's four upstream
+command blocks and §9's argument stand unedited.
+
+### 10.1 The httpx claim was wrong in one word, and is now wrong in fact
+
+§2's tree annotation, §3.7's bullet and §4.1's table row all name
+`story/providers/openai_compatible.py` as *the* module importing `httpx`. Two things:
+
+| | Baseline text | Today |
+| --- | --- | --- |
+| How many | one module | **two** — `story/providers/openai_compatible.py:44` and `story/providers/openai_responses.py:56` (the OpenAI Responses adapter, added by S12) |
+| What is enforced | "`httpx` outside `story/providers/openai_compatible.py`" | the **package**. `tests/story/test_story_package_structure.py:314-331` computes `provider_package = PACKAGE / "providers"` and refuses `httpx`/`requests`/`urllib3`/`aiohttp` in any module not under it |
+
+The second row is not a change — the test never named a file. Its own docstring says why:
+*"Written as a path so a module moved out of `providers/` loses the exemption automatically."*
+The baseline document tightened a package rule into a file rule when it transcribed it, and the
+second adapter is what made the difference visible.
+
+`neo4j_connection.py:53` **is** still the only `neo4j` importer in `story/`, unchanged.
+
+### 10.2 Two of the six story protocols changed signature
+
+Both changes carry their reasoning in `story/contracts.py`, and both are worth having rather than
+summarising away.
+
+**`StoryGenerationProvider` gained a required `provider_id` property** (`story/contracts.py:169-181`).
+S12 made the provider a digest input to `request_identity` and to `story_run_id`, so *"two providers
+answering to one model string are two different requests"* — every implementation, including the
+replaying store and the demo's decorators, must be able to say which one it is, *"and a decorator
+that forgot to forward it would silently key a run under the provider it wraps."* `model_id` was
+deliberately **not** added: a replaying provider can be built without one and infers it from the
+rows it holds, and *"widening the protocol to demand it would make that legitimate state
+unrepresentable."*
+
+**`DraftVerifier.verify` gained `derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = ()`**
+(`story/contracts.py:211-225`) — `verify(draft, package, plan)` is now
+`verify(draft, package, plan, derived_facts=())`. The default is argued as truth rather than
+convenience: *"A run that requested no derivation produces none, and every call site written before
+S13 means exactly that — so the default is the truthful value."* It is not an escape hatch: *"a
+draft binding a `fact:derived:` id against an empty sequence is `derived_fact_not_in_run`, a
+REFUSE, so a caller that forgot to pass what it computed fails closed rather than verifying a
+number against nothing."*
+
+### 10.3 Eight stage directories, and seven of eight have no model
+
+`story/stages/derivation/` is new and sits between the plan and the draft
+(`story/pipeline.py:33`, `:631`, `:668-678`). It has **no provider and no socket** — its own
+`__init__.py:1-19` states the property the stage exists for: *"every numeral in an accepted post is
+either a packaged observation or a derived fact code computed — no numeral is ever the model's own
+arithmetic."*
+
+| Stage dir | Module docstring's own summary | Model? |
+| --- | --- | ---: |
+| `derivation/` | "S13 — the derivation stage: code computes every quantity, the model only words it" | no |
+
+Four modules plus its `__init__.py`, 1,711 lines in all: `public.py` (the refusal taxonomy and tool version), `offers.py`
+(§4.2's validation and §4.3's offer set), `operations.py` (seven operations, each pure over
+already-validated inputs), `execute.py` (request → validate → execute → `DerivedFact`, or a typed
+refusal). Three things it deliberately does not have, each recorded in the docstring: no generic
+calculator and no expression string (*"arbitrary Python by another name"*), no native provider
+tool-calling (*"two providers mean two tool protocols and `request_identity` already digests the
+schema"*), and no arithmetic of its own (`story/core/numerals.py` owns it).
+
+So §3.6's closing sentence — "Six of seven stages contain no model call" — is now **seven of
+eight**. `story/stages/generation/` is still the only stage that calls a model, and still has no
+tool.
+
+### 10.4 The type chain gains three types, and `Calculation` becomes read-back only
+
+Inserted between the two model calls in §5's diagram:
+
+```text
+                        EditorialPlan  (KeyPoint · Counterpoint · UnusableEvidence
+                                        · DerivationRequest)
+                                          │
+                                          ▼  ← NO model: story/stages/derivation/
+                        DerivedFact  ·  EvidenceScopeFact      → derived_facts.json
+                                          │
+                                          ▼  ← model call 2
+                        Draft  (DraftSentence · FactBinding)
+```
+
+`DerivationRequest` (`story/core/models.py:1719`), `DerivedFact` (`:1738`) and
+`EvidenceScopeFact` (`:1824`) are new; the planner *requests* a derivation by naming an operation
+and two package fact ids, the derivation stage validates and executes it, and the writer binds the
+result exactly as it binds an observed fact.
+
+`Calculation` (`:1968`) is **still on `DraftSentence`, and no draft written today can carry one** —
+the writer's schema no longer has the field (`story/stages/generation/prompts.py:85-89`). It stays
+on the type for artifact back-compatibility, and §13 now **refuses** a draft that carries one.
+`story/stages/generation/writer.py:674-681` states the consequence for rendering: *"The Derivations
+panel is kept and no draft this module builds can now fill it… What still reaches this branch is a
+`Draft` read back from an artifact written under prompt version 1.4.0, which is the reason
+`Calculation` stays on the type at all."*
+
+`planner_prompt` and `writer_prompt` changed signature to match:
+`planner_prompt(package, *, offered=())` and
+`writer_prompt(package, plan, passages, *, derived_facts=(), length_target=5)`.
+
+### 10.5 The CLI gained two flags, and its own docstring did not
+
+`story/cli.py:301-305` adds `--provider` (which adapter to run) and `--model` (which model to ask),
+both defaulting to what `config/story.yaml` selects. **Two verbs is still the whole CLI.**
+
+**Code-side defect, reported and not fixed here:** `story/cli.py`'s own usage docstring at lines
+3-4 still reads
+
+```text
+    python -m story [--root REPO] [--runs-root R] demo --candidate-id ID [--out DIR] [--live]
+```
+
+with no `--provider` and no `--model`. It is stale in exactly the way §7's table catalogues, and it
+belongs on that table rather than in a documentation repair.
+
+### 10.6 `--live` replays a path that no longer exists
+
+§6 says a non-`--live` run *"replays the committed answer store at
+`tests/story/fixtures/story_demo/generations.jsonl`"*. **That file is gone.** Stores are
+per-provider:
+
+| Provider | Store |
+| --- | --- |
+| `local_openai_compatible` | `tests/story/fixtures/story_demo/local_openai_compatible/generations.jsonl` |
+| `openai` | `tests/story/fixtures/story_demo/openai/generations.jsonl` — committed, and **deliberately not** in the shipped mapping |
+
+`config/story.yaml:220-221` holds the authoritative `demo.generation_stores` mapping and
+`DemoConfig.generation_store_for` is the accessor. The scalar `demo.generation_store`
+(`config/story.yaml:231`) survives as the local provider's fallback for one release and is marked
+*"**not** authoritative"* in place.
+
+The missing `openai:` row is a decision, not an omission (`config/story.yaml:209-219`): *"the
+shipped configuration having no OpenAI store is what makes the demo UI answer
+`provider_requires_live` for OpenAI honestly… A shipped demo that replayed a recorded OpenAI run
+without a key would be claiming to have called an API it never called."*
+
+This also makes §7's last table row point at a path that does not exist. The row's *finding* —
+that the `config/story.yaml` comment describing the store as `rejected` was wrong — still holds;
+only the filename in it is stale.
+
+### 10.7 Counts
+
+Re-measured 2026-08-23 with the same commands §1 names. Only the rows that moved:
+
+| Measurement | 2026-08-13 | 2026-08-23 |
+| --- | ---: | ---: |
+| `story/` .py files / lines | 79 / 37,927 | **87 / 47,965** |
+| `tests/` .py files / lines | 112 / 58,958 | **119 / 69,969** |
+| `story/core/models.py` lines | 2,010 | **2,401** |
+| …classes / …enums | 64 / 15 | **70 / 18** |
+| `story/demo_ui/` Python lines | 9,299 | **10,825** |
+| `story/demo_ui/static/` lines | 5,480 | **6,296** |
+| `story/` → `ontology` import statements (§4.2) | 15 | **18** |
+| `story/` → `ontology` importing modules (§3.3) | 8 | 8 (unchanged) |
+| architecture tests in `test_story_package_structure.py` (§4.1) | 20 | 20 (unchanged) |
+
+The three new enums are `DerivedFactKind` (`models.py:1622`), `DerivationOperation` (`:1640`) and
+`DisplaySemantics` (`:1667`).
+
+**One count in the checklist did not reproduce.** §2's tree names **ten** `demo_ui` modules; today
+it is **eleven**, not twelve — `table_grid.py` (373 lines) is the only addition. The twelve-file
+figure counts `__init__.py`, which §2's tree does not list. `05-GRAPH-UI-AND-INTERACTION.md` §2.2
+does list it, and there the tree goes from eleven entries to twelve.
+
+`acquisition/`, `normalization/`, `ontology/`, `extraction/`, `graph/` and `benchmarks/` are
+unchanged in both files and lines.
+
+### 10.8 What did not change, checked rather than assumed
+
+* The six-package layering, the per-package shape, and every §4 boundary answer.
+* `story/providers/neo4j_connection.py` is still the only `neo4j` importer in `story/`.
+* The 20 architecture tests in `tests/story/test_story_package_structure.py`, including
+  `test_contracts_imports_only_typing_and_this_packages_models`, whose asserted import set is
+  still exactly `{"__future__", "typing", "story.core.models"}`.
+* The four upstream CLI command blocks in §6, verbatim.
+* §9's closing ratio moved but not its argument: the story layer is now 47,965 lines against
+  `graph/`'s 9,634 — five times, not four.

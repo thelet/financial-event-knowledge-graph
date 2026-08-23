@@ -2,6 +2,11 @@
 
 **Audit date:** 2026-08-13. **Code baseline:** commit `33b0d7f`.
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §15, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated.
+
 > ### Read this first — the working tree moved during the audit
 >
 > `git status` was clean at session start. By 14:00 a **concurrent session** on the same working
@@ -21,6 +26,8 @@
 
 ## 1. The answer first
 
+> **Superseded at `ff3b08f`** — The gate table now holds **102** codes, **96** of them blocking, and a `calculated` sentence's number is computed by code rather than declared by the model. See §15.
+
 | Question | Answer |
 | --- | --- |
 | How many gate codes? | **85**, in one table: **79 REFUSE, 4 ANNOTATE, 2 WARN** |
@@ -34,6 +41,8 @@
 ---
 
 ## 2. The five phases
+
+> **Superseded at `ff3b08f`** — There are **six** phases: a **DERIVATION** stage runs between PLANNER and WRITER (`story/pipeline.py:668`) and can end a run as `derivation_refused`. See §15.
 
 ```mermaid
 flowchart TD
@@ -189,6 +198,8 @@ grammar at all.
 
 ### 4.2 Planner violation codes (11)
 
+> **Superseded at `ff3b08f`** — **Twelve** codes — `derivation_not_offered` joined them at `story/stages/generation/planner.py:153`. See §15.
+
 | Code | Meaning |
 | --- | --- |
 | `unresolvable_fact_id` | a `required_fact_id` not in the package |
@@ -240,6 +251,8 @@ cannot widen the citable set by passing a longer list than the writer was shown.
 
 ### 5.2 Spans are located by code, not counted by the model
 
+> **Superseded at `ff3b08f`** — The schema no longer asks for a citation `quote`; a citation is one `evidence_id` token and code resolves the span behind it. The `rendered` half of this rule is unchanged. See §15.
+
 The schema asks for the **exact substring** (`rendered` for a binding, `quote` for a citation) and
 `_sentence_from` locates it — *once, deterministically, refusing a substring that occurs twice
 rather than choosing between the occurrences*. Stated consequence: a draft leaving this module
@@ -250,6 +263,8 @@ Sentence indexes are positional and set by code — *"a model that numbered its 
 eventually skip one and make every §13 finding unaddressable."*
 
 ### 5.3 Writer violation codes (11)
+
+> **Superseded at `ff3b08f`** — **Twelve** codes: `more_than_one_calculation` was retired and two evidence-handle codes were added. See §15.
 
 | Code | Meaning |
 | --- | --- |
@@ -312,6 +327,8 @@ cannot be talked out of a refusal.**"*
 
 ### 6.2 The twelve checks
 
+> **Superseded at `ff3b08f`** — Still twelve checks, but check 9's shape moved and checks 2, 8 and 9 mint codes this table does not count. See §15.
+
 | # | Check | Purpose | Implementation | Pass condition | Failure behaviour |
 | --: | --- | --- | --- | --- | --- |
 | 1 | `identity_and_freshness` | draft/plan/package identity; recomputed package digest; graph-run pinning; every binding id resolves | `deterministic.py::DeterministicVerifier._check_identity` | ids equal, digest recomputes, every `fact_id` in `facts[]` | 8 REFUSE codes |
@@ -331,6 +348,8 @@ cannot be talked out of a refusal.**"*
 sentences reports `numbers: NOT_APPLICABLE`, never `numbers: PASS`.
 
 ### 6.3 The full code table — 85 codes
+
+> **Superseded at `ff3b08f`** — **102 codes: 96 REFUSE, 4 ANNOTATE, 2 WARN.** Seventeen were added and none removed; the WARN pair and the ANNOTATE four are unchanged. See §15.
 
 Measured by importing `story.stages.verification.codes.GATE`:
 
@@ -384,6 +403,8 @@ Measured justifications carried in the code: 2,690 table observations with `quot
 once inside their own passage.
 
 ### 6.5 The decision
+
+> **Superseded at `ff3b08f`** — **Six** dispositions, not four: `DERIVATION_REFUSED` and `PROVIDER_FAILED` joined them. The decision line itself is unchanged. See §15.
 
 **Rejected, never retried, never rewritten — and stored anyway, in full.** One line,
 `story/pipeline.py::run_demo:434`:
@@ -688,6 +709,8 @@ one.
 
 ### 9.4 Table-cell citations — the in-flight repair
 
+> **Superseded at `ff3b08f`** — The repair **landed**: `story/stages/verification/citations.py:86` imports `resolve_cell`. See §15.
+
 `story/core/table_cells.py` (240 lines) is **new at commit `33b0d7f`** and provides `resolve_cell`,
 `resolve_header`, `split_cells`, `CellOutOfBounds`.
 
@@ -724,6 +747,8 @@ Reading the header at the value's own column index is **wrong 79% of the time**,
 *silently* because a `$` or empty spacer cell is a perfectly well-formed cell.
 
 ### 9.5 Observation equivalence
+
+> **Superseded at `ff3b08f`** — *"Nothing in the corpus carries `percentage_points`"* is still true of **observations** and no longer true of a run: a `DerivedFact` may carry it. See §15.
 
 One predicate, `same_reading(left, right)`, serving both corroboration and contradiction —
 *"'are these the same number?' answered one way for corroboration and another way for contradiction
@@ -789,6 +814,8 @@ This is why `deterministic.py` imports its siblings by **full dotted path** — 
 test would read it as a cycle.
 
 ### 10.3 The four demo replay stores, and what each one proves
+
+> **Superseded at `ff3b08f`** — **Three** stores in two provider directories, all re-recorded live on 2026-08-19; two files were deleted and there is no rejected *recording* under Qwen any more. See §15.
 
 `tests/story/fixtures/story_demo/` carries four generation stores. Their provenance is documented
 in `tests/story/test_story_demo.py`'s module docstring, and it matters:
@@ -1020,6 +1047,8 @@ Neo4j** — the `neo4j` marker is not deselected by it.
 
 ## 13. Gaps and honest weaknesses
 
+> **Superseded at `ff3b08f`** — Gap 9 is **closed** and gap 4 is **narrowed, not closed**. The other ten stand. See §15.
+
 Every item below is recorded **in the code**, not inferred by this audit.
 
 | # | Gap | Where recorded |
@@ -1041,6 +1070,8 @@ Every item below is recorded **in the code**, not inferred by this audit.
 
 ## 14. Bottom line
 
+> **Superseded at `ff3b08f`** — **102 codes, 96 blocking.** Every structural claim in this section still holds. See §15.
+
 The deterministic gate is the real thing: **85 codes in one table, 79 of them blocking, severity
 unreachable from any call site, `passed` derived rather than stored, and a verifier constructible
 with no database and no model provider so there is structurally no seam for a model to reach
@@ -1053,3 +1084,267 @@ The most striking quality signal is that the code's docstrings repeatedly **reco
 that falsify earlier claims in the same repository** — the period-protection argument, the
 tolerance sign, the metric-sharing clause, the §13.14 worked example, the evidence-influence claim
 — rather than quietly fixing them.
+
+---
+
+## 15. What changed since `33b0d7f`
+
+**Measurement date: 2026-08-23. Code baseline: commit `ff3b08f`.** Everything above this line was
+measured on 2026-08-13 and is left exactly as it was written. This section carries only the
+corrections, and every count in it was taken by import, by `wc -l`, or by `pytest --collect-only`
+against the working tree at `ff3b08f`.
+
+Two packets landed in between: **S12** (`MULTI_PROVIDER_OPENAI`) added a second model provider,
+and **S13** (`DETERMINISTIC_FACT_TOOLS`) moved arithmetic out of the writer and into a derivation
+stage. Almost every correction below is downstream of one of the two.
+
+### 15.1 The answer table, corrected
+
+| Question | §1 said | Now |
+| --- | --- | --- |
+| How many gate codes? | **85** — 79 REFUSE, 4 ANNOTATE, 2 WARN | **102** — **96 REFUSE**, 4 ANNOTATE, 2 WARN |
+| How many checks run per draft? | 12 | **12**, unchanged (`deterministic.py::DeterministicVerifier.verify`) |
+| Is a failing post rejected, retried, rewritten or flagged? | rejected, never retried | **unchanged** |
+| Does a model verifier exist? | no | **unchanged** |
+| Can a check weaken itself? | no | **unchanged** |
+| Is the causal lexicon what you would expect? | yes | **unchanged** |
+| Is there a story-agent benchmark? | no | **unchanged** |
+
+Measured by importing `story.stages.verification.codes.GATE`:
+
+```text
+total 102   Counter({'REFUSE': 96, 'ANNOTATE': 4, 'WARN': 2})   blocking: 96
+```
+
+The severity tiering did **not** move: the same two WARN codes (`over_precision`,
+`paraphrase_distance`) and the same four ANNOTATE codes (`warned_observation_used`,
+`column_label_ambiguity_classified`, `event_review_flag`,
+`conflict_immaterial_at_stated_precision`). Every one of the seventeen new codes is REFUSE, which
+is why §6.3's paragraph about the deliberate fourth ANNOTATE still reads correctly.
+
+### 15.2 Seventeen codes added, none removed
+
+Diffed by set against §6.3's table: 17 in the code and not in the document, **0** in the document
+and not in the code.
+
+| Family | Codes | Count | Declared at |
+| --- | --- | ---: | --- |
+| §13.7 evidence handles | `unresolvable_evidence_handle`, `evidence_handle_not_for_fact`, `evidence_cell_span_mismatch`, `evidence_handle_out_of_bounds`, `evidence_cell_value_mismatch`, `evidence_row_label_mismatch`, `evidence_column_label_mismatch` | **7** | `codes.py:230-236` |
+| §6 derived facts | `derivation_not_offered`, `derived_fact_not_in_run`, `derived_fact_orientation_reversed`, `derived_result_mismatch`, `derived_inputs_incomparable`, `derived_operation_not_supported`, `derived_unit_mismatch`, `derived_direction_not_stated_in_text`, `derived_fact_polarity_contradicted` | **9** | `codes.py:284-290`, `:306`, `:317` |
+| §7 evidence scope | `evidence_scope_binding_declares_a_surface` | **1** | `codes.py:318` |
+
+§6.3's §13.7 row of 13 codes is now a citations family of **20** (17 at section `13.7`, 2 at
+`13.7.1`, 1 at `13.7.2`); every other row in that table is unchanged in membership.
+
+**A discrepancy worth naming.** `codes.py`'s own docstring at `:104-110` says *"S13's seven"* and
+lists seven derived codes. There are **nine**: `derived_direction_not_stated_in_text` and
+`derived_fact_polarity_contradicted` were added afterwards and are argued inline at `codes.py:298-317`
+rather than in the docstring's numbered list. The table is right and the prose above it is two
+entries behind.
+
+### 15.3 The writer no longer does arithmetic — and this is §13's largest change
+
+The writer's `calculation` field is **gone from the schema** (`prompts.py::writer_schema`,
+`story/stages/generation/prompts.py:975-1049`), and `WRITER_OPERATIONS` with it. A derived value
+is now an ordinary `fact_bindings` entry naming a `DerivedFact` id that a **derivation stage**
+computed. The stage runs between the planner and the writer:
+
+```text
+plan_story        story/pipeline.py:650
+execute_all       story/pipeline.py:668     ← new; can end the run as derivation_refused
+write_story       story/pipeline.py:687
+verify            story/pipeline.py:709
+```
+
+`story/stages/derivation/` is 5 modules / 1,711 lines (`execute.py` 417, `offers.py` 500,
+`operations.py` 453, `public.py` 237, `__init__.py` 104).
+
+`writer.py` records the retirement rather than deleting the name silently
+(`story/stages/generation/writer.py:145-151`):
+
+> *"`more_than_one_calculation` stood here and was **retired**, not renamed. It refused a
+> `calculation` array holding two objects — the array being how §15.3 spelled an optional field —
+> and DETERMINISTIC_FACT_TOOLS §5 removed the field from the writer's schema entirely. There is no
+> answer this module can now receive that would raise it. `_quote_violation`'s rule is that
+> deleting a *reachable* code is worse than keeping one that has not fired; the converse is what
+> applies here, since a catalogue offering a refusal no stage can produce is a catalogue that
+> describes a system this is not."*
+
+### 15.4 Planner and writer violation codes: 11 and 11 → 12 and 12
+
+| Stage | §4.2 / §5.3 said | Now | Delta |
+| --- | ---: | ---: | --- |
+| Planner (`planner.py:138-156`) | 11 | **12** | `+ derivation_not_offered` (`:153`) |
+| Writer (`writer.py:125-155`) | 11 | **12** | `− more_than_one_calculation`; `+ unresolvable_evidence_handle` (`:134`), `+ evidence_handle_out_of_bounds` (`:142`) |
+
+§4.1's sentence *"the eleven planner and eleven writer violation codes"* carries the same drift.
+The argument it makes — that `minItems` is unavailable, so the rules must exist as code — is
+untouched.
+
+### 15.5 Three §13.9 checks changed shape
+
+`deterministic.py::_check_reported_vs_calculated` (`story/stages/verification/deterministic.py:1993-2084`)
+names all three at the check rather than leaving them to be discovered:
+
+| Code | §6.3 behaviour | Behaviour at `ff3b08f` | Line |
+| --- | --- | --- | --- |
+| `reported_sentence_carries_calculation` | fired on a `reported` sentence carrying a `Calculation` | fires on **any** sentence kind carrying one — *"the number is code's now, and a writer-declared operation is the model doing arithmetic with code checking its homework"* | `:2061-2073` |
+| `calculated_sentence_without_calculation` | demanded a `Calculation` | demands **at least one `fact_binding` to a derived fact** | `:2044-2058` |
+| `calculated_sentence_cites_passage` | refused **any** passage citation | refuses *"no citation whose handle names an input of a bound derived fact"* — which for a sentence binding no derived fact is still **every** citation | `:2086-2129` |
+
+The §13.9 machinery below them is untouched: a stored draft carrying a `Calculation` still runs
+`calculation_does_not_recompute` and the rest, raised *beside* the new refusal rather than
+instead of it.
+
+### 15.6 A citation is a handle, not a quote
+
+§5.2's *"the schema asks for the exact substring (`rendered` for a binding, `quote` for a
+citation)"* is half stale. The `rendered` half is unchanged. A citation is now a **single string**,
+`evidence_id`: the model copies back a `PackagedFact.evidence_handle` and code resolves the
+coordinates behind it through `story.core.table_cells`. `writer_schema`'s docstring states the
+reason, and it is the measurement §9.4 and C3 were built on:
+
+> *"It was asked to until 1.3.0, and for 523 of 2,704 observations no answer satisfied both the
+> instruction and the gate: `quoted_text` is a bare cell value occurring up to 32 times in its own
+> passage, and rule 8's 'a quote that occurs in that passage exactly once' named a string that does
+> not exist."*
+
+### 15.7 Six dispositions, four refusing stages
+
+| | §6.5 said | Now (`story/pipeline.py:190-202`) |
+| --- | --- | --- |
+| Dispositions | 4 — `ACCEPTED`, `REJECTED`, `PLAN_REFUSED`, `DRAFT_REFUSED` | **6** — plus `DERIVATION_REFUSED`, `PROVIDER_FAILED` |
+| Refusing stages | 3 named | **4** — `REFUSING_STAGE` at `:215-220` maps `plan_refused → editorial_planner`, `derivation_refused → derivation_tool`, `draft_refused → post_writer`, `rejected → deterministic_verifier` |
+
+`PROVIDER_FAILED` is deliberately absent from `REFUSING_STAGE`: *"no stage refused a provider
+fault."* The decision line itself, `disposition = ACCEPTED if verified.passed else REJECTED`, is
+unchanged.
+
+### 15.8 The table-cell repair landed
+
+§9.4's *"It is not yet wired into the verifier. Nothing in `story/stages/verification/` imports
+it"* is **false at `ff3b08f`**. `story/stages/verification/citations.py:86`:
+
+```python
+from story.core.table_cells import CellOutOfBounds, resolve_cell, resolve_header
+```
+
+`table_cells.py` is unchanged at 240 lines. Every measurement in §9.4 — the 523/2,690/565 counts
+and the 79%-wrong header lookup — was the argument for this import and still stands.
+
+### 15.9 The verification package: 9 modules
+
+| Module | §6 said | Now |
+| --- | ---: | ---: |
+| `deterministic.py` | 1,806 | 2,650 |
+| `derived_facts.py` | — | **1,133** (new) |
+| `citations.py` | 490 | 1,029 |
+| `claims.py` | 697 | 833 |
+| `language.py` | 415 | 586 |
+| `codes.py` | 306 | 420 |
+| `period_grammar.py` | 328 | 328 |
+| `package_index.py` | 183 | 263 |
+| `metric_surfaces.py` | 256 | 256 |
+| **9 modules** | | **7,498** |
+
+`__init__.py` adds 114 lines, for 7,612 over the directory. **§6's "8 modules, 3,767 lines" never
+matched its own table**, which sums to 4,481 at `33b0d7f` — a pre-existing arithmetic error, left
+uncorrected here because the rule for this document is that nothing above §15 moves.
+
+### 15.10 `percentage_points` is now something a run can carry
+
+§9.5's *"Nothing in the corpus carries `percentage_points` today"* is still true of
+**observations** — `story/core/observation_equivalence.py:45-52` still says so, and the extraction
+refused all 186 change rows it saw. It is no longer true of a run. A `DerivedFact` **may** be
+`percentage_points` or `multiple`, so `CHANGE_SURFACES` stopped being a blanket refusal and became
+a refusal *against a level* (`deterministic.py:115-125`, `:1017-1029`):
+
+> *"These three surfaces are refused wherever they render an **observation**, exactly as before …
+> What is new is that a `DerivedFact` *may* be `percentage_points` or `multiple` — those are
+> precisely the quantities §4.1 exists to compute."*
+
+`basis_points` is legal in neither map: *"the same quantity at a hundred times the number is not a
+rendering, it is a different claim."*
+
+### 15.11 Three replay stores in two provider directories
+
+§10.3's four-store table describes a directory that no longer exists in that shape. All three
+current stores were **re-recorded live on 2026-08-19**.
+
+| Path | Provider / model | Disposition | Provenance |
+| --- | --- | --- | --- |
+| `local_openai_compatible/generations.jsonl` | `local_openai_compatible` / `Qwen3.5-9B-Q4_K_M.gguf` | **accepted, zero findings** | genuine recording; four consecutive `--live` runs byte-identical (`8645d1a95a533b29…`) |
+| `local_openai_compatible/generations_rejected_synthetic.jsonl` | idem | **rejected** on one finding, `comparative_not_supported_by_text` | synthetic: the recording with one sentence's two sides swapped |
+| `openai/generations.jsonl` | `openai` / `gpt-5.4` (API: `gpt-5.4-2026-03-05`) | **rejected**, 7 blocking findings | genuine recording |
+
+Two files were **deleted**: `generations_accepted_synthetic.jsonl` and
+`generations_rejected_recorded.jsonl`. The reason is recorded in
+`tests/story/test_story_demo.py`'s module docstring and it inverts §10.3's own argument —
+the shipped Qwen recording *is* the accepted branch now, so a hand-authored accepted store beside
+a real one had nothing left to prove:
+
+> *"So there is currently no rejected *recording* of this candidate under Qwen, and that is
+> reported rather than manufactured. The model gets this candidate right."*
+
+The OpenAI rejection is the one that carries real refusals: `unbound_numeral` ×2,
+`citation_reused_for_unrelated_claim` ×4, `connective_sentence_carries_a_claim`. It requested
+**no** derivation at all. *"No verifier rule and no evidence contract was changed to make either
+recording pass or fail."*
+
+§10.3's correction to `config/story.yaml`'s stale comment is superseded by the re-record rather
+than contradicted: `generations.jsonl` is still a genuine recording and its disposition is still
+`accepted`.
+
+### 15.12 Test counts
+
+Collected with `pytest --collect-only -q -o addopts=""` on 2026-08-23.
+
+| Selector | §12.3 said | Now |
+| --- | ---: | ---: |
+| total collected | 5,840 | **6,425** |
+| `live` | 65 | **73** |
+| `neo4j` | 175 | **177** |
+| `not live` | 5,775 | **6,352** |
+| `not live and not neo4j` | 5,600 | **6,175** |
+
+Per directory (raw collection, the same basis §12.3 used): acquisition 402 · extraction 1,359 ·
+graph 691 · normalization 203 · ontology 165 · **story 3,605**. The offline subset of `tests/story`
+— `-m "not live and not neo4j"` — is **3,452**.
+
+| Group | §10.1 said | Now |
+| --- | ---: | ---: |
+| `test_story_deterministic_verifier.py` | 118 | **136** |
+| Architecture (the five structure files) | 836 | **884** — `test_story_package_structure.py` 540 (was 492), the other four unchanged |
+
+Note that `pytest -k package_structure` selects **738** of those 884: `tests/acquisition/test_structure.py`
+and `tests/normalization/test_pipeline_structure.py` do not match the pattern. §10.1's command
+column has always under-selected its own row.
+
+**The offline suite is green at `ff3b08f`.** Run against the real working tree with Neo4j up
+(`fkg-neo4j`, healthy) on 2026-08-23:
+
+```bash
+python -m pytest -m "not live" -o addopts="" --tb=line -q -rs
+```
+
+```text
+6330 passed, 22 skipped, 73 deselected in 302.70s (0:05:02)
+```
+
+The 22 skips are the same single cause §12.4 records — Neo4j occupancy self-protection, 13 in
+`tests/graph/test_graph_verification.py` and 9 in `tests/graph/test_lifecycle.py`. There are **no
+failures**, so §12.2's three in-flight `package_content_digest` failures are resolved and the
+`git archive` artifacts of §12.1 do not arise: this run was in the tree, not out of it.
+
+### 15.13 Gaps and honest weaknesses, re-read
+
+| # | §13's gap | Status at `ff3b08f` |
+| --: | --- | --- |
+| 4 | Nothing refuses a `fact_binding` on a `calculated` sentence | **Narrowed.** A `calculated` sentence with no derived binding is now `calculated_sentence_without_calculation`, and period *and* metric grounding run for every derived binding whatever the kind. What still passes is an **observed** binding on a `calculated` sentence: `GROUNDED_SENTENCE_KINDS` (`deterministic.py:290`) is still `{REPORTED, EXPLANATORY}` and governs the two observed rules |
+| 9 | The table-cell citation contract is unsatisfiable for 19.3% of evidence | **Closed** — see §15.6 and §15.8 |
+| 1, 2, 3, 5, 6, 7, 8, 10, 11, 12 | — | **Unchanged**, each still recorded at the same place |
+
+Gap 4's own comment now argues the narrowing in full at `deterministic.py:256-289`, including a
+measured finding of its own: bound to a derivation of `adjusted_gross_profit`, *"Adjusted gross
+**margin** fell $446 million"* and *"**Revenue** fell $446 million"* were **both accepted with zero
+findings** before the metric half was closed at H1.

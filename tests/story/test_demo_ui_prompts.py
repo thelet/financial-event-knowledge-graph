@@ -210,7 +210,8 @@ def test_an_editable_field_never_removes_a_rule(field: str):
         assert rule.text in result.planner.system_text
     for rule in WRITER_RULES:
         assert rule.text in result.writer.system_text
-    assert numbered_rules(result.writer.system_text)[:18] == numbered_rules(WRITER_SYSTEM)
+    assert (numbered_rules(result.writer.system_text)[:len(WRITER_RULES)]
+            == numbered_rules(WRITER_SYSTEM))
 
 
 def test_the_allowlist_is_the_whole_request_contract():
@@ -243,17 +244,21 @@ def test_this_module_restates_no_rule():
     assert [phrase for phrase in phrases if f'"{phrase}"' in source] == []
 
 
-def test_the_rules_are_the_constants_own_and_the_counts_are_nine_and_seventeen():
+def test_the_rules_are_the_constants_own_and_the_counts_are_nine_and_fourteen():
     """Parsed, not listed. A rule added upstream appears here; a rule dropped disappears.
 
-    **The counts moved on 2026-08-19 and the movement is the evidence the parsing is real**
-    (DETERMINISTIC_FACT_TOOLS §5). The planner gained one rule — `requested_derivations` — and
-    the writer lost three that were about arithmetic it no longer declares and gained one about
-    the derived facts it now binds, so 8 and 18 became 9 and 17 with no edit in this file to the
-    rules themselves.
+    **The counts have moved twice and each movement is the evidence the parsing is real.** On
+    2026-08-19 (DETERMINISTIC_FACT_TOOLS §5) the planner gained `requested_derivations` and the
+    writer lost three arithmetic rules and gained one about the derived facts it binds, so 8 and
+    18 became 9 and 17. At S4 of `docs/2026-08-23-deterministic-draft-compiler/` the writer went
+    17 -> 14: four rules about declaring bindings and citations collapsed into two — *"write a
+    slot, not a number"* and *"code cites for you"* — three pairs that were each one idea split
+    across two lines merged, and two genuinely new rules arrived for the two ways a *template*
+    fails. The planner's prompt is untouched by that change and its count did not move, which is
+    the half of this assertion that says the parsing is reading two different constants.
     """
-    assert len(PLANNER_RULES) == 9 and len(WRITER_RULES) == 17
-    assert tuple(rule.number for rule in WRITER_RULES) == tuple(range(1, 18))
+    assert len(PLANNER_RULES) == 9 and len(WRITER_RULES) == 14
+    assert tuple(rule.number for rule in WRITER_RULES) == tuple(range(1, 15))
     assert [rule.text for rule in WRITER_RULES] == [text for _, text
                                                     in numbered_rules(WRITER_SYSTEM)]
 
@@ -573,7 +578,7 @@ def test_the_presets_payload_carries_the_split_and_serialises():
     assert set(sections) == {"planner_persona", "planner_rules", "writer_persona",
                              "writer_rules", "warning_qualifiers"}
     assert all(section["editable"] is False for section in sections.values())
-    assert len(sections["writer_rules"]["rules"]) == 17
+    assert len(sections["writer_rules"]["rules"]) == 14
     assert len(sections["planner_rules"]["rules"]) == 9
     assert payload["limits"]["request_fields"] == list(REQUEST_FIELDS)
     assert payload["not_exposed"][0]["name"] == "planner_excerpt_chars"

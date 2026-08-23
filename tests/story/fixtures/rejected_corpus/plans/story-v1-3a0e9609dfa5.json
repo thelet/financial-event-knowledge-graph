@@ -1,0 +1,63 @@
+{
+  "candidate_id": "cand:metric-move:homes-purchased:opendoor:2022Q3_2022Q4:e9046b6818c9",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Opendoor Technologies Inc. reported 8,380 homes purchased in 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
+      ],
+      "required_fact_ids": [
+        "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Opendoor Technologies Inc. reported 3,427 homes purchased in 2022Q4.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12"
+      ],
+      "required_fact_ids": [
+        "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "The number of homes purchased dropped from 8,380 in 2022Q3 to 3,427 in 2022Q4.",
+      "required_citation_passage_ids": [],
+      "required_fact_ids": [
+        "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5",
+        "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+      ],
+      "statement_class": "calculated"
+    }
+  ],
+  "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
+  "package_id": "pkg:metric-move-homes-purchased-opendoor-2022q3-2022q4:caa22a870e11",
+  "prohibited_claims": [
+    "claims about GAAP measures",
+    "claims about contracts signed rather than acquisitions closed",
+    "claims about housing inventory levels"
+  ],
+  "prompt_version": "1.2.0",
+  "requested_derivations": [
+    {
+      "from_fact_id": "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5",
+      "operation": "absolute_change",
+      "to_fact_id": "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+    }
+  ],
+  "required_warnings": [],
+  "structure": [
+    "introduction",
+    "key_point_1",
+    "key_point_2",
+    "key_point_3",
+    "conclusion"
+  ],
+  "thesis": "Opendoor Technologies Inc. reported a sharp decline in homes purchased, falling from 8,380 homes in 2022Q3 to 3,427 homes in 2022Q4.",
+  "uncertainty": "none",
+  "unusable_evidence": [],
+  "why_it_matters": "This metric represents the count of homes whose acquisition CLOSED during the period, serving as a key operating indicator rather than a GAAP measure."
+}

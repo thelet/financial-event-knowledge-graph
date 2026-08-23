@@ -47,6 +47,8 @@ from story.providers import (
     StoryOpenAICompatibleProvider,
     StoryProviderConfig,
 )
+from story.core.evidence_slice import passages_backing_facts
+from story.stages.composition import slot_table
 from story.stages.generation import (
     PLANNER_MAX_TOKENS,
     PLANNER_PROMPT_VERSION,
@@ -399,19 +401,20 @@ PLANNER_ANSWER = {
     "unusable_evidence": [],
 }
 
+#: The writer's answer under 3.0.0: a template with slots, no bindings and no citations.
+#:
+#: **Three fields the double used to supply are gone, and this file is where that reads most
+#: plainly.** It used to carry a `fact_id`, a `rendered`, a `metric_surface`, a `period_surface`
+#: and an `evidence_id` — five strings a model had to get exactly right about a fact the prompt
+#: had already described to it. The slot table resolves `F1` to the same observation, code fills
+#: the figure and the period from the row, and the citation is minted from that fact's own
+#: handle. What is left here is a sentence.
 WRITER_ANSWER = {
     "title": "Adjusted EBITDA in 2022Q3",
     "sentences": [{
-        "text": "Adjusted EBITDA was negative $211 million in the third quarter of 2022.",
+        "text": "Adjusted EBITDA was {{F1}} in {{F1.period}}.",
         "kind": "reported",
-        "fact_bindings": [{"fact_id": "obs:adjusted-ebitda:b",
-                           "rendered": "negative $211 million",
-                           "metric_surface": "Adjusted EBITDA",
-                           "period_surface": "the third quarter of 2022"}],
-        # TABLE_CELL_CITATIONS S4: a citation is the handle the package minted, not a retyped
-        # quote. `conftest.make_package`'s fact carries no `cell` — it is narrative evidence —
-        # so its handle is the `:span:<metric>:<period>` form.
-        "citations": [{"evidence_id": "ev:psg:1:span:adjusted_ebitda:2022Q3"}],
+        "rests_on": [],
     }],
 }
 
@@ -452,20 +455,25 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     package = ontology_package()
     provider, posted = capturing(WRITER_ANSWER)
     written = write_story(package, make_plan(package_id=package.package_id),
-                          provider=provider, length_target=4, max_tokens=WRITER_MAX_TOKENS)
+                          provider=provider,
+                          slots=slot_table(package, (), passages_backing_facts(package)), length_target=4, max_tokens=WRITER_MAX_TOKENS)
 
     prompt = user_message(posted[0])
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.statement in prompt, fact.fact_id
-    # 2.1.0 since the repair packet after DETERMINISTIC_FACT_TOOLS §11.2: `metric_surfaces_for`
-    # offers the metric id, so a metric whose label is ambiguous is writable again, and the
-    # DERIVED FACTS row hands the figure over as a quoted string in words rather than as
-    # `{result} {unit}`. 2.0.0 was §5 removing `calculation` from the schema — the first version
-    # to *remove* a field; 1.4.0 was TABLE_CELL_CITATIONS S4's evidence handle; 1.3.0 was S6's
-    # warning phrases. The literal is kept beside the constant so a version that stops moving is
-    # as loud as one that moves for the wrong reason.
-    assert written.draft.prompt_version == WRITER_PROMPT_VERSION == "2.2.0"
+    # 3.0.0 is the draft compiler: the writer answers with sentence templates, and
+    # `fact_bindings` and `citations` left the schema the way `calculation` left it at 2.0.0.
+    # 2.1.0 was `metric_surfaces_for` offering the metric id; 1.4.0 was TABLE_CELL_CITATIONS
+    # S4's evidence handle; 1.3.0 was S6's warning phrases. The literal is kept beside the
+    # constant so a version that stops moving is as loud as one that moves for the wrong reason.
+    #
+    # **`written` no longer carries a draft, and that is the contract rather than an accident**:
+    # `write_story` returns the templates the model wrote, and the `Draft` is what
+    # `story/stages/composition/` makes of them. The version is asserted on the constant, which
+    # is what reaches the wire and the manifest.
+    assert WRITER_PROMPT_VERSION == "3.0.0"
+    assert written.templates and not hasattr(written, "draft")
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])
@@ -480,7 +488,8 @@ def test_the_unavailable_description_reaches_the_wire_marked_unavailable(stage: 
     else:
         provider, posted = capturing(WRITER_ANSWER)
         write_story(package, make_plan(package_id=package.package_id),
-                    provider=provider, length_target=4, max_tokens=WRITER_MAX_TOKENS)
+                    provider=provider,
+                    slots=slot_table(package, (), passages_backing_facts(package)), length_target=4, max_tokens=WRITER_MAX_TOKENS)
 
     prompt = user_message(posted[0])
     assert "NOT AVAILABLE - " + ontology_facts.NO_DESCRIPTION_STATEMENT in prompt
@@ -499,7 +508,8 @@ def test_no_ontology_fact_id_reaches_either_prompt():
     plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS)
     writer_provider, writer_posted = capturing(WRITER_ANSWER)
     write_story(package, make_plan(package_id=package.package_id),
-                provider=writer_provider, length_target=4, max_tokens=WRITER_MAX_TOKENS)
+                provider=writer_provider,
+                slots=slot_table(package, (), passages_backing_facts(package)), length_target=4, max_tokens=WRITER_MAX_TOKENS)
 
     both = user_message(posted[0]) + user_message(writer_posted[0])
     for fact in (*package.semantic_facts, *package.identity_facts,

@@ -1,0 +1,54 @@
+{
+  "candidate_id": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Opendoor reported a GAAP Gross Margin of -12.6 percent for 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Opendoor reported an Adjusted Gross Margin of 3.3 percent for 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "The difference between the two margins is 15.9 percentage points.",
+      "required_citation_passage_ids": [],
+      "required_fact_ids": [
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25"
+      ],
+      "statement_class": "calculated"
+    }
+  ],
+  "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
+  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6a858ae5c031",
+  "prohibited_claims": [
+    "The company's business model is flawed.",
+    "The company is losing money overall.",
+    "The company's management is incompetent."
+  ],
+  "prompt_version": "1.1.0",
+  "required_warnings": [],
+  "structure": [
+    "introduction",
+    "key_points",
+    "conclusion"
+  ],
+  "thesis": "Opendoor reported a divergence between its GAAP Gross Margin and Adjusted Gross Margin for 2022Q3.",
+  "uncertainty": "none",
+  "unusable_evidence": [],
+  "why_it_matters": "The company reported a negative GAAP Gross Margin while reporting a positive Adjusted Gross Margin for the same period."
+}

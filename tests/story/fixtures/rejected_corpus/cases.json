@@ -1,0 +1,1014 @@
+[
+  {
+    "run": "story-v1-01dcfff9e128",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "binding_rendering_is_not_one_numeral",
+      "binding_rendering_is_not_one_numeral",
+      "binding_rendering_is_not_one_numeral",
+      "calculation_does_not_recompute",
+      "connective_sentence_carries_a_claim",
+      "metric_surface_absent_from_text",
+      "metric_surface_ambiguous",
+      "metric_surface_unresolved",
+      "metric_surface_unresolved",
+      "unbound_numeral",
+      "unsupported_comparative"
+    ],
+    "recorded_prose": [
+      "Adjusted Gross Margin for the third quarter of 2022 is 3.3 percent, as shown in the table.",
+      "Gross Margin, the GAAP measure, is -12.6 percent for the third quarter of 2022.",
+      "Adjusted Gross Margin is defined as adjusted_gross_profit as a percentage of revenue per the passage.",
+      "The divergence between Adjusted Gross Margin and GAAP Gross Margin is a topic of the discussion in the third quarter of 2022.",
+      "The plan notes a divergence without asserting a causal explanation beyond what is in the cited passages.",
+      "GAAP gross margin for the third quarter of 2022 is  -12.6 percentage points lower than Adjusted Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "{{F1.metric}} for {{F1.period}} is {{F1}}, as shown in the table.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{F2.metric}}, the GAAP measure, is {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Adjusted Gross Margin is defined as adjusted gross profit as a percentage of revenue, per the cited passage.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      },
+      {
+        "text": "This post now turns from the two reported levels to the gap between them.",
+        "kind": "connective",
+        "rests_on": []
+      },
+      {
+        "text": "The plan notes a divergence without asserting a causal explanation beyond what is in the cited passages.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      },
+      {
+        "text": "{{D1.to_metric}} for {{D1.period}} is {{D1}} {{D1.direction}} {{D1.from_metric}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim"
+    ],
+    "why": "Nine of the eleven findings were the model's own rendered, metric_surface and calculation fields and are gone. What is left is real: the two explanatory sentences rest on the margin table, which states the two levels and does not define either metric, and this package's slice holds no passage that does. The old run hid that fault behind a fact binding whose rendered span was the word 'divergence'."
+  },
+  {
+    "run": "story-v1-0e9fccbb7fcb",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "3.3 percent is 15.9 points higher than -12.6 percent, and the sentence says lower. The model still chooses which handle goes on which side of the direction word, so the lie is still writable and still refused."
+  },
+  {
+    "run": "story-v1-0fdd6feabc00",
+    "world": "metric_move_adjusted_gross_profit",
+    "candidate": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+    "recorded_codes": [
+      "calculation_result_surface_mismatch",
+      "comparative_not_supported_by_text",
+      "period_named_in_text_contradicts_binding",
+      "period_unresolvable",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "Opendoor Technologies Inc. reported Adjusted Gross Profit of 556000000.0 USD in the second quarter of 2022.",
+      "Opendoor Technologies Inc. reported Adjusted Gross Profit of 110000000.0 USD in the third quarter of 2022.",
+      "The metric fell from 556000000.0 USD to 110000000.0 USD between the second quarter of 2022 and the third quarter of 2022."
+    ],
+    "derivations": [
+      {
+        "operation": "absolute_change",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor Technologies Inc. reported {{F1.metric}} of {{F1}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor Technologies Inc. reported {{F2.metric}} of {{F2}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{D1.metric}} {{D1.direction}} {{D1}}, from {{F1}} in {{F1.period}} to {{F2}} in {{F2.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "accepted",
+    "expect_codes": [],
+    "why": "Every finding was bookkeeping: raw floats written as a figure, a two-window period surface §13.4's grammar has no form for, and a compare_levels result declared in USD. The compiler writes '$556 million' and one window per binding."
+  },
+  {
+    "run": "story-v1-2405d9b03c5e",
+    "world": "metric_move_adjusted_gross_profit",
+    "candidate": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+    "recorded_codes": [
+      "calculation_result_surface_mismatch",
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "comparative_not_supported_by_text",
+      "period_mismatch",
+      "period_named_in_text_contradicts_binding",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "Adjusted Gross Profit was 556 million USD in the second quarter of 2022.",
+      "Adjusted Gross Profit was 110 million USD in the third quarter of 2022.",
+      "Adjusted Gross Profit was 446 million USD lower in the third quarter of 2022 than in the second quarter of 2022.",
+      "The decline indicates a change in the company's core profitability performance between the two quarters."
+    ],
+    "derivations": [
+      {
+        "operation": "absolute_change",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "{{F1.metric}} was {{F1}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{F2.metric}} was {{F2}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{D1.metric}} {{D1.direction}} {{D1}} between {{D1.from_period}} and {{D1.to_period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      },
+      {
+        "text": "The decline indicates a change in the company's core profitability performance between the two quarters.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1",
+          "P2"
+        ]
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim"
+    ],
+    "why": "The calculated sentence compiles clean - the derived value, both windows and both citations are code's. The explanatory closer still rests on the two table cells the reported sentences already spent, which is the same finding the old run drew on the same sentence."
+  },
+  {
+    "run": "story-v1-36848882656f",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "package_content_digest_mismatch"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The GAAP Gross Margin was 15.9 percentage points lower than the Adjusted Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.to_metric}} was {{D1}} {{D1.direction}} the {{D1.from_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "accepted",
+    "expect_codes": [],
+    "why": "The prose already stated the comparison in the true direction. The only recorded finding was a stale package replayed, which is environmental and out of the compiler's scope; the corpus replays the candidate's digest-valid package instead."
+  },
+  {
+    "run": "story-v1-3a0e9609dfa5",
+    "world": "metric_move_homes_purchased",
+    "candidate": "cand:metric-move:homes-purchased:opendoor:2022Q3_2022Q4:e9046b6818c9",
+    "recorded_codes": [
+      "number_outside_tolerance"
+    ],
+    "recorded_prose": [
+      "Opendoor Technologies Inc. reported 8,380 homes purchased in the third quarter of 2022.",
+      "Opendoor Technologies Inc. reported 3,427 homes purchased in the fourth quarter of 2022.",
+      "The number of homes purchased dropped from 8,380 in the third quarter of 2022 to 3,427 in the fourth quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Opendoor Technologies Inc. reported {{F1.metric}} of {{F1}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor Technologies Inc. reported {{F2.metric}} of {{F2}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{D1.metric}} {{D1.direction}} {{D1}} from {{D1.from_period}} to {{D1.to_period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "accepted",
+    "expect_codes": [],
+    "why": "The model bound the derived fact id to the span holding 8,380 - the third-quarter level, not the change - so the numeral was 3,427 away from the derivation. The compiler inserts the derived value itself. over_precision warns twice, non-blocking, on the emitter's '8380.0 homes' rendering of a unit count."
+  },
+  {
+    "run": "story-v1-3f434de5edbb",
+    "world": "metric_move_adjusted_gross_profit",
+    "candidate": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+    "recorded_codes": [
+      "derived_unit_mismatch",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "Opendoor reported Adjusted Gross Profit of 556000000.0 USD in the second quarter of 2022.",
+      "Opendoor reported Adjusted Gross Profit of 110000000.0 USD in the third quarter of 2022.",
+      "Adjusted Gross Profit decreased by 446000000.0 USD from the second quarter of 2022 to the third quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Opendoor reported {{F1.metric}} of {{F1}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported {{F2.metric}} of {{F2}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{D1.metric}} {{D1.direction}} {{D1}} from {{D1.from_period}} to {{D1.to_period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "accepted",
+    "expect_codes": [],
+    "why": "'446000000.0 USD' becomes '$446 million' from the shared emitter, and the bare 2022 is inside a compiler-written period surface rather than loose in the model's prose."
+  },
+  {
+    "run": "story-v1-50c0f3c4a1c2",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "citation_reused_for_unrelated_claim",
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "In the third quarter of 2022, Adjusted Gross Margin was 3.3 percent.",
+      "In the third quarter of 2022, Adjusted Gross Margin was 15.9 percentage points higher than Gross Margin.",
+      "Adjusted Gross Margin is a non-GAAP measure, while Gross Margin is a GAAP measure.",
+      "That same quarter showed distinct GAAP and non-GAAP margin views."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F2",
+        "to": "F1"
+      }
+    ],
+    "templates": [
+      {
+        "text": "In {{F1.period}}, {{F1.metric}} was {{F1}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "In {{D1.period}}, the {{D1.to_metric}} was {{D1}} {{D1.direction}} the {{D1.from_metric}}.",
+        "kind": "calculated",
+        "rests_on": []
+      },
+      {
+        "text": "Adjusted Gross Margin is a non-GAAP measure, while the GAAP measure is reported separately.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      },
+      {
+        "text": "That same quarter showed distinct GAAP and non-GAAP margin views.",
+        "kind": "connective",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "citation_reused_for_unrelated_claim"
+    ],
+    "why": "The comparative was true - the adjusted margin really is 15.9 points higher - and only its surface was ambiguous, so requesting compare_levels in the other offered orientation expresses it. The explanatory sentence still rests on a cell already cited for a level."
+  },
+  {
+    "run": "story-v1-5bf86e6fd2aa",
+    "world": "metric_move_adjusted_gross_profit",
+    "candidate": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+    "recorded_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "unbound_numeral",
+      "unbound_numeral",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "Adjusted Gross Profit decreased from the second quarter of 2022 to the third quarter of 2022.",
+      "Adjusted Gross Profit was 556000000.0 USD in the second quarter of 2022.",
+      "Adjusted Gross Profit was 110000000.0 USD in the third quarter of 2022.",
+      "Adjusted Gross Profit moved down from the second quarter of 2022 to the third quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Adjusted Gross Profit decreased from the second quarter of 2022 to the third quarter of 2022.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{F1.metric}} was {{F1}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{F2.metric}} was {{F2}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Adjusted Gross Profit moved down from the second quarter of 2022 to the third quarter of 2022.",
+        "kind": "reported",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "unbound_numeral",
+      "unbound_numeral",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "why": "R4, and the case that shows the boundary has a floor. Sentences 0 and 3 carry no numeral and name two quarters; a period slot is only legal beside a value slot in the same sentence, so there is nothing to bind and the year stays unbound. Not representable, and refused for the same code as before."
+  },
+  {
+    "run": "story-v1-5c67f125038c",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "package_content_digest_mismatch"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The difference between the two margins is 15.9 percentage points."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The difference between the {{D1.from_metric}} and the {{D1.to_metric}} for {{D1.period}} is {{D1}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "accepted",
+    "expect_codes": [],
+    "why": "Same as story-v1-36848882656f: the recorded finding was a stale package. The gap sentence names both metrics through slots, so the difference has a subject."
+  },
+  {
+    "run": "story-v1-5e62c41ddd1e",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused."
+  },
+  {
+    "run": "story-v1-7a6a17e412e0",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused."
+  },
+  {
+    "run": "story-v1-836e9d47b261",
+    "world": "metric_move_adjusted_gross_profit",
+    "candidate": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+    "recorded_codes": [
+      "citation_reused_for_unrelated_claim",
+      "derived_operation_not_supported",
+      "derived_unit_mismatch",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "Adjusted Gross Profit decreased in the third quarter of 2022 from the second quarter of 2022.",
+      "Adjusted Gross Profit was 556000000.0 USD in the second quarter of 2022.",
+      "Adjusted Gross Profit was 110000000.0 USD in the third quarter of 2022.",
+      "Adjusted Gross Profit is a non-GAAP measure defined by the company."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Adjusted Gross Profit decreased in the third quarter of 2022 from the second quarter of 2022.",
+        "kind": "calculated",
+        "rests_on": []
+      },
+      {
+        "text": "{{F1.metric}} was {{F1}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{F2.metric}} was {{F2}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Adjusted Gross Profit is a non-GAAP measure defined by the company.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "calculated_sentence_without_calculation",
+      "citation_reused_for_unrelated_claim",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "why": "The plan requested trend_direction, which the derivation stage has withdrawn from the offer set, so no row exists for the direction claim to bind. The sentence is a calculated one with nothing to calculate from, and its year is unbound for the same reason as story-v1-5bf86e6fd2aa."
+  },
+  {
+    "run": "story-v1-8f59e09fccb8",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP gross margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP gross margin for the third quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused."
+  },
+  {
+    "run": "story-v1-9911b4d86ec3",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "metric_surface_unresolved",
+      "metric_surface_unresolved",
+      "metric_surface_unresolved"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The difference between the GAAP Gross Margin and the Adjusted Gross Margin for the third quarter of 2022 is 15.9 percentage points."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The difference between the {{D1.from_metric}} and the {{D1.to_metric}} for {{D1.period}} is {{D1}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "accepted",
+    "expect_codes": [],
+    "why": "The prose was already true; the model put the unit in the metric_surface field three times. metric_surfaces_for now supplies it."
+  },
+  {
+    "run": "story-v1-9d82316fe30f",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP gross margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP gross margin for the third quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused."
+  },
+  {
+    "run": "story-v1-d77f67988132",
+    "world": "metric_move_adjusted_gross_profit",
+    "candidate": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+    "recorded_codes": [
+      "citation_reused_for_unrelated_claim",
+      "comparative_not_supported_by_text",
+      "unbound_numeral",
+      "unbound_numeral",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "$110 million was Adjusted Gross Profit in the third quarter of 2022.",
+      "$556 million was Adjusted Gross Profit in the second quarter of 2022.",
+      "Adjusted Gross Profit in the third quarter of 2022 was lower than Adjusted Gross Profit in the second quarter of 2022 by $446 million.",
+      "The visible evidence does not supply a cause for the movement comparison between the third quarter of 2022 and the second quarter of 2022."
+    ],
+    "derivations": [
+      {
+        "operation": "absolute_change",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "{{F2}} was {{F2.metric}} in {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{F1}} was {{F1.metric}} in {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "{{D1.metric}} {{D1.direction}} {{D1}} between {{D1.from_period}} and {{D1.to_period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      },
+      {
+        "text": "The visible evidence does not supply a cause for the movement.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1",
+          "P2"
+        ]
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim"
+    ],
+    "why": "The four unbound years and the unorderable comparative - both sides named the same metric - are gone: the derived row states the movement once and names both windows. The explanatory closer still rests on cells the reported sentences already spent."
+  },
+  {
+    "run": "story-v1-d8bf3d1b19bf",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text",
+      "package_content_digest_mismatch"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused. Its second recorded finding was the stale package, which the corpus does not reproduce."
+  },
+  {
+    "run": "story-v1-d9bc7b2cab33",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross Margin for the third quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused."
+  },
+  {
+    "run": "story-v1-e101d5b08b3c",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "recorded_prose": [
+      "Opendoor reported a GAAP Gross Margin of -12.6 percent for the third quarter of 2022.",
+      "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "The Adjusted Gross Margin was 15.9 percentage points lower than the GAAP Gross Margin."
+    ],
+    "derivations": [
+      {
+        "operation": "compare_levels",
+        "from": "F1",
+        "to": "F2"
+      }
+    ],
+    "templates": [
+      {
+        "text": "Opendoor reported a {{F2.metric}} of {{F2}} for {{F2.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Opendoor reported an {{F1.metric}} of {{F1}} for {{F1.period}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "The {{D1.from_metric}} was {{D1}} {{D1.direction}} the {{D1.to_metric}} for {{D1.period}}.",
+        "kind": "calculated",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "comparative_not_supported_by_text"
+    ],
+    "why": "The reversed comparative, written again. Still false, still refused. Recorded against a package_version 1.2.0 slice whose evidence handles use a different scheme; the facts and their values are identical, so the corpus replays it against the candidate's 1.3.0 package."
+  },
+  {
+    "run": "story-v1-e3c263b28b02",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "connective_sentence_carries_a_claim",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "In the third quarter of 2022, Opendoor reported Adjusted Gross Margin of 3.3 percent and gaap gross margin of -12.6 percent.",
+      "In the third quarter of 2022, Adjusted Gross Margin was 3.3 percent.",
+      "In the third quarter of 2022, gaap gross margin was -12.6 percent.",
+      "In the third quarter of 2022, Adjusted Gross Margin was positive and gaap gross margin was negative.",
+      "This comparison is between distinct measures, with Adjusted Gross Margin as the company's non-GAAP measure and Gross Margin as the GAAP measure.",
+      "This post stays anchored to the cited table for the third quarter of 2022."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "In {{F1.period}}, Opendoor reported {{F1.metric}} of {{F1}} and {{F2.metric}} of {{F2}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "In {{F1.period}}, {{F1.metric}} was {{F1}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "In {{F2.period}}, {{F2.metric}} was {{F2}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "In {{F1.period}}, {{F1.metric}} of {{F1}} was positive and {{F2.metric}} of {{F2}} was negative.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "This comparison is between distinct measures, with Adjusted Gross Margin as the company's non-GAAP measure and the GAAP measure reported beside it.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      },
+      {
+        "text": "This post stays anchored to the cited table.",
+        "kind": "connective",
+        "rests_on": []
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "citation_reused_for_unrelated_claim"
+    ],
+    "why": "Three of the four citation reuses go away because the positive/negative sentence now binds both readings instead of decorating itself with their citations, and the connective drops the year it had no binding for. The fourth is an explanatory sentence this package holds no supporting passage for."
+  },
+  {
+    "run": "story-v1-f7667486551e",
+    "world": "story_demo",
+    "candidate": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+    "recorded_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim",
+      "metric_surface_ambiguous",
+      "metric_surface_ambiguous",
+      "unbound_numeral",
+      "unbound_numeral"
+    ],
+    "recorded_prose": [
+      "In the third quarter of 2022, Adjusted Gross Margin was 3.3 percent, while Gross Margin was -12.6 percent.",
+      "In the third quarter of 2022, Adjusted Gross Margin was 3.3 percent.",
+      "In the third quarter of 2022, Gross Margin was -12.6 percent.",
+      "Adjusted Gross Margin and Gross Margin are distinct measures in the third quarter of 2022.",
+      "In the third quarter of 2022, do not treat Adjusted Gross Margin and Gross Margin as interchangeable."
+    ],
+    "derivations": [],
+    "templates": [
+      {
+        "text": "In {{F1.period}}, {{F1.metric}} was {{F1}}, while {{F2.metric}} was {{F2}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "In {{F1.period}}, {{F1.metric}} was {{F1}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "In {{F2.period}}, {{F2.metric}} was {{F2}}.",
+        "kind": "reported",
+        "rests_on": []
+      },
+      {
+        "text": "Adjusted Gross Margin and gaap gross margin are distinct measures.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      },
+      {
+        "text": "Do not treat Adjusted Gross Margin and gaap gross margin as interchangeable.",
+        "kind": "explanatory",
+        "rests_on": [
+          "P1"
+        ]
+      }
+    ],
+    "expect": "refused",
+    "expect_codes": [
+      "citation_reused_for_unrelated_claim",
+      "citation_reused_for_unrelated_claim"
+    ],
+    "why": "'Gross Margin' - which resolves to both package metrics - is now written by code from the fact's own metric id, and the two loose years are inside compiler-written period surfaces. The two explanatory sentences still cite cells already spent by the reported ones."
+  }
+]

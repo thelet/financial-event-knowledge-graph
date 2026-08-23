@@ -10,8 +10,8 @@ This document is how to get it, and how to prove it works. Nothing here loads a 
 | Container | `fkg-neo4j` |
 | Browser | <http://localhost:7474> |
 | Bolt | `bolt://localhost:7687` |
-| Data | Docker named volumes `neo4j_data`, `neo4j_logs` — never in the working tree |
-| Credentials | `.env` in the repository root, gitignored, copied from `.env.example` |
+| Data | Docker named volumes — compose keys `neo4j_data`/`neo4j_logs`, realised as `fkg_neo4j_data`/`fkg_neo4j_logs` under the pinned `name: fkg`. Never in the working tree |
+| Credentials | `.env` in the repository root, gitignored, copied from `.env.example`. **Not Neo4j-only since 2026-08-19** — it also carries `OPENAI_API_KEY` for the story layer's OpenAI provider |
 | Driver | `neo4j>=6.2,<7` in `pyproject.toml` |
 
 ## Prerequisites
@@ -27,6 +27,7 @@ constraints, indexes and a full-text index, all of which Community Edition provi
 
 ```bash
 pip install -e .              # brings in the neo4j driver declared in pyproject.toml
+pip install lxml 'sec-parser==0.58.1'   # NOT declared there — see the note below
 cp .env.example .env          # then set NEO4J_PASSWORD — it is empty in the template
 docker compose up -d
 docker compose ps             # wait for STATUS to read (healthy)
@@ -55,7 +56,19 @@ was observed, not what was expected.
 | 5 | Version and edition | the Python check below | `Neo4j Kernel 5.26.28 community` |
 | 6 | Data survives a restart | write a node, `docker compose restart`, re-count | marker node present after restart; database returned to 0 nodes, 0 labels |
 | 7 | Not reachable off-host | `curl http://<LAN-or-tailnet-IP>:7474` | refused on all 7 non-loopback interfaces. Before the bindings were narrowed to `127.0.0.1`, both the LAN address and a tailnet address answered `HTTP 200` |
-| 8 | Empty password fails fast | `cp .env.example .env && docker compose config` | exits 1: `required variable NEO4J_PASSWORD is missing a value` |
+| 8 | Empty password fails fast | `cp .env.example /tmp/fkg-check.env && docker compose --env-file /tmp/fkg-check.env config` | exits 1: `required variable NEO4J_PASSWORD is missing a value` |
+
+> **Check 8 writes to a scratch file, and that correction matters** *(2026-08-23)*. It used to
+> read `cp .env.example .env`, which is a destructive command on any machine that has already
+> been set up: it overwrites the real `.env`, and `.env` now carries **two** secrets — the Neo4j
+> password and the story layer's `OPENAI_API_KEY`. Neo4j sets its password on **first start
+> only**, so a container started before the overwrite keeps the old one and then rejects the
+> templated credentials, with no recovery short of `docker compose down -v` — which discards the
+> volumes and the loaded graph with them. The check is worth keeping; it just may not be run
+> against the live file.
+>
+> `docker compose config` also **renders `NEO4J_AUTH` in cleartext**, exactly as `docker inspect`
+> does below. Do not paste its output anywhere.
 
 The Python check — connect, query, report, close. Run it from the directory holding `.env`:
 
@@ -109,12 +122,18 @@ misleading, not because the file still has them.
 
 ## Note on the test suite
 
-`pytest -m "not live"` run from a **git worktree** fails six tests in
+`pytest -m "not live and not neo4j"` run from a **git worktree** fails six tests in
 `tests/extraction/test_{event_lane,narrative_lane}_report.py` and `test_hybrid_scoping.py` with
 `FileNotFoundError: data/normalization_catalog/passages.jsonl`. This is not a regression: those
 tests replay from `data/`, which is gitignored and therefore exists only in the main working
 tree. *(Verified 2026-08-02 by running the same three files in a clean worktree of unmodified
 `main`: the identical six fail there, while the main working tree passes all 191.)*
+
+The **marker changed after that measurement** *(2026-08-23)*. `pyproject.toml` now declares a
+`neo4j` marker covering 177 tests, so a bare `-m "not live"` needs the container running and is
+no longer the offline command. The offline invocation is `-m "not live and not neo4j"`. The
+six-failure finding above was measured under the old marker and has not been re-run in a
+worktree since; the three files still collect 191 tests.
 
 ## What is deliberately not here
 
@@ -125,16 +144,17 @@ tree. *(Verified 2026-08-02 by running the same three files in a clean worktree 
   §5.1 was after. Switch back by replacing the `volumes:` entries with `./neo4j_data:/data` if
   the repository ever moves onto the Linux filesystem.
 
-  **This contradicts the plan, and the plan has not been amended here.** §5.1 line 599 still
-  says `./neo4j_data/`, and §1.6 line 281 cites `.gitignore:34` as *(verified)* support for it.
-  A reader arriving from the plan is pointed at a directory that does not exist. The plan is the
-  graph implementation's live document and editing it from this branch would collide with work
-  in progress, so the correction is handed over rather than made — see the handoff note. This is
-  an open item, not a resolved one.
+  **This no longer contradicts the plan — the handoff was taken up** *(verified 2026-08-23)*.
+  `plans/graph/V1_GRAPH_PROTOTYPE.md:281` now reads *"That gitignore entry turned out to be
+  moot"*, and `:648` states *"Data lives in named Docker volumes `fkg_neo4j_data` /
+  `fkg_neo4j_logs`, not in `./neo4j_data/`"*. The paragraph this replaces called it "an open
+  item, not a resolved one"; it is resolved, and a reader arriving from the plan is now pointed
+  at the volumes rather than at a directory that does not exist.
 - **No password anywhere in Git.** `.env.example` ships `NEO4J_PASSWORD` empty rather than
   plausible, so an unedited copy fails fast instead of starting a database whose password is
   public. Note the password is *not* hidden from the local machine: `docker inspect` shows
-  `NEO4J_AUTH` in cleartext to anyone in the `docker` group. `.gitignore` already
+  `NEO4J_AUTH` in cleartext to anyone in the `docker` group — and so does `docker compose
+  config`, which check 8 above runs, so its output is not safe to paste. `.gitignore` already
   ignores `.env` and `.env.*` while un-ignoring `.env.example`.
 - **`config/graph.yaml` now exists** *(added at G2; this bullet previously said it did not,
   which was true when this document was written)*. It holds non-secret defaults only — URI,

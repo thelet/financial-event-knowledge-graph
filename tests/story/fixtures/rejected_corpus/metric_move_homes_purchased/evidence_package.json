@@ -1,0 +1,798 @@
+{
+  "budget": {
+    "artifact_token_estimate": 6283,
+    "caps_hit": [
+      "context_passages",
+      "token_budget"
+    ],
+    "parameters": {
+      "excerpt_radius_chars": 400,
+      "max_compatibility": 12,
+      "max_conflicts": 8,
+      "max_context_neighbours": 1,
+      "max_counter_evidence": 3,
+      "max_derivations": 12,
+      "max_documents": 20,
+      "max_events": 5,
+      "max_explanatory_passages": 3,
+      "max_facts": 12,
+      "max_formula_windows": 8,
+      "max_graph_hops": 2,
+      "max_metrics": 8,
+      "max_primary_passages": 4,
+      "max_relationships": 4,
+      "max_retrieval_trace": 40,
+      "max_total_tokens": 5000,
+      "max_warnings": 20
+    },
+    "prompt_token_estimate": 4917,
+    "section_counts": {
+      "comparability_facts": 1,
+      "compatibility": 1,
+      "conflicts": 0,
+      "context_passages": 0,
+      "counter_evidence": 0,
+      "diagnostic_passages": 1,
+      "documents": 2,
+      "events": 0,
+      "evidence_sources": 0,
+      "explanatory_passages": 0,
+      "facts": 2,
+      "formula_windows": 0,
+      "identity_facts": 4,
+      "metrics": 1,
+      "primary_passages": 2,
+      "relationships": 0,
+      "retrieval_trace": 11,
+      "semantic_facts": 5,
+      "warnings": 5
+    },
+    "section_ledger": [
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": true,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "comparability_facts"
+      },
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "compatibility"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "conflicts"
+      },
+      {
+        "available": 4,
+        "carried": 0,
+        "dropped": 4,
+        "protected": false,
+        "reasons": [
+          "token_budget_trimmed"
+        ],
+        "required_dropped": false,
+        "section": "context_passages"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "counter_evidence"
+      },
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "diagnostic_passages"
+      },
+      {
+        "available": 2,
+        "carried": 2,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "documents"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "events"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "evidence_sources"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "explanatory_passages"
+      },
+      {
+        "available": 4,
+        "carried": 2,
+        "dropped": 2,
+        "protected": true,
+        "reasons": [
+          "concordant_readings_collapsed"
+        ],
+        "required_dropped": false,
+        "section": "facts"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "formula_windows"
+      },
+      {
+        "available": 4,
+        "carried": 4,
+        "dropped": 0,
+        "protected": true,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "identity_facts"
+      },
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "metrics"
+      },
+      {
+        "available": 2,
+        "carried": 2,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "primary_passages"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "relationships"
+      },
+      {
+        "available": 11,
+        "carried": 11,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "retrieval_trace"
+      },
+      {
+        "available": 5,
+        "carried": 5,
+        "dropped": 0,
+        "protected": true,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "semantic_facts"
+      },
+      {
+        "available": 5,
+        "carried": 5,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "warnings"
+      }
+    ]
+  },
+  "candidate_id": "cand:metric-move:homes-purchased:opendoor:2022Q3_2022Q4:e9046b6818c9",
+  "comparability_facts": [
+    {
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "cmp:movement:homes_purchased@2022Q4:homes_purchased@2022Q3",
+      "fact_kind": "comparability",
+      "metric_ids": [
+        "homes_purchased"
+      ],
+      "rule_id": "§6.9/movement",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "homes_purchased 2022Q4 and homes_purchased 2022Q3 may be compared as a movement claim: every comparability rule the ontology applies to this pair passed. Rules evaluated, in order: R1, R2, R3, R4, R5, R6, R7, R8, R10, R9.",
+      "warning_codes": []
+    }
+  ],
+  "compatibility": [
+    {
+      "comparable": true,
+      "left_id": "homes_purchased@2022Q4",
+      "reason": "",
+      "right_id": "homes_purchased@2022Q3",
+      "rule_id": "§6.9/movement"
+    }
+  ],
+  "conflicts": [],
+  "context_passages": [],
+  "counter_evidence": [],
+  "detector_id": "detector:metric_move",
+  "detector_version": "1.0.0",
+  "diagnostic_passages": [
+    {
+      "char_count": 2908,
+      "char_end": 2855,
+      "char_start": 2055,
+      "diagnostic_codes": [
+        "AMBIGUOUS_ALIAS"
+      ],
+      "document_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
+      "excerpted": true,
+      "heading_path": [
+        "EX-99.1",
+        "Use of Non-GAAP Financial Measures",
+        "Contribution Profit (Loss) / Margin",
+        "RECONCILIATION OF GAAP TO NON-GAAP MEASURES"
+      ],
+      "match_basis": "same_document",
+      "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24",
+      "passage_kind": "table",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "warning_only",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#s21",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000137/q32023formxex991earningsre.htm",
+      "text": "|  |  | (10) |  |  | (14) |  |  | (41) |  |  | (73) |  |  |  |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (9) |  |  | (33) |  |  | (41) |  |  | (27) |  |  | (18) |  |  | (65) |  |  | (37) |  |  |  |  |  |  |  |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (90) |  |  | $ | (241) |  |  | $ | (207) |  |  | $ | (22) |  |  | $ | (288) |  |  | $ | 732 |  |\n| Homes sold in period |  | 2,687 |  |  | 5,383 |  |  | 8,274 |  |  | 7,512 |  |  | 8,520 |  |  | 16,344 |  |  | 31,671 |  |  |  |  |  |  |  |  |\n| Contribution Profit (Loss) per Home Sold (in thousands) |  | $ | 16 |  |  | $ | (17) |  |  | $ | (29) |  |  | $ | (28) |  |  | $ | (3) |  |  | $ | (18) |  |  | $ | 23 |  |\n| Contribution Margin |  | 4.4 | % |  | (4.6) | % |  | (7.7) | % |  | (7.2) | % |  | (0.7) |",
+      "unusable_reason": null
+    }
+  ],
+  "documents": [
+    {
+      "accession": "0001801169-23-000138",
+      "content_sha256": null,
+      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
+      "document_type": "narrative_primary",
+      "filing_date": "2023-11-02",
+      "form": "10-Q",
+      "report_date": "2023-09-30",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
+      "title": null
+    },
+    {
+      "accession": "0001801169-23-000137",
+      "content_sha256": null,
+      "document_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
+      "document_type": "earnings_release",
+      "filing_date": "2023-11-02",
+      "form": "8-K",
+      "report_date": "2023-11-02",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000137/q32023formxex991earningsre.htm",
+      "title": null
+    }
+  ],
+  "events": [],
+  "evidence_sources": [],
+  "explanatory_passages": [],
+  "extraction_run_id": "extract-v1-lexical-833f7bcfbce9",
+  "facts": [
+    {
+      "ambiguity_codes": [],
+      "cell": {
+        "period_header_column_index": 4,
+        "period_header_row_index": 3,
+        "row_index": 15,
+        "value_column_index": 5
+      },
+      "column_label": "2022",
+      "corroborating_document_ids": [
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm"
+      ],
+      "corroborating_observation_ids": [
+        "obs:homes-purchased:opendoor:2022Q3:normalized-table:f1337d613f5c"
+      ],
+      "corroborating_passage_ids": [
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12"
+      ],
+      "currency": null,
+      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
+      "evidence_handle": "ev:norm:0001801169:0001801169-23-000138:open-20230930.htm#p108:r15c5",
+      "evidence_source_id": null,
+      "fact_kind": "observed",
+      "instant_date": null,
+      "metric_id": "homes_purchased",
+      "metric_label": "Homes purchased",
+      "observation_id": "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5",
+      "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108",
+      "period_end": "2022-09-30",
+      "period_key": "2022Q3",
+      "period_start": "2022-07-01",
+      "printed_form": null,
+      "quoted_text": "8,380",
+      "row_label": "Homes purchased",
+      "scale": "units",
+      "scale_location": null,
+      "shape": "quarter",
+      "source_lane": "normalized_table",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
+      "unit": "homes",
+      "validation_state": "clean",
+      "value": 8380.0,
+      "warning_codes": []
+    },
+    {
+      "ambiguity_codes": [],
+      "cell": {
+        "period_header_column_index": 8,
+        "period_header_row_index": 3,
+        "row_index": 15,
+        "value_column_index": 11
+      },
+      "column_label": "December 31, 2022",
+      "corroborating_document_ids": [
+        "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm"
+      ],
+      "corroborating_observation_ids": [
+        "obs:homes-purchased:opendoor:2022Q4:normalized-table:3081cc60d5b2"
+      ],
+      "corroborating_passage_ids": [
+        "norm:0001801169:0001801169-24-000015:q42023formxex991earningsre.htm#p16"
+      ],
+      "currency": null,
+      "document_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
+      "evidence_handle": "ev:norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12:r15c11",
+      "evidence_source_id": null,
+      "fact_kind": "observed",
+      "instant_date": null,
+      "metric_id": "homes_purchased",
+      "metric_label": "Homes purchased",
+      "observation_id": "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8",
+      "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12",
+      "period_end": "2022-12-31",
+      "period_key": "2022Q4",
+      "period_start": "2022-10-01",
+      "printed_form": null,
+      "quoted_text": "3,427",
+      "row_label": "Homes purchased",
+      "scale": "units",
+      "scale_location": null,
+      "shape": "quarter",
+      "source_lane": "normalized_table",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000137/q32023formxex991earningsre.htm",
+      "unit": "homes",
+      "validation_state": "clean",
+      "value": 3427.0,
+      "warning_codes": []
+    }
+  ],
+  "formula_windows": [],
+  "graph_projection_version": "1.2.0",
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "identity_facts": [
+    {
+      "attribute": "legal_name",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:legal_name",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "The subject of this post is Opendoor Technologies Inc..",
+      "value": "Opendoor Technologies Inc.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "ticker",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:ticker",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Opendoor Technologies Inc. trades on Nasdaq under the ticker OPEN. It also has the tickers OPENL, OPENW, OPENZ.",
+      "value": "OPEN",
+      "warning_codes": []
+    },
+    {
+      "attribute": "entity_type",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:entity_type",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Opendoor Technologies Inc. is a public_company - A company whose shares are traded and held publicly. Its SEC filer identifier (CIK) is 0001801169.",
+      "value": "public_company",
+      "warning_codes": []
+    },
+    {
+      "attribute": "description",
+      "authoritative": false,
+      "available": false,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:description",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "No description of this company exists in the corpus or the ontology, so none is given. Do not describe what the company does, what it sells, or what market it operates in.",
+      "value": "",
+      "warning_codes": []
+    }
+  ],
+  "metrics": [
+    {
+      "aliases": [
+        "Homes Purchased",
+        "homes acquired",
+        "home acquisition volumes"
+      ],
+      "allowed_units": [],
+      "ambiguities": [],
+      "description": "Count of homes whose acquisition CLOSED during the period. Not contracts signed.",
+      "distinct_from": [
+        "homes_sold",
+        "homes_under_contract",
+        "acquisition_contracts",
+        "housing_inventory_homes"
+      ],
+      "label": "Homes purchased",
+      "metric_id": "homes_purchased",
+      "mutually_distinct_groups": [
+        "home_counts"
+      ],
+      "percentage_max": null,
+      "percentage_min": null,
+      "period_type": "duration",
+      "population": null,
+      "unit": "homes"
+    }
+  ],
+  "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
+  "ontology_id": "real_estate_marketplace_v1",
+  "ontology_semantic_version": "2.0.0",
+  "package_content_digest": "cb5092f23da0feff2ed2e7fc6a6ddfcdbae7e252205a3b4cefaf8f69917fab3b",
+  "package_id": "pkg:metric-move-homes-purchased-opendoor-2022q3-2022q4:caa22a870e11",
+  "package_version": "1.3.0",
+  "policy_version": "canon-policy:1.0.0",
+  "primary_passages": [
+    {
+      "char_count": 2331,
+      "char_end": 2331,
+      "char_start": 0,
+      "diagnostic_codes": [],
+      "document_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm",
+      "excerpted": false,
+      "heading_path": [
+        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
+        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
+        "Financial Highlights"
+      ],
+      "match_basis": "",
+      "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108",
+      "passage_kind": "table",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "primary_support",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#s81",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000138/open-20230930.htm",
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  |  |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages, homes purchased, homes sold, number of markets, and homes in inventory) |  | 2023 |  | 2022 |  | Change |  | 2023 |  | 2022 |  | Change |  |  |  |  |  |  |  |  |  |  |  |  |\n| Revenue |  | $ | 980 |  |  | $ | 3,361 |  |  | $ | (2,381) |  |  | $ | 6,076 |  |  | $ | 12,710 |  |  | $ | (6,634) |  |\n| Homes sold |  | 2,687 |  |  | 8,520 |  |  | (5,833) |  |  | 16,344 |  |  | 31,671 |  |  | (15,327) |  |  |  |  |  |  |  |\n| Gross profit (loss) |  | $ | 96 |  |  | $ | (425) |  |  | $ | 521 |  |  | $ | 415 |  |  | $ | 596 |  |  | $ | (181) |  |\n| Gross Margin |  | 9.8 | % |  | (12.6) | % |  |  |  | 6.8 | % |  | 4.7 | % |  |  |  |  |  |  |  |  |  |  |\n| Net loss |  | $ | (106) |  |  | $ | (928) |  |  | $ | 822 |  |  | $ | (184) |  |  | $ | (954) |  |  | $ | 770 |  |\n| Adjusted Net Loss |  | $ | (75) |  |  | $ | (328) |  |  | $ | 253 |  |  | $ | (681) |  |  | $ | (107) |  |  | $ | (574) |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (22) |  |  | $ | 65 |  |  | $ | (288) |  |  | $ | 732 |  |  | $ | (1,020) |  |\n| Contribution Margin |  | 4.4 | % |  | (0.7) | % |  |  |  | (4.7) | % |  | 5.8 | % |  |  |  |  |  |  |  |  |  |  |\n| Adjusted EBITDA |  | $ | (49) |  |  | $ | (211) |  |  | $ | 162 |  |  | $ | (558) |  |  | $ | 183 |  |  | $ | (741) |  |\n| Adjusted EBITDA Margin |  | (5.0) | % |  | (6.3) | % |  |  |  | (9.2) | % |  | 1.4 | % |  |  |  |  |  |  |  |  |  |  |\n| Number of markets (at period end) |  | 53 |  | 51 |  | 2 |  |  | 53 |  | 51 |  | 2 |  |  |  |  |  |  |  |  |  |  |  |\n| Homes purchased |  | 3,136 |  |  | 8,380 |  |  | (5,244) |  |  | 7,563 |  |  | 31,535 |  |  | (23,972) |  |  |  |  |  |  |  |\n| Inventory (at period end) |  | $ | 1,311 |  |  | $ | 6,093 |  |  | $ | (4,782) |  |  | $ | 1,311 |  |  | $ | 6,093 |  |  | $ | (4,782) |  |\n| Homes in inventory (at period end) |  | 4,007 |  |  | 16,873 |  |  | (12,866) |  |  | 4,007 |  |  | 16,873 |  |  | (12,866) |  |  |  |  |  |  |  |",
+      "unusable_reason": null
+    },
+    {
+      "char_count": 2415,
+      "char_end": 2415,
+      "char_start": 0,
+      "diagnostic_codes": [],
+      "document_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
+      "excerpted": false,
+      "heading_path": [
+        "EX-99.1",
+        "2023 Financial Outlook",
+        "Conference Call and Webcast Details",
+        "Contact Information",
+        "Media:",
+        "FINANCIAL HIGHLIGHTS"
+      ],
+      "match_basis": "",
+      "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12",
+      "passage_kind": "table",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "primary_support",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#s13",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116923000137/q32023formxex991earningsre.htm",
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n|  |  | September 30, 2023 |  | June 30, 2023 |  | March 31, 2023 |  | December 31, 2022 |  | September 30, 2022 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Revenue |  | $ | 980 |  |  | $ | 1,976 |  |  | $ | 3,120 |  |  | $ | 2,857 |  |  | $ | 3,361 |  |  |  |  |  |  |  |  |  |\n| Homes sold |  | 2,687 |  |  | 5,383 |  |  | 8,274 |  |  | 7,512 |  |  | 8,520 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Gross profit (loss) |  | $ | 96 |  |  | $ | 149 |  |  | $ | 170 |  |  | $ | 71 |  |  | $ | (425) |  |  |  |  |  |  |  |  |  |\n| Gross Margin |  | 9.8 | % |  | 7.5 | % |  | 5.4 | % |  | 2.5 | % |  | (12.6) | % |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Net (loss) income |  | $ | (106) |  |  | $ | 23 |  |  | $ | (101) |  |  | $ | (399) |  |  | $ | (928) |  |  |  |  |  |  |  |  |  |\n| Adjusted Net Loss |  | $ | (75) |  |  | $ | (197) |  |  | $ | (409) |  |  | $ | (467) |  |  | $ | (328) |  |  |  |  |  |  |  |  |  |\n| Contribution Profit (Loss) |  | $ | 43 |  |  | $ | (90) |  |  | $ | (241) |  |  | $ | (207) |  |  | $ | (22) |  |  |  |  |  |  |  |  |  |\n| Contribution Margin |  | 4.4 | % |  | (4.6) | % |  | (7.7) | % |  | (7.2) | % |  | (0.7) | % |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted EBITDA |  | $ | (49) |  |  | $ | (168) |  |  | $ | (341) |  |  | $ | (351) |  |  | $ | (211) |  |  |  |  |  |  |  |  |  |\n| Adjusted EBITDA Margin |  | (5.0) | % |  | (8.5) | % |  | (10.9) | % |  | (12.3) | % |  | (6.3) | % |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Number of markets (at period end) |  | 53 |  | 53 |  | 53 |  | 53 |  | 51 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Homes purchased |  | 3,136 |  |  | 2,680 |  |  | 1,747 |  |  | 3,427 |  |  | 8,380 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory (at period end) |  | $ | 1,311 |  |  | $ | 1,149 |  |  | $ | 2,118 |  |  | $ | 4,460 |  |  | $ | 6,093 |  |  |  |  |  |  |  |  |  |\n| Homes in inventory (at period end) |  | 4,007 |  |  | 3,558 |  |  | 6,261 |  |  | 12,788 |  |  | 16,873 |  |  |  |  |  |  |  |  |  |  |  |  |  |  |",
+      "unusable_reason": null
+    }
+  ],
+  "relationships": [],
+  "retrieval_trace": [
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:homes-purchased:opendoor:2022Q3:normalized-table:f1337d613f5c"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:homes-purchased:opendoor:2022Q4:normalized-table:3081cc60d5b2"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 1,
+        "before": 1,
+        "passage_id": "norm:0001801169:0001801169-23-000138:open-20230930.htm#p108"
+      },
+      "row_count": 3,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 1,
+        "before": 1,
+        "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p12"
+      },
+      "row_count": 3,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "metric_id": "homes_purchased",
+        "period_key": "2022Q3"
+      },
+      "row_count": 1,
+      "tool": "find_counter_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "metric_id": "homes_purchased",
+        "period_key": "2022Q4"
+      },
+      "row_count": 2,
+      "tool": "find_counter_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    }
+  ],
+  "run_complete_sha256": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e",
+  "semantic_facts": [
+    {
+      "attribute": "display_name",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:homes_purchased:display_name",
+      "fact_kind": "semantic",
+      "metric_id": "homes_purchased",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "homes_purchased is written 'Homes purchased'.",
+      "value": "Homes purchased",
+      "warning_codes": []
+    },
+    {
+      "attribute": "aliases",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:homes_purchased:aliases",
+      "fact_kind": "semantic",
+      "metric_id": "homes_purchased",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Homes purchased also appears in filings as 'homes acquired', 'home acquisition volumes'.",
+      "value": "homes acquired; home acquisition volumes",
+      "warning_codes": []
+    },
+    {
+      "attribute": "definition",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:homes_purchased:definition",
+      "fact_kind": "semantic",
+      "metric_id": "homes_purchased",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Homes purchased means: Count of homes whose acquisition CLOSED during the period. Not contracts signed. It is an operating metric the company reports, not a GAAP measure.",
+      "value": "Count of homes whose acquisition CLOSED during the period. Not contracts signed.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "unit",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:homes_purchased:unit",
+      "fact_kind": "semantic",
+      "metric_id": "homes_purchased",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Homes purchased is reported in homes.",
+      "value": "homes",
+      "warning_codes": []
+    },
+    {
+      "attribute": "period_semantics",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:homes_purchased:period_semantics",
+      "fact_kind": "semantic",
+      "metric_id": "homes_purchased",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Homes purchased is measured over a period - it is an amount accumulated between two dates, and a figure for one quarter is not a figure for the year.",
+      "value": "duration",
+      "warning_codes": []
+    }
+  ],
+  "subject": {
+    "entity_id": "opendoor",
+    "entity_text": "opendoor",
+    "labels": [],
+    "resolved": true
+  },
+  "warnings": [
+    {
+      "code": "token_budget_trimmed",
+      "detail": "§10.2's 5000-token budget bound the model-visible slice; rows were dropped in the order explanatory_passages, context_passages, primary_passages, diagnostic_passages, counter_evidence, each section to its floor before the next was touched, and no drop may strand a slot the candidate anchored on",
+      "kind": "build_provenance",
+      "severity": "WARN",
+      "subject_ids": [
+        "token_budget"
+      ]
+    },
+    {
+      "code": "concordant_readings_collapsed",
+      "detail": "2 further reading(s) of 2 packaged slot(s) state the same subject, metric, period, unit, currency, formula version and value as a fact already carried, and were collapsed into it rather than minted as second facts: two filings reporting one number are two sources, not two facts. Each is named on that fact's `corroborating_observation_ids`, and equivalence is `observation_equivalence.same_reading` — the single-pair tolerance test §6.1 step 2 clusters with. obs:homes-purchased:opendoor:2022Q3:normalized-table:f1337d613f5c -> obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5, obs:homes-purchased:opendoor:2022Q4:normalized-table:3081cc60d5b2 -> obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8",
+      "kind": "build_provenance",
+      "severity": "ANNOTATE",
+      "subject_ids": [
+        "obs:homes-purchased:opendoor:2022Q3:normalized-table:01f122e052a5",
+        "obs:homes-purchased:opendoor:2022Q4:normalized-table:d277ceba1ad8"
+      ]
+    },
+    {
+      "code": "subject_identity_not_read_from_graph",
+      "detail": "no §9 tool reads `:Entity` — `opendoor` carries 2,704 `OBSERVATION_OF_SUBJECT` edges and one hop outward is the whole graph — so `entity_text` and `labels` are the caller's and `resolved` is inferred from the observations' own `subject_entity_id`",
+      "kind": "build_provenance",
+      "severity": "ANNOTATE",
+      "subject_ids": [
+        "opendoor"
+      ]
+    },
+    {
+      "code": "evidence_sources_absent_in_v1",
+      "detail": "`evidence_sources[]` is empty because zero `:EvidenceSource` nodes exist — all evidence edges land on a `:Passage` (§13.7.2). Rule C is Unavailable, not silently satisfied",
+      "kind": "build_provenance",
+      "severity": "ADVISORY",
+      "subject_ids": []
+    },
+    {
+      "code": "relationships_unavailable_in_v1",
+      "detail": "`relationships[]` is empty because no §9 tool implemented at S1 returns a relationship; `find_related_entities` is in §9's table and is not one of the nine. An empty section here is a gap in the retrieval layer",
+      "kind": "build_provenance",
+      "severity": "ADVISORY",
+      "subject_ids": []
+    }
+  ]
+}

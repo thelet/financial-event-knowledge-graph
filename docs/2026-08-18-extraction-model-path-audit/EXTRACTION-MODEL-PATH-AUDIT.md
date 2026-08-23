@@ -5,6 +5,13 @@ modified. **Repo state:** `74f4f1c` (working tree carries unrelated in-flight `s
 work). **Subject run:** `data/extraction_runs/extract-v1-lexical-833f7bcfbce9` →
 `data/graph_runs/graph-v1-0483dc6b4b10`. Both unchanged since 2026-08-03.
 
+**Re-verified 2026-08-23 at `ff3b08f`. The conclusion stands unchanged and is not superseded:**
+`extraction/context.py:132-133` still hard-codes `inner=None`, `python -m extraction run` still has
+no `--live` flag, `extraction/context.py:83` still builds a pathless `AnswerStore()`, and
+`grep -rn "ThreadPool\|asyncio\|concurrent.futures"` over `extraction/` still returns nothing. The
+subject run is byte-frozen. Five *pointers* had moved and are corrected in place below (§6.3, §8);
+nothing else in this document changed.
+
 ---
 
 ## 1. Executive conclusion
@@ -238,7 +245,12 @@ reviewed cases, not the corpus.
    `kind, base_url, model, context_tokens, max_output_tokens, temperature, timeout_seconds,
    max_retries, enable_thinking` — and no key. (Contrast `story/providers/public.py`, which has
    `api_key: SecretStr`, `ENV_API_KEY = "STORY_LLM_API_KEY"` and `authorization_headers`. The
-   story layer solved this; extraction did not.)
+   story layer solved this; extraction did not.) **Understated as of 2026-08-23:** S12 has
+   since landed a *second* story adapter — `story/providers/openai_responses.py`, written
+   against OpenAI's Responses API — with `ENV_OPENAI_API_KEY = "OPENAI_API_KEY"`
+   (`story/providers/public.py:122`) and `--provider` / `--model` flags on
+   `python -m story demo` (`story/cli.py:301,304`). The gap between the two layers is now
+   wider, not narrower *(verified 2026-08-23)*.
 2. **A llama.cpp-only body field is sent unconditionally.** `request_body` (line 163) always emits
    `"chat_template_kwargs": {"enable_thinking": False}`. OpenAI rejects unknown body parameters.
 3. **`model` is a GGUF filename**, and `kind` is decorative — nothing dispatches on it.
@@ -302,7 +314,7 @@ adapter also needs a selection mechanism.
 python -m extraction run                      # WRITES data/extraction_runs/<run_id>/
 python -m graph project <run_id>              # -> data/graph_runs/<graph_run_id>/
 python -m graph load <graph_run_id> --replace # -> Neo4j
-python -m graph verify <graph_run_id>         # 27 checks
+python -m graph verify <graph_run_id>         # 27 checks (re-run 2026-08-23: 27, all PASS)
 # then edit config/story.yaml demo.graph_run_id  (see §8)
 python -m story ui
 ```
@@ -319,20 +331,27 @@ configuration value must be hand-edited.
 | extraction catalogs + verification + `run.complete` | `python -m extraction run` | within the run, yes | writes `<run_id>/`; see §9 |
 | graph projection | `python -m graph project <run_id>` | **no — names the run** | new catalog bytes → new `input_content_digest` → **new `graph_run_id`** |
 | graph load | `python -m graph load <id> --replace` | **no** | `--replace` is the only wipe authority; a different run id in the DB is refused |
-| graph verification | `python -m graph verify <id>` | **no** | 27 checks |
-| story freshness / detection / packaging | — | **no** | **`config/story.yaml:73  graph_run_id: graph-v1-0483dc6b4b10` must be edited by hand** (`story/pipeline.py:225`) |
+| graph verification | `python -m graph verify <id>` | **no** | 27 checks *(re-run 2026-08-23 against `graph-v1-0483dc6b4b10`: `0 of 27 checks failed`; the count is `len(self.checks)` at `graph/core/verification_report.py:238`, not a literal, and `build_report` is documented as "the twenty-seven checks")* |
+| story freshness / detection / packaging | — | **no** | **`config/story.yaml:177  graph_run_id: graph-v1-0483dc6b4b10` must be edited by hand** (read at `story/pipeline.py:321`) *(line numbers verified 2026-08-23; the value is unchanged)* |
 | demo UI | `python -m story ui` | inherits the config | reads the same pinned value |
 
-`config/story.yaml:73` is the **only functional pin**. If it is not updated, the story layer looks
+`config/story.yaml:177` is the **only functional pin**. If it is not updated, the story layer looks
 for a graph run directory that may no longer exist and
 `story/core/graph_identity.py::read_graph_identity` raises. If it *is* updated, `config_hash` moves,
-which re-keys `story_run_id` and the story replay store — the recorded demo runs under
-`data/story_demo/` become unreachable by digest.
+which re-keys `story_run_id` and the story replay stores — the recorded demo runs under
+`data/story_demo/` become unreachable by digest. The key naming those stores is now
+`demo.generation_stores` (`config/story.yaml:220`), **plural and keyed per provider** since S12: a
+recorded row is keyed on the adapter that produced it, so one provider's rows are a guaranteed miss
+for another. The pre-S12 scalar `demo.generation_store` survives at `config/story.yaml:231` as the
+local adapter's fallback only *(verified 2026-08-23)*.
 
 Secondary (non-functional but stale afterwards): `tests/graph/conftest.py:26 REAL_RUN_ID`,
-`tests/fixtures/graph/extraction_run/manifest.json`, and roughly twenty docstring censuses in
-`story/stages/detection/*`, `story/stages/packaging/*` and `story/demo_ui/projection.py` that quote
-measurements against `graph-v1-0483dc6b4b10`.
+`tests/fixtures/graph/extraction_run/manifest.json`, and **20 docstring and comment censuses across
+14 modules** *(re-counted 2026-08-23; the earlier "roughly twenty" was an estimate, never measured)*
+— `story/stages/detection/*` 8 mentions in 6 files, `story/stages/packaging/*` 8 in 4,
+`story/stages/retrieval/metric_metadata.py` 1, and `story/demo_ui/{projection,table_grid,api}.py` 4
+— that quote measurements against `graph-v1-0483dc6b4b10`. The last two `demo_ui` modules and the
+`retrieval` one were not in the 2026-08-18 list.
 
 ---
 

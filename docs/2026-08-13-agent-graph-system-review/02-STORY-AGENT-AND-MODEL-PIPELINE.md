@@ -3,9 +3,18 @@
 **Audit date:** 2026-08-13. **Code baseline:** commit `33b0d7f`. Prompt sizes and package figures
 were measured by rebuilding the real prompts from the recorded runs under `data/story_demo/`.
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §11, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated.
+
 ---
 
 ## 1. The answer first
+
+> **Superseded at `ff3b08f`** — both signatures gained an argument, `plan_story(…, offered=)` and
+> `write_story(…, derived_facts=)`, and `openai_compatible.py` is one of two adapters; the claim
+> itself is unchanged — two model calls, no tools, no retriever. See §11.
 
 **The model cannot explore the graph. It never sees the graph at all.**
 
@@ -253,6 +262,9 @@ saturation/horizon/precision constant, the ordering key, or the dedup rule.
 > D4 only and selects by id; `SELECTION_MODE = "manual_demo_candidate"`. Ranking *is* exercised by
 > the demo UI's discovery endpoint. `RANKING_POLICY_VERSION` is still a `story_run_id` input,
 > because a scoring change otherwise had nothing in the id to show for it.
+
+> **Superseded at `ff3b08f`** — `resolve_demo_inputs` runs **the one detector the requested
+> candidate id names**, dispatched on the id's own slug, not D4 only. See §11.
 
 ### 3.1 The score
 
@@ -540,6 +552,10 @@ graph TD
 
 ### 5.1 Schema
 
+> **Superseded at `ff3b08f`** — `PACKAGE_VERSION` is **1.3.0** and `PackagedFact` carries two more
+> fields, `cell` and `evidence_handle`, the second of which is the writer's entire citation
+> vocabulary. See §11.
+
 `story/core/models.py::StoryEvidencePackage`. `PACKAGE_VERSION = "1.2.0"` at commit `33b0d7f`.
 
 **Identity block (14 fields, also exposed whole as `PackageIdentity`)**: `package_id`,
@@ -757,6 +773,10 @@ moment a planner named it.
 
 ### 6.1 Model, runtime, invocation
 
+> **Superseded at `ff3b08f`** — `kind` dispatches over **two** providers rather than raising on
+> everything but one, and three settings (`supports_temperature`, `reasoning_effort`,
+> `store_responses`) now decide what reaches the wire. See §11.
+
 | Item | Value | Reference |
 | --- | --- | --- |
 | Model | `Qwen3.5-9B-Q4_K_M.gguf` (configured name); server reports `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf` | `config/story.yaml` |
@@ -774,6 +794,10 @@ moment a planner named it.
 | Persona | `system` and `prompt` are **two messages**; an empty `system` is refused | same |
 
 ### 6.2 The prompt
+
+> **Superseded at `ff3b08f`** — `PLANNER_SYSTEM` is **3,011 characters and nine rules** under
+> `PLANNER_PROMPT_VERSION` **1.2.0**, and the rendered slice carries a **DERIVATIONS OFFERED**
+> section. See §11.
 
 * **System prompt** `prompts.py::PLANNER_SYSTEM` — **2,190 characters**, eight numbered rules. Rule
   0 in effect: *"You are given an evidence package and nothing else. **You have no tools, no search
@@ -805,6 +829,9 @@ sources, formula windows, and the **retrieval trace** — *"a model that read it
 about its own universe rather than from it."*
 
 ### 6.3 Output schema, and the five fields that are not the model's
+
+> **Superseded at `ff3b08f`** — the planner's required keys are **eleven**: `requested_derivations[]`
+> joined them, and it is the only place a plan may ask for a quantity no filing printed. See §11.
 
 `prompts.planner_schema(causal_language=…)` is built fresh per call. Required keys: `thesis`,
 `why_it_matters`, `key_points[]`, `counterpoints[]`, `required_warnings[]`, `causal_language`,
@@ -839,6 +866,10 @@ rejection in another, and the two have different meanings."*
 
 ### 6.4 Post-call rules that are code, not prompt
 
+> **Superseded at `ff3b08f`** — `plan_violations` carries **eleven** codes plus
+> `plan_not_constructible`; `derivation_not_offered` joined them, refused here rather than at the
+> executor so a plan resting on a quantity nothing will compute never reaches the writer. See §11.
+
 `planner.plan_violations(plan, package)` — pure, provider-free, **10 codes**: `thesis_empty`,
 `no_key_points`, `unresolvable_fact_id`, `unresolvable_passage_id`, `counterpoint_missing`,
 `counterpoint_ungrounded`, `counter_evidence_unaccounted`, `unknown_unusable_id`,
@@ -864,6 +895,10 @@ counter-evidence item and lists it in `unusable_evidence`. The model did exactly
 ## 7. The writer
 
 ### 7.1 What it receives
+
+> **Superseded at `ff3b08f`** — `write_story` takes `derived_facts=`, and the writer is no longer
+> shown **formula windows**; it is shown **DERIVED FACTS** and, where one exists, **EVIDENCE
+> SCOPE**. See §11.
 
 `writer.write_story(package, plan, *, provider, style, length_target, max_tokens)`:
 
@@ -895,6 +930,10 @@ three** — *"the model chooses words, code chooses facts"*:
   not a surface this stage may import; a test asserts the two copies are identical.
 
 ### 7.2 Output structure
+
+> **Superseded at `ff3b08f`** — `calculation[]` and `WRITER_OPERATIONS` no longer exist and a
+> citation is one field, `evidence_id`: a sentence's properties are exactly `text`, `kind`,
+> `fact_bindings` and `citations`. See §11.
 
 `prompts.writer_schema()` — required: `title`, `sentences[]`. Each sentence: `text`,
 `kind ∈ {reported, calculated, explanatory, connective}`, `fact_bindings[]`, `calculation[]` (an
@@ -928,6 +967,9 @@ change a figure, a period, a metric or a citation."*
 
 ### 7.4 Forbidden behaviour — 18 numbered rules
 
+> **Superseded at `ff3b08f`** — `WRITER_SYSTEM` is **17** rules and renumbered throughout: the
+> three that governed a declared calculation (old 5, 6 and 7) are gone with the field. See §11.
+
 Each maps to a verification refusal code. The load-bearing ones:
 
 | Rule | Forbids |
@@ -947,6 +989,9 @@ Each maps to a verification refusal code. The load-bearing ones:
 | 18 | writing anything about what the company does, sells or competes in |
 
 ### 7.5 Post-call rules that are code
+
+> **Superseded at `ff3b08f`** — `draft_violations` carries **12** codes: `more_than_one_calculation`
+> was **retired** rather than renamed, and three evidence-handle codes joined. See §11.
 
 `writer.draft_violations` — **11 codes**: `no_sentences`, `unresolvable_fact_id`,
 `unresolvable_passage_id`, `binding_rendering_not_in_text`,
@@ -1085,6 +1130,11 @@ Note that the trim loop pursues the budget but **protected sections can hold a p
 
 ### 9.1 `story/pipeline.py`
 
+> **Superseded at `ff3b08f`** — five of these bullets moved: `config_hash` is over the document **as
+> parsed**, `resolve_demo_inputs` runs the detector the candidate id names, there are **six**
+> dispositions, `derived_facts.json` joined the artifact list, and `verifier_gate_digest()` covers
+> **102** entries. See §11.
+
 * `DemoConfig.load(root)` reads `config/story.yaml`; `config_hash()` is sha256 over
   `canonical_json(raw)` — the document **as written**, so a key added and never read still moves
   `story_run_id`.
@@ -1105,6 +1155,10 @@ Note that the trim loop pursues the budget but **protected sections can hold a p
 * `_token_totals` — zeroes across a replayed run are the answer, not a gap.
 
 ### 9.2 The replay store
+
+> **Superseded at `ff3b08f`** — `request_identity` takes **ten** inputs and `IDENTITY_VERSION` is
+> **`story-generation-v3`**, after a reproduced collision put five structurally different request
+> bodies under one digest. See §11.
 
 `story/providers/generation_store.py` — JSONL rebuilt whole (never appended), staged to `.partial`
 and `os.replace`d. Keyed by `request_identity(system, prompt, schema, schema_name, model_id,
@@ -1141,6 +1195,9 @@ retrying a managed transaction for **35 seconds** against a refused port while
 
 ### 9.4 The CLI
 
+> **Superseded at `ff3b08f`** — `python -m story demo` also takes `--provider` and `--model`. The
+> two-verb claim still holds. See §11.
+
 ```bash
 python -m story demo --candidate-id CANDIDATE_ID [--out OUT] [--live]
 python -m story ui [--host HOST] [--port PORT]
@@ -1159,6 +1216,10 @@ the UI's HTTP endpoints (`POST /demo/story-suggestions`, `POST /demo/evidence-pa
 ---
 
 ## 10. The model boundary
+
+> **Superseded at `ff3b08f`** — the table, §10.1's two lists and §10.2's diagram all rest on the
+> writer declaring a `Calculation` the verifier recomputes; code now computes every derived quantity
+> *before* the writer runs and the writer binds it like any filed fact. See §11.
 
 Legend: **D** deterministic code · **L** LLM · **G** graph.
 
@@ -1256,3 +1317,362 @@ flowchart TD
 ```
 
 Green = deterministic. Orange = the model half — two calls, no tools, no retries.
+
+---
+
+## 11. What changed since `33b0d7f`
+
+**Measurement date: 2026-08-23. Code baseline: commit `ff3b08f`, worktree clean.** Every figure in
+this section was measured on 2026-08-23 by importing the module or reading the file named; nothing
+above this line has been restated or adjusted. `00` §10 carries the same changes at system grain.
+
+**The answer first: the writer no longer works anything out, and it no longer quotes anything.**
+Those two sentences account for most of what follows. A quantity no filing printed is computed by a
+new deterministic stage between the planner and the writer and handed to the writer as a fact; a
+citation is a handle naming a fact's own table cell, and code turns it into a span. The model's two
+calls, the absent `tools` key, the absent retriever parameter and the absent model verifier are all
+exactly as §1, §4 and §10 describe them.
+
+| Landed | What it is | Where |
+| --- | --- | --- |
+| **S12** — a second provider | the OpenAI Responses API beside the local llama.cpp server | `story/providers/openai_responses.py` (527 lines); `SUPPORTED_KINDS` at `story/providers/public.py:68` |
+| **S13** — deterministic fact tools | a derivation stage owning every worked-out quantity, and evidence handles replacing quotations | `story/stages/derivation/` (1,711 lines); `story/pipeline.py:663-682` |
+
+### 11.1 The derivation stage — deterministic, after the wall, before the writer
+
+`story/pipeline.py:663-682`, between `plan_story` and `write_story`. It takes no provider, opens no
+connection, reads no clock, and **cannot raise a `StoryProviderError`** — which is why the call site
+has no `try` around it and every refusal it produces is a value on its result.
+
+| Module | Lines | Owns |
+| --- | ---: | --- |
+| `story/stages/derivation/offers.py` | 500 | §4.2's validation and §4.3's offer set — *"'offered' and 'valid' are one predicate rather than two lists maintained beside each other"* |
+| `story/stages/derivation/operations.py` | 453 | the seven operations |
+| `story/stages/derivation/execute.py` | 417 | `execute_all(requests, package, candidate, …)` |
+| `story/stages/derivation/public.py` | 237 | the refusal vocabulary, `TOOL_VERSION = "1.0.0"`, `DirectionOracle` |
+| `story/stages/derivation/__init__.py` | 104 | the surface |
+
+**Seven operations** (`DerivationOperation`): `absolute_change`, `percentage_change`,
+`percentage_point_change`, `compare_levels`, `ratio`, `crossed_zero`, `trend_direction`.
+
+**The offer set is a pure function of the package and the candidate**, with no model input, which is
+what lets it be printed into the planner prompt and replayed byte for byte. Its cap comes from
+`package.budget.parameters.max_derivations` (**12**, new in `BudgetParameters`), so the size of the
+list the planner is shown is inside `package_id` and `story_run_id`.
+
+**Eleven refusal codes** (`DerivationRefusalCode`): `derivation_not_offered`,
+`derived_operation_not_supported`, `derivation_input_not_in_package`, `derivation_inputs_identical`,
+`derived_inputs_incomparable`, `derived_unit_mismatch`, `derivation_period_alignment`,
+`derived_fact_orientation_reversed`, `derived_relative_change_across_zero`,
+`derivation_denominator_zero`, `derived_result_mismatch`.
+
+Two new types cross to the writer and the verifier, both in `story/core/models.py` rather than in
+the stage's own `public.py`, because `test_story_package_structure.py::test_no_stage_imports_another_stage`
+is symmetric and `core/` is the one surface all four stages share:
+
+* **`DerivedFact`** — 24 fields: `fact_id`, `fact_kind`, `operation`, `package_id`, `from_fact_id`,
+  `to_fact_id`, `from_period`, `to_period`, `from_value`, `to_value`, `result`, `result_word`,
+  `unit`, `currency`, `display_semantics`, `metric_id`, `from_metric_id`, `metric_surfaces`,
+  `period_surface_hint`, `comparability_rule_ids`, `source`, `tool_version`,
+  `reused_detector_signal`, `warning_codes`.
+* **`EvidenceScopeFact`** — 8 fields: `fact_id`, `fact_kind`, `claim`, `statement`, `package_id`,
+  `source`, `tool_version`, `examined_fact_ids`. §7's statement of what the package's evidence does
+  *not* contain, printed only when one exists — *"a heading with nothing under it would be an
+  invitation to write a sentence about a limit that was never established."*
+
+**A new run artifact**: `derived_facts.json` (`story/pipeline.py:167`), written whenever the stage
+ran at all, refusals included. It is a separate artifact and deliberately not a package section:
+`package_content_digest` is a `story_run_id` input, so a package whose contents depended on a model
+call would make the run id depend on the model's answer.
+
+**A new disposition**: `derivation_refused` (`story/pipeline.py:193`). It is not reachable from a
+model's answer, and that is exactly why it is not folded into `plan_refused` — what is left after
+`plan_violations` has run is §4.4's detector-signal assertion, *"two code paths computing one number
+and differing"*, which is a defect in one of them and never a judgement about a plan.
+
+### 11.2 The planner's contract
+
+| | `33b0d7f` | `ff3b08f` |
+| --- | --- | --- |
+| `PLANNER_PROMPT_VERSION` | 1.1.0 | **1.2.0** (`prompts.py:138`) |
+| `PLANNER_SYSTEM` | 2,190 chars, 8 rules | **3,011 chars, 9 rules** (`prompts.py:181`) |
+| required schema keys | 10 | **11** |
+| `plan_violations` codes | 11 | **12** |
+
+`requested_derivations[]` is the eleventh required key, and the only place a plan may ask for a
+quantity no filing printed. Each item is exactly three fields:
+
+```json
+{"operation": "<one of the seven>", "from_fact_id": "…", "to_fact_id": "…"}
+```
+
+`operation` is a closed `enum` in the schema; the two fact ids are not, for the reason §6.3 already
+gives — *"otherwise the same wrong answer would be a schema violation in one package and a plan
+rejection in another"*.
+
+**The rendered planner slice gained one section**, `DERIVATIONS OFFERED` (`OFFER_HEADING`,
+`prompts.py:456`), placed immediately after `FACTS` and before `METRICS`. The full order is now:
+candidate / package / subject, `COMPANY IDENTITY`, `FACTS`, **`DERIVATIONS OFFERED`**, `METRICS`,
+`METRIC SEMANTICS`, `COMPARISON RULES`, `EVENTS`, `WARNINGS`, `CONFLICTS`, `PASSAGE EXCERPTS`,
+`COUNTER-EVIDENCE`. §6.2's list of what is **not** rendered to the planner is unchanged.
+
+`plan_violations`' twelfth code is **`derivation_not_offered`** (`planner.py:153`), spelled exactly
+as the verifier's gate code and as `DerivationRefusalCode.NOT_OFFERED` so one fault reads as one
+string at three stages. It is refused before the writer runs *"a plan resting on a quantity nothing
+will compute is a plan whose key point cannot be written, and discovering that after a writer call
+has been paid for helps nobody."*
+
+### 11.3 The writer's contract — replacing §7.2 and §7.4
+
+**§7.2 describes a schema that no longer exists.** `calculation[]`, `WRITER_OPERATIONS` and
+citations carrying `passage_id` + `quote` are all gone. `prompts.writer_schema()`
+(`prompts.py:975`) now requires `title` and `sentences[]`, and a sentence has **exactly four
+properties** under `additionalProperties: false`:
+
+| Property | Type | Item shape |
+| --- | --- | --- |
+| `text` | string | — |
+| `kind` | string | enum `reported`, `calculated`, `explanatory`, `connective` — unchanged |
+| `fact_bindings` | array | `fact_id`, `rendered`, `metric_surface`, `period_surface` — unchanged |
+| `citations` | array | **`evidence_id`, and nothing else** |
+
+`WRITER_PROMPT_VERSION` is **2.2.0** (`prompts.py:746`), from 1.3.0 at the baseline, in four
+moves: 1.4.0, then **2.0.0** — a major bump because it is the first version to *remove* a field —
+then 2.1.0, which taught `metric_surfaces_for` to offer the metric **id** (without it
+`gaap_gross_margin` had no offered surface at all, its label being a sub-phrase of *"Adjusted Gross
+Margin"*), then 2.2.0, which prints a `USD` FACTS reading at the scale it was filed at so the FACTS
+and DERIVED FACTS rows stop showing two shapes for one kind of thing.
+
+**`WRITER_SYSTEM` is 17 numbered rules, renumbered throughout** (`prompts.py:875`), from 18. The
+three that governed a declared calculation went with the field: old rule 5 (a `calculated` sentence
+carrying a citation or a binding), old rule 6 (input order, *"every operation is `second − first`"*)
+and old rule 7 (inventing a `formula_version_id`). The load-bearing rules as they now read:
+
+| Rule | Says |
+| --: | --- |
+| 1 | introduce no number, date, period or company not in FACTS, **DERIVED FACTS** or PASSAGES — *"**Work nothing out yourself**: you do no arithmetic here, and there is nowhere in your answer to declare any"* |
+| 2 | `calculated` now means *"a figure from the DERIVED FACTS section"* |
+| 4 | use a metric surface exactly as offered |
+| 5 | state a derived figure the way the row's own `figure:` line quotes it; do not name the operation, and do not reverse the row's `says` line |
+| 6 | a citation is one field, `evidence_id`, copied character for character — *"Never write a passage id, a character position, or any run of text taken out of a passage"* |
+| 7 | a `calculated` sentence has no evidence of its own, so it cites the evidence ids of the two FACTS rows the derived row names as inputs |
+| 8 | percentage points, never percent, for a difference between two percentages |
+| 9 | no superlative, uniqueness, absence or ordering claim |
+| 10 | one comparison, and only where a DERIVED FACTS row supports it |
+| 11 | nothing forward-looking |
+| 12 | the subject and no one else |
+| 15 | the title states no claim |
+| 16 | identity, semantics and comparison rules are **definitions, not evidence** — they carry no citable figure, and *"write nothing about what the company does, sells, or competes in"* (old rule 18) now lives here |
+| 17 | **EVIDENCE SCOPE is a limit on what you may write and never a sentence to write** |
+
+**The writer's rendered prompt lost a section and gained two** (`prompts.py:1155`). Order now:
+candidate / package / subject, `COMPANY IDENTITY`, `PLAN`, `REQUIRED WARNINGS`, `FACTS`,
+**`DERIVED FACTS`**, **`EVIDENCE SCOPE`** (only when one exists), `METRIC SEMANTICS`,
+`COMPARISON RULES`, `PASSAGES`, `LENGTH`. **`FORMULA WINDOWS` is gone** — it existed to give
+`formula_version_id` something to check against, and both went together.
+
+`writer.draft_violations` is **12 codes** (`writer.py:242`): the baseline eleven minus
+`more_than_one_calculation`, plus `unresolvable_evidence_handle` and
+`evidence_handle_out_of_bounds`. `more_than_one_calculation` was **retired, not renamed** —
+*"a catalogue offering a refusal no stage can produce is a catalogue that describes a system this is
+not."* `evidence_handle_out_of_bounds` is explicitly not a model failure and cannot be one: the
+coordinates come off the `PackagedFact`, not off the answer, so it fires when a package and the
+passage text it carries disagree.
+
+**`Draft.calculation` and `VerifiedDraft.calculation_ledger` survive on the types and only for
+read-back.** `writer.py:505-511`: *"there is nowhere left to read one from: the writer's schema
+holds no such property, so a sentence this module builds carries `None` always"* — the field exists
+for artifacts already written under writer prompt 1.4.0, and the verifier refuses a draft that
+arrives carrying one.
+
+### 11.4 A citation is a handle now
+
+`writer._citations_from` (`writer.py:519-541`): **the model supplies one token per citation and code
+supplies everything else.** The handle names a `PackagedFact`; the fact names its passage and, for
+the 99.5% of the corpus read out of a table, the grid coordinates of the cell its value sits in;
+`resolve_cell` turns those into a span. *"Nothing here searches the passage for a string the model
+wrote, which is the entire difference from the contract this replaced."*
+
+```text
+ev:<passage_id>:r<row_index>c<value_column_index>      table-backed
+ev:<passage_id>:span:<metric_id>:<period_key>          narrative
+None                                                   no filed passage (§13.7.2)
+```
+
+Four measurements shape that form, and each is recorded at `story/core/models.py:659-700` and
+`story/stages/generation/writer.py:519-541`:
+
+| Measurement | Result |
+| --- | --- |
+| table cells grouped by `(passage_id, row_index, value_column_index)` | **2,690 distinct cells; 0** mapping to two periods, **0** to two metrics — a cell identifies its fact |
+| the plan's passage-only narrative form | **fails**: the 14 narrative observations sit in **6** passages, one carrying 6 of them; span offsets would not have fixed it, since `adjusted_gross_profit` and `adjusted_gross_margin` 2021Q4 quote the **same 66-character sentence at the same offset** |
+| narrative quote uniqueness | **14 / 14** occur exactly once in their passage, so the uniqueness rule is kept for that path rather than dropped |
+| handles minted across the 262 offered packages | **564 / 564** facts mint one, **0** lack one — which is why `PassageCitation.evidence_handle` is required with no default |
+
+`resolve_cell` was verified at **2,690 / 2,690** against the live graph. `PackagedFact` gained
+`cell: TableCellRef | None` (`models.py:843`) and `evidence_handle: str | None` (`models.py:847`);
+the handle is **derived at construction, never stated**, and a stated handle disagreeing with the
+coordinates is refused rather than believed. It is stored rather than a `@property` for two reasons:
+the token a rejection names must be greppable in the written artifact, and it is inside
+`package_content_digest`, so a change to the citation vocabulary must re-key the package.
+
+### 11.5 The verifier gate: 85 codes → 102
+
+Measured by importing `GATE` at both commits and differencing.
+
+| | `33b0d7f` | `ff3b08f` |
+| --- | ---: | ---: |
+| codes | 85 | **102** |
+| REFUSE (blocking) | 79 | **96** |
+| WARN | 2 | 2 |
+| ANNOTATE | 4 | 4 |
+| checks | 12 | 12 |
+
+**Seventeen added, none removed, and no surviving code changed severity or section.**
+
+| Family | Codes |
+| --- | --- |
+| derivation and derived facts (10) | `derivation_not_offered`, `derived_direction_not_stated_in_text`, `derived_fact_not_in_run`, `derived_fact_orientation_reversed`, `derived_fact_polarity_contradicted`, `derived_inputs_incomparable`, `derived_operation_not_supported`, `derived_result_mismatch`, `derived_unit_mismatch`, `evidence_scope_binding_declares_a_surface` |
+| evidence handles and cells (7) | `evidence_cell_span_mismatch`, `evidence_cell_value_mismatch`, `evidence_column_label_mismatch`, `evidence_handle_not_for_fact`, `evidence_handle_out_of_bounds`, `evidence_row_label_mismatch`, `unresolvable_evidence_handle` |
+
+`DeterministicVerifier.verify` gained a fourth parameter, `derived_facts=()`
+(`deterministic.py:342`), and **the default is not a fallback**: a draft binding a derived id
+against an empty tuple is `derived_fact_not_in_run`, a REFUSE — *"a run that lost its derivations
+refuses the post rather than passing the numerals it can still resolve."* `verifier_gate_digest()`
+(`pipeline.py:839`) now digests 102 entries; the manifest still records `"verifier_version": null`,
+and the docstring still names that as a gap.
+
+### 11.6 Two providers
+
+`SUPPORTED_KINDS = frozenset({"local_openai_compatible", "openai"})` (`providers/public.py:68`).
+`kind` **is** the provider id — `provider_id` is a property returning it, not a parallel field,
+because minting a second name for one concept would put two names in the digest that keys the replay
+store.
+
+| | `openai_compatible.py` (376 lines) | `openai_responses.py` (527 lines) |
+| --- | --- | --- |
+| endpoint | `POST /v1/chat/completions` | `POST /v1/responses` |
+| turns | `messages[]` | `input[]` (a `system` role is accepted — measured 2026-08-19, HTTP 200) |
+| grammar | nested `response_format.json_schema` | **flat** `text.format` with `name` / `strict` / `schema` as siblings of `type` |
+| output cap | `max_tokens` | `max_output_tokens` |
+| usage words | `prompt_tokens` / `completion_tokens` | `input_tokens` / `output_tokens`, translated by the adapter |
+| completion signal | `finish_reason` | `status` — recorded as such, never translated into the local server's `"stop"`, *"a value this API never produces"* |
+| temperature | `PINNED_TEMPERATURE` always | sent **only** where the resolved model declares the capability |
+| `tools` key | **none** | **none** |
+
+The same portable schema reaches both unmodified, validated by the same
+`validate_portable_schema`. A 401 from OpenAI echoes part of the key back — measured,
+`sk-obvio**********alid` — so every message this adapter builds from a response body goes through
+`_redacted` first.
+
+`config/story.yaml`'s `provider:` block now carries `default:` and a nested `openai:` block naming
+three models, each with a **measured** capability:
+
+| Model | `supports_temperature` | `reasoning_effort` | How it was established |
+| --- | --- | --- | --- |
+| `gpt-5-nano` (default) | false | `minimal` | HTTP 400 *"Unsupported parameter: 'temperature' is not supported with this model"*, probed 2026-08-19 |
+| `gpt-4.1-mini` | true | — | accepts `temperature: 0.0` — the temperature-pinned alternative for a determinism-sensitive comparison |
+| `gpt-5.4` | false | `none` | at `medium` the writer call spends its whole 2,048-token budget reasoning and returns `status: incomplete`, `incomplete_details.reason: max_output_tokens`, with no message item at all |
+
+A model absent from that list **cannot be selected**: its answer to the temperature question has
+never been measured, and discovering it costs a failed request per run. Deleting the `models:` key
+resolves the two constants in `providers/public.py`; writing `models: []` takes OpenAI out of the
+build; anything that is not a list is refused rather than quietly replaced.
+
+**§9.4's two verbs still hold**, and `demo` gained two options (`story/cli.py:301,304`):
+
+```bash
+python -m story demo --candidate-id CANDIDATE_ID [--out OUT] [--live] [--provider P] [--model M]
+```
+
+`generation_stores:` is now a **mapping, one store per provider**, and it is authoritative. There is
+deliberately **no `openai:` row**: since `story-generation-v2` the request digest covers the
+adapter, so one provider's rows are a guaranteed miss for another, and *"a shipped demo that
+replayed a recorded OpenAI run without a key would be claiming to have called an API it never
+called."* The OpenAI fixture exists for tests only, at
+`tests/story/fixtures/story_demo/openai/generations.jsonl`.
+
+### 11.7 The replay store: seven inputs → ten, and why
+
+`story/providers/generation_store.py`. `IDENTITY_VERSION` is **`story-generation-v3`** (line 85).
+
+| Input | Added |
+| --- | --- |
+| `system`, `prompt`, `schema`, `schema_name`, `model_id`, `temperature`, `max_tokens` | baseline |
+| `provider_id` | **2026-08-19**, `story-generation-v2` |
+| `temperature_sent` | **2026-08-19**, `story-generation-v3` |
+| `reasoning_effort` | **2026-08-19**, `story-generation-v3` |
+
+**The v2 move**: the digest covered `model_id` and nothing about *which adapter* was asked, and two
+things make that a real collision rather than a theoretical one — the adapters send structurally
+different bodies for the same logical inputs, and **a local llama.cpp server answers to any model
+string**, so distinct model names are not a defence.
+
+**The v3 move is a reproduced measurement, and the module docstring records it.** S12 gave
+`StoryProviderConfig` two settings that decide what the request body contains and left both out of
+the key:
+
+| Configuration | `reasoning` in the body | `temperature` in the body |
+| --- | --- | --- |
+| `reasoning_effort=None` | *no block at all* | absent |
+| `reasoning_effort="none"` | `{"effort":"none"}` | absent |
+| `reasoning_effort="medium"` | `{"effort":"medium"}` | absent |
+| `reasoning_effort="high"` | `{"effort":"high"}` | absent |
+| `supports_temperature=True` | `{"effort":"none"}` | `0.0` |
+
+Built through `StoryOpenAIResponsesProvider.request_body` and keyed under the v2 rule: **five
+distinct request bodies, one distinct digest** (`ae13b6c9d9a5…`), 2026-08-19. *"A row recorded at
+`effort: none` would silently answer a request that would have gone out at `medium`."* `config_hash`
+covers `story_run_id` and not this key, so the run id was never the defence.
+
+Both moves were **re-keys, not re-recordings**: every `raw_content` and every `content_sha256` is
+byte-identical to what the servers said. `blank provider_id` is refused rather than digested. The
+parts are labelled (`system=`, `prompt=`, …) and every free-text field is digested before the join,
+because with two of them a flat `\x1f` join is ambiguous.
+
+### 11.8 Orchestration corrections
+
+* **`config_hash()` is over the document as *parsed*, not as written** (`pipeline.py:335-350`), and
+  the code corrected itself: *"this docstring claimed [as written] until the TABLE_CELL_CITATIONS
+  review."* Measured 2026-08-18 — rewriting a comment in `config/story.yaml` moved the file's own
+  sha256 and left `config_hash` at `b8488b32076b9b1d…`. Both halves matter: an unread **key** still
+  re-keys the run, a **comment** does not.
+* **`resolve_demo_inputs` runs the one detector the candidate id names** (`pipeline.py:436-440`),
+  dispatched on the id's own slug by `_detect_for` (`pipeline.py:481-521`). The old docstring said
+  *"only §6.6's D4 detector runs"*, which *"was true of the code it was written for and false of the
+  code beneath it"* — hard-coding D4 had made every `metric_move`, `acceleration` and
+  `trend_reversal` candidate unreachable from the CLI. The cost argument is unchanged: one detector
+  runs, not four. **§2's four detectors are still the only four**, and an id naming no known
+  detector is refused with the four names.
+* **The artifact list gained `derived_facts.json`** (`pipeline.py:1166`), written after
+  `editorial_plan.json` and before `draft.json`, and written whenever the derivation stage ran at
+  all — refusals included, because *"a file recording only the successes could not answer 'what did
+  the plan ask for?'"*. `demo_manifest.json` is still last and is still the completion marker.
+* **`length_target` was re-measured and the table in `config/story.yaml` inverted.** Under
+  `WRITER_PROMPT_VERSION` 2.0.0 all six live targets 3–8 were REJECTED, mostly
+  `metric_surface_unresolved`, where the 2026-08-18 table read ACCEPTED on all six; the cause was
+  isolated to the writer prompt by a control run at `643935f` and an ablation, and is recorded as a
+  prompt defect rather than routed around. 4 stays, because it is in the writer prompt, the prompt
+  is in `request_identity`, and the committed store is keyed on it.
+
+### 11.9 Version constants
+
+| Constant | `33b0d7f` | `ff3b08f` | File |
+| --- | --- | --- | --- |
+| `PACKAGE_VERSION` | 1.2.0 | **1.3.0** | `story/core/models.py:71` |
+| `PLANNER_PROMPT_VERSION` | 1.1.0 | **1.2.0** | `prompts.py:138` |
+| `WRITER_PROMPT_VERSION` | 1.3.0 | **2.2.0** | `prompts.py:746` |
+| `IDENTITY_VERSION` | `story-generation-v1` | **`story-generation-v3`** | `generation_store.py:85` |
+| `TOOL_VERSION` (derivation) | — | **1.0.0** | `story/stages/derivation/public.py` |
+| `POLICY_VERSION` / `RANKING_POLICY_VERSION` | `canon-policy:1.0.0` / 1.1.0 | unchanged | detection / ranking |
+
+### 11.10 Measured totals
+
+| | 2026-08-13 | 2026-08-23 |
+| --- | ---: | ---: |
+| `story/` lines | 37,927 | **47,965** |
+| other five packages | 4,375 / 5,191 / 3,175 / 13,547 / 9,634 | unchanged, all five |
+| total tests collected | 5,840 | **6,425** |
+| offline `-m "not live and not neo4j"` | — | **6,175 passed, 250 deselected**, 0 failed |
+| `tests/story` collected / offline-selected | — | **3,605** / **3,452** |
+| architecture tests (the five `*structure*.py` files) | 836 | **884** |

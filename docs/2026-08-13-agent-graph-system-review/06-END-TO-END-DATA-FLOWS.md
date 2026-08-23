@@ -4,6 +4,11 @@
 instance, from `data/`, or from a re-run of the code at commit `33b0d7f`. Nothing is
 illustrative.
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §D, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated.
+
 Three walkthroughs:
 
 * **Flow A** — a source filing becomes a numeric observation in the graph.
@@ -233,6 +238,10 @@ graph TD
 
 ### B.1 The chain
 
+> **Superseded at `ff3b08f`** — a deterministic derivation stage now sits between the plan and the
+> draft, the prompt versions are `1.2.0`/`2.2.0`, and the package identity and digest moved when
+> `max_derivations` joined `BudgetParameters`. See §D.
+
 ```text
 graph-v1-0483dc6b4b10  (loaded, freshness 14/14 checks pass)
     │
@@ -345,6 +354,10 @@ The package's five warnings, all carried into the model's view:
 
 ### B.4 Model call 1 — the planner
 
+> **Superseded at `ff3b08f`** — the replay store moved to a per-provider path, the provider is now
+> selectable, the prompt is version `1.2.0`, and `planner_prompt` takes the derivation offer set.
+> The `causal_language` argument and the plan's own shape are unchanged. See §D.
+
 * Provider: `story/providers/openai_compatible.py` (replayed here from
   `tests/story/fixtures/story_demo/generations.jsonl`; `--live` would call the server).
 * Model: `Qwen3.5-9B-Q4_K_M.gguf` at
@@ -398,6 +411,12 @@ not something a filing said.
 
 ### B.5 Model call 2 — the writer
 
+> **Superseded at `ff3b08f` — this walkthrough describes a draft schema that is now refused.**
+> Sentence 2's `operation` / `expression` / "no citation, no fact binding" row cannot be produced
+> by any writer today: `Calculation` left the schema at S13, and §13 refuses a draft that carries
+> one. The same sentence now **binds** `fact:derived:compare-levels:…` and carries two citations.
+> `writer_passages` and the three code-computed inputs are unchanged. See §D.
+
 * Prompt: `prompts.py::writer_prompt` + `writer_system(PLAIN_INVESTOR_STYLE)`, version
   `1.3.0`, schema `story_post_draft`, digest `b1fc050e1d5b…`, `max_tokens = 2048`,
   `length_target = 4` (from `config/story.yaml`).
@@ -443,6 +462,10 @@ sentence. The model chose the words; it did not choose which fact each numeral i
 
 ### B.6 The verification gate
 
+> **Superseded at `ff3b08f`** — the signature is now
+> `verify(draft, package, plan, derived_facts=())`, and the twelve checks examine different item
+> counts because sentence 2 binds a fact. Still twelve checks and still zero findings. See §D.
+
 `story/stages/verification/deterministic.py::DeterministicVerifier.verify(draft, package,
 plan)`. Twelve checks ran; every one returned zero findings:
 
@@ -473,6 +496,12 @@ The verifier recomputed the arithmetic; it did not take the model's word for it.
 
 ### B.7 The three other recorded runs — what refusal looks like
 
+> **Superseded at `ff3b08f` — treat this as a historical capture.** All four runs were produced by
+> pre-S12/S13 code. The `e101d5b08b3c` refusal quoted below is about a `calculation` field that no
+> longer exists on any draft a writer can emit, so it **cannot be reproduced** by running the code
+> today. The argument it illustrates survives; the run does not. The "nothing is retried" paragraph
+> is unchanged. See §D.
+
 The same candidate and the same code produce three other outcomes, which is the clearest
 statement of what the gates actually do:
 
@@ -495,6 +524,10 @@ writes the run directory anyway; the CLI exits non-zero. A schema violation is t
 answer, not a transport fault.
 
 ### B.8 Flow B as a diagram
+
+> **Superseded at `ff3b08f`** — the diagram names Qwen as the only model participant. The provider
+> is now selectable and `provider_id` is a `story_run_id` digest input, and the derivation stage is
+> missing from the sequence. See §D.
 
 ```mermaid
 sequenceDiagram
@@ -698,3 +731,220 @@ One object appears in all three: the observation
 
 At no point does the model create, alter or select the number. The only thing that changes
 between the three flows is who is reading it.
+
+---
+
+## D. What changed since `33b0d7f`
+
+**Measured 2026-08-23 at commit `ff3b08f`, by re-running the demo.** Everything above this line is
+the 2026-08-13 record and is not restated. Two changes account for all of it: **S12**
+(`MULTI_PROVIDER_OPENAI`) made the model provider selectable and a digest input; **S13**
+(`DETERMINISTIC_FACT_TOOLS`) moved every derived quantity out of the model's output into a
+deterministic stage.
+
+**Flow A and Flow C are unchanged in every particular.** `acquisition/`, `normalization/`,
+`ontology/`, `extraction/` and `graph/` are byte-identical to the baseline, and so are
+`story/demo_ui/projection.py`, `story/demo_ui/static/graph.js` and `story/demo_ui/server.py`
+(`git diff --stat 33b0d7f ff3b08f` over each returns nothing). Everything in Flow B before the
+planner is unchanged too: §B.2's candidate signals, §B.3's section ledger and five package
+warnings, §B.4's `causal_language` argument, §B.5's `writer_passages` rule, and the "nothing is
+retried" paragraph all still hold.
+
+### D.1 The run, re-executed
+
+```bash
+python -m story demo --candidate-id \
+  cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a
+```
+
+Replayed offline against the committed store, 2026-08-23. Disposition **accepted**, 12 checks,
+0 findings — the same verdict §B.6 records, reached through a different mechanism.
+
+### D.2 The package identity moved, and why
+
+`max_derivations: 12` joined `BudgetParameters` (`story/core/models.py:1370`). Every field of
+`BudgetParameters` is a digest input to both `package_id` and `story_run_id` through
+`digest_parts()`, so adding one field moved both:
+
+| | 2026-08-13 | 2026-08-23 |
+| --- | --- | --- |
+| `package_id` | `pkg:…-opendoor-2022q3:6a858ae5c031` | **`pkg:…-opendoor-2022q3:6943b6e1436a`** |
+| `package_content_digest` | `5c420f8c50717b73…` | **`0c2bc8491abe9e836334853bbd63c6a0454856058142cfcfc1ff715318760809`** |
+| `prompt_token_estimate` | 4,993 | **5,090** |
+| `artifact_token_estimate` | 6,539 | **6,642** |
+
+The package's *contents* did not change shape — still 2 facts, 1 primary passage, 5 warnings, the
+same section ledger. §B.3's budget table gains one row, `max_derivations` / 12.
+
+### D.3 The chain has a stage between the plan and the draft
+
+§B.1's ladder is now:
+
+```text
+    ├─ S7 planner   ← MODEL CALL 1   prompt story_editorial_plan v1.2.0
+    ▼
+EditorialPlan  (3 key points, 0 counterpoints, causal_language = forbidden,
+                requested_derivations)
+    │
+    ├─ S13 derivation   ← NO MODEL   story/stages/derivation/
+    ▼
+DerivedFact · EvidenceScopeFact                     → derived_facts.json
+    │
+    ├─ S8 writer    ← MODEL CALL 2   prompt story_post_draft v2.2.0
+    ▼
+Draft  (title + 3 sentences, each carrying its own bindings)
+```
+
+`story/pipeline.py:631` computes the offer set before the planner runs; `:668-678` executes what
+the plan asked for; `:1166` writes `derived_facts.json` into the run directory. The run now writes
+**eight** artifacts plus the manifest, `derived_facts.json` being the new one — *"Written whenever
+the derivation stage ran at all, refusals included"* (`story/pipeline.py:165`).
+
+`derived_facts.json` is **not** folded into `evidence_package.json`, and `story/pipeline.py:160-166`
+says why in the same terms `05`'s §12.5 records: the planner selects the derivations, and the
+package digest is a `story_run_id` input.
+
+Prompt versions: planner **`1.2.0`** (`prompts.py:138`), writer **`2.2.0`** (`:746`).
+
+### D.4 The fixture path moved
+
+§B.4 names the replay store as `tests/story/fixtures/story_demo/generations.jsonl`. **That file no
+longer exists.** Stores are per-provider, and `config/story.yaml:220-221` is authoritative:
+
+| Provider | Store |
+| --- | --- |
+| `local_openai_compatible` | `tests/story/fixtures/story_demo/local_openai_compatible/generations.jsonl` |
+| `openai` | `tests/story/fixtures/story_demo/openai/generations.jsonl` — committed, and deliberately absent from the shipped mapping |
+
+`store` selection is keyed on the provider because *"`request_identity` digests the adapter, so one
+provider's rows are a guaranteed miss for another and there is no store that serves both."*
+
+### D.5 The prompts are larger, and the writer's schema is smaller
+
+Re-measured 2026-08-23 by rebuilding both requests from the run's own package, plan and derived
+facts — the same method §B.4 and §B.5 used, against the new prompt versions:
+
+| | chars 2026-08-13 | chars 2026-08-23 |
+| --- | ---: | ---: |
+| `PLANNER_SYSTEM` | 2,190 | **3,011** |
+| `planner_prompt(package, offered=…)` | 7,241 | **8,508** |
+| `planner_schema(...)` | 1,804 | **2,248** |
+| **planner request total** | 11,235 | **13,767** (≈3,442 tokens) |
+| `writer_system(style)` | 5,706 | **6,095** |
+| `writer_prompt(…, derived_facts=…)` | 8,183 | **9,432** |
+| `writer_schema()` | 1,543 | **915** |
+| **writer request total** | 15,432 | **16,442** (≈4,111 tokens) |
+
+The writer schema is the one thing that got *smaller*: the `calculation` object, its operation
+enum and the FORMULA WINDOWS section are gone. `prompts.py:85-89` states the trade — *"nothing in
+the writer's grammar names an operation, an input order, an expression or a formula version any
+more, so none of them can be got wrong."*
+
+Both prompt functions changed signature: `planner_prompt(package, *, offered=())` and
+`writer_prompt(package, plan, passages, *, derived_facts=(), length_target=5)`. `writer_passages`
+still takes the package alone, so §B.5's central claim — the writer's passage set comes from the
+fact bindings, never from the plan — is unchanged.
+
+The offer set for this run holds **4** derivations; the plan requested one.
+
+### D.6 Sentence 2 is now a fact binding, and this is the substantive change
+
+§B.5's table row 2 describes a draft no writer can produce today. Measured from the re-run's
+`draft.json`:
+
+| # | kind | text | bindings / citations |
+| --: | --- | --- | --- |
+| 2 | `calculated` | "The GAAP gross margin was 15.9 percentage points lower than the Adjusted Gross Margin for the third quarter of 2022." | binds **`fact:derived:compare-levels:opendoor:adjusted-gross-margin-gaap-gross-margin:2022Q3:5f8f78fad963`** at chars 26–48 (`15.9 percentage points`), `metric_surface: "gaap gross margin"`, `period_surface: "the third quarter of 2022"`; cites `#p139` chars 492–498 **and** chars 1027–1030 |
+| | | | `calculation: null` |
+
+The baseline row read `operation: difference`, `expression: left < right`, **no citation and no
+fact binding**. All three are gone. The sentence now carries **two** citations — one per side of
+the comparison — and the derived value is an ordinary `FactBinding`, indistinguishable in shape
+from sentences 0 and 1.
+
+Sentences 0 and 1 are unchanged in substance; their citations now also carry an `evidence_handle`
+(`ev:norm:…#p139:r5c2`), the table-cell address the citation resolves to.
+
+The quantity itself is computed in `story/stages/derivation/`, from `derived_facts.json`:
+
+```json
+{ "fact_id": "fact:derived:compare-levels:opendoor:adjusted-gross-margin-gaap-gross-margin:2022Q3:5f8f78fad963",
+  "operation": "compare_levels",
+  "from_fact_id": "obs:adjusted-gross-margin:…3eabe78a6d25", "from_value": 3.3,
+  "to_fact_id":   "obs:gaap-gross-margin:…5fde8a274bdc",
+  "result": -15.9, "display_semantics": "lower than",
+  "source": "derivation_tool", "tool_version": "1.0.0" }
+```
+
+The same file also carries one `EvidenceScopeFact`,
+`fact:evidence-scope:no-supported-causal-explanation-in-package:a9aa22d70938` — a statement handed
+to the writer telling it the package supplies no explanation for what it describes, so it may state
+what the figures are and not why they moved. That is new machinery with no baseline counterpart.
+
+### D.7 The verifier's signature and its examined counts
+
+`DeterministicVerifier.verify(draft, package, plan)` is now
+**`verify(draft, package, plan, derived_facts=())`** (`story/contracts.py:225`). Twelve checks,
+zero findings, as before. The item counts moved because sentence 2 now has a fact to check:
+
+| Check | 2026-08-13 | 2026-08-23 |
+| --- | ---: | ---: |
+| `identity_and_freshness` | 9 | **10** |
+| `numbers` | 5 | **6** |
+| `units` | 2 | **3** |
+| `percentages` | 3 | **2** |
+| `metric_identity` | 4 | **6** |
+| `citations` | 2 | **4** |
+
+`periods` (3), `subject_identity` (3), `reported_vs_calculated` (3), `language_safety` (3),
+`title` (1) and `disclosures` (2) are unchanged.
+
+The **`fact_ledger` now has three rows, not two** — the derived fact is ledgered exactly like the
+two observations, resolving to `-15.9 percentage_points`. The **`calculation_ledger` still has one
+row**, and it now reads
+`compare_levels(obs:adjusted-gross-margin:…3eabe78a6d25, obs:gaap-gross-margin:…5fde8a274bdc)`
+recomputed to `-15.9` against `rendered: "15.9 percentage points"`. §B.6's closing sentence — *"The
+verifier recomputed the arithmetic; it did not take the model's word for it"* — is now true twice
+over: code computed the number before the writer saw it, and the verifier recomputed it after.
+
+### D.8 §B.7's four runs are a historical capture
+
+All four were produced by pre-S12/S13 code. `data/story_demo/story-v1-e101d5b08b3c/demo_manifest.json`
+records `prompt_versions: {story_editorial_plan: 1.1.0, story_post_draft: 1.3.0}` and carries no
+`provider_id` field at all.
+
+The `comparative_not_supported_by_text` code still exists (`story/stages/verification/codes.py:342`)
+and its argument is still in the gate's docstring (`:32-36`). **The run cannot be reproduced.** The
+refusal was about a `Calculation` the writer declared; the writer's schema has no such field, and
+`reported_sentence_carries_calculation` *"now fires on a `Calculation` under any sentence kind"*
+(`codes.py:114-117`), so feeding that draft to today's verifier would refuse it under a different
+code before the comparative check could be the story. `calculated_sentence_without_calculation`
+likewise *"now asks for a derived-fact binding."*
+
+Read §B.7 as a record of what the gates caught in August 2026, not as a runnable demonstration.
+
+### D.9 The provider is selectable, and it is part of the run id
+
+§B.8's sequence diagram names one model participant, `Qwen3.5-9B (llama.cpp)`. It is now whichever
+provider `config/story.yaml` selects or `--provider` names, and the choice is **identity**, not
+configuration: `provider_id` is a digest input to `story_run_id` (`story/core/keys.py:325`,
+argued at `:355-365`).
+
+The reason is a measured near-miss rather than a design preference:
+
+> "The digest already covered both model identifiers and nothing about *which adapter* produced
+> them, so a Qwen run and an OpenAI run over one graph, one config and one candidate minted one
+> `story-v1-…` and §1.6's finalisation would have replaced one with the other. It is not implied by
+> `model_id`: a local llama.cpp server answers to any model string, so two providers can be
+> configured with one name and the run id would not notice."
+
+`StoryRunManifest.provider_id` (`story/core/manifest.py:100`) records the same value beside
+`model_id` and `provider_model_id`, *"so a reader holding two directories can see why they are
+two."*
+
+### D.10 What the three flows share is unchanged
+
+The observation `obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc` still appears
+in all three flows, still with the value `-12.6`, still cited by sentence 0 of the accepted post.
+The closing claim holds and is now stronger: at no point does the model create, alter or select the
+number, and since S13 it does not compute one either.

@@ -1,0 +1,63 @@
+{
+  "anchor_observation_ids": [
+    "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+    "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:29eed5334641",
+    "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:2eecfb44211d",
+    "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:8ee90e802b43",
+    "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:34313de2e6f9",
+    "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9",
+    "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:6957704a2265",
+    "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:c637b1729035"
+  ],
+  "anchor_period_keys": [
+    "2022Q2",
+    "2022Q3"
+  ],
+  "audience": "external",
+  "candidate_id": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+  "detector_id": "detector:metric_move",
+  "detector_version": "1.0.0",
+  "event_ids": [],
+  "evidence_request": {
+    "event_ids": [],
+    "metric_ids": [
+      "adjusted_gross_profit"
+    ],
+    "observation_ids": [
+      "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+      "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:29eed5334641",
+      "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:2eecfb44211d",
+      "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:8ee90e802b43",
+      "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:34313de2e6f9",
+      "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9",
+      "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:6957704a2265",
+      "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:c637b1729035"
+    ],
+    "period_keys": [
+      "2022Q2",
+      "2022Q3"
+    ],
+    "want_counter_evidence": true,
+    "want_explanatory_search": false
+  },
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "metric_ids": [
+    "adjusted_gross_profit"
+  ],
+  "policy_version": "canon-policy:1.0.0",
+  "signals": {
+    "crosses_zero": false,
+    "delta": -446000000.0,
+    "delta_pct": -80.215827338,
+    "direction": "decrease",
+    "fired_on": "pct,abs",
+    "period_shape": "quarter",
+    "polarity": "revenue",
+    "threshold_abs_min": 50000000.0,
+    "threshold_pct_min": 65.0,
+    "value_floor": 13748650.0
+  },
+  "story_type": "metric_move",
+  "subject_entity_id": "opendoor",
+  "warnings": []
+}

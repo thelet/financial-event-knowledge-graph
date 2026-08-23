@@ -77,7 +77,12 @@ EXPECTED_SIZES = {
     # retired `more_than_one_calculation`: it refused a `calculation` array of two, and the
     # writer's schema has no `calculation` at all now, so nothing can raise it. A family that
     # *shrinks* is what this table exists to make loud, and this is the shrink being declared.
-    FAMILY_WRITER: 12,
+    # 12 -> 15 at S4 of `docs/2026-08-23-deterministic-draft-compiler/`, which gave §12 the three
+    # ways a *sentence template* can be wrong before a compiler is asked: `malformed_slot`,
+    # `rests_on_without_explanatory_sentence` and `rests_on_not_a_passage_handle`. Nothing was
+    # removed — `draft_from` and every code it raises stay as the parser for the 50 recorded
+    # `draft.json` artifacts and the pre-3.0.0 replay stores.
+    FAMILY_WRITER: 15,
 }
 
 

@@ -1,0 +1,72 @@
+{
+  "candidate_id": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Opendoor reported Adjusted Gross Margin of 3.3 percent for 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Opendoor reported GAAP Gross Margin of -12.6 percent for 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "The two reported 2022Q3 margin measures point in opposite directions, with Adjusted Gross Margin above zero and GAAP Gross Margin below zero.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "This is a comparison between two distinct margin measures, not two names for the same metric: Adjusted Gross Margin is the company's non-GAAP measure, while Gross Margin is the GAAP measure.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [],
+      "statement_class": "explanatory"
+    }
+  ],
+  "model_id": "gpt-5.4",
+  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:6943b6e1436a",
+  "prohibited_claims": [
+    "Do not say why the divergence occurred.",
+    "Do not compute or state the gap between the two margins in percentage points unless a derivation is requested.",
+    "Do not express the difference between the two margins as a percent change.",
+    "Do not merge, average, or otherwise combine Adjusted Gross Margin and GAAP Gross Margin.",
+    "Do not call Adjusted Gross Margin a GAAP measure.",
+    "Do not call Gross Margin a non-GAAP measure.",
+    "Do not describe what Opendoor's business does or what market it serves."
+  ],
+  "prompt_version": "1.2.0",
+  "requested_derivations": [],
+  "required_warnings": [],
+  "structure": [
+    "Lead with the headline divergence in 2022Q3 between Adjusted Gross Margin and GAAP Gross Margin.",
+    "State the reported Adjusted Gross Margin level.",
+    "State the reported GAAP Gross Margin level.",
+    "Note that one margin is positive and the other is negative.",
+    "Clarify that the comparison is between distinct non-GAAP and GAAP measures and should not be treated as interchangeable.",
+    "Close with a brief caution that the package is trimmed and the post should stay tightly anchored to the cited table."
+  ],
+  "thesis": "In 2022Q3, Opendoor Technologies Inc. reported a divergence between its non-GAAP Adjusted Gross Margin and its GAAP Gross Margin, with the adjusted measure positive and the GAAP measure negative.",
+  "uncertainty": "Use only the reported 2022Q3 levels and careful descriptive language. Do not infer causes, business implications beyond the observed divergence, or any computed gap unless a derivation is explicitly requested.",
+  "unusable_evidence": [],
+  "why_it_matters": "The two margin figures are both reported for the same quarter and are explicitly comparable as distinct measures, so the divergence is a useful framing for readers assessing how Opendoor's company-defined non-GAAP presentation differs from its GAAP result in that period."
+}

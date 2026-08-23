@@ -1,0 +1,59 @@
+{
+  "title": "Opendoor 2022Q3",
+  "sentences": [
+    {
+      "text": "Opendoor reported a GAAP gross margin of -12.6 percent for the third quarter of 2022.",
+      "kind": "reported",
+      "fact_bindings": [
+        {
+          "fact_id": "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
+          "rendered": "-12.6 percent",
+          "metric_surface": "gaap gross margin",
+          "period_surface": "the third quarter of 2022"
+        }
+      ],
+      "citations": [
+        {
+          "evidence_id": "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:r5c2"
+        }
+      ]
+    },
+    {
+      "text": "Opendoor reported an Adjusted Gross Margin of 3.3 percent for the third quarter of 2022.",
+      "kind": "reported",
+      "fact_bindings": [
+        {
+          "fact_id": "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",
+          "rendered": "3.3 percent",
+          "metric_surface": "Adjusted Gross Margin",
+          "period_surface": "the third quarter of 2022"
+        }
+      ],
+      "citations": [
+        {
+          "evidence_id": "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:r11c2"
+        }
+      ]
+    },
+    {
+      "text": "The GAAP gross margin was 15.9 percentage points lower than the Adjusted Gross Margin for the third quarter of 2022.",
+      "kind": "calculated",
+      "fact_bindings": [
+        {
+          "fact_id": "fact:derived:compare-levels:opendoor:adjusted-gross-margin-gaap-gross-margin:2022Q3:5f8f78fad963",
+          "rendered": "15.9 percentage points",
+          "metric_surface": "gaap gross margin",
+          "period_surface": "the third quarter of 2022"
+        }
+      ],
+      "citations": [
+        {
+          "evidence_id": "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:r5c2"
+        },
+        {
+          "evidence_id": "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:r11c2"
+        }
+      ]
+    }
+  ]
+}

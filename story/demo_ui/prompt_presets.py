@@ -262,50 +262,56 @@ def persona_text(system_text: str) -> str:
 #: a refusal code are two different vocabularies and nothing upstream joins them. Read the
 #: right-hand side as *"this is the check that fires when the rule is broken"* — several rules
 #: have more than one, and none of them is the whole of §13.
+# **Renumbered at S4 of `docs/2026-08-23-deterministic-draft-compiler/`, and the renumbering is
+# the coupling this mapping exists to make visible.** `WRITER_SYSTEM` went from seventeen rules
+# to fourteen when the writer stopped declaring bindings and citations, so five of the keys below
+# now mean something different from what they meant an hour ago and three of them are gone. That
+# is why the map is keyed by rule *number* and pinned by a test: a prompt edit that silently
+# re-pointed a panel row at the wrong refusal code is exactly the failure this arrangement makes
+# impossible to land quietly.
+#
+# **Rules 2 and 3 map to nothing, deliberately.** Both are refusals the *draft compiler* raises —
+# `unknown_slot_handle`, `unknown_slot_field`, `field_not_offered_by_row`, `slot_without_binding`
+# — and those codes are not in §13's gate and not in §11's violation constants, which are the two
+# vocabularies `test_every_code_the_panel_names_is_one_something_can_actually_emit` accepts. S6
+# adds the composition family to `demo_ui/code_catalogue.py`; naming one here before it exists
+# would put a string in the panel that nothing can emit, which is the single thing this mapping
+# is checked against. Rule 14's two sections are unmapped for the same reason they always were.
 _WRITER_RULE_CODES: Mapping[int, tuple[str, ...]] = {
-    1: ("unbound_numeral", "fact_not_in_package", "unit_mismatch"),
-    2: ("reported_sentence_carries_calculation", "connective_sentence_carries_a_claim"),
-    3: ("binding_span_does_not_match_text", "binding_rendering_is_not_one_numeral",
-        "unbound_numeral"),
-    4: ("metric_surface_ambiguous", "metric_surface_unresolved", "metric_binding_mismatch"),
-    # Rule 5 became the **derived-fact** rule at DETERMINISTIC_FACT_TOOLS §5, and the three
-    # calculation rules that stood at 5, 6 and 7 are gone: the writer declares no operation, no
-    # input order and no formula version, so `calculation_does_not_recompute`,
-    # `sign_disagreement` and `formula_version_not_valid_for_period` are no longer things a
-    # model can cause by breaking a prompt rule. What it can still do is write the wrong number
-    # for a row it was shown, or write a period that is not the row's.
-    5: ("number_outside_tolerance", "period_surface_absent_from_text", "fact_not_in_package"),
-    6: ("uncited_factual_sentence", "unresolvable_evidence_handle",
-        "evidence_handle_out_of_bounds", "evidence_cell_value_mismatch",
-        "evidence_row_label_mismatch", "evidence_column_label_mismatch",
-        "evidence_cell_span_mismatch"),
-    # `evidence_handle_not_for_fact` is rule 7's, not rule 6's: rule 6 says a sentence must
-    # carry an evidence id the FACTS section printed, and rule 7 says it must be *the id of a
-    # fact that sentence rests on*. §3.4 check 7 is exactly the second sentence, and it is the
-    # check that catches a sentence citing a neighbouring cell in the same passage — 90 of
-    # which were measured constructible, 88 raising no other finding at all.
-    # `uncited_factual_sentence` is on **both** rules, and that is not a duplicate: rule 6 is
-    # broken by a sentence carrying no citation, and rule 7 by a sentence carrying one evidence
-    # id while resting on two facts. §13.7 raises the same code for both, because a figure with
-    # no evidence behind it is one defect however the sentence got there.
-    7: ("citation_reused_for_unrelated_claim", "citation_does_not_support_fact",
-        "evidence_handle_not_for_fact", "uncited_factual_sentence"),
+    # A numeral the model typed itself is covered by no binding the compiler wrote, so §13.1
+    # refuses it. `fact_not_in_package` is the other half — a slot naming a row outside this
+    # package cannot be filled, and a `Draft` arriving from anywhere else still reaches the check.
+    1: ("unbound_numeral", "fact_not_in_package", "period_surface_absent_from_text",
+        "period_named_in_text_contradicts_binding"),
+    3: ("unbound_numeral",),
+    # Rule 4 is the one rule that *permits* the model prose where a slot would do, so the codes
+    # here are the ones that fire on the prose half: §13.5 reads the metric out of the sentence
+    # with the same alias index whether a slot or the model put it there.
+    4: ("metric_surface_absent_from_text", "metric_named_in_text_contradicts_binding",
+        "metric_surface_ambiguous"),
+    5: ("derived_fact_orientation_reversed", "derived_direction_not_stated_in_text",
+        "derived_fact_polarity_contradicted", "derived_unit_mismatch", "derived_fact_not_in_run"),
+    # Rule 6 is *"you write no citation"*, and every code here is one the compiler now prevents on
+    # this path and the verifier still raises on a replayed draft. They stay mapped because the
+    # rule is what stands between a model inventing a citation field and the check that would
+    # have caught it: `citation_reused_for_unrelated_claim` alone was 15 of the corpus's 74
+    # blocking findings.
+    6: ("uncited_factual_sentence", "citation_reused_for_unrelated_claim",
+        "evidence_handle_not_for_fact", "citation_does_not_support_fact",
+        "calculated_sentence_cites_passage"),
+    7: ("connective_sentence_carries_a_claim", "reported_sentence_carries_calculation",
+        "calculated_sentence_without_calculation"),
     8: ("percent_change_ambiguous", "percentage_point_surface_missing",
         "percent_change_reported_not_calculated"),
     9: ("unsupported_superlative", "unsupported_absence_claim",
         "unsupported_temporal_ordering"),
     10: ("unsupported_comparative", "comparative_recomputation_failed",
          "comparative_not_supported_by_text"),
-    11: ("forward_looking_language",),
-    12: ("foreign_subject_named", "unresolved_entity_named"),
-    13: ("required_warning_absent", "required_warning_has_no_declared_qualifier"),
-    14: ("required_counterpoint_absent",),
-    15: ("unbound_numeral", "unsupported_superlative", "causal_construction_forbidden",
+    11: ("forward_looking_language", "foreign_subject_named", "unresolved_entity_named"),
+    12: ("required_warning_absent", "required_warning_has_no_declared_qualifier",
+         "required_counterpoint_absent"),
+    13: ("unbound_numeral", "unsupported_superlative", "causal_construction_forbidden",
          "forward_looking_language", "foreign_subject_named"),
-    # Rule 16 (the ontology sections) and rule 17 (evidence scope) map to nothing here. The
-    # first never did; the second is §7's, whose gate codes are the verifier's to declare, and
-    # naming one before it exists would put a string in the panel that nothing emits — which is
-    # the single thing this mapping is checked against.
 }
 
 _PLANNER_RULE_CODES: Mapping[int, tuple[str, ...]] = {

@@ -4,6 +4,11 @@
 coordinates, and keep the span it occupies*). **Graph snapshot:** `graph-v1-0483dc6b4b10`, loaded
 2026-08-13T09:15:36Z.
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §10, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated.
+
 This folder is a **current-system baseline**, not a proposal. Every number was measured on the date
 stated, by running the command or the query shown. Where a repository document disagrees with the
 code, the code is documented and the disagreement is named.
@@ -36,6 +41,10 @@ code, the code is documented and the disagreement is named.
 ---
 
 ## 1. The pipeline, corrected against the implementation
+
+> **Superseded at `ff3b08f`** — a deterministic derivation stage now sits between the planner and
+> the writer, there are six dispositions rather than four, and the verifier's gate table is 102
+> codes of which 96 block. See §10.
 
 The shape proposed in the audit brief is close. Six corrections:
 
@@ -74,6 +83,10 @@ SEC EDGAR
 
 ## 2. What each stage owns, and what it deliberately does not
 
+> **Superseded at `ff3b08f`** — the table has no **derivation** row, and that stage now owns every
+> quantity a post states that no filing printed; the planner additionally owns
+> `requested_derivations[]`. See §10.
+
 | Stage | Owns | Deliberately does **not** own |
 | --- | --- | --- |
 | **acquisition** | fetching, rate limiting, byte preservation, immutable manifests, atomic finalization | any interpretation of a document; the catalog never decides what to download |
@@ -95,6 +108,11 @@ SEC EDGAR
 ---
 
 ## 3. Where deterministic code ends and the model begins
+
+> **Superseded at `ff3b08f`** — both signatures gained an argument (`plan_story(…, offered=)`
+> and `write_story(…, derived_facts=)`) and `openai_compatible.py` is one of two provider
+> adapters; the boundary itself is unchanged — still two model calls, still no `tools` key. See
+> §10.
 
 **There is exactly one boundary, and it is crossed exactly twice per run.**
 
@@ -122,6 +140,11 @@ through the story executor was refused by the server
 shows **15 calls, all before the first token, zero after**.
 
 ### Where factual information is allowed to originate
+
+> **Superseded at `ff3b08f`** — a worked-out number is a `DerivedFact` code computed before the
+> writer ran and the writer binds like any other fact, not a `Calculation` the model declares and
+> the verifier recomputes; and a citation is one `evidence_id` handle that code resolves to a
+> span, not a verbatim quote. See §10.
 
 | Kind of content | Origin |
 | --- | --- |
@@ -240,6 +263,10 @@ through that surface.
 
 ## 7. Complete system architecture
 
+> **Superseded at `ff3b08f`** — the diagram carries no derivation stage between `S5` and `S6` and
+> one model server where there are now two adapters; its `story/` line count and its verifier
+> code count have both moved. See §10.
+
 ```mermaid
 graph TB
     subgraph ext["Outside"]
@@ -315,6 +342,10 @@ Orange = a model is involved. Blue = an artifact or a store.
 ---
 
 ## 8. The thirty questions, answered
+
+> **Superseded at `ff3b08f`** — answers 10 to 14, 16 and 18 rest on contracts that moved: the
+> planner's and the writer's prompt sections, the writer's `calculation`, and the 11 / 11 / 85
+> violation-and-gate counts, which are now 12 / 12 / 102. See §10.
 
 1. **Where does the graph's truth originate?** In SEC filings, byte-preserved under their original
    filenames in `data/raw/`, reachable from every graph fact by `source_url`, `passage_id`,
@@ -398,3 +429,140 @@ A deterministic, byte-reproducible pipeline turns SEC filings into a small, heav
 graph, and a very large amount of deterministic machinery — roughly four times as much code as
 builds the graph — surrounds two schema-constrained model calls so that the model chooses the
 words and never the facts.
+
+---
+
+## 10. What changed since `33b0d7f`
+
+**Measurement date: 2026-08-23. Code baseline: commit `ff3b08f`, worktree clean.** Everything
+above this line is the 2026-08-13 record and is left as it was; every number below was measured on
+2026-08-23 by running the command or importing the module named. `02` §11 carries the same changes
+at the grain of the story pipeline's own contracts.
+
+**The answer first: the model's job did not change, and the machinery around it grew a stage and a
+second door.** There are still exactly two model calls per run, still no `tools` key, still no
+retriever parameter, and still no model anywhere in the verdict. What changed is that arithmetic
+left the model's hands entirely, a citation became a handle instead of a quotation, and a second
+provider became selectable.
+
+| Landed | What it is | Where |
+| --- | --- | --- |
+| **S12** — a second model provider | the OpenAI Responses API beside the local llama.cpp server, dispatched on `provider.kind` | `story/providers/openai_responses.py` (527 lines), `SUPPORTED_KINDS` at `story/providers/public.py:68` |
+| **S13** — deterministic fact tools | a derivation stage between planner and writer that computes every worked-out quantity a post states, with no model call in it | `story/stages/derivation/` (1,711 lines across five modules), called at `story/pipeline.py:663-682` |
+
+### 10.1 The flow, corrected
+
+The tail of §1's flow block has moved — a stage was inserted and three lines changed. Corrected:
+
+```text
+  ↓  planner               MODEL CALL 1 · schema-constrained · also names requested_derivations[]
+  ↓  derivation            NO MODEL · plan's requests in, DerivedFacts out · derived_facts.json
+  ↓  writer                MODEL CALL 2 · schema-constrained · binds derived facts like any other
+  ↓  deterministic verify  12 checks · 102 codes · 96 blocking   NO MODEL
+  ↓  accepted → post.md    |    refused/rejected → rejected.json
+```
+
+The derivation stage imports no provider (`story/stages/derivation/execute.py:33-67`) and cannot
+raise a provider error, which is why `story/pipeline.py:663` calls it with no `try` around it.
+
+### 10.2 Six dispositions, not four
+
+`story/pipeline.py:190-201`. Two joined the four, each for a stated reason recorded at the
+constant.
+
+| Disposition | Refusing stage | Added |
+| --- | --- | --- |
+| `accepted` | — | baseline |
+| `rejected` | `deterministic_verifier` | baseline |
+| `plan_refused` | `editorial_planner` | baseline |
+| `derivation_refused` | `derivation_tool` | **2026-08-19** — a detector-signal disagreement is two code paths computing one number and differing, never a judgement about a plan |
+| `draft_refused` | `post_writer` | baseline |
+| `provider_failed` | **none** — no stage refused | **2026-08-19** — a live run with a rejected key came back as `plan_refused` naming a planner that was never reached |
+
+`REFUSING_STAGE` deliberately has no row for `provider_failed`: a 401, a closed port and a timeout
+are not a model's judgement about anything.
+
+### 10.3 The gate table: 85 codes → 102
+
+Measured by importing `story/stages/verification/codes.py::GATE` at both commits and differencing
+the two mappings.
+
+| | `33b0d7f` | `ff3b08f` |
+| --- | ---: | ---: |
+| codes | 85 | **102** |
+| REFUSE (blocking) | 79 | **96** |
+| WARN | 2 | 2 |
+| ANNOTATE | 4 | 4 |
+
+**Seventeen codes added, none removed, and no severity or section moved on any surviving code.**
+Ten are S13's derivation family (`derivation_not_offered`, `derived_direction_not_stated_in_text`,
+`derived_fact_not_in_run`, `derived_fact_orientation_reversed`, `derived_fact_polarity_contradicted`,
+`derived_inputs_incomparable`, `derived_operation_not_supported`, `derived_result_mismatch`,
+`derived_unit_mismatch`, `evidence_scope_binding_declares_a_surface`); seven are the evidence-handle
+family (`evidence_cell_span_mismatch`, `evidence_cell_value_mismatch`,
+`evidence_column_label_mismatch`, `evidence_handle_not_for_fact`, `evidence_handle_out_of_bounds`,
+`evidence_row_label_mismatch`, `unresolvable_evidence_handle`). The verifier is still **12 checks**
+and still constructible with no database and no provider.
+
+### 10.4 Where factual information is allowed to originate, corrected
+
+§3's table, with the two rows that moved:
+
+| Kind of content | Origin at `33b0d7f` | Origin at `ff3b08f` |
+| --- | --- | --- |
+| Any number in the post | a `PackagedFact.value`, or a `Calculation` the verifier recomputes | a `PackagedFact.value`, or a **`DerivedFact`** computed by `story/stages/derivation/` *before the writer ran* and bound by the writer exactly like a filed fact |
+| Any citation | a passage in the writer's own slice, quoted verbatim, span located by code | one **`evidence_id`** handle naming a `PackagedFact`; code resolves it to a cell and then to a span. `story/stages/generation/writer.py:519-541` — *"Nothing here searches the passage for a string the model wrote, which is the entire difference from the contract this replaced."* |
+
+Every other row of §3's table still holds. The handle is minted from coordinates the fact already
+carries (`story/core/models.py:659-700`), so a stated handle that disagrees with the coordinates is
+refused rather than believed.
+
+### 10.5 Signatures
+
+| At `33b0d7f` | At `ff3b08f` |
+| --- | --- |
+| `plan_story(package, *, provider, max_tokens)` | `plan_story(package, *, provider, max_tokens, offered=())` — `story/stages/generation/planner.py:558` |
+| `write_story(package, plan, *, provider, style, length_target, max_tokens)` | `write_story(package, plan, *, provider, style, length_target, max_tokens, derived_facts=())` — `story/stages/generation/writer.py:731` |
+| `DeterministicVerifier.verify(draft, package, plan)` | `verify(draft, package, plan, derived_facts=())` — `story/stages/verification/deterministic.py:342` |
+
+Neither new argument is a hole in the wall. `offered` is a pure function of the package and the
+candidate computed before the call by a stage with no model in it; `derived_facts` is computed from
+the plan's own requests by the same stage. `writer_passages(package)` still takes no plan argument.
+
+### 10.6 Two providers
+
+`config/story.yaml`'s `provider:` block now nests an `openai:` block naming **three** models, each
+with a measured capability rather than an inferred one.
+
+| Model | `supports_temperature` | `reasoning_effort` | Measured |
+| --- | --- | --- | --- |
+| `gpt-5-nano` (default) | false | `minimal` | HTTP 400 *"Unsupported parameter: 'temperature'"*, probed 2026-08-19 |
+| `gpt-4.1-mini` | true | — | accepts `temperature: 0.0` |
+| `gpt-5.4` | false | `none` | at `medium` the writer call spends its whole 2,048-token budget reasoning and returns `status: incomplete` |
+
+The pipeline default stays `local_openai_compatible`, and there is deliberately **no OpenAI replay
+store** in the shipped config, which is what lets the demo UI answer `provider_requires_live` for
+OpenAI honestly. `python -m story demo` gained `--provider` and `--model` (`story/cli.py:301,304`).
+Neither adapter sends a `tools` key.
+
+### 10.7 The system, re-measured
+
+| | 2026-08-13 | 2026-08-23 |
+| --- | ---: | ---: |
+| verification checks / gate codes / blocking | 12 / 85 / 79 | 12 / **102** / **96** |
+| dispositions | 4 | **6** |
+| model calls per run | 2 | **2** |
+| retries anywhere | 0 | **0** |
+| `story/` lines | 37,927 | **47,965** |
+| `acquisition` / `normalization` / `ontology` / `extraction` / `graph` lines | 4,375 / 5,191 / 3,175 / 13,547 / 9,634 | unchanged, all five |
+| total tests collected | 5,840 | **6,425** |
+| offline suite `-m "not live and not neo4j"` | — | **6,175 passed, 250 deselected**, 0 failed |
+| `tests/story` collected / offline-selected | — | **3,605** / **3,452** |
+| architecture tests (the five `*structure*.py` files) | 836 | **884** |
+
+A new run artifact joins the list §9.1 of `02` records: **`derived_facts.json`**
+(`story/pipeline.py:167`), written whenever the derivation stage ran at all, refusals included,
+because *"a file recording only the successes could not answer 'what did the plan ask for?'"*. It is
+a separate artifact and not a package section on purpose — `package_content_digest` is a
+`story_run_id` input, so a package whose contents depended on a model call would make the run id
+depend on the model's output.

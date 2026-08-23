@@ -24,12 +24,13 @@ in the tests above it, and none of those refusals is re-implemented in `writer.p
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import inspect
 import json
 import socket
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import pytest
 
@@ -69,23 +70,28 @@ from story.core.models import (
 )
 from story.core.numerals import SurfaceUnit, tokenize_numerals
 from story.core.table_cells import resolve_cell
-from story.providers.portable_schema import PORTABLE_KEYWORDS, validate_portable_schema
+from story.providers.portable_schema import (
+    PORTABLE_KEYWORDS,
+    schema_violations,
+    validate_portable_schema,
+)
 from story.providers.public import (
     PINNED_TEMPERATURE,
     StoryProviderResponseError,
     StoryProviderSchemaError,
     load_provider_config,
 )
+from story.core.renderings import derived_figure as _derived_figure
+from story.core.renderings import observed_figure as _observed_figure
 from story.stages.generation.prompts import (
     PLAIN_INVESTOR_STYLE,
     WARNING_QUALIFIER_PHRASES,
     WRITER_MAX_TOKENS,
     WRITER_PROMPT_VERSION,
+    FACTS_HEADING,
     WRITER_SCHEMA_NAME,
     WRITER_SYSTEM,
     StyleProfile,
-    _derived_figure,
-    _observed_figure,
     metric_surfaces_for,
     period_surface_for,
     writer_prompt,
@@ -104,16 +110,28 @@ from story.stages.generation.writer import (
     UNRESOLVABLE_EVIDENCE_HANDLE,
     UNRESOLVABLE_FACT_ID,
     UNRESOLVABLE_PASSAGE_ID,
+    MALFORMED_SLOT,
+    PASSAGE_ROW,
+    RESTS_ON_NOT_A_PASSAGE_HANDLE,
+    RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE,
     DraftRejected,
+    SentenceTemplate,
     draft_from,
     draft_violations,
     render_markdown,
+    templates_from,
     write_story,
     writer_passages,
 )
+import story.stages.generation.writer as writer_module
 # The verifier is a *different stage*, and `writer.py` may not import it —
 # `test_the_writer_module_reaches_no_graph_no_retrieval_and_no_verifier` asserts that. A test
 # may, and must: the demo claim is that these two meet.
+from story.stages.composition.compile import SLOT_PATTERN as COMPILER_SLOT_PATTERN
+from story.stages.composition.compile import compile_draft
+from story.stages.composition.public import SentenceTemplate as CompilerSentenceTemplate
+from story.stages.composition.public import SlotKind, SlotRow
+from story.stages.composition.slot_table import slot_table
 from story.stages.derivation.execute import execute
 from story.stages.derivation.offers import offers
 from story.stages.detection import detector_config
@@ -369,6 +387,56 @@ def valid_answer(**overrides: Any) -> dict[str, Any]:
     return content
 
 
+# -- the S4 answer: sentence templates, and what the compiler makes of them --------------------
+#
+# **Two answer fixtures now, and both are real.** `valid_answer()` above is what the model
+# returned under `WRITER_PROMPT_VERSION` 2.2.0 — a sentence with a `fact_bindings` array and a
+# `citations` array — and it is what all 50 recorded `data/story_demo/*/draft.json` artifacts
+# carry, so it stays as the input to `draft_from`, the parser kept for them. `template_answer()`
+# is what the model returns under 3.0.0. Nothing converts one into the other: they are answers to
+# two different questions, and a helper that translated between them would hide exactly that.
+
+#: The metric slot is used here and **not** in `TEMPLATE_PROSE_METRIC_TEXT` below, because rule 4
+#: says it is optional and a test that only ever exercised one of the two would leave the other
+#: half of the rule unmeasured.
+TEMPLATE_AGM_TEXT = "{{F1.metric}} was {{F1}} in {{F1.period}}."
+TEMPLATE_GGM_TEXT = "{{F2.metric}} was {{F2}} in {{F2.period}}."
+#: Rule 4's other half: the metric named in the model's own words while the figure and the period
+#: are still slots. §13.5 reads the metric out of the sentence with the same alias index either
+#: way, which is the claim `test_a_metric_named_in_the_writers_own_words_verifies_clean` measures.
+TEMPLATE_PROSE_METRIC_TEXT = "Adjusted Gross Margin was {{F1}} in {{F1.period}}."
+
+
+def template_sentence(text: str, kind: str, rests_on: Sequence[str] = ()) -> dict[str, Any]:
+    """One sentence row, with the three properties §4.2's schema has and no fourth.
+
+    There is nowhere in this helper to put a binding, a citation or a rendering. That is the
+    contract change stated as a signature: no test below can accidentally assert against a shape
+    the grammar refuses, and `rests_on` is present-and-possibly-empty because
+    `portable_schema` admits no optional property.
+    """
+    return {"text": text, "kind": kind, "rests_on": list(rests_on)}
+
+
+def template_answer(**overrides: Any) -> dict[str, Any]:
+    """What a conformant model returns for `make_package()` under `make_plan()`, at 3.0.0.
+
+    The same three sentences `valid_answer()` states — the two margins and the connective that
+    carries the required `filing_date_unknown` qualifier — written as templates. Every numeral
+    and every period in the compiled post comes out of `slot_table`; the model typed none.
+    """
+    content: dict[str, Any] = {
+        "title": "Two gross margins in one quarter",
+        "sentences": [
+            template_sentence(TEMPLATE_AGM_TEXT, "reported"),
+            template_sentence(TEMPLATE_GGM_TEXT, "reported"),
+            template_sentence(WARNING_TEXT, "connective"),
+        ],
+    }
+    content.update(overrides)
+    return content
+
+
 # -- §2's candidate, and the derived facts the writer now binds -------------------------------
 #
 # **A second package, and it earns its place.** Every other test in this file runs on the
@@ -526,6 +594,28 @@ def derived_answer(derived: tuple[DerivedFact, ...], **overrides: Any) -> dict[s
     return content
 
 
+AGP_REPORTED_TEMPLATE = "{{F2.metric}} was {{F2}} in {{F2.period}}."
+AGP_DERIVED_TEMPLATE = "{{D1.metric}} {{D1.direction}} {{D1}} in {{D1.to_period}}."
+
+
+def derived_template_answer(**overrides: Any) -> dict[str, Any]:
+    """The 3.0.0 answer for §2's candidate: a reported row and a derived one, all slots.
+
+    The `calculated` sentence names `{{D1}}` and `{{D1.direction}}` and nothing else about the
+    derivation — no operation, no input list, no expression, no formula version. Those four
+    fields are what §2's live run got wrong or left empty, and none of them is in the answer.
+    """
+    content: dict[str, Any] = {
+        "title": "Adjusted gross profit in 2022Q3",
+        "sentences": [
+            template_sentence(AGP_REPORTED_TEMPLATE, "reported"),
+            template_sentence(AGP_DERIVED_TEMPLATE, "calculated"),
+        ],
+    }
+    content.update(overrides)
+    return content
+
+
 class FakeWriteProvider:
     """A `StoryGenerationProvider` with a fixed answer and a record of what it was asked.
 
@@ -536,7 +626,7 @@ class FakeWriteProvider:
 
     def __init__(self, content: Mapping[str, Any] | None = None,
                  raises: Exception | None = None, model_id: str = "Qwen3.5-9B-Q4_K_M.gguf"):
-        self.content = dict(content if content is not None else valid_answer())
+        self.content = dict(content if content is not None else template_answer())
         self.raises = raises
         self.model_id = model_id
         self.calls: list[dict[str, Any]] = []
@@ -562,6 +652,19 @@ class FakeWriteProvider:
         return HealthStatus(ok=True, status="ok", detail="fake")
 
 
+def rows_for(
+    package: StoryEvidencePackage, derived_facts: Sequence[DerivedFact] = ()
+) -> tuple[SlotRow, ...]:
+    """This run's slot table, built the way `story/pipeline.py` will build it.
+
+    A test may import the composition stage and `story/stages/generation/` may not — which is the
+    whole reason `writer_prompt` and `write_story` take the rows as an argument. Calling
+    `slot_table` here rather than hand-building rows is what makes these tests exercise the seam
+    the pipeline uses instead of a shape only this file believes in.
+    """
+    return slot_table(package, derived_facts, writer_passages(package))
+
+
 def write_with(
     provider: StoryGenerationProvider,
     package: StoryEvidencePackage | None = None,
@@ -569,22 +672,72 @@ def write_with(
     *,
     style: StyleProfile = PLAIN_INVESTOR_STYLE,
     derived_facts: tuple[DerivedFact, ...] = (),
+    slots: Sequence[SlotRow] | None = None,
 ):
     """Every test goes through this, annotated with the protocol, so the surface under test is
     the contract rather than the concrete fake.
 
     `derived_facts` defaults to none, which is what makes the default path the one every test
-    above exercises: a writer handed no derived fact can resolve no `fact:derived:` id.
+    above exercises: a writer handed no derived fact has no `D` row in its table.
+
+    `slots` defaults to the real table for whatever package and derived facts were passed, so a
+    test that says nothing about the table gets the one the pipeline would build. `slots=()` is
+    still reachable, and one test below uses it to show what a caller that forgot the table gets.
     """
+    package = package if package is not None else make_package()
+    plan = plan if plan is not None else make_plan()
     return write_story(
+        package, plan,
+        provider=provider, style=style, length_target=5, max_tokens=WRITER_MAX_TOKENS,
+        derived_facts=derived_facts,
+        slots=rows_for(package, derived_facts) if slots is None else slots)
+
+
+def compiled_of(
+    answer: Mapping[str, Any],
+    package: StoryEvidencePackage | None = None,
+    plan: EditorialPlan | None = None,
+    *,
+    derived_facts: tuple[DerivedFact, ...] = (),
+) -> Draft:
+    """One template answer, written and then compiled — the whole of the S4 path in one call.
+
+    The compiler is a different stage and this file may reach it; `writer.py` may not, which is
+    the boundary `test_the_writer_module_reaches_no_graph_no_retrieval_and_no_verifier` holds.
+    Everything a `Draft` carries below this line was written by `compile_draft` from a trusted
+    row, which is the property the tests underneath are about.
+    """
+    package = package if package is not None else make_package()
+    plan = plan if plan is not None else make_plan()
+    written = write_with(FakeWriteProvider(answer), package, plan, derived_facts=derived_facts)
+    return compile_draft(
+        written.templates, package, plan,
+        derived_facts=derived_facts, title=written.title,
+        model_id="Qwen3.5-9B-Q4_K_M.gguf", style_profile_id=PLAIN_INVESTOR_STYLE.profile_id,
+        prompt_version=WRITER_PROMPT_VERSION).draft
+
+
+def draft_of(
+    answer: Mapping[str, Any],
+    package: StoryEvidencePackage | None = None,
+    plan: EditorialPlan | None = None,
+    *,
+    derived_facts: tuple[DerivedFact, ...] = (),
+) -> Draft:
+    """A **pre-3.0.0** answer through the parser that is kept for the artifacts already on disk.
+
+    `draft_from` is no longer on the pipeline path and is no longer reachable through
+    `write_story`, so every test below that judges a `fact_bindings`/`citations` answer calls it
+    directly. That is not a test of a dead path: 50 recorded `data/story_demo/*/draft.json`
+    artifacts and every pre-3.0.0 replay store carry exactly this shape, a `Draft` read back
+    from one still has to resolve, and these are the §12 rules that decide whether it does.
+    """
+    return draft_from(
+        answer,
         package if package is not None else make_package(),
         plan if plan is not None else make_plan(),
-        provider=provider, style=style, length_target=5, max_tokens=WRITER_MAX_TOKENS,
-        derived_facts=derived_facts)
-
-
-def draft_of(answer: Mapping[str, Any], **kwargs: Any) -> Draft:
-    return write_with(FakeWriteProvider(answer), **kwargs).draft
+        derived_facts=derived_facts,
+        model_id="Qwen3.5-9B-Q4_K_M.gguf")
 
 
 @pytest.fixture
@@ -639,8 +792,13 @@ def test_the_writer_takes_a_package_a_plan_a_provider_a_style_and_two_budgets():
     # than something this one could have derived: §3 keeps derived facts out of the package, so
     # there is nothing here to derive them from. Everything §10.2.1 point 3 forbids — a
     # retriever, a term list, a passage set — is still absent.
+    # `slots` joined `derived_facts` at S4 and the two are the same kind of argument: each is
+    # something a *different stage* computed, and neither is derivable here — §3 keeps derived
+    # facts out of the package, and the slot table lives in `story/stages/composition/`, which
+    # this stage may not import. Everything §10.2.1 point 3 forbids — a retriever, a term list,
+    # a passage set — is still absent.
     assert list(parameters) == ["package", "plan", "provider", "style", "length_target",
-                                "max_tokens", "derived_facts"]
+                                "max_tokens", "derived_facts", "slots"]
     assert parameters["max_tokens"].default is inspect.Parameter.empty
     assert parameters["length_target"].default is inspect.Parameter.empty
     assert "temperature" not in parameters
@@ -678,8 +836,13 @@ def test_a_plan_that_cites_fewer_passages_does_not_narrow_the_writers_universe()
         KeyPoint(claim="Adjusted gross margin was 3.3% in 2022Q3.",
                  required_fact_ids=(AGM_ID,), required_citation_passage_ids=(),
                  statement_class=StatementClass.REPORTED),))
-    assert (writer_prompt(package, narrow, writer_passages(package))
-            .count(f"[{PASSAGE_ID}]") == 1)
+    # The handle, not the id: a passage is named in `rests_on` by the handle its slot row
+    # carries, and the id is not printed at all now. What the assertion is about is unchanged —
+    # the plan named no passage and the writer was still shown the one its facts were read from.
+    prompt = writer_prompt(package, narrow, writer_passages(package),
+                           slots=rows_for(package))
+    assert prompt.count("[P1]") == 1
+    assert PASSAGE_TEXT.strip() in prompt.replace("\n      ", "\n")
     assert writer_passages(package) == writer_passages(package)
 
 
@@ -734,22 +897,34 @@ def test_every_object_in_the_writer_schema_forbids_extras_and_requires_every_pro
             assert isinstance(subschema.get("items"), Mapping), path
 
 
-def test_the_writer_schema_carries_no_calculation_and_no_operation_anywhere_in_it():
-    """DETERMINISTIC_FACT_TOOLS §5: the writer declares no arithmetic, so it has no field to.
+def test_the_writer_schema_carries_three_properties_and_no_object_array():
+    """§4.2: three properties per sentence, and the two object arrays are gone with the six
+    model-authored strings inside them.
 
-    Asserted over the **whole** schema rather than over the one property that used to hold it,
-    because the failure being guarded against is the field coming back somewhere else — an
-    `operation` on a binding, an `expression` beside the text. A sentence now has exactly four
-    properties and every one of them is about words or ids.
+    Asserted over the **whole** schema rather than over the properties that used to hold them,
+    because the failure being guarded against is a field coming back somewhere else — a
+    `metric_surface` beside the text, an `evidence_id` inside `rests_on`. Success criterion 3 of
+    the implementation plan is exactly this assertion: *"`rendered`, `metric_surface`,
+    `period_surface` and every citation are compiler-authored on the pipeline path, proved by a
+    test that greps the writer's schema for those names"*.
     """
     schema = writer_schema()
     sentence_item = schema["properties"]["sentences"]["items"]
-    assert set(sentence_item["required"]) == {"text", "kind", "fact_bindings", "citations"}
+    assert set(sentence_item["required"]) == {"text", "kind", "rests_on"}
     assert set(sentence_item["properties"]) == set(sentence_item["required"])
+    assert sentence_item["properties"]["rests_on"] == {"type": "array",
+                                                       "items": {"type": "string"}}
+    # No object array anywhere below the sentence: `rests_on` holds strings, and there is no
+    # other array in the schema at all.
+    for path, subschema in walk_schema(schema):
+        if subschema.get("type") == "array" and path != "$.sentences":
+            assert subschema["items"]["type"] == "string", path
 
     flattened = json.dumps(schema)
     for retired in ("calculation", "operation", "expression", "result_rendered",
-                    "formula_version_id", "input_observation_ids", "delta_pp"):
+                    "formula_version_id", "input_observation_ids", "delta_pp",
+                    "fact_bindings", "citations", "rendered", "metric_surface",
+                    "period_surface", "evidence_id", "facts_used"):
         assert retired not in flattened, retired
 
 
@@ -760,7 +935,7 @@ def test_a_model_that_declares_a_calculation_anyway_is_refused_by_the_grammar():
     ignored and not silently dropped — it fails `schema_violations` before a draft exists, which
     is the same treatment any other invented field gets.
     """
-    answer = valid_answer()
+    answer = template_answer()
     answer["sentences"][2]["calculation"] = [{
         "operation": "delta_pp", "input_observation_ids": [GGM_ID, AGM_ID],
         "expression": "adjusted_gross_margin - gaap_gross_margin",
@@ -797,14 +972,17 @@ def test_two_style_profiles_change_the_system_message_and_nothing_the_evidence_s
     assert "style" not in inspect.signature(writer_prompt).parameters
     terse = StyleProfile(profile_id="terse:1", voice="terse", sentence_length="under 15 words")
     first, second = FakeWriteProvider(), FakeWriteProvider()
-    plain_draft = write_with(first).draft
-    terse_draft = write_with(second, style=terse).draft
+    plain = write_with(first)
+    terse_written = write_with(second, style=terse)
 
     assert first.calls[0]["prompt"] == second.calls[0]["prompt"]
     assert first.calls[0]["system"] != second.calls[0]["system"]
-    assert ([b.fact_id for s in plain_draft.sentences for b in s.fact_bindings]
-            == [b.fact_id for s in terse_draft.sentences for b in s.fact_bindings])
-    assert terse_draft.style_profile_id == "terse:1"
+    # The templates, not the bindings: a style profile that could change a figure would have to
+    # change a slot, and the slots are what the two answers are compared on. The figures
+    # themselves are the compiler's and are not reachable from here at all, which is the strong
+    # form of §12's rule that S4 makes true — `compile_draft` takes no style profile either.
+    assert plain.templates == terse_written.templates
+    assert terse_written.templates[0].text == TEMPLATE_AGM_TEXT
 
 
 # -- rule: the surfaces the writer is told to use are the ones the verifier accepts ---------------
@@ -924,21 +1102,27 @@ def test_the_facts_section_offers_money_at_the_same_scale_the_derived_row_does()
     same draft. `446 million USD` carries no currency surface, so §13.2 refused it, and that one
     span was the whole difference between accepted and rejected *(plan §14.7)*.
 
-    Both sections go through `_scaled_money` now, so the sentence the writer builds from a FACTS
-    row is already spelled the way the derived row wants it.
+    **At S4 the repair stops being a rendering rule and becomes a structural one.** Both sections
+    print `SlotRow.offers`, which `slot_table` filled from `renderings.legal_renderings` — one
+    function, one string per row — so *"the FACTS row and the DERIVED FACTS row agree about how
+    money is spelled"* is no longer something two printers have to be kept in step about. The
+    assertion is kept, on the slots line rather than on a `figure:` line, because the property is
+    what mattered and the two shapes disagreeing is what was measured.
     """
     package = agp_package()
+    derived = agp_derived()
     prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
-                           derived_facts=agp_derived(), length_target=3)
-    facts = prompt.split("FACTS")[1].split("DERIVED FACTS")[0]
+                           slots=rows_for(package, derived),
+                           derived_facts=derived, length_target=3)
+    facts = prompt.split(FACTS_HEADING)[1].split("DERIVED FACTS")[0]
 
-    assert 'figure: write "$556 million"' in facts
-    assert 'figure: write "$110 million"' in facts
-    # The reading itself is still printed — the figure line says how to *write* it, and the
-    # value is what the package holds.
-    assert "556000000.0 USD" in facts
+    assert '{{F1}} -> "$556 million"' in facts
+    assert '{{F2}} -> "$110 million"' in facts
+    # The reading itself is still printed — the model has to select a fact before it can write
+    # one — and the line beside it says the package's spelling is not writable.
+    assert "reads 556000000.0 USD" in facts
     # One spelling of money in the whole prompt, which is the property the repair is about.
-    assert '"$446 million"' in prompt
+    assert '{{D1}} -> "$446 million"' in prompt
     for token in ("556 million USD", "110 million USD", "446 million USD"):
         assert token not in prompt
 
@@ -1082,8 +1266,14 @@ def test_a_window_outside_the_closed_grammar_is_offered_no_surface_at_all():
     fact = make_fact(period_start="2022-02-01", period_end="2022-11-30", period_key="odd")
     assert period_surface_for(fact) is None
     package = make_package(facts=(fact,))
-    assert "do not write about this fact" in writer_prompt(
-        package, make_plan(), writer_passages(package))
+    rows = rows_for(package)
+    # R3 as a rendering rather than as advice. The old prompt printed "do not write about this
+    # fact"; the row simply has no `{{F1.period}}` to print, and a template naming one is
+    # `field_not_offered_by_row` at compile time.
+    assert "period" not in rows[0].offers
+    prompt = writer_prompt(package, make_plan(), writer_passages(package), slots=rows)
+    assert "{{F1.period}}" not in prompt
+    assert "{{F1}}" in prompt
 
 
 def test_the_writer_is_shown_the_same_warning_phrases_the_verifier_requires():
@@ -1109,7 +1299,7 @@ def test_a_binding_to_a_fact_the_package_does_not_hold_is_refused():
         binding("obs:adjusted-gross-margin:opendoor:2021Q3:normalized-table:invented", "3.3%",
                 "Adjusted Gross Margin")]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        draft_of(answer)
     assert UNRESOLVABLE_FACT_ID in raised.value.codes
 
 
@@ -1124,7 +1314,7 @@ def test_a_binding_to_a_derived_id_this_run_did_not_mint_is_refused():
     derived = agp_derived()
     package = agp_package()
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(derived_answer(derived)), package, agp_plan(package))
+        draft_of(derived_answer(derived), package, agp_plan(package))
     assert UNRESOLVABLE_FACT_ID in raised.value.codes
     assert derived[0].fact_id in str(raised.value)
 
@@ -1136,7 +1326,7 @@ def test_a_rendering_its_own_sentence_does_not_contain_is_refused():
     answer["sentences"][0]["fact_bindings"] = [
         binding(AGM_ID, "3.30%", "Adjusted Gross Margin")]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        draft_of(answer)
     assert raised.value.codes == (BINDING_RENDERING_NOT_IN_TEXT,)
 
 
@@ -1149,7 +1339,7 @@ def test_a_rendering_that_occurs_twice_in_its_own_sentence_is_refused_rather_tha
                  fact_bindings=[binding(AGM_ID, "3.3%", "Adjusted Gross Margin")],
                  citations=[citation(AGM_HANDLE)])])
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        draft_of(answer)
     assert raised.value.codes == (BINDING_RENDERING_AMBIGUOUS,)
     assert "occurs 2 times" in str(raised.value)
 
@@ -1169,7 +1359,7 @@ def test_a_handle_naming_a_cell_no_fact_occupies_is_refused():
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(f"ev:{PASSAGE_ID}:r2c3")]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        draft_of(answer)
     assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
     assert "mints a handle for every fact it holds" in str(raised.value)
 
@@ -1180,7 +1370,7 @@ def test_a_handle_naming_a_passage_this_package_does_not_hold_is_refused():
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(f"ev:{COUNTER_PASSAGE_ID}:r0c0")]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
+        draft_of(answer)
     assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
 
 
@@ -1206,7 +1396,7 @@ def test_a_handle_for_a_fact_whose_passage_the_writer_was_not_shown_is_refused()
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(orphan.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer), package)
+        draft_of(answer, package)
     assert raised.value.codes == (UNRESOLVABLE_PASSAGE_ID,)
 
 
@@ -1227,7 +1417,7 @@ def test_a_cell_the_packages_own_passage_text_does_not_reach_is_refused_as_out_o
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(drifted.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer), package)
+        draft_of(answer, package)
     assert raised.value.codes == (EVIDENCE_HANDLE_OUT_OF_BOUNDS,)
     assert "which has 6 lines" in str(raised.value)
 
@@ -1248,7 +1438,7 @@ def test_a_handle_that_resolves_to_a_spacer_cell_has_no_span_and_is_refused():
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(spacer.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer), package)
+        draft_of(answer, package)
     assert raised.value.codes == (EVIDENCE_HANDLE_OUT_OF_BOUNDS,)
     assert "is empty; there is no span to cite" in str(raised.value)
 
@@ -1293,7 +1483,7 @@ def test_a_narrative_quote_the_packages_passage_no_longer_contains_is_refused():
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(prose.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer), package)
+        draft_of(answer, package)
     assert raised.value.codes == (CITATION_QUOTE_NOT_IN_PASSAGE,)
     assert "narrative evidence" in str(raised.value)
 
@@ -1316,7 +1506,7 @@ def test_a_narrative_quote_that_occurs_twice_still_resolves_to_no_span_and_is_re
     answer = valid_answer()
     answer["sentences"][0]["citations"] = [citation(prose.evidence_handle)]
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer), package)
+        draft_of(answer, package)
     assert raised.value.codes == (CITATION_QUOTE_AMBIGUOUS,)
     assert "occurs 2 times" in str(raised.value)
 
@@ -1352,13 +1542,13 @@ def test_a_draft_resting_on_no_fact_the_plan_named_is_refused_as_a_changed_thesi
                                  "period_surface": "the third quarter of 2022"}],
                  citations=[citation(other.evidence_handle)])])
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer), package)
+        draft_of(answer, package)
     assert THESIS_ABANDONED in raised.value.codes
 
 
 def test_a_draft_with_no_sentence_at_all_is_refused():
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(valid_answer(sentences=[])))
+        draft_of(valid_answer(sentences=[]))
     assert NO_SENTENCES in raised.value.codes
 
 
@@ -1438,19 +1628,40 @@ def test_a_schema_violation_and_a_draft_rejection_are_different_failures():
 # -- the accepted draft ----------------------------------------------------------------------------
 
 
-def test_a_conformant_answer_becomes_a_structured_draft_with_located_spans():
+def test_a_conformant_answer_becomes_templates_and_the_compiler_writes_the_spans():
+    """The whole S4 path in one test: what the writer returns, and what the compiler makes of it.
+
+    **The writer's half carries no span at all**, which is the change. `index` is positional and
+    is not the model's, `kind` is, `rests_on` is empty on every sentence here, and `title` rides
+    beside the templates because a title carries no slot. The identity fields — candidate,
+    package, prompt version, model — are no longer stamped here either: `compile_draft` builds
+    the `Draft`, so it stamps them, and the two it cannot know are arguments.
+
+    **The compiler's half is R1 and R2.** `text[char_start:char_end] == rendered` holds because
+    one operation produced both, and `rendered` is `slot_table`'s string rather than a substring
+    the model retyped and this module then went looking for.
+    """
     written = write_with(FakeWriteProvider())
-    draft = written.draft
+    assert [t.index for t in written.templates] == [0, 1, 2]
+    assert [t.kind for t in written.templates] == [
+        SentenceKind.REPORTED, SentenceKind.REPORTED, SentenceKind.CONNECTIVE]
+    assert [t.rests_on for t in written.templates] == [(), (), ()]
+    assert written.templates[0].text == TEMPLATE_AGM_TEXT
+    assert written.title == "Two gross margins in one quarter"
+    assert written.generation.total_tokens == 2038
+
+    draft = compiled_of(template_answer())
     assert draft.candidate_id == CANDIDATE_ID and draft.package_id == PACKAGE_ID
     assert draft.prompt_version == WRITER_PROMPT_VERSION
     assert draft.model_id == "Qwen3.5-9B-Q4_K_M.gguf"
-    assert [s.index for s in draft.sentences] == [0, 1, 2]
-    assert [s.kind for s in draft.sentences] == [
-        SentenceKind.REPORTED, SentenceKind.REPORTED, SentenceKind.CONNECTIVE]
+    assert draft.sentences[0].text == ("Adjusted Gross Margin was 3.3 percent in the third "
+                                       "quarter of 2022.")
     first = draft.sentences[0].fact_bindings[0]
-    assert first.rendered == "3.3%"
-    assert draft.sentences[0].text[first.char_start:first.char_end] == "3.3%"
-    assert written.generation.total_tokens == 2038
+    assert first.fact_id == AGM_ID
+    assert first.rendered == "3.3 percent"
+    assert draft.sentences[0].text[first.char_start:first.char_end] == "3.3 percent"
+    assert first.metric_surface == "Adjusted Gross Margin"
+    assert first.period_surface == "the third quarter of 2022"
 
 
 def test_a_citation_is_resolved_from_its_handle_and_rebased_to_the_full_passage_text():
@@ -1480,15 +1691,19 @@ def test_the_writer_never_receives_and_never_returns_a_run_of_source_text():
     schema would still be showing a 9B model the bytes and hoping it does not copy them into its
     own prose, where §13.1 would then meet a numeral nothing bound.
     """
-    prompt = writer_prompt(make_package(), make_plan(), writer_passages(make_package()))
+    package = make_package()
+    prompt = writer_prompt(package, make_plan(), writer_passages(package),
+                           slots=rows_for(package))
     assert 'quoting "' not in prompt
-    assert f'evidence id: "{AGM_HANDLE}"' in prompt
-    assert f'evidence id: "{GGM_HANDLE}"' in prompt
-
-    item = writer_schema()["properties"]["sentences"]["items"]["properties"]["citations"]["items"]
-    assert sorted(item["properties"]) == ["evidence_id"]
-    assert item["required"] == ["evidence_id"]
-    assert "quote" not in item["properties"] and "passage_id" not in item["properties"]
+    # **S4 takes the handle out of the prompt too, and that is stronger rather than weaker.**
+    # The writer wrote a citation until 3.0.0 and the handle was the token it copied back; it
+    # writes none now, so a handle in the prompt would be a string with nowhere to go. The
+    # schema is the other half: there is no `citations` property to put one in.
+    for handle in (AGM_HANDLE, GGM_HANDLE):
+        assert handle not in prompt
+    properties = writer_schema()["properties"]["sentences"]["items"]["properties"]
+    assert "citations" not in properties
+    assert sorted(properties) == ["kind", "rests_on", "text"]
 
 
 def test_the_identity_fields_come_from_the_package_and_not_from_the_model():
@@ -1518,9 +1733,12 @@ def test_the_markdown_renderer_takes_the_structured_draft_and_nothing_else():
     """§12: *"a rendered Markdown post may be produced only from the structured draft"*. One
     argument, and it is the draft: there is nowhere to pass the model's raw answer."""
     assert list(inspect.signature(render_markdown).parameters) == ["draft"]
+    # **The rule is stronger at S4 than it was**: the writer does not return a `Draft` at all
+    # now, so there is not even a draft on `WrittenStory` for this function to be handed by
+    # accident. What it takes is what `compile_draft` built.
     written = write_with(FakeWriteProvider())
-    assert isinstance(written.draft, Draft)
-    assert not hasattr(written, "markdown")
+    assert not hasattr(written, "draft") and not hasattr(written, "markdown")
+    assert isinstance(compiled_of(template_answer()), Draft)
 
 
 def test_the_rendered_post_carries_every_sentence_verbatim_and_invents_no_numeral():
@@ -1770,23 +1988,29 @@ def test_the_writers_own_output_survives_the_deterministic_verifier_end_to_end(v
     arithmetic now (DETERMINISTIC_FACT_TOOLS §5): a gap is a `DerivedFact` code computes, so the
     end-to-end claim about one has a derivation stage in the middle of it and belongs where that
     stage runs — `tests/story/test_story_demo.py`, over `run_demo`. What this test still shows
-    is the half it was always about: a draft this module built, and a verifier that finds
-    nothing wrong with it.
+    is the half it was always about: a draft written from this module's answer, and a verifier
+    that finds nothing wrong with it.
+
+    **At S4 there is a third party in the middle and the claim is the stronger for it.** The
+    writer returns templates, the compiler fills them, and the verifier judges what came out —
+    so the ledger below is populated from *code's* declarations rather than from the model's,
+    which is the whole change. Everything §13 owns is still shown refusing a draft in the tests
+    above, and none of those refusals is re-implemented in `writer.py` or in `compile.py`.
     """
     package, plan = make_package(), make_plan()
-    written = write_with(FakeWriteProvider(), package, plan)
+    draft = compiled_of(template_answer(), package, plan)
 
-    verified = verifier.verify(written.draft, package, plan)
+    verified = verifier.verify(draft, package, plan)
     assert verified.all_findings == (), [f.code for f in verified.all_findings]
     assert verified.passed is True
 
-    # The panel §13.17 requires, populated from the writer's own declarations.
+    # The panel §13.17 requires, populated from what the compiler wrote.
     assert [entry.fact_id for entry in verified.fact_ledger] == [AGM_ID, GGM_ID]
     assert verified.calculation_ledger == ()
 
     # And the post is rendered from the draft that passed, never from the model's answer.
-    rendered = render_markdown(written.draft)
-    assert "3.3%" in rendered and "-12.6%" in rendered
+    rendered = render_markdown(draft)
+    assert "3.3 percent" in rendered and "-12.6 percent" in rendered
 
 
 # ---------------------------------------------------------------------------------------
@@ -1797,73 +2021,93 @@ def test_the_writers_own_output_survives_the_deterministic_verifier_end_to_end(v
 def test_the_derived_fact_reaches_the_writer_prompt_in_the_shape_facts_are_printed_in():
     """§5: a new DERIVED FACTS section, printed like FACTS, with everything a binding needs.
 
-    The four things a `FactBinding` carries are all on the row — the id to name, the figure to
-    write, the metric surface and the period surface — and one thing FACTS has is deliberately
-    absent: an evidence id. No handle is ever minted for a derived fact, so the row names its
-    two input facts instead and the writer cites theirs.
+    **At S4 the row prints a handle and its slot set, and four things it used to print are
+    gone.** The `fact:derived:` id is not printed — a 9B model retyping
+    `fact:derived:compare-levels:opendoor:…:5f8f78fad963` is the option §8 rejects, and `{{D1}}`
+    is what replaces it. The `2022Q2 -> 2022Q3` line is gone with it: those are period *keys*,
+    and the literal `2022` is what §2.3 measured being retyped into 15 of 18 `unbound_numeral`
+    refusals. The `figure:` line and its counter-example are gone because the model no longer
+    types the figure at all. What replaces all four is one slots line, printing exactly what
+    `slot_table` will let the compiler insert.
 
-    **The figure is handed over as a quoted string and not as `{result} {unit}`, which is the
-    2.1.0 repair.** A FACTS row prints `{value} {unit}` and survives it because its unit is the
-    word a sentence uses; `percentage_points` is not, and a live draft copied
-    `"15.9 percentage_points"` into `rendered` while its own text read *"15.9 percentage
-    points"*. The magnitude is printed rather than `-446000000.0`, because the `says` line
-    already carries the direction and *"decreased by -446000000.0"* is a double negative.
+    **Two things a FACTS row has are still deliberately absent.** There is no evidence id — no
+    handle is ever minted for a derived fact — and the magnitude is printed rather than
+    `-446000000.0`, because `{{D1.direction}}` carries the direction and *"decreased by
+    -446000000.0"* is a double negative.
     """
     package, derived = agp_package(), agp_derived()
     prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
+                           slots=rows_for(package, derived),
                            derived_facts=derived, length_target=3)
+    section = prompt.split("DERIVED FACTS")[1].split("METRIC SEMANTICS")[0]
 
     assert "DERIVED FACTS (1;" in prompt
-    assert f"[{derived[0].fact_id}]" in prompt
-    assert "adjusted_gross_profit, 2022Q2 -> 2022Q3" in prompt
-    assert "says: decreased by" in prompt
-    assert ('figure: write exactly "$446 million" - those characters, never '
-            '"446000000.0 USD"') in prompt
-    assert "-446000000.0" not in prompt.split("DERIVED FACTS")[1].split("METRIC SEMANTICS")[0]
+    assert "  [D1]  adjusted_gross_profit" in section
+    assert '{{D1}} -> "$446 million"' in section
+    assert '{{D1.direction}} -> "decreased by"' in section
+    assert '{{D1.metric}} -> "Adjusted Gross Profit"' in section
+    assert derived[0].fact_id not in prompt
+    assert "2022Q2 -> 2022Q3" not in prompt
+    assert "-446000000.0" not in section
     assert "percentage_points" not in prompt
-    assert 'metric surface: write one of "Adjusted Gross Profit"' in prompt
-    assert f"computed from {AGP_Q2_ID} and {AGP_Q3_ID}" in prompt
-    # The row carries no handle of its own, and the section says which two to cite instead.
-    section = prompt.split("DERIVED FACTS")[1].split("METRIC SEMANTICS")[0]
-    assert "evidence id:" not in section
+    # The row carries no handle of its own and the prompt names none: the writer cites nothing.
+    assert "evidence id" not in section
+    for input_id in (AGP_Q2_ID, AGP_Q3_ID):
+        assert input_id not in section
 
 
 def test_the_period_surface_the_model_used_to_forget_is_printed_for_it_to_copy():
     """§2's measured failure, closed at the rendering end.
 
     `unbound_numeral` fired on the literal `2022` because a `calculated` sentence carried no
-    binding and the model left `Calculation.period_surface` empty. Code fills it now, from the
-    derivation's own `to_period`, and the prompt prints the exact words — so the field the model
-    used to forget is one it copies rather than one it composes.
+    binding and the model left `Calculation.period_surface` empty. 2.1.0 printed the exact words
+    for the model to copy; S4 stops asking it to copy anything, and the period is a slot the
+    compiler fills. **Both period slots are offered**, because an `absolute_change` runs across
+    two windows and §13.4 reads the binding's surface off the later one — which is the surface
+    `_bindings_from` declares whichever of the two the sentence names in prose.
     """
     package, derived = agp_package(), agp_derived()
+    rows = rows_for(package, derived)
     prompt = writer_prompt(package, agp_plan(package), writer_passages(package),
-                           derived_facts=derived)
+                           slots=rows, derived_facts=derived)
 
     assert derived[0].period_surface_hint == "the third quarter of 2022"
     assert derived[0].to_period == "2022Q3"
-    assert 'period surface: write exactly "the third quarter of 2022"' in prompt
+    assert '{{D1.to_period}} -> "the third quarter of 2022"' in prompt
+    assert '{{D1.from_period}} -> "the second quarter of 2022"' in prompt
+    assert "period" not in rows[2].offers  # the pair, never `.period` as well
 
 
 def test_a_prompt_with_no_derived_fact_says_so_rather_than_omitting_the_section():
     """A section that vanished would read as an omission; one that says "(none)" is a rule."""
-    prompt = writer_prompt(make_package(), make_plan(), writer_passages(make_package()))
+    package = make_package()
+    prompt = writer_prompt(package, make_plan(), writer_passages(package),
+                           slots=rows_for(package))
     assert "DERIVED FACTS (none; the plan requested no derivation" in prompt
     assert "  (none)" in prompt.split("DERIVED FACTS")[1]
 
 
-def test_a_draft_binding_a_derived_fact_round_trips_through_the_writer():
-    """§5's whole point: `$446 million` is stated by an ordinary `FactBinding` and nothing else.
+def test_a_derived_fact_round_trips_from_a_slot_to_a_binding_and_two_citations():
+    """§5's point at S4: `$446 million` is stated by a slot, and the binding is code's.
 
-    No operation, no expression, no input list and no formula version — the four fields §2's run
-    got wrong or left empty are not in the answer at all. What the model supplies is the words
-    and the id; the span is located here, and the period surface came off the derived fact.
+    No operation, no expression, no input list, no formula version, no `rendered`, no
+    `metric_surface`, no `period_surface` and no citation — everything §2's run got wrong or left
+    empty is absent from the model's answer. What the model supplies is the words around the
+    slots and which slot goes where.
+
+    **The period surface is `to_period`'s whichever period slot the sentence names.**
+    `deterministic._derived_period_findings` resolves a derived binding's surface against
+    `index.fact(derived.to_fact_id)`'s own window, so `_bindings_from` declares that one; the
+    sentence here happens to write it as well, and the assertion is on the binding rather than on
+    the prose because the binding is the thing §13.4 reads.
     """
     package, derived = agp_package(), agp_derived()
-    written = write_with(FakeWriteProvider(derived_answer(derived)), package, agp_plan(package),
-                         derived_facts=derived)
-    gap = written.draft.sentences[1]
+    draft = compiled_of(derived_template_answer(), package, agp_plan(package),
+                        derived_facts=derived)
+    gap = draft.sentences[1]
 
+    assert gap.text == ("Adjusted Gross Profit decreased by $446 million in the third quarter "
+                        "of 2022.")
     assert gap.kind is SentenceKind.CALCULATED
     assert gap.calculation is None
     assert [b.fact_id for b in gap.fact_bindings] == [derived[0].fact_id]
@@ -1871,6 +2115,7 @@ def test_a_draft_binding_a_derived_fact_round_trips_through_the_writer():
         "$446 million"
     assert gap.fact_bindings[0].period_surface == "the third quarter of 2022"
     # The two input facts' handles, resolved to the two cells the quantity was computed from.
+    # §6: no handle is ever minted for a derivation, so the citation is its inputs'.
     assert [c.passage_id for c in gap.citations] == [AGP_PASSAGE_ID, AGP_PASSAGE_ID]
     assert [AGP_TABLE[c.char_start:c.char_end] for c in gap.citations] == ["556", "110"]
 
@@ -2008,6 +2253,241 @@ def test_the_seven_case_is_still_refused_when_the_handle_is_not_the_one_that_was
     with pytest.raises(DraftRejected) as raised:
         draft_from(answer, package, plan, model_id="fake")
     assert raised.value.codes == (UNRESOLVABLE_EVIDENCE_HANDLE,)
+
+
+# ---------------------------------------------------------------------------------------
+# S4 — the template contract, the three copies it rests on, and the three refusals it adds
+# ---------------------------------------------------------------------------------------
+#
+# **Three values are copied across a boundary this stage cannot import over**, and each is
+# asserted equal to its original here rather than kept equal by discipline. The rule is
+# `test_no_stage_imports_another_stage`'s: `story/stages/generation/` may not name
+# `story/stages/composition/`, and §4.5 of the architecture document nonetheless makes the
+# writer's output the compiler's input. A *test* may import both, which is what makes the copies
+# checkable — the same arrangement `WARNING_QUALIFIER_PHRASES` and
+# `slot_table.TWO_PERIOD_OPERATIONS` already use.
+
+
+def test_the_template_this_stage_returns_is_the_compilers_own():
+    """Field for field, and then driven through `compile_draft` to prove the copy is usable.
+
+    The dataclass comparison is the cheap half: a field added on either side fails here. The
+    second half is the one that matters — a tuple of *this* module's templates compiles into a
+    `Draft` through the real compiler, so the two types are not merely alike, they are
+    interchangeable at the seam `story/pipeline.py` will wire.
+    """
+    ours = [(f.name, f.type, f.default) for f in dataclasses.fields(SentenceTemplate)]
+    theirs = [(f.name, f.type, f.default)
+              for f in dataclasses.fields(CompilerSentenceTemplate)]
+    assert ours == theirs
+    assert [f.name for f in dataclasses.fields(SentenceTemplate)] == [
+        "index", "text", "kind", "rests_on"]
+
+    package, plan = make_package(), make_plan()
+    written = write_with(FakeWriteProvider(), package, plan)
+    assert all(isinstance(t, SentenceTemplate) for t in written.templates)
+    compiled = compile_draft(written.templates, package, plan)
+    assert [s.index for s in compiled.draft.sentences] == [0, 1, 2]
+
+
+def test_the_passage_row_marker_is_the_composition_enums_own():
+    """`SlotKind` is a `str` enum so its *value* is what travels; this is the one member the
+    writer has to recognise, and the copy is one string."""
+    assert PASSAGE_ROW == SlotKind.PASSAGE == "passage"
+    assert PASSAGE_ROW in {row.kind for row in rows_for(make_package())}
+
+
+def test_the_slot_grammar_here_is_the_compilers_own():
+    """One regex, copied, and asserted identical. A writer that read braces by a different rule
+    would refuse an answer the compiler accepts, or pass one it cannot read."""
+    assert writer_module.SLOT_PATTERN.pattern == COMPILER_SLOT_PATTERN.pattern
+
+
+@pytest.mark.parametrize("text", [
+    "Adjusted gross margin was {{F1} in {{F1.period}}.",     # never closes
+    "Adjusted gross margin was {{f1}} in {{F1.period}}.",    # lower-case handle
+    "Adjusted gross margin was {{F1.Period}} in 2022.",      # upper-case field
+    "Adjusted gross margin was {{ {{F1}} }}.",               # nested
+])
+def test_a_brace_the_slot_grammar_cannot_read_is_refused(text: str):
+    """§12 refuses the answer; the alternative was copying the braces into the published post.
+
+    The check is on the **residue** — what is left after every well-formed slot is removed — so a
+    sentence carrying one good slot and one broken one is still refused for the broken one.
+    """
+    answer = template_answer(sentences=[template_sentence(text, "reported"),
+                                        template_sentence(TEMPLATE_GGM_TEXT, "reported")])
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer))
+    assert MALFORMED_SLOT in raised.value.codes
+
+
+@pytest.mark.parametrize("kind", ["reported", "calculated", "connective"])
+def test_rests_on_on_a_sentence_that_is_not_explanatory_is_refused(kind: str):
+    """The compiler resolves citations by kind and only `explanatory` rests on a passage, so a
+    `rests_on` anywhere else is asking for a citation the kind cannot carry."""
+    answer = template_answer(sentences=[
+        template_sentence(TEMPLATE_AGM_TEXT, "reported"),
+        template_sentence("The filing describes the two measures separately.", kind, ["P1"])])
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer))
+    assert RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE in raised.value.codes
+
+
+@pytest.mark.parametrize("handle", ["P7", "F1", "", "psg:opendoor-10q-2022q3:margins-table"])
+def test_rests_on_naming_anything_but_a_passage_handle_is_refused(handle: str):
+    """Four ways to get it wrong and one code, because they are one mistake: `rests_on` names the
+    passage a claim paraphrases. `F1` is in the table and is not a passage; the passage *id* is
+    not a handle at all, which is the whole reason handles exist."""
+    answer = template_answer(sentences=[
+        template_sentence(TEMPLATE_AGM_TEXT, "reported"),
+        template_sentence("The filing describes the two measures separately.",
+                          "explanatory", [handle])])
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer))
+    assert RESTS_ON_NOT_A_PASSAGE_HANDLE in raised.value.codes
+
+
+def test_templates_naming_no_row_the_plan_asked_for_are_refused_as_a_changed_thesis():
+    """§12's *"the writer must not change the thesis"*, resolved through the slot rows.
+
+    The plan's key points name `obs:` ids and a template names `F1`; the row is what joins them.
+    The answer below is well formed, compiles, and says nothing the plan asked for.
+    """
+    answer = template_answer(sentences=[
+        template_sentence("Both measures come from one table in the same filing.", "connective")])
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(answer))
+    assert THESIS_ABANDONED in raised.value.codes
+    assert AGM_ID in str(raised.value)
+
+
+def test_a_writer_handed_no_slot_table_can_resolve_no_handle_and_is_refused():
+    """The default is empty, and this is what it buys: a caller that forgot the table gets a
+    refusal naming the plan's own ids, not a post built from handles nothing knows."""
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(), slots=())
+    assert THESIS_ABANDONED in raised.value.codes
+    assert "no fact at all" in str(raised.value)
+
+
+def test_an_answer_with_no_sentence_at_all_is_refused_on_the_template_path_too():
+    with pytest.raises(DraftRejected) as raised:
+        write_with(FakeWriteProvider(template_answer(sentences=[])))
+    assert NO_SENTENCES in raised.value.codes
+
+
+def test_an_explanatory_sentence_rests_on_a_passage_and_code_cites_it():
+    """The one thing `rests_on` is for, end to end: the model names `P1` and the compiler
+    resolves it to the span of a fact read from that passage. The model wrote no handle, no
+    passage id and no offset."""
+    answer = template_answer(sentences=[
+        template_sentence(TEMPLATE_AGM_TEXT, "reported"),
+        template_sentence(TEMPLATE_GGM_TEXT, "reported"),
+        template_sentence("The filing sets the two measures out in one table.",
+                          "explanatory", ["P1"]),
+        template_sentence(WARNING_TEXT, "connective")])
+    written = write_with(FakeWriteProvider(answer))
+    assert written.templates[2].rests_on == ("P1",)
+
+    draft = compiled_of(answer)
+    cited = draft.sentences[2].citations
+    assert [c.passage_id for c in cited] == [PASSAGE_ID]
+    assert cited[0].evidence_handle in (AGM_HANDLE, GGM_HANDLE)
+    assert cited[0].char_end > cited[0].char_start
+
+
+def test_a_metric_named_in_the_writers_own_words_verifies_clean(verifier):
+    """Rule 4's *"the metric slot is optional"*, measured rather than asserted.
+
+    §13.5 reads the metric out of the sentence through `MetricAliasIndex` whether a slot or the
+    model put it there, so prose that names the metric unambiguously grounds the binding exactly
+    as `{{F1.metric}}` would. This is the run behind the claim in `WRITER_SYSTEM`'s own note:
+    a draft naming *"Adjusted Gross Margin"* in the model's own words, with the figure and the
+    period still slots, verifies with **no finding at all**. The figure and the period are not
+    optional, and the two tests that show why are the `unbound_numeral` ones above.
+    """
+    package, plan = make_package(), make_plan()
+    answer = template_answer(sentences=[
+        template_sentence(TEMPLATE_PROSE_METRIC_TEXT, "reported"),
+        template_sentence(TEMPLATE_GGM_TEXT, "reported"),
+        template_sentence(WARNING_TEXT, "connective")])
+    draft = compiled_of(answer, package, plan)
+
+    assert draft.sentences[0].text == ("Adjusted Gross Margin was 3.3 percent in the third "
+                                       "quarter of 2022.")
+    assert draft.sentences[0].fact_bindings[0].metric_surface == "Adjusted Gross Margin"
+    verified = verifier.verify(draft, package, plan)
+    assert verified.all_findings == (), [f.code for f in verified.all_findings]
+
+
+# ---------------------------------------------------------------------------------------
+# The parser kept for what is already on disk
+# ---------------------------------------------------------------------------------------
+
+RECORDED_DEMO = Path(__file__).parent / "fixtures" / "story_demo"
+
+
+def recorded_writer_answer() -> dict[str, Any]:
+    """The 2.2.0 answer the local server actually returned, kept as a fixture of its own.
+
+    **It used to be read out of `local_openai_compatible/generations.jsonl` and cannot be any
+    more**, which is the whole reason this file exists: S8 re-authored that store's writer row
+    under 3.0.0, so the store no longer holds a pre-3.0.0 answer to read. The bytes below are
+    that row's `raw_content` as it stood at 575a59f, lifted unchanged — a real recording of a
+    real server, not a hand-built shape, which is what makes the claim below worth asserting.
+
+    Committed rather than reconstructed from `data/story_demo/*/draft.json`: the run directories
+    are not committed, and a generation test must run on a clean checkout.
+    """
+    return json.loads(
+        (RECORDED_DEMO / "writer_answer_2_2_0.json").read_text(encoding="utf-8"))
+
+
+def test_the_retained_parser_still_reads_the_answer_recorded_under_the_old_contract():
+    """`draft_from` is off the pipeline path and is not dead code — this is the reader it is for.
+
+    The answer below is a real recorded 2.2.0 generation: three sentences, four model-authored
+    bindings, four model-authored citations and a `fact:derived:` id the derivation stage minted.
+    It parses, every `rendered` is located in its own sentence, every `evidence_id` resolves to a
+    span, and the derived binding resolves against this run's derived facts. Nothing about S4
+    took any of that away.
+
+    **It also no longer satisfies the writer's schema, and both halves are asserted**, because
+    that is exactly the state the retained parser exists for: the artifact is unreachable
+    *forward* through `write_story` and still readable *backward* through `draft_from`.
+    """
+    content = recorded_writer_answer()
+    assert list(schema_violations(content, writer_schema())), "the old answer must not conform"
+
+    package = StoryEvidencePackage.model_validate_json(
+        (RECORDED_DEMO / "evidence_package.json").read_text(encoding="utf-8"))
+    candidate = StoryCandidate.model_validate_json(
+        (RECORDED_DEMO / "candidate.json").read_text(encoding="utf-8"))
+    offered = offers(package, candidate)
+    derived = tuple(
+        fact for fact in (execute(request, package, candidate,
+                                  direction=detector_config.quantity_direction, offered=offered)
+                          for request in offered)
+        if isinstance(fact, DerivedFact))
+    # No key points, so `thesis_abandoned` abstains: what is under test is the parsing, and a
+    # plan authored here to match a recorded answer would be this file deciding the outcome.
+    plan = EditorialPlan(candidate_id=package.candidate_id, package_id=package.package_id,
+                         thesis="the two margins are far apart",
+                         why_it_matters="one is positive and the other is not")
+
+    draft = draft_from(content, package, plan, derived_facts=derived, model_id="recorded")
+    assert [s.kind.value for s in draft.sentences] == ["reported", "reported", "calculated"]
+    assert [b.rendered for s in draft.sentences for b in s.fact_bindings] == [
+        "-12.6 percent", "3.3 percent", "15.9 percentage points"]
+    for sentence_row in draft.sentences:
+        for bound in sentence_row.fact_bindings:
+            assert sentence_row.text[bound.char_start:bound.char_end] == bound.rendered
+        for cited in sentence_row.citations:
+            assert cited.char_end > cited.char_start
+    assert draft_violations(draft, package, plan, derived_facts=derived) == ()
+    # The markdown renderer is unchanged and still takes a `Draft`, whoever built it.
+    assert render_markdown(draft).startswith("# Opendoor 2022Q3")
 
 
 # ---------------------------------------------------------------------------------------

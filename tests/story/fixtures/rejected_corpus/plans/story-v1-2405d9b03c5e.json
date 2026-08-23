@@ -1,0 +1,47 @@
+{
+  "candidate_id": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Adjusted Gross Profit was 556 million USD in 2022Q2.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit was 110 million USD in 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "reported"
+    }
+  ],
+  "model_id": "Qwen3.5-9B-Q4_K_M.gguf",
+  "package_id": "pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:211e646c615d",
+  "prohibited_claims": [
+    "GAAP gross profit figures",
+    "Contribution Profit figures",
+    "Inventory valuation adjustment amounts",
+    "Year-over-year comparisons",
+    "Full-year projections"
+  ],
+  "prompt_version": "1.1.0",
+  "required_warnings": [],
+  "structure": [
+    "key_points",
+    "counterpoints",
+    "uncertainty"
+  ],
+  "thesis": "Opendoor Technologies Inc. reported a decline in Adjusted Gross Profit from 2022Q2 to 2022Q3.",
+  "uncertainty": "None",
+  "unusable_evidence": [],
+  "why_it_matters": "The metric dropped significantly, indicating a change in the company's core profitability performance between the two quarters."
+}

@@ -82,6 +82,13 @@ from story.providers.public import (
     StoryProviderError,
     StoryProviderSchemaError,
 )
+from story.core.evidence_slice import passages_backing_facts
+from story.stages.composition import (
+    CompiledDraft,
+    CompositionRefused,
+    compile_draft,
+    slot_table,
+)
 from story.stages.derivation.execute import execute_all
 from story.stages.derivation.offers import offers
 from story.stages.derivation.public import TOOL_VERSION as DERIVATION_TOOL_VERSION
@@ -114,6 +121,7 @@ from story.stages.generation import (
     WRITER_PROMPT_VERSION,
     WRITER_SCHEMA_NAME,
     DEFAULT_LENGTH_TARGET,
+    PLAIN_INVESTOR_STYLE,
     DraftRejected,
     EditorialPlanRejected,
     PlannedStory,
@@ -165,6 +173,11 @@ GENERATIONS_FILENAME = "generations.jsonl"
 #: the model's output. Written whenever the derivation stage ran at all, refusals included —
 #: a file recording only the successes could not answer *"what did the plan ask for?"*.
 DERIVED_FACTS_FILENAME = "derived_facts.json"
+#: S5's artifact: the templates the writer answered with, and which slot of each became which
+#: span of the compiled sentence. The one place a reader can see the sentence *before* code
+#: filled it in, which is what makes "the model wrote the words, code wrote the numbers" a thing
+#: an operator can check rather than a claim this file makes.
+COMPOSITION_FILENAME = "composition.json"
 MANIFEST_FILENAME = "demo_manifest.json"
 
 #: What the run ended as. Five values, not two: §11 and §12 can each refuse before §13 runs,
@@ -192,6 +205,13 @@ REJECTED = "rejected"
 PLAN_REFUSED = "plan_refused"
 DERIVATION_REFUSED = "derivation_refused"
 DRAFT_REFUSED = "draft_refused"
+#: The draft compiler refused the templates the writer returned — a slot naming a row that does
+#: not exist, or a row that offers no legal string for the field the template asked it for. Its
+#: own disposition and not `DRAFT_REFUSED`, because the two name different repairs: a refused
+#: draft is a model that wrote the wrong thing, and a refused composition is a model that asked
+#: for a value no trusted row can supply. A repair loop that could not tell them apart would
+#: send the writer back to fix a sentence that is already right.
+COMPOSITION_REFUSED = "composition_refused"
 PROVIDER_FAILED = "provider_failed"
 
 #: The closed set, declared once so every surface that renders it — the demo UI's outcome
@@ -199,12 +219,14 @@ PROVIDER_FAILED = "provider_failed"
 #: restating it and drifting by one value, which is exactly how `provider_failed` could have
 #: shipped to a browser that had never heard of it.
 DISPOSITIONS: tuple[str, ...] = (
-    ACCEPTED, REJECTED, PLAN_REFUSED, DERIVATION_REFUSED, DRAFT_REFUSED, PROVIDER_FAILED)
+    ACCEPTED, REJECTED, PLAN_REFUSED, DERIVATION_REFUSED, DRAFT_REFUSED, COMPOSITION_REFUSED,
+    PROVIDER_FAILED)
 
 #: The four stages a run can end at, under the names `rejected.json` has always written.
 STAGE_PLANNER = "editorial_planner"
 STAGE_DERIVATION = "derivation_tool"
 STAGE_WRITER = "post_writer"
+STAGE_COMPILER = "draft_compiler"
 STAGE_VERIFIER = "deterministic_verifier"
 
 #: Which stage *refused*, per disposition. `PROVIDER_FAILED` is deliberately absent: no stage
@@ -216,6 +238,7 @@ REFUSING_STAGE: Mapping[str, str] = {
     PLAN_REFUSED: STAGE_PLANNER,
     DERIVATION_REFUSED: STAGE_DERIVATION,
     DRAFT_REFUSED: STAGE_WRITER,
+    COMPOSITION_REFUSED: STAGE_COMPILER,
     REJECTED: STAGE_VERIFIER,
 }
 
@@ -632,6 +655,11 @@ def run_demo(
     results: list[GenerationResult] = []
     planned: PlannedStory | None = None
     written: WrittenStory | None = None
+    #: The compiler's answer, kept beside `written` rather than replacing it. The writer's
+    #: templates and the draft code built from them are two artifacts and the manifest records
+    #: both: a reader asking *"did the model write that number or did code?"* has to be able to
+    #: see the sentence before it was filled in.
+    compiled: CompiledDraft | None = None
     derived: tuple[DerivedFact | EvidenceScopeFact, ...] = ()
     derivation: DerivationResult | None = None
     #: The two call sites' own results, kept **separately from the disposition** because a
@@ -683,9 +711,16 @@ def run_demo(
             refusal_codes = tuple(item.code.value for item in derivation.refusals)
 
     if planned is not None and disposition != DERIVATION_REFUSED:
+        # The composition root's job again, and for the reason it computes `offered` above: the
+        # slot table is the writer's whole vocabulary, `story/stages/generation/` may not import
+        # `story/stages/composition/`, and a second table built downstream is the one way the
+        # rows the model was shown and the rows the compiler resolves could disagree. One table,
+        # printed into the prompt and read back by the compiler.
+        slots = slot_table(package, derived, passages_backing_facts(package))
         try:
             written = write_story(
                 package, planned.plan, provider=provider, derived_facts=derived,
+                slots=slots,
                 length_target=config.length_target, max_tokens=config.writer_max_tokens)
             writer_result = written.generation
         except DraftRejected as exc:
@@ -699,6 +734,39 @@ def run_demo(
             results.append(writer_result)
 
     if planned is not None and written is not None:
+        # S5 of docs/2026-08-23-deterministic-draft-compiler. The one stage between the model's
+        # answer and the verifier, and it is deterministic: the templates in, a `Draft` whose
+        # renderings, surfaces, spans and citations were all chosen by code out. It is a
+        # separate `try` from the writer's because a refusal here is a different disposition —
+        # the model answered, and what it asked for could not be filled.
+        try:
+            compiled = compile_draft(
+                written.templates, package, planned.plan,
+                derived_facts=derived, passages=passages_backing_facts(package),
+                # The four fields no template carries and no slot can fill. `title` is the
+                # model's prose and travels on `WrittenStory` rather than through the compiler's
+                # substitution, because §13.15 gives a title no binding and refuses every
+                # numeral in one — a slot there would insert exactly such a numeral. The other
+                # three identify what wrote the sentences, and they are this module's to supply
+                # for the reason every other cross-stage value here is: the compiler may not
+                # import the generation stage to ask.
+                title=written.title,
+                # The provider's **identity** model id, not `GenerationResult.model_id`, which
+                # is the wire value. The local server answers with the path it loaded the
+                # weights from — `/home/<user>/models/…/Qwen3.5-9B-Q4_K_M.gguf` — and
+                # `Draft.model_id` is rendered into the demo's API responses, where
+                # `test_no_response_carries_an_absolute_path` refuses an operator's home
+                # directory. `write_story` read it off the provider for the same reason.
+                model_id=getattr(provider, "model_id", "") or (
+                    writer_result.model_id if writer_result is not None else ""),
+                style_profile_id=PLAIN_INVESTOR_STYLE.profile_id,
+                prompt_version=WRITER_PROMPT_VERSION)
+        except CompositionRefused as exc:
+            disposition = COMPOSITION_REFUSED
+            refusal = str(exc)
+            refusal_codes = tuple(violation.code for violation in exc.violations)
+
+    if planned is not None and compiled is not None:
         # The three freshness arguments are the *expected* identity §13.13 pins, supplied by
         # what resolved it. Passing the package's own values would make the check compare a
         # document with itself; these come from the graph run the gate just verified.
@@ -706,7 +774,7 @@ def run_demo(
             graph_run_id=inputs.identity.graph_run_id,
             run_complete_sha256=inputs.identity.run_complete_sha256,
             ontology_definition_hash=inputs.identity.ontology_definition_hash,
-        ).verify(written.draft, package, planned.plan, derived_facts=derived)
+        ).verify(compiled.draft, package, planned.plan, derived_facts=derived)
         disposition = ACCEPTED if verified.passed else REJECTED
 
     story_run = _mint_run_id(inputs, config, provider=provider, results=results)
@@ -714,15 +782,15 @@ def run_demo(
         config.resolved_path(config.out_root) / story_run)
     manifest = _write_run(
         directory, inputs=inputs, config=config, story_run=story_run,
-        disposition=disposition, planned=planned, written=written, verified=verified,
-        derivation=derivation, offered=offered,
+        disposition=disposition, planned=planned, written=written, compiled=compiled,
+        verified=verified, derivation=derivation, offered=offered,
         planner_result=planner_result, writer_result=writer_result,
         refusal=refusal, refusal_codes=refusal_codes, fault=fault, results=results,
         provider=provider, live=live, now=now)
     return DemoOutcome(
         story_run_id=story_run, directory=directory, disposition=disposition,
         manifest=manifest, plan=planned.plan if planned else None,
-        draft=written.draft if written else None, verified=verified,
+        draft=compiled.draft if compiled else None, verified=verified,
         refusal=refusal, refusal_codes=refusal_codes, fault=fault,
         artifacts=manifest.artifacts)
 
@@ -1059,6 +1127,7 @@ def _token_totals(results: list[GenerationResult], package: StoryEvidencePackage
 
 
 def _counts(inputs: DemoInputs, written: WrittenStory | None,
+            compiled: CompiledDraft | None,
             verified: VerifiedDraft | None, derivation: DerivationResult | None,
             offered: Sequence[Any]) -> dict[str, Any]:
     """What the run held, counted. The four derivation rows answer four different questions.
@@ -1081,7 +1150,11 @@ def _counts(inputs: DemoInputs, written: WrittenStory | None,
         "counter_evidence": len(package.counter_evidence),
         "package_warnings": len(package.warnings),
         "freshness_checks": len(inputs.freshness.checks),
-        "sentences": len(written.draft.sentences) if written else 0,
+        # The writer's count and not the compiler's, deliberately: a run whose templates were
+        # refused wrote sentences and produced no draft, and a zero here would report that it
+        # wrote nothing. `slots_filled` is the compiler's own half of the same question.
+        "sentences": len(written.templates) if written else 0,
+        "slots_filled": len(compiled.slots) if compiled else 0,
         "derivations_offered": len(offered),
         "derivations_requested": 0 if derivation is None else (
             len(derivation.facts) + len(derivation.refusals)),
@@ -1118,6 +1191,7 @@ def _write_run(
     disposition: str,
     planned: PlannedStory | None,
     written: WrittenStory | None,
+    compiled: CompiledDraft | None,
     verified: VerifiedDraft | None,
     #: `None` exactly when the derivation stage never ran — a planner refusal or a provider
     #: fault. An empty `DerivationResult` is a different thing and says so: the stage ran, the
@@ -1164,13 +1238,19 @@ def _write_run(
         write(PLAN_FILENAME, _render_json(planned.plan.model_dump(mode="json")))
     if derivation is not None:
         write(DERIVED_FACTS_FILENAME, _render_json(_derived_facts_payload(derivation)))
-    if written is not None:
-        write(DRAFT_FILENAME, _render_json(written.draft.model_dump(mode="json")))
+    if compiled is not None:
+        write(DRAFT_FILENAME, _render_json(compiled.draft.model_dump(mode="json")))
+        # S5. The provenance the `Draft` deliberately does not carry: which slot of which
+        # template became which span. It is a separate artifact rather than a field on
+        # `DraftSentence` because `Draft.digestible_payload()` feeds `draft_content_sha256`, and
+        # a field on the type would re-key every artifact already written for a value nothing
+        # verifies.
+        write(COMPOSITION_FILENAME, _render_json(_composition_payload(written, compiled)))
     if verified is not None:
         write(VERIFICATION_FILENAME, _render_json(verified.model_dump(mode="json")))
-    if disposition == ACCEPTED and written is not None:
+    if disposition == ACCEPTED and compiled is not None:
         # Rendered from the structured draft and never from the model's prose (§12).
-        write(POST_FILENAME, render_markdown(written.draft))
+        write(POST_FILENAME, render_markdown(compiled.draft))
     if disposition != ACCEPTED:
         write(REJECTED_FILENAME, _render_json(_rejection_payload(
             inputs, disposition, verified, refusal, refusal_codes, fault)))
@@ -1228,7 +1308,7 @@ def _write_run(
             "selection_mode": SELECTION_MODE,
         },
         budget=inputs.package.budget.parameters.model_dump(mode="json"),
-        counts=_counts(inputs, written, verified, derivation, offered),
+        counts=_counts(inputs, written, compiled, verified, derivation, offered),
         token_totals=_token_totals(results, inputs.package),
         artifacts=artifacts,
         story_run_id_inputs=list(_run_id_input_names()),
@@ -1271,6 +1351,33 @@ def _write_run(
     }
     (directory / MANIFEST_FILENAME).write_text(_render_json(payload), encoding="utf-8")
     return manifest
+
+
+def _composition_payload(written: WrittenStory, compiled: CompiledDraft) -> dict[str, Any]:
+    """The templates the model returned, and the fills code made from them.
+
+    Two lists rather than one nested structure, for the reason `_derived_facts_payload` keeps
+    its rows flat: a fill names its sentence by index, and a reader diffing two runs wants to
+    see *which fill moved* rather than to walk a tree to find it.
+
+    The template text is stored with its `{{slots}}` intact. That is the whole point of the
+    artifact — `draft.json` beside it holds the same sentence with every slot resolved, and the
+    pair is the evidence for which half of the sentence each author wrote.
+    """
+    return {
+        "prompt_version": WRITER_PROMPT_VERSION,
+        "templates": [
+            {"index": template.index, "text": template.text,
+             "kind": template.kind.value, "rests_on": list(template.rests_on)}
+            for template in written.templates
+        ],
+        "fills": [
+            {"sentence_index": fill.sentence_index, "handle": fill.handle,
+             "field": fill.field, "inserted": fill.inserted,
+             "char_start": fill.char_start, "char_end": fill.char_end}
+            for fill in compiled.slots
+        ],
+    }
 
 
 def _derived_facts_payload(derivation: DerivationResult) -> dict[str, Any]:
@@ -1353,6 +1460,8 @@ __all__ = [
     "CANDIDATE_FILENAME",
     "DISPOSITIONS",
     "DERIVATION_REFUSED",
+    "COMPOSITION_FILENAME",
+    "COMPOSITION_REFUSED",
     "DERIVED_FACTS_FILENAME",
     "DRAFT_FILENAME",
     "DRAFT_REFUSED",

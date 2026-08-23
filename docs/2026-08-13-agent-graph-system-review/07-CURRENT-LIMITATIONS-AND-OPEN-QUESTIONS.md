@@ -2,6 +2,12 @@
 
 **Audit date:** 2026-08-13. **Code baseline:** commit `33b0d7f`.
 
+> **This document is the `33b0d7f` record and is preserved as one.** Two features landed after
+> it — S12 (a second model provider) and S13 (deterministic fact tools) — and a subsection whose
+> *contract* they changed carries a **Superseded** banner pointing into §G, which is dated
+> separately. Measurements below were taken on 2026-08-13 and are not restated. §G also carries
+> **two limitations this document does not contain at all**, which is the way it is most wrong.
+
 Every limitation below is **demonstrated by the current implementation** — by a measured count, a
 run that was executed, or a line of code read. Nothing here is a design opinion, and nothing here
 proposes a solution. Solutions are a later decision.
@@ -170,6 +176,8 @@ not a configuration exercise.
 
 ### B3. The CLI demo bypasses ranking entirely
 
+> **Superseded at `ff3b08f`** — The heading holds; the evidence line does not. `resolve_demo_inputs` dispatches on the requested candidate id and runs whichever one detector it names. See §G.
+
 **Current behavior.** `python -m story demo` requires `--candidate-id` with no default, runs **D4
 only**, and records `selection_mode: "manual_demo_candidate"`.
 
@@ -273,6 +281,8 @@ model file is loaded).
 
 ### C3. The table-cell citation contract is unsatisfiable for 19.3% of the evidence
 
+> **Superseded at `ff3b08f`** — **Resolved.** The model no longer quotes source text at all — it copies back an `evidence_handle` and code resolves the cell. See §G.
+
 **Current behavior.** `writer.py` refuses a quote it finds more than once in a passage, while the
 writer prompt instructs the model to quote exactly that text.
 
@@ -364,6 +374,8 @@ need, and that one substitute *"reads slightly wrong."*
 **Why it matters.** There is no repair loop of any kind. A rejected draft is final for that run.
 
 ### C10. Nothing refuses a fact binding on a calculated sentence
+
+> **Superseded at `ff3b08f`** — **Narrowed, not closed.** A `calculated` sentence must now bind a derived fact; what still passes is an *observed* binding riding alongside a derived one. See §G.
 
 **Current behavior.** A `calculated` sentence carrying a `fact_binding` is not refused.
 
@@ -489,6 +501,8 @@ change to it beyond "the 118 tests still pass".
 
 ### E1. Seven of eight discovery filters have no control
 
+> **Superseded at `ff3b08f`** — The discovery filters are unchanged, but provider and model are no longer in the set of server capabilities with no browser control. See §G.
+
 **Current behavior.** The server accepts and validates `subject_entity_id`, `metric_ids`,
 `story_types`, `period_from`, `period_to`, `external_only`, `min_score` and `max_suggestions`. The
 browser sends `{max_suggestions: 50}`.
@@ -546,6 +560,8 @@ Python-side construction. Both are flagged in the payload and drawn hollow-and-d
 honest about it — but a reader who does not know the convention sees a graph with a company in it.
 
 ### E6. Two prompt-panel headings are one rule behind
+
+> **Superseded at `ff3b08f`** — The user-visible symptom is **gone** — both headings are computed from `len(...)`. The hard-coded prose drift survives, on the planner half only. See §G.
 
 **Current behavior.** `prompt_presets.py` says "seven planner rules / seventeen writer rules" in
 nine places, and the panel headings read *"Planner rules 1-7"* and *"Writer rules 1-17"*.
@@ -629,6 +645,9 @@ Each is a question, not a recommendation.
    `story/stages/verification/` imports `table_cells.py`, so the verifier-side contract is not yet
    visible.
 
+   > **Superseded at `ff3b08f`** — **Answered.** The cell is the identity: 2,690 distinct cells,
+   > **0** mapping to two periods and **0** to two metrics, so the handle needs no quote. See §G.
+
 8. **Is `paraphrase_distance` meant to remain unadjudicated?** It was designed to escalate to a
    model layer that was then removed. Whether it should become blocking, be removed, or wait is not
    recorded.
@@ -642,3 +661,161 @@ Each is a question, not a recommendation.
     (`max_primary_passages`, `max_total_tokens`, the ceilings) are sized against it, and the
     arithmetic in `section_bounds.py` was written against a `max_output_tokens` value that has since
     doubled. Whether the constraint or the model is expected to move is not addressed.
+
+    > **Superseded at `ff3b08f`** — **It is a current one, and it is now per provider.** The
+    > OpenAI block declares `context_tokens: 128000` against the local server's 8,192. See §G.
+
+---
+
+## G. What changed since `33b0d7f`
+
+**Measurement date: 2026-08-23. Code baseline: commit `ff3b08f`.** Everything above this line was
+measured on 2026-08-13 and is left exactly as written. Section G carries only the corrections.
+
+**Lead with the worst of it: this document's two largest errors are things it does not say.** It
+carries no limitation about the model doing its own arithmetic, and no limitation about the
+single-provider assumption. Both were true on 2026-08-13 and neither was written down, so the
+document was wrong **in the reader's favour** on both — G1 and G2 below add them, and both are
+already resolved.
+
+Two packets landed in between: **S12** (`MULTI_PROVIDER_OPENAI`) and **S13**
+(`DETERMINISTIC_FACT_TOOLS`).
+
+### G1. The limitation this document is missing: the model did its own arithmetic
+
+**Behaviour on 2026-08-13, unrecorded here.** A `calculated` sentence's number was the *model's*.
+The writer's schema carried a `calculation` object — an operation drawn from `WRITER_OPERATIONS`,
+two input observation ids, an expression, a rendered result, a formula version and a period
+surface — six fields the model filled and code then checked. §13.9 recomputed it and refused a
+mismatch, which is a real gate; but the shape was, in `deterministic.py`'s own later words, *"the
+model doing arithmetic with code checking its homework."*
+
+**Why it belonged in this document.** Every other limitation here is about what the gate cannot
+see. This one was about what the gate was *arranged around*: a refusal is only as good as the
+recomputation, and a recomputation only fires on the operation the model chose to declare. §10.3's
+own fixture measures the exposure — across six live runs of one candidate the model wrote
+identical prose every time and moved exactly one field, `calculation.operation`; five declared
+`difference` and were accepted, one declared `compare_levels` and was refused.
+
+**Status at `ff3b08f`: resolved.** `calculation` is gone from the writer's schema
+(`story/stages/generation/prompts.py:975-1049`) and `WRITER_OPERATIONS` with it. A derivation
+stage — `story/stages/derivation/`, 5 modules / 1,711 lines — computes the number and a
+`calculated` sentence binds the result by its `fact:derived:` id like any other fact.
+`calculated_sentence_without_calculation` now demands that binding
+(`story/stages/verification/deterministic.py:2044-2058`), and nine new REFUSE codes check the
+derived fact itself. `story/stages/generation/writer.py:145-151` and
+`story/stages/verification/codes.py:104-117` record the change. `03` §15.3 and §15.5 carry the
+detail.
+
+The Qwen recording is the demonstration: *"the one computed figure in an accepted post is one
+**code** produced, and no numeral in it is the model's arithmetic"*
+(`tests/story/test_story_demo.py`).
+
+### G2. The limitation this document is missing: one provider, and nothing said so
+
+**Behaviour on 2026-08-13, unrecorded here.** There was one model provider — a local llama.cpp
+server behind an OpenAI-compatible adapter — and the whole generation path was shaped by it.
+C1 measures against `context_tokens: 8192`, §4.1's portable-schema subset exists because *"llama.cpp
+converts the JSON Schema to a GBNF grammar and skips unsupported keywords silently"*, and every
+recorded fixture was one server's output. None of that was stated as a limitation, so a reader
+could not tell which constraints were the *model's* and which were *this* model's.
+
+**Status at `ff3b08f`: resolved.** Two providers: `SUPPORTED_KINDS = {local_openai_compatible,
+openai}` (`story/providers/public.py:68`), with `openai_responses.py` beside
+`openai_compatible.py`. The consequences visible in this document:
+
+| What was single-provider | Now |
+| --- | --- |
+| `context_tokens: 8192` (open question 10) | per provider — `config/story.yaml:63` 8192, `:89` **128000**; defaults at `story/providers/public.py:83,131` |
+| The replay store was one flat directory | one directory per provider — `03` §15.11 |
+| No browser control for provider or model (E1) | two `<select>`s, `story/demo_ui/static/index.html:227,229` |
+
+The portable-schema subset stays as it is: it is written for the weakest grammar, and adding a
+provider that accepts more keywords is not an argument for emitting them.
+
+### G3. Corrections to the limitations as written
+
+| # | What it said | Status |
+| --: | --- | --- |
+| **B3** | *"`resolve_demo_inputs` calls `detect_cross_metric_divergence` and nothing else; `SELECTION_MODE` at `pipeline.py:115`"* | **Evidence false, headline true.** `resolve_demo_inputs` calls `_detect_for` (`story/pipeline.py:459`), which dispatches on the candidate id's own detector slug through `_DETECTORS` (`:481-492`); all four detectors are reachable from the CLI. `SELECTION_MODE` is at `:145`. Ranking is still bypassed and still has one consumer |
+| **C3** | table-cell contract unsatisfiable for 19.3% of evidence, repair in flight | **Resolved** — see G4 |
+| **C7 / C8** | parenthetical *"85 codes, 79 blocking"*, *"the 85-entry gate table"* | **102 codes, 96 blocking.** Both limitations' substance is unchanged: no model verifier exists, and `verifier_version` is still `null` |
+| **C10** | *"nothing refuses a fact binding on a calculated sentence — the only hole the code names as unclosed"* | **Narrowed, not closed** — see G5 |
+| **D9** | *"118 hand-built adversarial drafts"*, *"the 118 tests still pass"* | **136.** No benchmark for the story agent or the verifier still exists; `benchmarks/` still holds `extraction/v1/` alone |
+| **E1** | seven of eight discovery filters have no control | **True of the filters.** The browser still sends `{max_suggestions: 50}` (`app.js:1253`), and `gate` and `length_target` still have no control. Provider and model left the list |
+| **E6** | *"rule 18 renders with empty `refusal_codes` under a heading claiming 17"* | **The symptom is gone** — see G6 |
+
+### G4. C3 is resolved, and Q7 is answered
+
+The repair landed. `story/stages/verification/citations.py:86` imports `resolve_cell`,
+`resolve_header` and `CellOutOfBounds`, and seven REFUSE codes check the handle
+(`story/stages/verification/codes.py:230-236`).
+
+**The contradiction is gone rather than mitigated: the model is never asked to reproduce source
+text at all.** A citation is one string, `evidence_id`, and code resolves the coordinates
+(`story/stages/generation/prompts.py:975-1049`). The 523 non-unique `quoted_text` cases stop
+mattering because nothing reads `quoted_text` to identify a cell.
+
+**Open question 7 — *"what happens to the 523 non-unique cases"* — is answered by a measurement.**
+Grouping every table-backed observation by `(passage_id, row_index, value_column_index)` gives
+2,690 distinct cells, **0** mapping to two periods and **0** to two metrics
+(`story/core/models.py:690-693`, restated at `:1547-1552`, verified live 2026-08-13):
+
+> *"A cell identifies its fact; a passage does not."*
+
+A handle collision on a table cell is therefore treated as a **defect, not a naming clash**: two
+facts claiming one cell means one was read out of a cell it does not occupy, so the package is
+refused rather than deduplicated.
+
+### G5. C10 is narrowed, and the residual hole is named precisely
+
+Three things closed:
+
+* A `calculated` sentence with no derived binding is `calculated_sentence_without_calculation`
+  (`deterministic.py:2044-2058`).
+* Period grounding runs for **every** derived binding whatever the sentence's kind.
+* Metric grounding followed at H1, for the same reason and on the same footing.
+
+The metric half was closed against a measurement worth repeating, because it shows the hole was
+never only about `calculated` sentences: bound to a derivation of `adjusted_gross_profit`,
+*"Adjusted gross **margin** fell $446 million"* — a percent metric stated in dollars — and
+*"**Revenue** fell $446 million"* were **both accepted with zero findings**, and so were the same
+two sentences declared `reported` (`deterministic.py:280-289`).
+
+**What remains open.** `GROUNDED_SENTENCE_KINDS` is still `{REPORTED, EXPLANATORY}`
+(`deterministic.py:290-291`) and now governs the two *observed* rules only. So an **observed**
+`fact_binding` riding alongside a derived one on a `calculated` sentence has its prose read against
+nothing: the sentence satisfies `calculated_sentence_without_calculation` on the derived binding,
+and the observed binding's metric and period surfaces are never grounded in the text. That is the
+residual of C10, and it is smaller and more specific than what this document described.
+
+### G6. E6's user-visible symptom is gone; the prose drift is not
+
+The panel headings are now computed rather than typed — `f"Planner rules 1-{len(PLANNER_RULES)}"`
+and `f"Writer rules 1-{len(WRITER_RULES)}"` at `story/demo_ui/prompt_presets.py:361,383`, where
+`33b0d7f` had the literals `"Planner rules 1-7"` and `"Writer rules 1-17"` at `:323,345`. **No
+heading can now claim a count the panel does not render**, which was the whole of the
+user-visible symptom.
+
+What survives is the hard-coded prose in two `ADVISORY_PHRASES` entries at
+`story/demo_ui/prompt_presets.py:643,647`: *"The seventeen writer rules and seven planner rules
+are composed into every request."*
+
+**Measured live 2026-08-23: 9 planner rules, 17 writer rules.** So the drift is now on the
+**planner half only** — the writer half went 18 → 17 and the stale word "seventeen" became correct
+by accident. Separately, `_PLANNER_RULE_CODES` covers rules 1-6 and 8 of 9 and `_WRITER_RULE_CODES`
+covers 1-15 of 17, so four rules render with empty `refusal_codes` — but nothing now claims
+otherwise, which is the difference from E6 as written.
+
+### G7. Open question 10, answered in part
+
+*"Is the 8,192-token context a fixed constraint or a current one?"* — **a current one, and it is
+now per provider.** `story/providers/public.py:83` declares `DEFAULT_CONTEXT_TOKENS = 8192` and
+`:131` declares `DEFAULT_OPENAI_CONTEXT_TOKENS = 128000`; `config/story.yaml:63` and `:89` set them
+for the two providers.
+
+**C1 is unaffected and still stands.** There is still no runtime prompt-versus-context guard:
+`StoryProviderConfig.validated` (`story/providers/public.py:459-530`) is still the only reader of
+`context_tokens` and still only checks it against `max_output_tokens`, and nothing measures a
+rendered prompt before sending it. What changed is that the bound the local path is measured
+against is no longer the only bound in the system.

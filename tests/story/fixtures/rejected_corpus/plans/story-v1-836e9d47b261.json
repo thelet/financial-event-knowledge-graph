@@ -1,0 +1,68 @@
+{
+  "candidate_id": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+  "causal_language": "forbidden",
+  "counterpoints": [],
+  "key_points": [
+    {
+      "claim": "Adjusted Gross Profit was 556000000.0 USD in 2022Q2.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit was 110000000.0 USD in 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Profit decreased from 2022Q2 to 2022Q3.",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133",
+        "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ],
+      "statement_class": "calculated"
+    }
+  ],
+  "model_id": "gpt-5.4",
+  "package_id": "pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:92d6a28d56d2",
+  "prohibited_claims": [
+    "Do not explain why Adjusted Gross Profit changed between 2022Q2 and 2022Q3.",
+    "Do not state any absolute change or percentage change unless a derivation for it is requested.",
+    "Do not describe Opendoor Technologies Inc.'s business, products, or market.",
+    "Do not compare Adjusted Gross Profit with GAAP gross profit, contribution profit, or adjusted gross margin.",
+    "Do not imply this quarter-to-quarter movement represents a year-to-date or annual result."
+  ],
+  "prompt_version": "1.2.0",
+  "requested_derivations": [
+    {
+      "from_fact_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+      "operation": "trend_direction",
+      "to_fact_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+    }
+  ],
+  "required_warnings": [],
+  "structure": [
+    "Lead with the headline takeaway that Adjusted Gross Profit moved lower from 2022Q2 to 2022Q3.",
+    "State the 2022Q2 reported figure with citation.",
+    "State the 2022Q3 reported figure with citation.",
+    "Then state the derived directional comparison only.",
+    "Close with a brief note that Adjusted Gross Profit is a non-GAAP measure defined by the company."
+  ],
+  "thesis": "Opendoor Technologies Inc. reported much lower Adjusted Gross Profit in 2022Q3 than in 2022Q2.",
+  "uncertainty": "State only the reported levels and the allowed directional movement; do not infer reasons for the change or add context not present in the package.",
+  "unusable_evidence": [],
+  "why_it_matters": "This is a direct quarter-to-quarter movement in a company-reported non-GAAP profitability measure, and the package explicitly allows the comparison between 2022Q2 and 2022Q3."
+}

@@ -686,6 +686,21 @@ WRITER_DESCRIPTIONS: Mapping[str, str] = {
         "The plan and the package handed to the writer are about different candidates.",
     "draft_not_constructible":
         "The model's answer satisfied its schema and still could not be built into a draft.",
+    # The three template refusals S4 added. Each names something the *writer* did to its own
+    # answer, and each fires before the draft compiler is asked — the compiler's own vocabulary
+    # (`template_not_compilable`, `rests_on_without_explanatory_kind`, `passage_handle_unknown`)
+    # says the same three things about a template it cannot compile, and keeping the two apart is
+    # what lets a rejection panel say which stage to send the fault back to.
+    "malformed_slot":
+        "A sentence carries braces the slot grammar cannot read. A slot is {{H}} or {{H.field}} "
+        "and there is no third form, no nesting and no escape.",
+    "rests_on_without_explanatory_sentence":
+        "A sentence that is not explanatory rests on a passage. Only an explanatory sentence "
+        "cites a passage for what it paraphrases; every other kind is cited from the evidence "
+        "behind the facts its slots name.",
+    "rests_on_not_a_passage_handle":
+        "A rests_on entry is not a passage handle of this run's slot table — an unknown handle, "
+        "or a fact row's handle where a passage's was wanted.",
 }
 
 
@@ -737,6 +752,8 @@ _WRITER_CODE_NAMES: tuple[str, ...] = (
     "EVIDENCE_HANDLE_OUT_OF_BOUNDS", "CITATION_QUOTE_NOT_IN_PASSAGE",
     "CITATION_QUOTE_AMBIGUOUS", "THESIS_ABANDONED", "NO_SENTENCES",
     "PLAN_NAMES_ANOTHER_PACKAGE", "DRAFT_NOT_CONSTRUCTIBLE",
+    "MALFORMED_SLOT", "RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE",
+    "RESTS_ON_NOT_A_PASSAGE_HANDLE",
 )
 
 

@@ -1,25 +1,78 @@
 # Live model-backed extraction — implementation plan
 
+> **Superseded 2026-08-23 by `docs/2026-08-23-live-model-backed-extraction/00-PLAN.md`.**
+> That plan re-verified this one against `ff3b08f` and corrects four load-bearing claims —
+> reordering does not change `issue_id` (it changes catalog bytes); digesting the answer store
+> into the run id would defeat resume; `prompt_version` is not a request-digest input; and
+> multi-directory pytest collection does not error. It also replaces the three provider modes
+> with two orthogonal knobs. This document is kept for its history, not as guidance.
+
 **Date:** 2026-08-18. **Baseline commit:** `c0bf241`. **Status: plan only — nothing implemented.**
 **Starting point:** `docs/2026-08-18-extraction-model-path-audit/EXTRACTION-MODEL-PATH-AUDIT.md`,
 re-verified against the code at this commit. Corrections to the audit are marked **(new)**.
 
-**Test baseline to hold green** (`python -m pytest -m "not live" -o addopts="" -q --tb=line`,
-measured at this commit): **5,874 passed, 22 skipped, 65 deselected, 0 failed** in ~270 s.
-Collection totals: 5,960 overall; under `-m "not live"` per directory — acquisition 397 ·
-normalization 203 · ontology 165 · extraction 1,304 · graph 691 (22 skipped) · story 3,136. Without
-the marker the same directories collect 402 / 203 / 165 / 1,359 / 691 / 3,140; the differences are
-the 65 `live` tests.
+**Re-verified 2026-08-23 at `ff3b08f`: still 0 of 8 stages implemented.** `extraction run` has no
+`--force` (S1); nothing dispatches on `provider.kind` and `extraction/providers/` still has no
+`api_key` or `Authorization` (S3); `AnswerStore.write()` is still never called from `extraction/`
+(S4); both lanes still catch only `(ProviderResponseError, ProviderSchemaError)`
+(`narrative_lane.py:267`, `event_lane.py:174`) (S5); `extraction/` still contains no `ThreadPool`,
+`asyncio`, `concurrent.futures` or `max_workers` (S6); `story/cli.py` still has no `--graph-run-id`
+(S7). **§0–§10 stand as written and need no change.** Only this header moved — the measurements
+below were stale enough to mislead, and one of its commands no longer works offline.
 
-Three procedural gotchas, all verified:
-- `pyproject.toml:27` sets `addopts = "-q"`, so a command-line `-q` yields `-qq` and pytest prints
-  **no summary line at all**. Always pass `-o addopts=""`.
-- Do **not** name several test directories on one command line: `tests/graph` and
-  `tests/normalization` each have a rootless `conftest.py` and the second shadows the first,
-  producing spurious collection errors. Run them separately.
-- **The tree is being edited by a concurrent session.** A first full run during this planning
-  showed 89 failures, all under `tests/story`, purely from mid-edit files; a re-run after they
-  settled was green. Re-baseline on a branch before trusting any number here.
+### Test baseline to hold green *(re-measured 2026-08-23 at `ff3b08f`)*
+
+**The `-m "not live"` command in the 2026-08-18 header is no longer the offline baseline.** A
+`neo4j` marker now exists (`pyproject.toml`, "the Neo4j container is local, free and offline, so
+deselecting it is about *no database running*") and covers **177** tests, so `-m "not live"` alone
+needs a running container. **Use `-m "not live and not neo4j"`.**
+
+| Command | Result | Wall |
+| --- | --- | --- |
+| `python -m pytest -m "not live and not neo4j" -o addopts="" -q --tb=line` | **6,175 passed · 250 deselected · 0 skipped · 0 failed** | 220 s |
+| `python -m pytest -m "not live" -o addopts="" -q --tb=line` | 6,330 passed · 22 skipped · 73 deselected · 0 failed — **requires the Neo4j container** | 301 s |
+| *(2026-08-18, for comparison)* `-m "not live"` | 5,874 passed · 22 skipped · 65 deselected | ~270 s |
+
+The 22 skips under `-m "not live"` are Neo4j tests that skip when the container is absent; under
+the offline marker they are deselected instead, which is why that column reads 0.
+
+**Collection totals: 6,425 overall** (was 5,960). Per directory:
+
+| Directory | `-m "not live"` | `-m "not live and not neo4j"` | no marker |
+| --- | ---: | ---: | ---: |
+| `tests/acquisition` | 397 *(unchanged)* | 397 | 402 |
+| `tests/normalization` | 203 *(unchanged)* | 203 | 203 |
+| `tests/ontology` | 165 *(unchanged)* | 165 | 165 |
+| `tests/extraction` | 1,304 *(unchanged)* | 1,304 | 1,359 |
+| `tests/graph` | 691 *(unchanged)* | **654** | 691 |
+| `tests/story` | **3,592** (was 3,136) | **3,452** | 3,605 |
+| **total** | **6,352** | **6,175** | **6,425** |
+
+All of the growth since 2026-08-18 is `tests/story` — +456 under `-m "not live"`. The other five
+directories have not moved at all, which is consistent with 0-of-8: none of this plan's stages has
+been started.
+
+### Three procedural gotchas
+
+- **Still true.** `pyproject.toml:27` sets `addopts = "-q"`, so a command-line `-q` yields `-qq` and
+  pytest prints **no summary line at all**. Always pass `-o addopts=""`.
+- **Still true, and worse than described.** Do **not** name several test directories on one command
+  line. Naming all six now produces **11 collection errors** — 4 under `tests/acquisition`, 7 under
+  `tests/graph` — and pytest interrupts with only 6,023 of 6,425 collected *(measured 2026-08-23)*.
+  The mechanism is as diagnosed — several test directories are rootless (no `__init__.py`), so their
+  `conftest.py` files all claim the same top-level module name `conftest` and the first one imported
+  shadows the rest — but the 2026-08-18 note named only one pair of victims. **Which `conftest` wins
+  depends on the directories named**, so the error text differs run to run: with all six on the line
+  it is `tests/story/conftest.py` (`cannot import name 'make_filing_record'`); with
+  `tests/graph tests/normalization` it is `tests/normalization/conftest.py`
+  (`cannot import name 'REAL_RUN_AVAILABLE'`, 7 errors). **A bare `python -m pytest tests` is fine**
+  and collects all 6,425 cleanly — so run the whole suite, or one directory at a time, never a list.
+- **Caution, not a current condition.** *(Re-framed 2026-08-23.)* On 2026-08-18 a concurrent session
+  was mid-edit and a first full run showed 89 failures, all under `tests/story`, purely from
+  half-written files; a re-run after they settled was green. **That is history — the tree is green
+  today**, 0 failed on both commands above. The durable lesson is the procedure, not the number:
+  a failure count taken while another session is writing measures that session, not your change.
+  Re-baseline on a branch before trusting any number here.
 
 ---
 
@@ -131,7 +184,7 @@ model-comparison run wants.
 | D10 | Concurrency | fully serial; no config key | bounded `ThreadPoolExecutor` + `RateLimiter`, copied from `acquisition/` |
 | D11 | Manifest honesty | `"mode": "replay_only"` and `provider_calls_permitted: 0` are **string/int literals** (`pipeline.py:161`, `:95`) | both derived from the context and the run |
 | D12 | `NO_STORED_ANSWER` | emitted on every model-backed candidate | emitted **only** in `replay` mode |
-| D13 | Graph run selection | `config/story.yaml:73` hand-edited | flag → pin → sole finished projection, refusing ambiguity |
+| D13 | Graph run selection | `config/story.yaml:177` hand-edited *(was `:73`; re-located 2026-08-23, value unchanged)* | flag → pin → sole finished projection, refusing ambiguity |
 | D14 | Benchmark reports | fixed stem; a second model overwrites the first | `--reports-dir`/label exposed (the `directory` parameter already exists) |
 
 ---
@@ -170,8 +223,9 @@ model-comparison run wants.
 
 ## 4. Stages, in implementation order
 
-Each stage ends with a green `-m "not live"` suite. Stages 1–2 are prerequisites for touching a
-provider at all.
+Each stage ends with a green `-m "not live and not neo4j"` suite *(command corrected 2026-08-23;
+see the header — `-m "not live"` alone now needs the Neo4j container)*. Stages 1–2 are prerequisites
+for touching a provider at all.
 
 ### Stage 1 — Make a rerun safe *(no provider work)*
 
@@ -456,8 +510,12 @@ python -m story ui --graph-run-id <graph_run_id>           # Stage 7; today: han
   checks (`package_input_digest`, `extraction_run_contents`) detect *in-place mutation* of the run
   the graph manifest names. What catches a swapped load is the four `*_graph_run_id` checks against
   the pin — which is exactly why Stage 7 matters.
-- **`config/story.yaml demo.generation_store` also goes stale**: a new graph ⇒ different packages ⇒
+- **`config/story.yaml demo.generation_stores` also goes stale**: a new graph ⇒ different packages ⇒
   different prompts ⇒ every replay lookup misses. Expect `--live` story runs, or re-record.
+  *(Renamed 2026-08-23: the key is now plural and keyed per provider at `config/story.yaml:220`,
+  because `request_identity` digests the adapter — one provider's recorded rows are a guaranteed
+  miss for another. The pre-S12 scalar `demo.generation_store` survives at `:231` as the local
+  adapter's fallback only, so a rerun has **two** keys to re-record against, not one.)*
 
 ---
 

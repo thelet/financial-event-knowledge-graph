@@ -1,0 +1,905 @@
+{
+  "budget": {
+    "artifact_token_estimate": 7019,
+    "caps_hit": [
+      "context_passages",
+      "diagnostic_passages",
+      "token_budget"
+    ],
+    "parameters": {
+      "excerpt_radius_chars": 400,
+      "max_compatibility": 12,
+      "max_conflicts": 8,
+      "max_context_neighbours": 1,
+      "max_counter_evidence": 3,
+      "max_derivations": 12,
+      "max_documents": 20,
+      "max_events": 5,
+      "max_explanatory_passages": 3,
+      "max_facts": 12,
+      "max_formula_windows": 8,
+      "max_graph_hops": 2,
+      "max_metrics": 8,
+      "max_primary_passages": 4,
+      "max_relationships": 4,
+      "max_retrieval_trace": 40,
+      "max_total_tokens": 5000,
+      "max_warnings": 20
+    },
+    "prompt_token_estimate": 5279,
+    "section_counts": {
+      "comparability_facts": 1,
+      "compatibility": 1,
+      "conflicts": 0,
+      "context_passages": 0,
+      "counter_evidence": 0,
+      "diagnostic_passages": 0,
+      "documents": 2,
+      "events": 0,
+      "evidence_sources": 0,
+      "explanatory_passages": 0,
+      "facts": 2,
+      "formula_windows": 1,
+      "identity_facts": 4,
+      "metrics": 1,
+      "primary_passages": 2,
+      "relationships": 0,
+      "retrieval_trace": 18,
+      "semantic_facts": 6,
+      "warnings": 5
+    },
+    "section_ledger": [
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": true,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "comparability_facts"
+      },
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "compatibility"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "conflicts"
+      },
+      {
+        "available": 4,
+        "carried": 0,
+        "dropped": 4,
+        "protected": false,
+        "reasons": [
+          "token_budget_trimmed"
+        ],
+        "required_dropped": false,
+        "section": "context_passages"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "counter_evidence"
+      },
+      {
+        "available": 4,
+        "carried": 0,
+        "dropped": 4,
+        "protected": false,
+        "reasons": [
+          "section_truncated",
+          "token_budget_trimmed"
+        ],
+        "required_dropped": false,
+        "section": "diagnostic_passages"
+      },
+      {
+        "available": 2,
+        "carried": 2,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "documents"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "events"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "evidence_sources"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "explanatory_passages"
+      },
+      {
+        "available": 8,
+        "carried": 2,
+        "dropped": 6,
+        "protected": true,
+        "reasons": [
+          "concordant_readings_collapsed"
+        ],
+        "required_dropped": false,
+        "section": "facts"
+      },
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "formula_windows"
+      },
+      {
+        "available": 4,
+        "carried": 4,
+        "dropped": 0,
+        "protected": true,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "identity_facts"
+      },
+      {
+        "available": 1,
+        "carried": 1,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "metrics"
+      },
+      {
+        "available": 2,
+        "carried": 2,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "primary_passages"
+      },
+      {
+        "available": 0,
+        "carried": 0,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "relationships"
+      },
+      {
+        "available": 18,
+        "carried": 18,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "retrieval_trace"
+      },
+      {
+        "available": 6,
+        "carried": 6,
+        "dropped": 0,
+        "protected": true,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "semantic_facts"
+      },
+      {
+        "available": 5,
+        "carried": 5,
+        "dropped": 0,
+        "protected": false,
+        "reasons": [],
+        "required_dropped": false,
+        "section": "warnings"
+      }
+    ]
+  },
+  "candidate_id": "cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3:86ba9e13455d",
+  "comparability_facts": [
+    {
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "cmp:movement:adjusted_gross_profit@2022Q3:adjusted_gross_profit@2022Q2",
+      "fact_kind": "comparability",
+      "metric_ids": [
+        "adjusted_gross_profit"
+      ],
+      "rule_id": "§6.9/movement",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "adjusted_gross_profit 2022Q3 and adjusted_gross_profit 2022Q2 may be compared as a movement claim: every comparability rule the ontology applies to this pair passed. Rules evaluated, in order: R1, R2, R3, R4, R5, R6, R7, R8, R10, R9.",
+      "warning_codes": []
+    }
+  ],
+  "compatibility": [
+    {
+      "comparable": true,
+      "left_id": "adjusted_gross_profit@2022Q3",
+      "reason": "",
+      "right_id": "adjusted_gross_profit@2022Q2",
+      "rule_id": "§6.9/movement"
+    }
+  ],
+  "conflicts": [],
+  "context_passages": [],
+  "counter_evidence": [],
+  "detector_id": "detector:metric_move",
+  "detector_version": "1.0.0",
+  "diagnostic_passages": [],
+  "documents": [
+    {
+      "accession": "0001801169-22-000077",
+      "content_sha256": null,
+      "document_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm",
+      "document_type": "narrative_primary",
+      "filing_date": "2022-08-04",
+      "form": "10-Q",
+      "report_date": "2022-06-30",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000077/open-20220630.htm",
+      "title": null
+    },
+    {
+      "accession": "0001801169-22-000106",
+      "content_sha256": null,
+      "document_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
+      "document_type": "earnings_release",
+      "filing_date": "2022-11-03",
+      "form": "8-K",
+      "report_date": "2022-11-03",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000106/q32022formxex991earningsre.htm",
+      "title": null
+    }
+  ],
+  "events": [],
+  "evidence_sources": [],
+  "explanatory_passages": [],
+  "extraction_run_id": "extract-v1-lexical-833f7bcfbce9",
+  "facts": [
+    {
+      "ambiguity_codes": [],
+      "cell": {
+        "period_header_column_index": 2,
+        "period_header_row_index": 3,
+        "row_index": 10,
+        "value_column_index": 3
+      },
+      "column_label": "2022",
+      "corroborating_document_ids": [
+        "norm:0001801169:0001801169-22-000075:q22022formxex991earningsre.htm",
+        "norm:0001801169:0001801169-23-000096:q22023formxex991earningsre.htm",
+        "norm:0001801169:0001801169-23-000097:open-20230630.htm"
+      ],
+      "corroborating_observation_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:29eed5334641",
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:2eecfb44211d",
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:8ee90e802b43"
+      ],
+      "corroborating_passage_ids": [
+        "norm:0001801169:0001801169-22-000075:q22022formxex991earningsre.htm#p22",
+        "norm:0001801169:0001801169-23-000096:q22023formxex991earningsre.htm#p22",
+        "norm:0001801169:0001801169-23-000097:open-20230630.htm#p123"
+      ],
+      "currency": "USD",
+      "document_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm",
+      "evidence_handle": "ev:norm:0001801169:0001801169-22-000077:open-20220630.htm#p133:r10c3",
+      "evidence_source_id": null,
+      "fact_kind": "observed",
+      "instant_date": null,
+      "metric_id": "adjusted_gross_profit",
+      "metric_label": "Adjusted Gross Profit",
+      "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+      "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133",
+      "period_end": "2022-06-30",
+      "period_key": "2022Q2",
+      "period_start": "2022-04-01",
+      "printed_form": null,
+      "quoted_text": "556",
+      "row_label": "Adjusted Gross Profit",
+      "scale": "millions",
+      "scale_location": null,
+      "shape": "quarter",
+      "source_lane": "normalized_table",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000077/open-20220630.htm",
+      "unit": "USD",
+      "validation_state": "clean",
+      "value": 556000000.0,
+      "warning_codes": []
+    },
+    {
+      "ambiguity_codes": [],
+      "cell": {
+        "period_header_column_index": 2,
+        "period_header_row_index": 3,
+        "row_index": 10,
+        "value_column_index": 3
+      },
+      "column_label": "2022",
+      "corroborating_document_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm",
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm",
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm"
+      ],
+      "corroborating_observation_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:34313de2e6f9",
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:6957704a2265",
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:c637b1729035"
+      ],
+      "corroborating_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139",
+        "norm:0001801169:0001801169-23-000137:q32023formxex991earningsre.htm#p24",
+        "norm:0001801169:0001801169-23-000138:open-20230930.htm#p125"
+      ],
+      "currency": "USD",
+      "document_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
+      "evidence_handle": "ev:norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23:r10c3",
+      "evidence_source_id": null,
+      "fact_kind": "observed",
+      "instant_date": null,
+      "metric_id": "adjusted_gross_profit",
+      "metric_label": "Adjusted Gross Profit",
+      "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9",
+      "passage_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23",
+      "period_end": "2022-09-30",
+      "period_key": "2022Q3",
+      "period_start": "2022-07-01",
+      "printed_form": null,
+      "quoted_text": "110",
+      "row_label": "Adjusted Gross Profit",
+      "scale": "millions",
+      "scale_location": null,
+      "shape": "quarter",
+      "source_lane": "normalized_table",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000106/q32022formxex991earningsre.htm",
+      "unit": "USD",
+      "validation_state": "clean",
+      "value": 110000000.0,
+      "warning_codes": []
+    }
+  ],
+  "formula_windows": [
+    {
+      "adjustment_components": [
+        {
+          "included": "true",
+          "label": "Inventory valuation adjustment",
+          "metric_id": "inventory_valuation_adjustment",
+          "note": "",
+          "operation": "add"
+        },
+        {
+          "included": "false",
+          "label": "Restructuring adjustment",
+          "metric_id": "",
+          "note": "Explicitly recorded as EXCLUDED rather than omitted. Omission would be indistinguishable from an incomplete transcription of the reconciliation table.",
+          "operation": "add"
+        }
+      ],
+      "basis": "period",
+      "component_metrics": [
+        "gaap_gross_profit",
+        "inventory_valuation_adjustment"
+      ],
+      "expression": "gaap_gross_profit + inventory_valuation_adjustment",
+      "metric_id": "adjusted_gross_profit",
+      "valid_from": "2022-01-01",
+      "valid_to": null,
+      "version_id": "adjusted_gross_profit_v2"
+    }
+  ],
+  "graph_projection_version": "1.2.0",
+  "graph_run_id": "graph-v1-0483dc6b4b10",
+  "identity_facts": [
+    {
+      "attribute": "legal_name",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:legal_name",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "The subject of this post is Opendoor Technologies Inc..",
+      "value": "Opendoor Technologies Inc.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "ticker",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:ticker",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Opendoor Technologies Inc. trades on Nasdaq under the ticker OPEN. It also has the tickers OPENL, OPENW, OPENZ.",
+      "value": "OPEN",
+      "warning_codes": []
+    },
+    {
+      "attribute": "entity_type",
+      "authoritative": true,
+      "available": true,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:entity_type",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Opendoor Technologies Inc. is a public_company - A company whose shares are traded and held publicly. Its SEC filer identifier (CIK) is 0001801169.",
+      "value": "public_company",
+      "warning_codes": []
+    },
+    {
+      "attribute": "description",
+      "authoritative": false,
+      "available": false,
+      "citations": [],
+      "editable": false,
+      "entity_id": "opendoor",
+      "fact_id": "idn:opendoor:description",
+      "fact_kind": "identity",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "No description of this company exists in the corpus or the ontology, so none is given. Do not describe what the company does, what it sells, or what market it operates in.",
+      "value": "",
+      "warning_codes": []
+    }
+  ],
+  "metrics": [
+    {
+      "aliases": [
+        "Adjusted Gross Profit",
+        "Adjusted Gross Profit (Loss)"
+      ],
+      "allowed_units": [
+        "USD",
+        "USD_thousands",
+        "USD_millions"
+      ],
+      "ambiguities": [],
+      "description": "GAAP gross profit adjusted for inventory valuation effects. Formula changed over time - see formulas.yaml.",
+      "distinct_from": [
+        "gaap_gross_profit",
+        "contribution_profit",
+        "adjusted_gross_margin"
+      ],
+      "label": "Adjusted Gross Profit",
+      "metric_id": "adjusted_gross_profit",
+      "mutually_distinct_groups": [
+        "profit_measures"
+      ],
+      "percentage_max": null,
+      "percentage_min": null,
+      "period_type": "duration",
+      "population": null,
+      "unit": "USD_millions"
+    }
+  ],
+  "ontology_definition_hash": "bb94f522ba1224702289d8e0646f5fdd8fc6d31cd341f604a7f879ee87e1af34",
+  "ontology_id": "real_estate_marketplace_v1",
+  "ontology_semantic_version": "2.0.0",
+  "package_content_digest": "f7cea2545e07149e44081a47169412baf583ff75c639a7f0a4b194e4395a6ed1",
+  "package_id": "pkg:metric-move-adjusted-gross-profit-opendoor-2022q2-2022q3:92d6a28d56d2",
+  "package_version": "1.3.0",
+  "policy_version": "canon-policy:1.0.0",
+  "primary_passages": [
+    {
+      "char_count": 2127,
+      "char_end": 2127,
+      "char_start": 0,
+      "diagnostic_codes": [],
+      "document_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm",
+      "excerpted": false,
+      "heading_path": [
+        "CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE LOSS",
+        "Item 2. Management’s Discussion and Analysis of Financial Condition and Results of Operations.",
+        "Contribution Profit / Margin After Interest"
+      ],
+      "match_basis": "",
+      "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133",
+      "passage_kind": "table",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "primary_support",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#s103",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000077/open-20220630.htm",
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended June 30, |  | Six Months Ended June 30, |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages) |  | 2022 |  | 2021 |  | 2022 |  | 2021 |  |  |  |  |  |  |  |  |\n| Gross profit (GAAP) |  | $ | 486 |  |  | $ | 159 |  |  | $ | 1,021 |  |  | $ | 256 |  |\n| Gross Margin |  | 11.6 | % |  | 13.4 | % |  | 10.9 | % |  | 13.2 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 82 |  |  | 1 |  |  | 85 |  |  | 1 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (12) |  |  | — |  |  | (38) |  |  | — |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit |  | $ | 556 |  |  | $ | 160 |  |  | $ | 1,068 |  |  | $ | 257 |  |\n| Adjusted Gross Margin |  | 13.2 | % |  | 13.5 | % |  | 11.4 | % |  | 13.3 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (100) |  |  | (26) |  |  | (236) |  |  | (44) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (11) |  |  | (3) |  |  | (42) |  |  | (7) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (23) |  |  | (3) |  |  | (36) |  |  | (2) |  |  |  |  |  |\n| Contribution Profit |  | $ | 422 |  |  | $ | 128 |  |  | $ | 754 |  |  | $ | 204 |  |\n| Contribution Margin |  | 10.1 | % |  | 10.8 | % |  | 8.1 | % |  | 10.5 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Interest on homes sold – Current Period(8)(9) |  | (12) |  |  | (3) |  |  | (42) |  |  | (7) |  |  |  |  |  |\n| Interest on homes sold – Prior Periods(8)(10) |  | (21) |  |  | (2) |  |  | (33) |  |  | (1) |  |  |  |  |  |\n| Contribution Profit After Interest |  | $ | 389 |  |  | $ | 123 |  |  | $ | 679 |  |  | $ | 196 |  |\n| Contribution Margin After Interest |  | 9.3 | % |  | 10.4 | % |  | 7.3 | % |  | 10.1 | % |  |  |  |  |",
+      "unusable_reason": null
+    },
+    {
+      "char_count": 2564,
+      "char_end": 2564,
+      "char_start": 0,
+      "diagnostic_codes": [],
+      "document_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm",
+      "excerpted": false,
+      "heading_path": [
+        "EX-99.1",
+        "Non-GAAP Financial Measures",
+        "Contribution (Loss) Profit / Margin After Interest",
+        "OPENDOOR TECHNOLOGIES INC.",
+        "RECONCILIATION OF GAAP TO NON-GAAP MEASURES"
+      ],
+      "match_basis": "",
+      "passage_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23",
+      "passage_kind": "table",
+      "quality_status": "usable",
+      "query_terms": [],
+      "role": "primary_support",
+      "score": null,
+      "section_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#s25",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1801169/000180116922000106/q32022formxex991earningsre.htm",
+      "text": "|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  | Three Months Ended September 30, |  | Nine Months Ended September 30, |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| (in millions, except percentages and homes sold, or as noted) |  | 2022 |  |  |  | 2021 |  | 2022 |  | 2021 |  |  |  |  |  |  |  |  |\n| Gross (loss) profit (GAAP) |  | $ | (425) |  |  |  |  | $ | 202 |  |  | $ | 596 |  |  | $ | 458 |  |\n| Gross Margin |  | (12.6) | % |  |  |  | 8.9 | % |  | 4.7 | % |  | 10.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Inventory valuation adjustment – Current Period(1)(2) |  | 573 |  |  |  |  | 31 |  |  | 620 |  |  | 32 |  |  |  |  |  |\n| Inventory valuation adjustment – Prior Periods(1)(3) |  | (38) |  |  |  |  | — |  |  | (38) |  |  | — |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Adjusted Gross Profit |  | $ | 110 |  |  |  |  | $ | 233 |  |  | $ | 1,178 |  |  | $ | 490 |  |\n| Adjusted Gross Margin |  | 3.3 | % |  |  |  | 10.3 | % |  | 9.3 | % |  | 11.7 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Direct selling costs(4) |  | (100) |  |  |  |  | (52) |  |  | (336) |  |  | (96) |  |  |  |  |  |\n| Holding costs on sales – Current Period(5)(6) |  | (14) |  |  |  |  | (7) |  |  | (73) |  |  | (19) |  |  |  |  |  |\n| Holding costs on sales – Prior Periods(5)(7) |  | (18) |  |  |  |  | (5) |  |  | (37) |  |  | (2) |  |  |  |  |  |\n| Contribution (Loss) Profit |  | $ | (22) |  |  |  |  | $ | 169 |  |  | $ | 732 |  |  | $ | 373 |  |\n| Homes sold in period |  | 8,520 |  |  |  |  | 5,988 |  |  | 31,671 |  |  | 11,931 |  |  |  |  |  |\n| Contribution (Loss) Profit per Home Sold (in thousands) |  | $ | (3) |  |  |  |  | $ | 28 |  |  | $ | 23 |  |  | $ | 31 |  |\n| Contribution Margin |  | (0.7) | % |  |  |  | 7.5 | % |  | 5.8 | % |  | 8.9 | % |  |  |  |  |\n| Adjustments: |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n| Interest on homes sold – Current Period(8)(9) |  | (16) |  |  |  |  | (6) |  |  | (74) |  |  | (17) |  |  |  |  |  |\n| Interest on homes sold – Prior Periods(8)(10) |  | (18) |  |  |  |  | (4) |  |  | (35) |  |  | (1) |  |  |  |  |  |\n| Contribution (Loss) Profit After Interest |  | $ | (56) |  |  |  |  | $ | 159 |  |  | $ | 623 |  |  | $ | 355 |  |\n| Contribution Margin After Interest |  | (1.7) | % |  |  |  | 7.0 | % |  | 4.9 | % |  | 8.5 | % |  |  |  |  |",
+      "unusable_reason": null
+    }
+  ],
+  "relationships": [],
+  "retrieval_trace": [
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:29eed5334641"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:34313de2e6f9"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:2eecfb44211d"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:6957704a2265"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:8ee90e802b43"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "observation_id": "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:c637b1729035"
+      },
+      "row_count": 1,
+      "tool": "get_fact_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 1,
+        "before": 1,
+        "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p133"
+      },
+      "row_count": 3,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 1,
+        "before": 1,
+        "passage_id": "norm:0001801169:0001801169-22-000106:q32022formxex991earningsre.htm#p23"
+      },
+      "row_count": 3,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "metric_id": "adjusted_gross_profit",
+        "period_key": "2022Q2"
+      },
+      "row_count": 10,
+      "tool": "find_counter_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "metric_id": "adjusted_gross_profit",
+        "period_key": "2022Q3"
+      },
+      "row_count": 9,
+      "tool": "find_counter_evidence",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p152"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p115"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p154"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    },
+    {
+      "elapsed_ms": 0.0,
+      "outcome": "OK",
+      "parameters": {
+        "after": 0,
+        "before": 0,
+        "passage_id": "norm:0001801169:0001801169-22-000077:open-20220630.htm#p5"
+      },
+      "row_count": 1,
+      "tool": "get_passage_context",
+      "truncated": false
+    }
+  ],
+  "run_complete_sha256": "1cc8f7b01c0405311e70f5306635809c73685ed8e079cb35b92a7c36b8179d8e",
+  "semantic_facts": [
+    {
+      "attribute": "display_name",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_profit:display_name",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_profit",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "adjusted_gross_profit is written 'Adjusted Gross Profit'.",
+      "value": "Adjusted Gross Profit",
+      "warning_codes": []
+    },
+    {
+      "attribute": "aliases",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_profit:aliases",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_profit",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Profit also appears in filings as 'Adjusted Gross Profit (Loss)'.",
+      "value": "Adjusted Gross Profit (Loss)",
+      "warning_codes": []
+    },
+    {
+      "attribute": "definition",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_profit:definition",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_profit",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Profit means: GAAP gross profit adjusted for inventory valuation effects. Formula changed over time - see formulas.yaml. It is a non-GAAP measure the company defines itself.",
+      "value": "GAAP gross profit adjusted for inventory valuation effects. Formula changed over time - see formulas.yaml.",
+      "warning_codes": []
+    },
+    {
+      "attribute": "unit",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_profit:unit",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_profit",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Profit is reported in USD_millions, and filings also print it in USD, USD_thousands; the scale a figure was printed at is on the fact, not on the metric.",
+      "value": "USD_millions",
+      "warning_codes": []
+    },
+    {
+      "attribute": "period_semantics",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_profit:period_semantics",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_profit",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Profit is measured over a period - it is an amount accumulated between two dates, and a figure for one quarter is not a figure for the year.",
+      "value": "duration",
+      "warning_codes": []
+    },
+    {
+      "attribute": "formula_version",
+      "authoritative": true,
+      "citations": [],
+      "editable": false,
+      "fact_id": "sem:adjusted_gross_profit:formula_version",
+      "fact_kind": "semantic",
+      "metric_id": "adjusted_gross_profit",
+      "source": "ontology:real_estate_marketplace_v1@2.0.0",
+      "statement": "Adjusted Gross Profit is defined as gaap_gross_profit + inventory_valuation_adjustment, under formula version adjusted_gross_profit_v2, in force from 2022-01-01 to the present.",
+      "value": "adjusted_gross_profit_v2",
+      "warning_codes": []
+    }
+  ],
+  "subject": {
+    "entity_id": "opendoor",
+    "entity_text": "opendoor",
+    "labels": [],
+    "resolved": true
+  },
+  "warnings": [
+    {
+      "code": "token_budget_trimmed",
+      "detail": "§10.2's 5000-token budget bound the model-visible slice; rows were dropped in the order explanatory_passages, context_passages, primary_passages, diagnostic_passages, counter_evidence, each section to its floor before the next was touched, and no drop may strand a slot the candidate anchored on",
+      "kind": "build_provenance",
+      "severity": "WARN",
+      "subject_ids": [
+        "token_budget"
+      ]
+    },
+    {
+      "code": "concordant_readings_collapsed",
+      "detail": "6 further reading(s) of 2 packaged slot(s) state the same subject, metric, period, unit, currency, formula version and value as a fact already carried, and were collapsed into it rather than minted as second facts: two filings reporting one number are two sources, not two facts. Each is named on that fact's `corroborating_observation_ids`, and equivalence is `observation_equivalence.same_reading` — the single-pair tolerance test §6.1 step 2 clusters with. obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:29eed5334641 -> obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44, obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:2eecfb44211d -> obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44, obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:8ee90e802b43 -> obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44, obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:34313de2e6f9 -> obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9, obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:6957704a2265 -> obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9, obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:c637b1729035 -> obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9",
+      "kind": "build_provenance",
+      "severity": "ANNOTATE",
+      "subject_ids": [
+        "obs:adjusted-gross-profit:opendoor:2022Q2:normalized-table:0c4364ebbc44",
+        "obs:adjusted-gross-profit:opendoor:2022Q3:normalized-table:4d66ef7200e9"
+      ]
+    },
+    {
+      "code": "subject_identity_not_read_from_graph",
+      "detail": "no §9 tool reads `:Entity` — `opendoor` carries 2,704 `OBSERVATION_OF_SUBJECT` edges and one hop outward is the whole graph — so `entity_text` and `labels` are the caller's and `resolved` is inferred from the observations' own `subject_entity_id`",
+      "kind": "build_provenance",
+      "severity": "ANNOTATE",
+      "subject_ids": [
+        "opendoor"
+      ]
+    },
+    {
+      "code": "evidence_sources_absent_in_v1",
+      "detail": "`evidence_sources[]` is empty because zero `:EvidenceSource` nodes exist — all evidence edges land on a `:Passage` (§13.7.2). Rule C is Unavailable, not silently satisfied",
+      "kind": "build_provenance",
+      "severity": "ADVISORY",
+      "subject_ids": []
+    },
+    {
+      "code": "relationships_unavailable_in_v1",
+      "detail": "`relationships[]` is empty because no §9 tool implemented at S1 returns a relationship; `find_related_entities` is in §9's table and is not one of the nine. An empty section here is a gap in the retrieval layer",
+      "kind": "build_provenance",
+      "severity": "ADVISORY",
+      "subject_ids": []
+    }
+  ]
+}

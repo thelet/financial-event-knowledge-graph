@@ -1,0 +1,58 @@
+{
+  "candidate_id": "cand:cross-metric-divergence:adjusted-gross-margin-gaap-gross-margin:opendoor:2022Q3:9682f1c1c85a",
+  "causal_language": "forbidden",
+  "counterpoints": [
+    {
+      "claim": "The divergence is due to GAAP vs non-GAAP treatment rather than a real difference in operating performance",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc",
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25"
+      ]
+    }
+  ],
+  "key_points": [
+    {
+      "claim": "Divergence between adjusted_gross_margin and gaap_gross_margin in 2022Q3",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25",
+        "obs:gaap-gross-margin:opendoor:2022Q3:normalized-table:5fde8a274bdc"
+      ],
+      "statement_class": "reported"
+    },
+    {
+      "claim": "Adjusted Gross Margin is defined as adjusted_gross_profit as a percentage of revenue (non-GAAP measure)",
+      "required_citation_passage_ids": [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"
+      ],
+      "required_fact_ids": [
+        "obs:adjusted-gross-margin:opendoor:2022Q3:normalized-table:3eabe78a6d25"
+      ],
+      "statement_class": "explanatory"
+    }
+  ],
+  "model_id": "gpt-5-nano",
+  "package_id": "pkg:cross-metric-divergence-adjusted-gross-margin-gaap-gross-margin-opendoor-2022q3:4e4363b11373",
+  "prohibited_claims": [
+    "any claim about Opendoor's future profitability",
+    "any claim about why the divergence occurred beyond the cited language",
+    "invented numbers or conversions beyond the provided figures"
+  ],
+  "prompt_version": "1.1.0",
+  "required_warnings": [],
+  "structure": [
+    "Intro: identify the cross-metric divergence",
+    "Body: present the two figures and their definitions",
+    "Context: explain non-GAAP vs GAAP framing per passage",
+    "Implications: discuss what divergence means for investors without asserting unsubstantiated causes"
+  ],
+  "thesis": "Opendoor’s 2022Q3 adjusted gross margin and gaap gross margin are divergent, highlighting a cross-metric gap between the company’s non-GAAP and GAAP profitability measures.",
+  "uncertainty": "The plan notes a divergence without asserting a causal explanation beyond what is in the cited passages.",
+  "unusable_evidence": [],
+  "why_it_matters": "The divergence between Adjusted Gross Margin and GAAP Gross Margin can affect interpretations of profitability and efficiency for investors analyzing Opendoor’s quarterly performance."
+}

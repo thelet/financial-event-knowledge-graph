@@ -16,6 +16,14 @@ Facts in this document marked *(verified)* were confirmed against EDGAR on 2026-
 Facts marked *(unverified)* are working assumptions to be confirmed on ingest and must not
 be treated as established until a filing supports them.
 
+**Swept against the source tree on 2026-08-23.** This is a spec, not a dated baseline, so the
+corrections below are made in place rather than appended as a supersession. §1's corpus
+composition, §8's identity rules and `filing_id` / `artifact_id` grammars, §9's rate limits and the
+`data/raw/sec/…` layout were all re-checked and are **unchanged**. What moved: the acceptance-7
+adapter rule (§10), the storage layout (§8), the phase count (§8), four tools in the §6 allocation
+table that were never adopted, two §6 source rows nothing reaches, and the sec-parser pin. Each is
+marked at the point of correction.
+
 ---
 
 ## 1. Anchor profile *(verified)*
@@ -208,25 +216,40 @@ lane and its own evidence semantics.
 | --- | --- | --- |
 | EDGAR submissions | `data.sec.gov/submissions/CIK##########.json` | Complete filing history, form types, dates, **8-K item codes** |
 | EDGAR archives | `www.sec.gov/Archives/edgar/data/<cik>/<accession>/` | Filing documents and exhibits |
-| EDGAR XBRL | `data.sec.gov/api/xbrl/companyfacts/` | Tagged financials incl. company extension tags |
-| EDGAR full-text search | `efts.sec.gov/LATEST/search-index` | Inbound mentions (§4); 2001+ coverage |
+| EDGAR XBRL | ~~`data.sec.gov/api/xbrl/companyfacts/`~~ — **not used; see below** | Tagged financials incl. company extension tags |
+| EDGAR full-text search | ~~`efts.sec.gov/LATEST/search-index`~~ — **not built; see below** | Inbound mentions (§4); 2001+ coverage |
 | Opendoor IR site | `investors.opendoor.com` | Shareholder letters, press releases, webcasts — **unverified, see §11** |
+
+**Neither of the two struck rows is reached by any code** *(verified 2026-08-23: `companyfacts` and
+`efts` each return **zero** matches across every `.py` in the repository)*. What actually happens:
+
+- **XBRL is not fetched from the `companyfacts` API at all.** It arrives as ordinary artifacts off
+  the SGML document list that `resolve` already parses, and is stored, not interpreted — exactly the
+  "separate lane" §8 describes. Measured over `data/catalog/artifacts.jsonl`: **364 artifacts of
+  `artifact_kind: "xbrl"`**, beside 1,060 `asset`, 268 `exhibit`, and 109 each of `primary`,
+  `index_header` and `full_submission` (2,019 rows total) *(verified 2026-08-23)*. No second
+  endpoint is involved, and the row above should be read as a rejected option, not a source.
+- **`efts.sec.gov` is the W1 derivation method of §4, and it is unbuilt.** The 175-hit census in §4
+  was run by hand on 2026-07-31; no module issues that query. W1 remains derived-not-declared, as §4
+  says, and nothing has been built toward it.
 
 ### Tool allocation
 
-Evaluated 2026-07-31. All three are MIT-licensed.
+Evaluated 2026-07-31. **The "Status" column was added 2026-08-23 after checking each name against
+the source tree: four of the tools named here were never adopted, and the table read as a
+description of what exists.**
 
-| Interface | Tool | Notes |
-| --- | --- | --- |
-| `DocumentSource` | **httpx** + SEC REST APIs — *see note* | `data.sec.gov/submissions/` for discovery; `<accession>-index-headers.html` for attachments |
-| `DocumentFetcher` | **httpx** with a hand-rolled rate limiter and retry policy | SEC User-Agent, 5 req/s, `Retry-After` honored |
-| `RawDocumentStore` | Local filesystem | Nothing else warranted at this size |
-| `DocumentParser` — 10-K/10-Q | **sec-parser** (0.58.1, released 2024-06-09) | Semantic tree + Part/Item section detection |
-| `DocumentParser` — 8-K + EX-99.x | **trafilatura** or **selectolax** | Short flat press releases; a semantic tree buys nothing |
-| `DocumentParser` — PDF | **pymupdf4llm**, or **docling** if tables prove critical | IR decks and letters only |
-| `DocumentNormalizer` | Custom, **pydantic** | Ours by design — no library should own the canonical format |
-| `NormalizedDocumentStore` | JSONL now, Parquet later | Diffable and greppable matters more than columnar speed while the schema is unstable |
-| Catalog / index | **DuckDB** over the JSONL | Query the corpus without loading it; zero setup |
+| Interface | Tool | Status | Notes |
+| --- | --- | --- | --- |
+| `DocumentSource` | **httpx** + SEC REST APIs — *see note* | **in the code** | `data.sec.gov/submissions/` for discovery; `<accession>-index-headers.html` for attachments |
+| `DocumentFetcher` | **httpx** with a hand-rolled rate limiter and retry policy | **in the code** | SEC User-Agent, 5 req/s, `Retry-After` honored |
+| `RawDocumentStore` | Local filesystem | **in the code** | Nothing else warranted at this size |
+| `DocumentParser` — 10-K/10-Q | **sec-parser** — *pin: see the caveat below* | **in the code** | `normalization/context.py:25` `_PARSERS = {"sec_html": …, "lxml": …}`; `sec_html` is the configured default |
+| `DocumentParser` — 8-K + EX-99.x | ~~trafilatura / selectolax~~ | **evaluated 2026-07-31, not adopted** | Neither appears in any `.py` *(verified 2026-08-23: 0 matches each)*. 8-Ks and EX-99.x go through the **same `sec_html` / `lxml` pair as everything else** — `config/normalization.yaml` sets `default: sec_html`, `fallback: lxml`, with no form-based routing anywhere |
+| `DocumentParser` — PDF | ~~pymupdf4llm / docling~~ | **evaluated 2026-07-31, not adopted** | 0 matches each. There is no PDF parser; the IR-deck path that motivated one was closed by §11.2 |
+| `DocumentNormalizer` | Custom, **pydantic** | **in the code** | `normalization/core/models.py:229` `class NormalizedDocument(BaseModel)` |
+| `NormalizedDocumentStore` | JSONL now, Parquet later | **JSONL in the code**, Parquet not | One `.json` plus one `.passages.jsonl` per artifact (§8) |
+| Catalog / index | ~~DuckDB~~ over the JSONL | **evaluated 2026-07-31, not adopted** | 0 matches. The catalog is **plain JSONL read with the standard library** — `acquisition/stages/catalog/jsonl_catalog.py` imports `json` and `pathlib`, and nothing else |
 
 **Note on edgartools.** It was the planned `DocumentSource` and `DocumentFetcher`, on the
 grounds that exhibit types are unavailable without it. That premise proved false: EDGAR's
@@ -236,13 +259,29 @@ Acquisition therefore needs no filing library at all. edgartools remains a reaso
 choice for XBRL *interpretation* in a later phase — v0 stores XBRL files without reading
 them. See the v0 plan §13 for the full set of API findings.
 
-**sec-parser caveats.** It is tuned for 10-Q, secondarily 10-K, and thin on 8-K — which is
-awkward here, since 8-Ks are the event spine. Hence the split above: it handles the 25
-periodic reports, and the 75 event-bearing 8-K exhibits use a simpler parser. Its known
-weakness is pre-2015 filing HTML; Opendoor's corpus begins 2020-01-31, entirely modern
-HTML, comfortably inside its tested range. No PyPI release since 2024-06-09 despite repo
-commits through 2026-06-25 — pin `0.58.1`, treat as frozen-but-working, and keep it behind
-`DocumentParser` so it can be swapped if it rots.
+**sec-parser caveats, and the pin that does not exist.** It is tuned for 10-Q, secondarily 10-K,
+and thin on 8-K — which is awkward here, since 8-Ks are the event spine. Its known weakness is
+pre-2015 filing HTML; Opendoor's corpus begins 2020-01-31, entirely modern HTML, comfortably inside
+its tested range. No PyPI release since 2024-06-09 despite repo commits through 2026-06-25.
+
+Two corrections *(2026-08-23)*:
+
+- **The split this section described was never built.** 8-Ks and their EX-99.x exhibits do *not*
+  use a simpler parser; every form goes through the same `sec_html` default with an `lxml`
+  fallback. The mitigation that actually shipped is a measured one, not a routing one:
+  `config/normalization.yaml` sets `min_source_coverage: 0.60` and a table-loss trigger, so a
+  filing sec-parser handles badly *fails loudly* rather than being pre-emptively routed away.
+- **`sec_parser` is pinned nowhere.** It is not a declared dependency at all.
+  `pyproject.toml:12` reads, in full:
+
+  ```toml
+  dependencies = ["httpx>=0.27", "pydantic>=2.6", "PyYAML>=6.0", "neo4j>=6.2,<7"]
+  ```
+
+  The installed version happens to be `0.58.1`, which is the number this document recommended —
+  but that is the state of one machine's environment, not a constraint anything enforces. The
+  recommendation to pin it stands, **unimplemented**. It *is* kept behind `DocumentParser` and
+  confined to one module (§10 acceptance 7), so the swap-if-it-rots half of the advice did land.
 
 ### Rejected
 
@@ -296,17 +335,32 @@ versioned-ontology swap the architecture was designed for.
 
 ## 8. Pipeline structure and storage
 
-### Two phases, always
+### Two review gates, six stages
+
+*Corrected 2026-08-23.* "Two phases, always: discovery → download" understated it. There are
+**two review gates** — the two manifests — but **six stages**, and `resolve` is a distinct
+manifest-writing stage sitting between the two the original sketch named. `acquisition/pipeline.py:56`
+states the order, and `MAIN_STAGE_ORDER` (line 23) is the first five:
 
 ```text
-Phase 1 — discovery   → writes a manifest (JSON, ~1 request per company)
-        [ human reviews: counts, form types, date coverage, total size ]
-Phase 2 — download    → consumes the manifest; resumable; idempotent
+discover      → manifests/filings/<run_id>.json        (~1 request per company)
+        [ GATE 1 — human reviews: counts, form types, date coverage ]
+resolve       → manifests/artifacts/<run_id>.json      (SGML index-headers per filing)
+        [ GATE 2 — human reviews: exhibit set, total size ]
+download      → consumes the artifact manifest; resumable; idempotent
+build-catalog → rebuilds filings.jsonl and artifacts.jsonl from _filing.json
+verify        → re-hashes the corpus against both manifests
+report        → writes the corpus report; runs after verify, and the pipeline is
+                not gated on its success (`acquisition/pipeline.py:21-22`)
 ```
 
-The manifest is the specification of what the corpus *is*. Scope is reviewable before
-anything large is pulled, a failed run resumes rather than re-deciding scope, and the
-corpus becomes reproducible from a version-controlled artifact.
+`python -m acquisition acquire` is the seventh subcommand and the orchestrator: it runs the six in
+order and owns nothing else. Each stage is also independently runnable.
+
+The manifests are the specification of what the corpus *is*. Scope is reviewable before anything
+large is pulled — twice, because the filing set and the artifact set are separate decisions — a
+failed run resumes rather than re-deciding scope, and the corpus becomes reproducible from a
+version-controlled artifact.
 
 ### Layout
 
@@ -326,16 +380,31 @@ data/                          # gitignored in full — regenerable
   catalog/                     # DERIVED — rebuilt from _filing.json
     filings.jsonl              # one row per accession
     artifacts.jsonl            # one row per downloaded file
-  runs/<run_id>.json
-  parsed/                      # later phases
-  normalized/
-    documents/<document_id>.json
-    passages/<document_id>.jsonl
+  runs/<run_id>-<stage>.json   # one per stage invocation, not one per run
+  normalized/                  # the normalization phase's output
+    sec/<cik10>/<form>/<date>_<accession>/
+      norm_<cik10>_<accession>_<original-filename>.json
+      norm_<cik10>_<accession>_<original-filename>.passages.jsonl
+  normalization_catalog/       # DERIVED corpus-wide indexes
+    documents.jsonl
+    passages.jsonl
+    selection.jsonl
+    issues.jsonl
 ```
 
-`documents.jsonl` and `passages.jsonl` are reserved for the parsing and normalization
-phases and are deliberately not used by acquisition — a filing, a downloaded file, and a
-normalized document are three different things.
+*Corrected 2026-08-23 against the tree.* Three things this sketch previously got wrong:
+
+| Was written | Actually on disk |
+| --- | --- |
+| `data/parsed/` | **does not exist, and never did** — parsing has no separate output lane; the parse stage feeds normalization in-process |
+| `normalized/documents/<document_id>.json` + `normalized/passages/<document_id>.jsonl` | `data/normalized/sec/<cik10>/<form>/<date>_<accession>/`, mirroring `raw/`, one `.json` and one `.passages.jsonl` per **artifact** |
+| `data/runs/<run_id>.json` | `data/runs/{run_id}-{stage}.json` — `acquisition/core/runmeta.py:86` writes `f"{record.run.run_id}-{record.run.stage}.json"`, so one run leaves one file per stage it ran |
+
+`documents.jsonl` and `passages.jsonl` are the normalization phase's and are deliberately not used
+by acquisition — a filing, a downloaded file, and a normalized document are three different things.
+They live in `data/normalization_catalog/`, alongside `selection.jsonl` and `issues.jsonl` and named
+for the phase that derives them, **not** under `normalized/` and not beside acquisition's
+`filings.jsonl` and `artifacts.jsonl` in `data/catalog/`.
 
 ### Rules
 
@@ -399,8 +468,18 @@ normalized document are three different things.
 4. Every passage carries `document_id`, `section_id`, `section_title`, and character offsets
    sufficient to quote it back exactly.
 5. Re-running the pipeline over the same manifest produces byte-identical normalized output.
-6. Deleting `parsed/` and `normalized/` and re-running rebuilds them from `raw/` alone.
-7. No module outside `adapters/` imports `edgar` or `sec_parser`.
+6. Deleting `data/normalized/` and `data/normalization_catalog/` and re-running rebuilds them
+   from `data/raw/` alone. (There is no `parsed/` stage output — see the layout in §8.)
+7. `sec_parser` is imported in **exactly one module**. *(Restated 2026-08-23.)* The original
+   wording — "no module outside `adapters/`" — names a directory that does not exist and that the
+   repository conventions forbid: there is no `adapters/`, no `ports/`, no `services/`. The rule as
+   actually built and actually enforced is narrower and stronger:
+
+   | | |
+   | --- | --- |
+   | The one module | `normalization/stages/parse/sec_html_parser.py:124` — `import sec_parser as sp`, inside `_parse_elements`, docstring *"The only place sec-parser is invoked."* |
+   | The executable test | `tests/normalization/test_pipeline_structure.py:218` `test_parser_types_stay_inside_the_parse_stage` — asserts the list of modules containing `import sec_parser` equals `["sec_html_parser.py"]` |
+   | `edgar` (edgartools) | imported **nowhere** — it was dropped outright (§6), so there is no boundary left to police |
 
 ---
 

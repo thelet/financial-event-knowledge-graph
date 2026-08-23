@@ -34,15 +34,31 @@ writer's passage set is derived from fact bindings by code and never from this p
 
 **The writer is shown a different slice, and it is the one `writer.writer_passages` computed**
 — the *whole* text of every passage a packaged fact was read from, plus the accepted plan and
-the surfaces each fact may be named by. `writer_prompt` takes those passages as an argument
-rather than deriving them, because §10.2.1 point 3 is a rule about evidence and this module is
-about rendering; the rule lives beside the stage that must not be able to break it.
+**the slot table**: per row, the handle a sentence names it by and the exact set of strings that
+row may be written as. `writer_prompt` takes both the passages and the rows as arguments rather
+than deriving either, and for two different reasons. §10.2.1 point 3 is a rule about evidence and
+this module is about rendering, so the passage slice lives beside the stage that must not be able
+to break it. The rows come from `story.stages.composition.slot_table`, which this stage **may not
+import at all** — `test_no_stage_imports_another_stage` forbids it — and which must in any case
+be called once per run, by the composition root, so that the prompt prints the same answer the
+compiler fills from.
+
+**The writer answers with sentence templates and code compiles them** (S4 of
+`docs/2026-08-23-deterministic-draft-compiler/`). A sentence is `text` carrying `{{F3}}` and
+`{{F3.period}}` placeholders, a `kind`, and the passage handles an `explanatory` one rests on.
+There is no `fact_bindings` array and no `citations` array: every figure, every metric surface,
+every period surface and every citation is written by
+`story/stages/composition/compile.py`, from the row the slot names, with the span recorded rather
+than searched for. What the model still owns is the whole of §6's table — the words, the order,
+the `kind`, which fact to state, which handle sits on which side of a comparison, which passage a
+claim rests on, and the title.
 
 **Three things the writer is told that it would otherwise have to guess, and code computes all
 three** (§2's line: the model chooses words, code chooses facts).
 
 * `metric_surfaces_for` — which surfaces name this metric and *only* this metric inside this
-  package. §13.5 refuses `"gross margin"` because `gaap_gross_margin`'s own label is
+  package. **The writer's prompt no longer calls it**: `slot_table` does, and the prompt prints
+  the answer. The planner's rendering still does, and the name stays this package's public one. §13.5 refuses `"gross margin"` because `gaap_gross_margin`'s own label is
   `"Gross Margin"` and `"gross margin" ⊂ "adjusted gross margin"`; a writer left to pick a
   surface picks that one. The filter here is a **conservative local approximation** of §13.5's
   alias index — it drops any surface that is a sub-phrase of another package metric's surface —
@@ -50,7 +66,8 @@ three** (§2's line: the model chooses words, code chooses facts).
   reason the package does not carry, which is why the approximation is safe in the direction
   that matters.
 * `period_surface_for` — one surface per fact, in §13.4's closed grammar, derived from the
-  fact's own endpoints. The grammar is the verifier's; this is the writing direction of it, and
+  fact's own endpoints. Same note: the writer's prompt reads it off the row rather than calling
+  it. The grammar is the verifier's; this is the writing direction of it, and
   `tests/story/test_story_writer.py` round-trips every surface it emits back through
   `period_grammar.resolve` rather than trusting the pair to agree.
 * `WARNING_QUALIFIER_PHRASES` — the phrases that count as having stated a required warning.
@@ -104,7 +121,7 @@ what the sentence says; it simply no longer applies to a number the model worked
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from story.core.models import (
     CausalLanguage,
@@ -120,13 +137,7 @@ from story.core.models import (
     StoryEvidencePackage,
     UnusableReason,
 )
-from story.core.renderings import (
-    DIRECTIONAL_SEMANTICS,
-    derived_figure,
-    metric_surfaces,
-    observed_figure,
-    period_surface_of_fact,
-)
+from story.core.renderings import metric_surfaces, period_surface_of_fact
 
 #: Bumped whenever the wording below or the rendering changes. It is a digest input to every
 #: stored generation, so answers produced under an older wording become unreachable rather
@@ -753,7 +764,28 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: `openai/` store still replays. What the bump does is make the change *visible* in a manifest
 #: and in `Draft.prompt_version`, which is what a version is for; 2.0.0 had to re-record because
 #: the **schema** moved, and that is a different thing.
-WRITER_PROMPT_VERSION = "2.2.0"
+#:
+#: **3.0.0**: S4 of `docs/2026-08-23-deterministic-draft-compiler/`. The writer stops declaring
+#: machine metadata and starts writing **sentence templates with slots**. `fact_bindings` and
+#: `citations` are gone from the schema — both were object arrays the model filled and code then
+#: checked — and a sentence is three properties: `text` carrying `{{F3}}` / `{{F3.period}}`
+#: placeholders, `kind`, and a `rests_on` list of passage handles. Every figure, every metric
+#: surface, every period surface and every citation is written by
+#: `story/stages/composition/compile.py` from a trusted row, and the span of each substitution is
+#: recorded rather than searched for.
+#:
+#: **A major bump, and it removes fields as 2.0.0 did.** A draft recorded under 2.2.0 carries two
+#: arrays this schema does not admit, and an answer written for this schema carries braces the
+#: old parser would have copied into the post verbatim, so the rows are unreachable in both
+#: directions. `writer.draft_from` stays as the reader for what is already on disk; nothing on
+#: the pipeline path calls it.
+#:
+#: **What the prompt now prints is the slot table, not a rendering.** `_writer_fact_lines` and
+#: `_derived_fact_lines` print each row's handle and the exact set of slots
+#: `story.stages.composition.slot_table` says that row offers, so *"what may be written for this
+#: row"* is answered in exactly one place and the prompt cannot offer a string the compiler will
+#: refuse. That is why the rows are an **argument** to `writer_prompt` — see its docstring.
+WRITER_PROMPT_VERSION = "3.0.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -828,60 +860,41 @@ PLAIN_INVESTOR_STYLE = StyleProfile(
     ),
 )
 
-#: **The rules a draft must satisfy, stated once, in the order the verifier applies them.** Every
-#: line here corresponds to a §13 refusal code, and the wording names the failure rather than the
-#: virtue — a 9B model given *"be careful with percentages"* writes `15.9%`, and a 9B model given
-#: *"a difference between two percentages is measured in percentage points, never in percent"*
-#: has been told what the check is.
+#: **The rules a draft must satisfy, stated once, in the order the answer is built.** Every line
+#: names a refusal rather than a virtue — a 9B model given *"be careful with percentages"* writes
+#: `15.9%`, and a 9B model given *"a difference between two percentages is measured in percentage
+#: points, never in percent"* has been told what the check is.
 #:
-#: Rules 3 and 6 are what make the draft checkable at all, and they are no longer the same kind
-#: of rule. §12 specifies `char_start`/`char_end` on every binding and citation, and asking a 9B
-#: model to count characters would fail on every call, so neither asks for an offset.
+#: **Fourteen rules, down from seventeen, and the arithmetic of the change is worth recording**
+#: (S4 of `docs/2026-08-23-deterministic-draft-compiler/`). Five rules were about metadata the
+#: model no longer writes: 3 (`rendered` is a substring of your own text), 5's binding clauses, 6
+#: (copy the evidence id) and 7 (give a sentence the evidence id of a fact it binds) collapse
+#: into two — *"write a slot, not a number"* and *"code cites for you"* — because there is no
+#: `fact_bindings` array and no `citations` array left to get wrong. Three pairs then merged
+#: because each pair was one idea split across two lines: no-future with subject-only, required
+#: warnings with required counterpoints, and the definition sections with EVIDENCE SCOPE. Rules 2
+#: and 3 are new and are the two ways a *template* fails that no §13 code names: a slot the table
+#: does not offer, and a field slot with no figure slot beside it.
 #:
-#: * **Rule 3 is a substring rule and stays one.** `rendered` is a run of the model's *own*
-#:   sentence, `writer.draft_from` locates it there, and a rendering occurring twice is refused
-#:   rather than chosen between. The declaration is the model's and the verifier never guesses
-#:   one, which is what §12 protects. Table flattening does not touch it.
-#: * **Rule 6 was a substring rule and it was unsatisfiable** (TABLE_CELL_CITATIONS §1.2). It
-#:   asked for a `quote` occurring in the cited passage *exactly once*, and the string the prompt
-#:   handed the model was `EVIDENCED_BY.quoted_text` — a bare cell value of median 4 characters,
-#:   occurring more than once in its own passage for **523 of 2,704** observations and 27 times
-#:   in the worst case a demo candidate actually hits *(verified live 2026-08-13)*. §12 then
-#:   refused that exact string as `citation_quote_ambiguous_in_passage`, so for a fifth of the
-#:   corpus **no model output satisfied both the instruction and the gate**. It is now a
-#:   *token* rule: the model copies back a `PackagedFact.evidence_handle`, and code resolves the
-#:   coordinates behind it through `story.core.table_cells`. The model is never asked to
-#:   reproduce source text, which is the whole of the repair.
+#: **What did not move.** Percentage points, superlatives, the single comparison, the future,
+#: the subject, the required warnings, the counterpoints, the title and the definition sections
+#: say what they said. §13 has not changed a rule, so neither has the prompt's account of it.
 #:
-#: **Rules 4, 5, 7 and 15 exist because of measured failures, and two of them are what
-#: DETERMINISTIC_FACT_TOOLS §5 replaced the arithmetic rules with.** The 2026-08-04 live run
-#: *(Qwen3.5-9B-Q4_K_M, this package, three identical attempts: 1,698 prompt tokens, 937
-#: completion tokens, `finish_reason: stop`, ~12.8 s, byte-identical answers)* produced a
-#: §12-clean draft that §13 refused five times over. Three of those five findings are now
-#: **unreachable by construction rather than by instruction**, which is the point of the change:
+#: **The metric slot is stated as optional and that is a measured judgment, not a softening.**
+#: `{{F1.metric}}` and prose naming the same metric are the same string to §13.5 —
+#: `metric_surface_absent_from_text` reads `MetricAliasIndex` over the sentence, and a compiled
+#: draft whose sentence named *"adjusted gross margin"* in the model's own words while binding
+#: through `{{F1}}` verified with zero findings *(driven through `DeterministicVerifier`
+#: 2026-08-23)*. Saying so costs nothing and buys prose that reads: a post in which every metric
+#: name is an interpolation reads like a form letter. The figure and the period are **not**
+#: optional, because those two are the ones §2.3 measured being retyped — 15 of 18
+#: `unbound_numeral` refusals were the literal string `2022`.
 #:
-#: * `calculation_does_not_recompute`, expected `-15.9`, because the model listed
-#:   `(adjusted, gaap)` and `_recompute` is `values[1] - values[0]`. Input order was a rule the
-#:   first wording never stated; it is now not a rule at all, because the model no longer lists
-#:   inputs. `DerivedFact.from_fact_id`/`to_fact_id` are the planner's request and code's answer.
-#: * `formula_version_not_valid_for_period`, because §15.3 has no null and an unused string
-#:   field is a box a model fills — it filled it with the package id. There is no such field now,
-#:   and the FORMULA WINDOWS section that existed to give it something to check against is gone
-#:   with it.
-#: * `unbound_numeral` on `"2022"` in the calculated sentence. **This is the finding the whole
-#:   change is for.** A `calculated` sentence carried no `fact_binding`, so the only place it
-#:   could declare a period was `Calculation.period_surface` — one optional-looking string —
-#:   and the model left it empty while writing *"in the third quarter of 2022"*. The first
-#:   wording told the writer not to name the period, and the note that stood here called that
-#:   *"the wrong end to fix it from"*; the second repair asked for the period on the calculation,
-#:   which still rested on the model remembering a field. Rule 5 is the third: a derived fact
-#:   binds like any other, `FactBinding.period_surface` is per binding, and DERIVED FACTS prints
-#:   the exact words to copy. There is no field left to forget.
-#:
-#: The two findings that were never about arithmetic are unchanged and still stated:
-#: `citation_reused_for_unrelated_claim`, twice, when the model re-cited both table spans in an
-#: explanatory sentence that bound nothing — rule 7 states §13.7's predicate, reuse *and*
-#: non-support, rather than banning reuse, which a two-column table legitimately needs.
+#: **Rule 10's last clause is the one thing the compiler deliberately cannot help with.** Which
+#: handle sits on which side of *"lower than"* is the semantic claim itself, and
+#: `comparative_not_supported_by_text` fired 12 times in the corpus on exactly that — 8 of them
+#: one sentence written in eight separate runs, with the right number, the right binding and the
+#: claim inverted. Telling the writer that nothing checks it for them is the honest wording.
 WRITER_SYSTEM = """\
 You are the writer for an investor post about one company's reported figures.
 
@@ -889,72 +902,82 @@ You are given an evidence slice, an accepted editorial plan and a style profile.
 tools, no search and no access to any database: what you are shown is your entire universe. \
 Follow the plan; you did not choose it.
 
-Write the post as a list of sentences, each one carrying the evidence for what it says.
+Write the post as a list of sentences. You write the words. Code writes every figure, every \
+period and every citation, into the slots you leave for it.
 
 Rules:
-1. Introduce no number, no date, no period and no company that is not in the FACTS, DERIVED \
-FACTS or PASSAGES sections. Do not restate a figure in different units. **Work nothing out \
-yourself**: you do no arithmetic here, and there is nowhere in your answer to declare any. \
-Every figure you write is one this prompt prints.
-2. `kind` is `reported` for a figure quoted from a filing, `calculated` for a figure from the \
+1. Write a slot, never a figure. `{{F3}}` is that row's figure, `{{F3.metric}}` is the name of \
+what it measures and `{{F3.period}}` is the period it covers, and code replaces each one with \
+the exact words before anyone reads the post. Work nothing out yourself, restate nothing in \
+another unit, and type no number, no date and no period of your own: a numeral you type is \
+bound to nothing and is refused.
+2. Only the slots printed under a row exist. Every row of FACTS, DERIVED FACTS and PASSAGES \
+prints its handle and the exact slots it offers. A slot naming a row that is not printed, or \
+naming a field that row does not print, is refused and no post is written at all; a row printed \
+with no slot is a row you cannot write about.
+3. A sentence that names `{{F3.metric}}` or `{{F3.period}}` must name `{{F3}}` in the same \
+sentence. The period and the metric are read off the figure they belong to, so a sentence that \
+names a row without writing its figure states a period nothing accounts for.
+4. The metric slot is optional; the figure and the period slots are not. Naming a metric in \
+your own words is allowed and often reads better, provided the words name that metric and no \
+other - write "GAAP gross margin" or "adjusted gross margin", never "gross margin", which names \
+two.
+5. A DERIVED FACTS row is a figure code computed from two filed readings. `{{D1}}` is that \
+figure and `{{D1.direction}}` is the words for which way it runs. Do not name the operation, do \
+not reverse the direction the row prints, and do not write the two readings it was computed \
+from unless a sentence writes their slots too.
+6. You write no citations at all. Code cites the facts your slots name, and your answer has no \
+field for an evidence id, a passage id or a quote. An `explanatory` sentence resting on what a \
+passage says rather than on a figure names that passage's handle in `rests_on` - `["P2"]` - and \
+every other sentence leaves `rests_on` empty. A passage handle goes in `rests_on` and \
+never in the text: `{{P2}}` is not a slot.
+7. `kind` is `reported` for a figure quoted from a filing, `calculated` for a figure from the \
 DERIVED FACTS section, `explanatory` for a claim resting on a passage rather than a number, and \
 `connective` for a sentence that carries no claim at all - no figure, no comparison, no \
 characterisation.
-3. Every numeral in a sentence must be declared. List one `fact_bindings` entry per figure: \
-`fact_id` exactly as FACTS or DERIVED FACTS spells it, `rendered` the exact run of characters \
-in your own `text` that holds the figure, and `metric_surface` and `period_surface` copied from \
-the surfaces that fact offers. `rendered` must appear in `text` exactly once, character for \
-character. An undeclared numeral is refused.
-4. Use a metric surface exactly as it is offered. A shorter one names two metrics and is \
-refused - write "GAAP gross margin" or "adjusted gross margin", never "gross margin".
-5. A figure in DERIVED FACTS was computed by code from two figures in FACTS, and you state it \
-the same way you state any other: bind it by its `fact:derived:` id, write the figure in the \
-words that row's `figure:` line quotes, and copy that row's metric surface and period surface. \
-`rendered` is the run of characters in your own sentence, so it holds the words you wrote and \
-never a field name or a unit spelled with an underscore. Do not name the \
-operation, do not write the two figures it was computed from unless a sentence binds those \
-figures too, and do not restate the result in another unit or another direction: the row's \
-`says` line is the direction, and reversing it makes the sentence false about a number code \
-computed.
-6. Every `reported` and `explanatory` sentence carries at least one citation. A citation is one \
-field, `evidence_id`, and it is the `evidence id` string printed under a fact in FACTS, copied \
-character for character. Never write a passage id, a character position, or any run of text \
-taken out of a passage: the evidence id already names the exact cell the figure was read from, \
-and code turns it into a span. An evidence id no fact above prints is refused.
-7. Give a sentence the evidence id of a fact it binds. A `calculated` sentence has no evidence \
-of its own - a derived fact was computed, not filed - so cite the evidence ids of the two \
-FACTS rows the DERIVED FACTS row names as its inputs, and cite nothing else. Do not carry an \
-evidence id another sentence already used into a sentence that binds nothing: a citation \
-repeated to decorate a second claim is provenance the evidence does not supply.
 8. A difference between two percentages is measured in **percentage points**, never in \
-percent: write "15.9 percentage points", never "15.9%". A `%` figure beside a word like rose, \
-fell, up or down is refused as unresolvable.
+percent. A percentage-point row's own slot writes "percentage points" for you; what is refused \
+is a `%` figure of your own beside a word like rose, fell, up or down, which is unresolvable.
 9. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
 worst, best, largest, smallest, record), an absence claim (has not, did not, no longer), or an \
 ordering of two items (before, after, until, since). Nothing you have been shown can support \
 one.
 10. One comparison between two figures (higher, lower, better, worse, more, less) is allowed, \
 and only where a DERIVED FACTS row supports it. Name each figure's metric on its own side of \
-the comparing word, use one comparing word in the sentence, and let the row's own words say \
-which way round it is. "GAAP gross margin was 15.9 percentage points lower than adjusted gross \
-margin" states a `compare_levels` row whose `says` line reads "lower than".
-11. Never write about the future: no expectation, guidance, outlook, forecast, target or plan.
-12. Write about the subject and no one else. No competitor, no index, no "the market", no "the \
-industry", no "peers".
-13. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists.
-14. Write every counterpoint the plan lists, resting on the same ids the plan names.
-15. The title states no claim of its own: no figure, no superlative, no comparison, no cause. \
-It may name the period the post is about, written in the compact form the candidate id uses \
-(2022Q3). That compact form belongs in the title only - inside a sentence, a period is written \
-with the period surface the FACTS or DERIVED FACTS section gives you.
-16. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
-each figure means and which figures may be set against which. They are definitions, not \
-evidence: they carry no figure you may write and no passage you may cite, and a sentence that \
-states one of them still needs its own citation like any other. Where a line says NOT \
-AVAILABLE, the corpus does not hold that answer and neither do you - write nothing that needs \
-it. In particular, write nothing about what the company does, sells, or competes in.
-17. EVIDENCE SCOPE, where it appears, states what this package's evidence does not contain. It \
-is a limit on what you may write and never a sentence to write: obey it and do not report it.
+the comparing word and use one comparing word in the sentence. Which slot you put on which side \
+of that word is your claim about the world, and no slot checks it for you.
+11. Never write about the future - no expectation, guidance, outlook, forecast, target or plan \
+- and write about the subject and no one else: no competitor, no index, no "the market", no \
+"the industry", no "peers".
+12. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists, and \
+write every counterpoint the plan lists, resting on the same rows the plan names.
+13. The title carries no slot at all and states no claim of its own: no figure, no superlative, \
+no comparison, no cause. It may name the period the post is about, written in the compact form \
+the candidate id uses (2022Q3), and that is the only numeral a title may hold. Inside a \
+sentence a period is written with that row's period slot and never in the compact form.
+14. COMPANY IDENTITY, METRIC SEMANTICS, COMPARISON RULES and EVIDENCE SCOPE carry no slot and \
+are not evidence. The first three are definitions - what the subject is, what each figure means, \
+which figures may be set against which - and where a line says NOT AVAILABLE the corpus does \
+not hold that answer and neither do you; in particular, write nothing about what the company \
+does, sells or competes in. EVIDENCE SCOPE states what this package's evidence does not \
+contain: obey it, and never report it.
+
+What an answer looks like. Suppose the sections below printed a row `[F4]` offering \
+`{{F4}}`, `{{F4.metric}}` and `{{F4.period}}`, and a row `[D2]` offering `{{D2}}` and \
+`{{D2.direction}}`:
+
+  {"title": "Acme 2021Q4",
+   "sentences": [
+     {"text": "Acme reported {{F4.metric}} of {{F4}} in {{F4.period}}.",
+      "kind": "reported", "rests_on": []},
+     {"text": "That is {{D2}} {{D2.direction}} the quarter before.",
+      "kind": "calculated", "rests_on": []}]}
+
+Note what is **not** in it: no figure, no percentage, no date, no metric name typed out where a \
+slot was offered, no citation and no evidence id. Every one of those is written for you. A \
+sentence you write as "Acme reported gross margin of 4.2 percent in the fourth quarter of \
+2021" contains four things you were not asked for and is refused, even though every word of it \
+is true - because a figure you typed is a figure nothing checked.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
@@ -983,30 +1006,30 @@ def writer_system(style: StyleProfile) -> str:
 
 
 def writer_schema() -> dict[str, Any]:
-    """§12's draft shape, inside §15.3's portable subset.
+    """§4.2's template shape, inside §15.3's portable subset. Three properties, no object array.
 
-    **`calculation` is gone, and with it every field a model could get arithmetic wrong in**
-    (DETERMINISTIC_FACT_TOOLS §5). It used to be an array of zero or one — §15.3 has no `null`
-    type and no `anyOf`, so an empty array was the only portable spelling of "or nothing" — and
-    inside it sat an operation, two input observation ids, an expression, a rendered result, a
-    formula version and a period surface. Six fields the model filled and code then checked. A
-    derived value is now stated by an ordinary `fact_bindings` entry naming a `DerivedFact` id,
-    which means the *same* four fields carry it that carry a reported figure, and
-    `period_surface` — the one §2 measured the writer forgetting — is printed for it to copy.
-    `additionalProperties: false` is what makes the removal a refusal rather than a hope: a
-    model that emits a `calculation` anyway fails `schema_violations` before a draft is built.
+    **`fact_bindings` and `citations` are gone, and with them every field a model could get
+    provenance wrong in** (S4 of `docs/2026-08-23-deterministic-draft-compiler/`). A binding used
+    to carry a `fact_id`, a `rendered` substring, a `metric_surface` and a `period_surface`, and a
+    citation an `evidence_id` — six model-authored strings per sentence that code then had to
+    check. `story/stages/composition/compile.py` now writes all six from the row the template's
+    slot names, so what is left for the model is the sentence: its words, its `kind`, and the
+    passages an `explanatory` one rests on.
 
-    **A citation is one string, `evidence_id`, and the passage id and the quote are gone**
-    (TABLE_CELL_CITATIONS §3.2). Character offsets are still absent by design — a 9B model
-    cannot count characters — but the substring the model *does* declare is now only ever a run
-    of **its own text**: `fact_bindings[].rendered`, located by `writer.draft_from` in the
-    sentence that wrote it (`WRITER_SYSTEM` rule 3). Nothing here asks the model to reproduce a
-    byte of the source. It was asked to until 1.3.0, and for 523 of 2,704 observations no answer
-    satisfied both the instruction and the gate: `quoted_text` is a bare cell value occurring up
-    to 32 times in its own passage, and rule 8's *"a quote that occurs in that passage exactly
-    once"* named a string that does not exist. The handle is a pure function of coordinates the
-    package already carries, so code resolves the span and the model copies a token back
-    (`WRITER_SYSTEM` rules 8 and 9).
+    **The template is the reference list, and there is deliberately no `facts_used` array.** Two
+    fields that can disagree about which facts a sentence uses is a state worth making
+    unrepresentable; the placeholders inside `text` already say it exactly once.
+
+    **`rests_on` is required and possibly empty.** `story/providers/portable_schema.py` demands
+    `required == properties` on every object and admits no `null` type, so *"optional"* has no
+    portable spelling — an empty array is the one this schema can express, and
+    `RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE` is what a non-empty one on the wrong `kind` earns.
+    There is no `minItems` and no `pattern` either, which is why *"a handle looks like `P2`"* is
+    checked by code in `writer.templates_from` and by the compiler's grammar, and not here.
+
+    `additionalProperties: false` is what makes each removal a refusal rather than a hope: an
+    answer that carries a `fact_bindings` array anyway — which is exactly what the 50 recorded
+    2.2.0 drafts carry — fails `schema_violations` before a template exists.
     """
     return {
         "type": "object",
@@ -1019,38 +1042,18 @@ def writer_schema() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["text", "kind", "fact_bindings", "citations"],
+                    "required": ["text", "kind", "rests_on"],
                     "properties": {
+                        # Carries `{{H}}` and `{{H.field}}`; everything outside a slot is the
+                        # model's own prose and is copied through untouched.
                         "text": {"type": "string"},
                         "kind": {
                             "type": "string",
                             "enum": [member.value for member in SentenceKind],
                         },
-                        "fact_bindings": {
+                        "rests_on": {
                             "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["fact_id", "rendered", "metric_surface",
-                                             "period_surface"],
-                                "properties": {
-                                    "fact_id": {"type": "string"},
-                                    "rendered": {"type": "string"},
-                                    "metric_surface": {"type": "string"},
-                                    "period_surface": {"type": "string"},
-                                },
-                            },
-                        },
-                        "citations": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["evidence_id"],
-                                "properties": {
-                                    "evidence_id": {"type": "string"},
-                                },
-                            },
+                            "items": {"type": "string"},
                         },
                     },
                 },
@@ -1066,8 +1069,104 @@ def writer_schema() -> dict[str, Any]:
 #: kept here is the *name*: both are in `story.stages.generation.__all__` and are imported by
 #: `tests/story/test_story_writer.py`, so the alias is what makes the move a move and not a
 #: rename every caller has to follow.
+#:
+#: **Neither is called by this module any more, and that is S4 rather than rot.** The writer's
+#: prompt used to answer *"what may be written for this row"* by calling an emitter; it now
+#: prints what `story.stages.composition.slot_table` already decided, which is the seam §4.1
+#: exists to establish — one answer, printed by the prompt and filled by the compiler. The two
+#: private aliases that stood beside these (`_observed_figure`, `_derived_figure`) are **gone**,
+#: because a private name exists for this module's own printer and had no reader left; these two
+#: stay because they are the *package's* public surface and removing a name from
+#: `story.stages.generation.__all__` is not S4's decision to make.
 metric_surfaces_for = metric_surfaces
 period_surface_for = period_surface_of_fact
+
+
+class SlotRowView(Protocol):
+    """What the prompt printer needs of one slot-table row, as a structural type.
+
+    **This is `story.stages.composition.public.SlotRow` seen through the four attributes this
+    module reads, and it is a `Protocol` because this module may not import that class.**
+    `tests/story/test_story_package_structure.py::test_no_stage_imports_another_stage` forbids
+    one stage importing another from the module path alone, and the composition stage is where
+    the slot table lives. The rows therefore arrive as an argument — see `writer_prompt` — and
+    the annotation has to describe them without naming them.
+
+    **A `Protocol` and not `object`**, which was the alternative. `object` would type-check
+    everything and tell a reader nothing: the four attributes below *are* the contract between
+    the prompt the model reads and the compiler that fills what it wrote, and a signature saying
+    `slots: Sequence[object]` would leave that contract stated only in prose. The members are
+    read-only properties rather than bare annotations so that a frozen dataclass satisfies the
+    protocol — a variable member would require the attribute be settable, which `SlotRow` is
+    deliberately not.
+
+    `kind` is a plain `str` for the same reason. `SlotKind` is a `str` enum precisely so that its
+    *value* is what an artifact carries, so `row.kind == PASSAGE_ROW` compares correctly against
+    a member without this module importing the enum, and `writer.py` pins the one string it
+    depends on against the real enum in a test rather than by discipline.
+    """
+
+    @property
+    def handle(self) -> str: ...
+    @property
+    def fact_id(self) -> str: ...
+    @property
+    def kind(self) -> str: ...
+    @property
+    def offers(self) -> Mapping[str, str]: ...
+    @property
+    def evidence_handles(self) -> tuple[str, ...]: ...
+
+
+#: `SlotKind.PASSAGE`'s value, which is the only member either module in this stage has to
+#: recognise: a passage row is the one a `rests_on` handle may name and the one that offers no
+#: text slot. A checked copy of one string, in the repository's established shape —
+#: `WARNING_QUALIFIER_PHRASES` and `slot_table.TWO_PERIOD_OPERATIONS` are the precedent — and
+#: `tests/story/test_story_writer.py::test_the_passage_row_marker_is_the_composition_enums_own`
+#: asserts it equals the enum member rather than trusting this line.
+PASSAGE_ROW = "passage"
+
+
+def _by_fact_id(slots: Sequence[SlotRowView]) -> Mapping[str, SlotRowView]:
+    """The rows keyed on the id they were minted for, which is how each section finds its handle.
+
+    Keyed on `fact_id` rather than walked positionally beside `package.facts`. The handles *are*
+    positional — `slot_table` assigns `F1..Fn` over the package's facts in package order — but a
+    printer that relied on that would print `F2`'s slots under `F3`'s reading the first time a
+    caller passed a table built from a different row set, and the failure would be silent. The
+    three id namespaces (`obs:`, `fact:derived:`, a `passage_id`) do not collide.
+    """
+    return {row.fact_id: row for row in slots}
+
+
+def _slot_lines(row: SlotRowView | None, *, indent: str = "      ") -> list[str]:
+    """Every slot one row offers, spelled as a template writes it, beside the words it inserts.
+
+    **The exact set the row offers and nothing else**, which is R3 as a rendering: `SlotRow.offers`
+    omits a field the row has no legal value for and never carries an empty one, so a slot that
+    is not on this list does not exist for this row and the compiler refuses a template naming it
+    (`field_not_offered_by_row`). The prompt's old *"do not write about this fact"* was advice;
+    this is the offer set itself.
+
+    **The inserted words are printed beside each slot**, and the alternative — printing the slot
+    names alone — was rejected. A model has to build a sentence *around* the words code will
+    insert: whether `{{D1.direction}}` reads *"decreased by"* or *"lower than"* decides the rest
+    of the clause, and whether `{{F1}}` is `$556 million` or `-12.6 percent` decides the article
+    before it. Showing the figure does invite a model to retype it, and that is the one failure
+    §13.1 catches with full force on this path — `unbound_numeral` reads coverage off bindings
+    the compiler wrote, so a retyped number is refused rather than published.
+    """
+    if row is None:
+        return [indent + "no handle in this run's slot table - do not write about this row"]
+    if not row.offers:
+        return [indent + "slots: none - this row carries nothing you may write"]
+    return [indent + "slots: " + "  ".join(
+        f'{_slot(row.handle, field)} -> "{value}"' for field, value in row.offers.items())]
+
+
+def _slot(handle: str, field: str) -> str:
+    """`{{F3}}` for the value slot, `{{F3.period}}` for a field. The empty key names no field."""
+    return "{{" + handle + ("" if not field else "." + field) + "}}"
 
 
 def writer_prompt(
@@ -1075,10 +1174,11 @@ def writer_prompt(
     plan: EditorialPlan,
     passages: Sequence[PackagedPassage],
     *,
+    slots: Sequence[SlotRowView] = (),
     derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
     length_target: int = DEFAULT_LENGTH_TARGET,
 ) -> str:
-    """The plan, the facts, the derived facts and the writer's own passage slice.
+    """The plan, the facts, the derived facts, the writer's passage slice — and the slot table.
 
     `passages` is an argument because §10.2.1 point 3 makes the slice a rule rather than a
     rendering choice — `writer.writer_passages` owns it, and a prompt that derived its own would
@@ -1091,9 +1191,25 @@ def writer_prompt(
     `story_run_id` input. So there is nowhere in the package for this function to read them
     from, and that is deliberate rather than inconvenient.
 
+    **`slots` is an argument for the same reason a third time, and this one is structural rather
+    than editorial.** The rows come from `story.stages.composition.slot_table`, and
+    `story/stages/generation/` may not import `story/stages/composition/` —
+    `test_no_stage_imports_another_stage` reads it off the module path. Calling `slot_table()`
+    here is therefore not a thing this module can do, and *should* not be even if it could: the
+    prompt must print the same answer the compiler will fill from, and a second call is a second
+    place for that answer to come from. `story/pipeline.py` is the composition root, it may
+    import everything, and it builds the table once and hands it to both. The rows are typed by
+    `SlotRowView` rather than by their class, which that protocol's docstring argues for.
+
+    **The default is empty and prints a prompt nothing can be written from**, exactly as
+    `derived_facts=()` does. That is the safe direction: a caller that forgot the table gets
+    every row marked *"no handle in this run's slot table"* and a model with no legal slot to
+    write, rather than a prompt that quietly offered handles the compiler will not recognise.
+
     The style profile is **not** a parameter. §12 requires it to be a separate system-prompt
     section, and a signature with nowhere to put it is what makes that structural.
     """
+    by_fact_id = _by_fact_id(slots)
     lines: list[str] = [
         "CANDIDATE  " + package.candidate_id,
         "PACKAGE    " + package.package_id,
@@ -1106,11 +1222,11 @@ def writer_prompt(
     lines.extend(_plan_lines(plan))
     lines += ["", "REQUIRED WARNINGS"]
     lines.extend(_required_warning_lines(plan, package))
-    lines += ["", "FACTS"]
-    lines.extend(_writer_fact_lines(package))
+    lines += ["", FACTS_HEADING]
+    lines.extend(_writer_fact_lines(package, by_fact_id))
     derived = [row for row in derived_facts if isinstance(row, DerivedFact)]
     lines += ["", _derived_heading(derived)]
-    lines.extend(_derived_fact_lines(derived, package))
+    lines.extend(_derived_fact_lines(derived, by_fact_id))
     scope = [row for row in derived_facts if isinstance(row, EvidenceScopeFact)]
     if scope:
         # Printed only when there is one, unlike every other section here. The rest of this
@@ -1124,15 +1240,10 @@ def writer_prompt(
     lines += ["", COMPARISON_HEADING]
     lines.extend(_comparability_lines(package))
     count = len(passages)
-    # The heading no longer says "a citation may name no other", because a citation no longer
-    # names a passage at all — it names an evidence id, and code resolves which passage that is
-    # (§3.2). The section stays because an `explanatory` sentence rests on what the filing says
-    # rather than on a figure, and because §13.7's paraphrase checks read the passage the writer
-    # was shown.
     lines += ["", f"PASSAGES ({count} whole passage{'' if count == 1 else 's'}; every one is a "
-                  "passage a fact above was read from. Read them; do not cite them and do not "
-                  "copy text out of them - cite the evidence id printed under the fact)"]
-    lines.extend(_writer_passage_lines(passages))
+                  "passage a fact above was read from. Read them; write no text out of them, "
+                  "and name one only in rests_on, by its handle)"]
+    lines.extend(_writer_passage_lines(passages, by_fact_id))
     lines += ["", f"LENGTH  about {length_target} sentences."]
     return "\n".join(lines)
 
@@ -1196,193 +1307,124 @@ def _required_warning_lines(
     return lines
 
 
-def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
+#: The FACTS heading, which now has to say what a row *is* rather than what to copy out of it.
+#: One string rather than an f-string built at call time, because the prompt text is half of the
+#: request identity §14's replay store keys on and a heading that varied would be a second key.
+FACTS_HEADING = (
+    "FACTS (one row per filed reading; the handle in brackets is what a slot names, and the "
+    "slots line is every slot that row has)")
+
+
+def _writer_fact_lines(
+    package: StoryEvidencePackage, by_fact_id: Mapping[str, SlotRowView]
+) -> list[str]:
+    """One observation per block: what it reads, which handle names it, and its exact slot set.
+
+    **The machine reading is still printed and is still not writable.** `metric_id`, `value` and
+    `unit` are how the package stores the fact — `3.3 percent`, `556000000.0 USD` — and a
+    sentence carrying either spelling is what §2 measured going wrong. They are here because the
+    model has to *select* a fact before it can write one, and selection needs the metric's name
+    and the magnitude; what may be written is the slots line beneath, and rule 1 says the
+    difference in one sentence.
+
+    **No evidence id is printed and that is the change, not an omission** (§6, R5). The writer
+    writes no citation, so a handle in the prompt would be a token to copy back into a field
+    that no longer exists. What survives is the *negative* case: a fact for which the package
+    minted no handle cannot be cited at all, and a template binding it is
+    `no_evidence_handle_for_bound_fact` at compile time, so the row says so where a reader of
+    the prompt can act on it rather than only where the refusal fires.
+    """
     if not package.facts:
         return ["  (none)"]
     lines: list[str] = []
     for fact in package.facts:
-        lines.append(f"  [{fact.observation_id}]")
+        row = by_fact_id.get(fact.observation_id)
+        lines.append(f"  [{row.handle if row is not None else '-'}]  {fact.metric_id}")
         printed = f'  printed "{fact.printed_form}"' if fact.printed_form else ""
-        lines.append(f"      {fact.metric_id}  {fact.value} {fact.unit}{printed}")
-        figure = _observed_figure(fact)
-        if figure is not None:
-            lines.append(f'      figure: write "{figure}"')
-        surfaces = metric_surfaces_for(package, fact.metric_id)
-        if surfaces:
-            lines.append("      metric surface: write one of "
-                         + ", ".join(f'"{surface}"' for surface in surfaces))
-        else:
-            lines.append("      metric surface: no surface names this metric uniquely in this "
-                         "package - do not write about this fact")
-        period = period_surface_for(fact)
-        if period:
-            lines.append(f'      period surface: write exactly "{period}"')
-        else:
-            lines.append("      period surface: this period has no permitted surface - do not "
-                         "write about this fact")
-        # The line the whole of TABLE_CELL_CITATIONS is about. It used to end
-        # `quoting "{fact.quoted_text}"`, which for 523 of 2,704 observations named a string
-        # occurring more than once in the passage it named — and §12's gate refused exactly
-        # that. The handle replaces it; the *quote is deliberately not printed*, because a
-        # prompt that shows the model the source bytes is a prompt that invites it to retype
-        # them, which is the contract this step removed.
-        #
-        # The two branches are exhaustive over a well-formed package: `_has_some_evidence`
-        # requires a `passage_id` or an `evidence_source_id`, and a `passage_id` always mints a
-        # handle. A fact reaching neither prints no evidence line and is therefore uncitable,
-        # which is the safe direction to fail in.
-        if fact.evidence_handle:
-            # The row label is the one piece of table context that survives, and it names
-            # *which* row the handle points at rather than the value the model must not retype.
-            row = f', row "{fact.row_label}"' if fact.row_label else ""
-            lines.append(f'      evidence id: "{fact.evidence_handle}"  (cite this fact with '
-                         f"that exact string; it is passage {fact.passage_id}{row})")
-        elif fact.evidence_source_id:
-            lines.append(f"      evidenced by {fact.evidence_source_id} (no filed passage; "
-                         "this fact cannot be cited and must not be written)")
+        lines.append(f"      reads {fact.value} {fact.unit}{printed}"
+                     "  (the package's own spelling; you never write it)")
+        lines.extend(_slot_lines(row))
+        if row is not None and not row.evidence_handles:
+            # Reachable without the model doing anything wrong: `_has_some_evidence` admits a
+            # fact carrying an `evidence_source_id` and no `passage_id`, and no handle is minted
+            # for one. R6 — the compiler refuses a binding to it rather than omitting a citation.
+            lines.append("      no filed evidence backs this row; a sentence writing it is "
+                         "refused, so write nothing about it")
         if fact.warning_codes:
             lines.append("      warnings " + ", ".join(fact.warning_codes))
     return lines
 
 
-#: `story.core.renderings.observed_figure`, under the name this module's own tests import and
-#: the docstrings above still name. The rendering rule is the compiler's too, so it moved; the
-#: *offer* — a `figure:` line printed only where there is a scaled form — stays here, because
-#: what a prompt tells a model to do is this module's question and not `core`'s.
-#:
-#: **Offered rather than mandated, and the asymmetry with `_derived_figure_line` is real.**
-#: §13.2 admits several surfaces for an *observed* numeral and admits only the currency-symbol
-#: one for a derived USD result, so the derived row says *"write exactly … never …"* and the
-#: FACTS row says *"write"*. Saying `never "556000000.0 USD"` there would be false: that spelling
-#: is legal on an observation — `legal_renderings` offers it as the second form — and this
-#: module's rule is that a wording names a real failure.
-_observed_figure = observed_figure
-
-
 # ---------------------------------------------------------------------------------------
-# DETERMINISTIC_FACT_TOOLS §4.4 and §7 — what code computed, rendered for the writer
+# DETERMINISTIC_FACT_TOOLS §4.4 and §7 — what code computed, printed as slots
 #
-# **Printed with the same *fields* as FACTS and deliberately not in the same *shape*, which is a
-# correction measured live on 2026-08-19.** The whole change is that a derived value stops being a
-# special sentence the model declares arithmetic in and becomes an ordinary figure it binds, so
-# each row prints an id to bind, a figure to write, a metric surface and a period surface — the
-# same four things `_writer_fact_lines` prints, in the same order. What that first wording also
-# printed was `{result} {unit}` in the machine's spelling, one line below a `metric_id`, exactly
-# as a FACTS row prints `{value} {unit}`. A FACTS row survives that because its unit *is* the word
-# a sentence uses (`percent`); a derived row does not, because `percentage_points` is not.
-# Measured: Qwen copied `"15.9 percentage_points"` into `rendered` while writing *"15.9 percentage
-# points"* in its own text, so the declared span did not occur in the sentence at all.
+# **The row prints no figure of its own any more, and the two paragraphs of measurement that
+# stood here are the reason it does not have to.** Under 2.1.0 and 2.2.0 this section handed the
+# writer a *quoted string to copy* — `write exactly "$446 million" - those characters, never
+# "446000000.0 USD"` — because the model had to retype the figure into `rendered`, and three
+# live drafts measured it retyping the wrong spelling: `"15.9 percentage_points"` against its own
+# prose, then `"446000000.0 USD"`, then `446 million USD` copied off the neighbouring FACTS row.
+# Each was `derived_unit_mismatch` or a declared span that did not occur in the sentence.
 #
-# So the figure is now handed over as one **quoted string to write**, on a line shaped like the
-# two `write …` lines under it rather than like a FACTS reading. Its unit is written the way a
-# sentence writes it — `_DERIVED_FIGURE_FORMATS`, and every row of that table produces a surface
-# §13.2 reads the unit off, which `{result} {unit}` did not: `"446000000.0 USD"` tokenises as a
-# unitless numeral and is `derived_unit_mismatch` on a derived fact, which is the second finding
-# the live metric-move run earned under both providers. And a directional row prints the
-# magnitude, because its `says` line already carries the direction — *"decreased by
-# -446000000.0"* is a double negative in prose, and `sign_disagreement` is what §13.1 does to a
-# written sign that argues with the result's.
+# There is nothing to retype now. `{{D1}}` inserts the same string those wordings were trying to
+# get copied — `slot_table` reads it from `renderings.legal_renderings`, which is where
+# `derived_figure` lives — and the model never touches it. The counter-example is gone with the
+# failure it named: naming a refused spelling beside an accepted one is this module's rule for a
+# string the model must *write*, and it writes none.
 #
-# **Three differences from FACTS, each of them §6's requirement rather than a rendering choice.**
+# **Three things about a derived row still have to be said in the prompt.**
 #
-# * **No evidence id.** No handle is ever minted for a derived fact, because a citation must stay
-#   attached to the observed facts a claim rests on. The row instead names the two FACTS rows it
-#   was computed from, and rule 7 tells the writer to cite *their* evidence ids.
-# * **A `says` line rather than a sign to read.** `DisplaySemantics` is a closed vocabulary code
-#   chose, and it exists because the sign of `result` does not settle the direction: 46 of 46
-#   canonical `direct_selling_costs` values are stored negative, so a fall in the number is a
-#   rise in the cost. A writer inferring "decreased" from a minus sign would be right about this
-#   candidate and wrong about that one.
-# * **The period surface is `to_period`'s.** §13.4 requires a binding to a derived fact to resolve
-#   a period surface agreeing with the period the claim is *about*, which is the later one — and
-#   this is the line that would have prevented the `unbound_numeral` on `2022` that §2 measured.
+# * **No evidence of its own.** §6 mints no handle for a derivation, and the compiler cites the
+#   two observations it was computed from. The row does not name them: the writer cites nothing,
+#   and printing two ids would be printing two tokens with nowhere to go.
+# * **The direction is a slot, not a sign to read.** `DisplaySemantics` is a closed vocabulary
+#   code chose, because the sign of `result` does not settle the direction — 46 of 46 canonical
+#   `direct_selling_costs` values are stored negative, so a fall in the number is a rise in the
+#   cost. `{{D1.direction}}` hands over the words; rule 5 forbids reversing them.
+# * **A word-valued row offers no figure at all.** `crossed_zero` and `trend_direction` answer a
+#   word, `legal_renderings` returns nothing for them, and §13.2 refuses a numeral written for
+#   one. Such a row simply has no `{{D1}}` on its slots line, which is R3 doing the work the old
+#   *"this row carries no figure, so write no number for it"* sentence was doing by instruction.
 # ---------------------------------------------------------------------------------------
 
 
 def _derived_heading(derived: Sequence[DerivedFact]) -> str:
     count = len(derived)
     if not count:
-        return ("DERIVED FACTS (none; the plan requested no derivation, so write no figure "
-                "that is not in FACTS)")
-    return (f"DERIVED FACTS ({count}; code computed each one from two FACTS rows - bind them "
-            "exactly as you bind a fact above)")
+        return ("DERIVED FACTS (none; the plan requested no derivation, so there is no derived "
+                "row to write a slot for)")
+    return (f"DERIVED FACTS ({count}; code computed each one from two FACTS rows - name its "
+            "slots exactly as you name a fact's above)")
 
 
 def _derived_fact_lines(
-    derived: Sequence[DerivedFact], package: StoryEvidencePackage
+    derived: Sequence[DerivedFact], by_fact_id: Mapping[str, SlotRowView]
 ) -> list[str]:
-    """One derived fact per block, with everything a `FactBinding` for it needs and nothing else.
+    """One derived fact per block: what it is of, and the exact slot set its row offers.
 
-    The metric surface is taken through `metric_surfaces_for` rather than off
-    `DerivedFact.metric_surfaces`, and the difference matters on exactly the demo candidate.
-    That field carries the two inputs' own `metric_label`s in `(from, to)` order, and one of
-    them is `"Gross Margin"` — the surface §13.5 refuses, because `"gross margin"` is a
-    sub-phrase of `"adjusted gross margin"` and the alias index resolves by longest match. The
-    package-local filter is the same one every FACTS row is rendered through, so a derived fact
-    and the observation it came from are offered the same words.
+    **The metric and the period names are the row's, and the row offers one name per thing.**
+    `_derived_row` in `slot_table` decides that: `.metric` only where the derivation stays inside
+    one metric and `.from_metric`/`.to_metric` only where it does not, `.period` only for a
+    same-period operation and `.from_period`/`.to_period` only for a two-period one. Printing
+    them from here would be a second answer to a question that module already answers, which is
+    the whole of §4.1.
+
+    **The period *keys* are no longer printed, and that is deliberate.** This block used to open
+    `{metric_id}, {from_period} -> {to_period}`, which spells `2022Q2 -> 2022Q3` — the literal
+    string §2.3 measured being retyped into 15 of 18 `unbound_numeral` refusals. The periods are
+    on the slots line now, in the words §13.4's grammar reads, and nowhere else.
     """
     if not derived:
         return ["  (none)"]
     lines: list[str] = []
     for fact in derived:
-        lines.append(f"  [{fact.fact_id}]")
-        lines.append(f"      {fact.metric_id}, {fact.from_period} -> {fact.to_period}")
-        lines.append(f"      says: {fact.display_semantics.value}")
-        if fact.result is None:
-            # §13.1 at the writing end: a word-valued row has no numeral, and one written for it
-            # is `derived_unit_mismatch` rather than a rounding argument.
-            lines.append(f'      answer: the words "{fact.result_word}" - this row carries no '
-                         "figure, so write no number for it")
-        else:
-            lines.append("      figure: " + _derived_figure_line(fact, package))
-        surfaces = metric_surfaces_for(package, fact.metric_id)
-        if surfaces:
-            lines.append("      metric surface: write one of "
-                         + ", ".join(f'"{surface}"' for surface in surfaces))
-        else:
-            lines.append("      metric surface: no surface names this metric uniquely in this "
-                         "package - do not write about this fact")
-        if fact.period_surface_hint:
-            lines.append(f'      period surface: write exactly "{fact.period_surface_hint}"')
-        else:
-            lines.append("      period surface: this period has no permitted surface - do not "
-                         "write about this fact")
-        # Named rather than resolved to their values: the writer needs them to know which two
-        # evidence ids to cite (rule 7), and a value printed here would be a second place to
-        # read a figure the FACTS section already prints with its own surfaces.
-        lines.append(f"      computed from {fact.from_fact_id} and {fact.to_fact_id} - cite "
-                     "both of their evidence ids and no others")
+        row = by_fact_id.get(fact.fact_id)
+        lines.append(f"  [{row.handle if row is not None else '-'}]  {fact.metric_id}")
+        lines.append("      computed by code from two filed readings; it was never filed itself")
+        lines.extend(_slot_lines(row))
         if fact.warning_codes:
             lines.append("      warnings " + ", ".join(fact.warning_codes))
     return lines
-
-
-#: `story.core.renderings.derived_figure`, for `_observed_figure`'s reason. The two tables that
-#: used to sit here — `_DERIVED_FIGURE_FORMATS` and `_SCALE_WORDS` — moved with it, and so did
-#: `_DIRECTIONAL_SEMANTICS`, which `_derived_figure_line` below still reads under its public name.
-_derived_figure = derived_figure
-
-
-def _derived_figure_line(fact: DerivedFact, package: StoryEvidencePackage) -> str:
-    """The figure to write, and — where the machine spelling differs — the one not to.
-
-    **The counter-example is generated rather than written, and it is the string the model
-    actually produced twice** *(measured 2026-08-19)*. `{result} {unit}` is what a FACTS row
-    looks like, so a writer shown a derived row beside two FACTS rows copies the neighbour's
-    shape: Qwen wrote `"15.9 percentage_points"` under one wording and `"446000000.0 USD"` under
-    the next, and both are `derived_unit_mismatch` because §13.2 requires a derived numeral to
-    carry its unit's *surface*. Naming the refused form beside the accepted one is this module's
-    own rule — *"the wording names the failure rather than the virtue"* — applied to a rendering
-    instead of to a check. Omitted where the two forms coincide, so no row carries a warning
-    against a mistake it cannot invite.
-    """
-    figure = _derived_figure(fact, package)
-    magnitude = (abs(fact.result) if fact.display_semantics in DIRECTIONAL_SEMANTICS
-                 else fact.result)
-    machine = f"{magnitude} {fact.unit}"
-    if machine == figure:
-        return f'write "{figure}"'
-    return f'write exactly "{figure}" - those characters, never "{machine}"'
 
 
 def _evidence_scope_lines(scope: Sequence[EvidenceScopeFact]) -> list[str]:
@@ -1396,12 +1438,24 @@ def _evidence_scope_lines(scope: Sequence[EvidenceScopeFact]) -> list[str]:
     return ["  " + fact.statement for fact in scope]
 
 
-def _writer_passage_lines(passages: Sequence[PackagedPassage]) -> list[str]:
+def _writer_passage_lines(
+    passages: Sequence[PackagedPassage], by_fact_id: Mapping[str, SlotRowView]
+) -> list[str]:
+    """Each passage under the handle `rests_on` names it by, whole and never excerpted.
+
+    **A passage row offers no slot and the block says so.** `{{P2}}` in sentence text is
+    `field_not_offered_by_row`: a passage has no value, no metric and no period to write, and an
+    `explanatory` sentence says what the filing says in the model's own words. The handle exists
+    for one field, `rests_on`, and the compiler resolves it to the span of a fact read from that
+    passage.
+    """
     if not passages:
         return ["  (none)"]
     lines: list[str] = []
     for passage in passages:
-        head = f"  [{passage.passage_id}]  document {passage.document_id}"
+        row = by_fact_id.get(passage.passage_id)
+        handle = row.handle if row is not None else "-"
+        head = f"  [{handle}]  document {passage.document_id}"
         if passage.passage_kind:
             head += f"  kind {passage.passage_kind}"
         lines.append(head)
@@ -1411,5 +1465,6 @@ def _writer_passage_lines(passages: Sequence[PackagedPassage]) -> list[str]:
         # passages and never a passage a fact is bound to, because §13.7's Rule A needs the
         # entire table to reconstruct a cell.
         lines.append(f"      whole passage, {passage.char_count} characters")
+        lines.append(f'      name it as rests_on: ["{handle}"] - it has no slot for your text')
         lines.append("      " + passage.text.replace("\n", "\n      "))
     return lines
