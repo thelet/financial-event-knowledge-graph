@@ -39,6 +39,10 @@ through `verification/period_grammar.resolve`, so either is legal. **Pick `promp
 forms** — a sentence carries `"September 30, 2022"`, not an ISO date — and record that this
 changes `DerivedFact.period_surface_hint` for fiscal-year and instant rows.
 
+*(Corrected after running it, 2026-08-23: it changes **three** shapes, not two. YTD_6M also
+moves, `"the six months ended June 30, 2022"` → `"the first half of 2022"`. Quarters and YTD_9M
+are byte-identical, which is every shape any recorded run has produced — landed in `4508c60`.)*
+
 * Files: `story/core/renderings.py` (new), `story/stages/generation/prompts.py`,
   `story/stages/generation/__init__.py`, `story/stages/derivation/operations.py`,
   `story/stages/derivation/execute.py`.
