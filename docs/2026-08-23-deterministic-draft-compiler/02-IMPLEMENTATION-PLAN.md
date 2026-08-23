@@ -307,3 +307,92 @@ tautology that stays true.
 | Hand-authored fixture rows drift from what a real model would emit | Labelled synthetic; a live re-record is scheduled as follow-up; the A/B corpus is built from *recorded* drafts, not from synthetic ones. |
 | The compiler becomes a second verifier by accretion | R7, plus the structural test that it may not import `story/stages/verification/`. |
 | Two workers edit `prompts.py` | S4 owns `prompts.py` and `writer.py`; S6 owns the demo UI; S1 touches `prompts.py` first and lands before S4 starts. |
+
+---
+
+## 7. Results *(2026-08-23, after implementation)*
+
+**Landed in five commits.** `4508c60` S1 · `05b5b33` S2 · `575a59f` S3 · `31c621b` S4–S8.
+`tests/story`: **3,861 passed, 1 skipped**, including all 12 `live` tests against the running
+llama.cpp server. Baseline before the branch was 3,604 passed, 1 skipped.
+
+### 7.1 The A/B, over the 22 recorded runs the verifier refused
+
+Each case is the recorded prose expressed as a template — the same claim, re-worded only for the
+slot grammar — compiled and driven through the real `DeterministicVerifier`.
+Corpus: `tests/story/fixtures/rejected_corpus/cases.json`, asserted by
+`tests/story/test_story_composition_regression.py`.
+
+| | before | after |
+| --- | ---: | ---: |
+| **blocking findings** | **74** | **26** (−65%) |
+| runs accepted | 0 of 22 | 6 of 22 |
+
+| code | before | after |
+| --- | ---: | ---: |
+| `metric_surface_unresolved` | 5 | **0** |
+| `metric_surface_ambiguous` | 3 | **0** |
+| `binding_rendering_is_not_one_numeral` | 3 | **0** |
+| `period_named_in_text_contradicts_binding` | 2 | **0** |
+| `derived_unit_mismatch` | 2 | **0** |
+| `calculation_result_surface_mismatch` | 2 | **0** |
+| `period_unresolvable`, `period_mismatch` | 2 | **0** |
+| `number_outside_tolerance` | 1 | **0** |
+| `metric_surface_absent_from_text` | 1 | **0** |
+| `calculation_does_not_recompute` | 1 | **0** |
+| `derived_operation_not_supported` | 1 | **0** |
+| `connective_sentence_carries_a_claim` | 2 | **0** |
+| `unsupported_comparative` | 1 | **0** |
+| `package_content_digest_mismatch` (environmental) | 3 | **0** |
+| `unbound_numeral` | 18 | 6 |
+| `citation_reused_for_unrelated_claim` | 15 | 11 |
+| `comparative_not_supported_by_text` | 12 | 8 |
+| `calculated_sentence_without_calculation` | 0 | 1 |
+
+**Every bookkeeping code is zero.** The three that survive are the three that should:
+
+* **8 reversed comparatives**, still false and still refused. The model chooses which handle sits
+  on which side of *"lower than"*, so `comparative_not_supported_by_text` keeps its whole force.
+* **11 `citation_reused_for_unrelated_claim`**, on sentences that genuinely earn no citation of
+  their own. The compiler never carries one forward; what is left is a real provenance gap for a
+  definitional or connective sentence, and it is §13's to refuse.
+* **6 `unbound_numeral`**, all of them R4: a sentence naming a period while binding nothing. The
+  limitation is the verifier's coverage mechanism and predates this work.
+
+### 7.2 Two defects found by running it
+
+* **`thesis_abandoned` cascaded.** `_thesis_violations` read the templates that survived parsing,
+  so a sentence refused for anything else took its slot handles with it — and a `rests_on` mistake
+  reported the thesis abandoned as well, on a draft whose first slot named a fact the plan
+  required. Fixed to read every sentence's raw text.
+* **The title was dropped**, and `Draft.model_id` briefly carried the wire model id — the local
+  server's `/home/<user>/models/…` path — into an API response. Both caught by tests that already
+  existed (`test_no_response_carries_an_absolute_path`).
+
+### 7.3 The live measurement, and the one thing that is not settled
+
+Given the 3.0.0 prompt, **Qwen3.5-9B-Q4_K_M first wrote correct prose with no slots at all** — it
+typed `-12.6 percent`, `3.3 percent` and `15.9 percentage points`, exactly as it had under 2.2.0.
+A worked example in the system message flipped it to slots throughout; lengthening rule 6 flipped
+it back; trimming that rule restored it. At temperature 0 that is prompt-length sensitivity, not
+noise, and it is **the risk §6 named, measured rather than predicted**.
+
+No field was handed back to the model. The safety property is unaffected either way: a figure the
+model types is bound to nothing and is `unbound_numeral`. What is unsettled is *compliance*, not
+*correctness* — and the honest statement is that a 9B model needs the example and is sensitive to
+what sits around it.
+
+### 7.4 Follow-up, in priority order
+
+1. **Capture a genuine 3.0.0 writer row.** All three committed stores carry a hand-authored row,
+   labelled synthetic. The accepted one renders byte-for-byte the post the 2.2.0 recording
+   rendered, which is the strongest evidence available without a capture — but it is not a
+   capture. `test_live_the_qwen_writer_still_files_its_answer_under_the_committed_row` now asserts
+   only that the request lands on the committed key, and says why.
+2. **Measure slot compliance across models and wordings.** One example changed the outcome
+   completely; nobody has measured how far that generalises.
+3. **S6 — the demo UI's `compiling_draft` trace stage and the composition codes in the
+   catalogue.** The nine codes are in `code_catalogue.py`; the trace stage is not added, so a
+   compile-time refusal is diagnosable in the rejection panel but does not appear on the timeline.
+4. **R4** — a numeral-free sentence still cannot name a period. Closing it is a verifier change
+   and was out of scope here.
