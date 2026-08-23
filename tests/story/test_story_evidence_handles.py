@@ -22,6 +22,14 @@ form names the fact's slot, `(metric_id, period_key)`. §3.1 now carries the cor
 three tests are what hold it: `test_the_plans_passage_only_span_handle_would_name_six_facts_at_once`,
 `test_char_offsets_would_not_have_separated_them_either` and
 `test_two_periods_of_one_metric_in_one_passage_are_separately_citable`.
+
+**The last section is `story.core.evidence_slice`**, which owns the other half of the same
+question: the handle names a fact, and the resolver says where in the passage that fact's
+evidence sits. It moved out of `story/stages/generation/writer.py` unchanged so the draft
+compiler can resolve the same span under its own vocabulary
+(`docs/2026-08-23-deterministic-draft-compiler/01-TARGET-ARCHITECTURE.md` §4.5), and it is tested
+here — beside the handle it resolves — rather than in a file of its own. The writer's citation
+tests are untouched and still green, which is what says the move cost nothing.
 """
 
 from __future__ import annotations
@@ -31,6 +39,14 @@ from pathlib import Path
 
 import pytest
 
+from story.core.evidence_slice import (
+    EvidenceUnresolved,
+    EvidenceUnresolvedReason,
+    ResolvedEvidence,
+    occurrences,
+    passages_backing_facts,
+    span_for_handle,
+)
 from story.core.models import (
     BudgetParameters,
     EvidenceRole,
@@ -58,6 +74,13 @@ NARRATIVE_ROWS = _NARRATIVE["rows"]
 #: so the old contract — find the quote, and refuse it if it is not unique — had no satisfiable
 #: answer for it.
 SEVEN = next(row for row in TABLE_ROWS if row["quoted_text"] == "7")
+
+#: One of the 14 narrative observations, named rather than indexed: the sentence that evidences
+#: two facts at once (§3.1's correction above reads it), which is a real quote out of a real
+#: filing and therefore a fair thing to look for in a passage that does not contain it.
+NARRATIVE_SENTENCE = next(
+    row for row in NARRATIVE_ROWS
+    if row["quoted_text"].startswith("Adjusted gross profit was $279 million"))
 
 #: The passage carrying six narrative observations, and the two facts a real package puts
 #: together: `adjusted_gross_profit` and `contribution_profit`, both 2021Q4, both read out of
@@ -449,3 +472,219 @@ def test_a_corroborating_source_gets_no_handle_of_its_own():
     assert list(index) == [
         f"ev:{SEVEN['passage_id']}:r{SEVEN['row_index']}c{SEVEN['value_column_index']}"]
     assert fact.corroborating_passage_ids[0] not in fact.evidence_handle
+
+
+# -- the slice and the span, in `story.core.evidence_slice` ----------------------------------
+
+#: The demo candidate's own package, as `tests/story/test_story_demo.py` replays it: two facts
+#: read out of one real filing table. Used here rather than a package assembled from the corpus
+#: rows, because it is the exact object the pipeline hands the writer.
+DEMO_PACKAGE = StoryEvidencePackage.model_validate_json(
+    (FIXTURES / "story_demo" / "evidence_package.json").read_text(encoding="utf-8"))
+
+
+def test_the_slice_is_the_passages_the_packages_facts_were_read_from():
+    """§10.2.1 point 3, on the package the demo actually runs.
+
+    Both facts were read from one passage, so the slice is one passage and not two — the
+    de-duplication is not a detail of the loop, it is what makes the prompt a function of the
+    package.
+    """
+    slice_ = passages_backing_facts(DEMO_PACKAGE)
+
+    assert [passage.passage_id for passage in slice_] == [
+        "norm:0001801169:0001801169-22-000108:open-20220930.htm#p139"]
+    assert {fact.passage_id for fact in DEMO_PACKAGE.facts} == {slice_[0].passage_id}
+
+
+def test_a_passage_no_packaged_fact_was_read_from_is_not_in_the_slice():
+    """The counter-evidence case, stated as the property rather than as the loop.
+
+    §10's counter-evidence join is at *document* grain, so a counter-evidence passage that
+    evidences no packaged fact is citable-looking and unusable — §13.7 refuses citing one as
+    support. It is left out here, which is the same answer §13 gives.
+    """
+    orphan = PackagedPassage(
+        passage_id="norm:0001801169:0001801169-22-000108:open-20220930.htm#p140",
+        document_id="norm:0001801169:0001801169-22-000108:open-20220930.htm",
+        text="| Homes purchased |  | 8,380 |", char_count=30,
+        passage_kind="table", role=EvidenceRole.COUNTER_EVIDENCE)
+    widened = DEMO_PACKAGE.model_copy(update={"counter_evidence": (orphan,)})
+
+    assert orphan.passage_id not in {p.passage_id for p in passages_backing_facts(widened)}
+
+
+def test_the_demo_packages_facts_resolve_to_the_cells_they_were_read_from():
+    """The claim the resolver exists to make: the span is the fact's *own* bytes.
+
+    Driven through the slice rather than through a passage handed in beside the fact, because
+    that is the path a citation takes — handle → fact → the passage the slice carries → span.
+    """
+    by_id = {passage.passage_id: passage for passage in passages_backing_facts(DEMO_PACKAGE)}
+
+    resolved = {}
+    for fact in DEMO_PACKAGE.facts:
+        located = span_for_handle(fact, by_id[fact.passage_id])
+        assert isinstance(located, ResolvedEvidence)
+        passage = by_id[fact.passage_id]
+        assert passage.text[located.char_start:located.char_end] == fact.quoted_text
+        resolved[fact.evidence_handle] = passage.text[located.char_start:located.char_end]
+
+    assert resolved == {
+        "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:r11c2": "3.3",
+        "ev:norm:0001801169:0001801169-22-000108:open-20220930.htm#p139:r5c2": "(12.6)",
+    }
+
+
+@pytest.mark.parametrize("row", TABLE_ROWS, ids=_table_id)
+def test_the_resolver_returns_the_facts_own_bytes_for_every_corpus_row(row):
+    """The six rows chosen to break a different plausible resolver, driven through the one that
+    ships. `'7'` is the case that matters: a search returns character 711 and the fact's own
+    cell is at 1,492."""
+    fact = fact_from_table_row(row)
+    located = span_for_handle(fact, passage_of(row))
+
+    assert isinstance(located, ResolvedEvidence)
+    assert row["passage_text"][located.char_start:located.char_end] == row["quoted_text"]
+
+
+@pytest.mark.parametrize("row", NARRATIVE_ROWS, ids=_narrative_id)
+def test_a_narrative_fact_resolves_to_the_sentence_the_edge_quoted(row):
+    """The other path, over all 14 narrative observations.
+
+    **The passage is reconstructed and says so.** `narrative_evidence_corpus.json` carries each
+    row's quote and the offset it was found at, not the passage text — so the text here is the
+    real quote at its real offset with filler either side. What is asserted is therefore the
+    resolver's claim and not the fixture's: searching for the package's own quote lands on the
+    offset the graph recorded, which is the only reason a narrative fact needs no coordinates.
+    """
+    text = "." * row["quote_char_start"] + row["quoted_text"] + " ...and the paragraph goes on."
+    passage = PackagedPassage(
+        passage_id=row["passage_id"], document_id=row["passage_id"].rsplit("#p", 1)[0],
+        text=text, char_count=len(text), passage_kind="narrative",
+        role=EvidenceRole.PRIMARY_SUPPORT)
+
+    located = span_for_handle(fact_from_narrative_row(row), passage)
+
+    assert located == ResolvedEvidence(row["quote_char_start"],
+                                       row["quote_char_start"] + len(row["quoted_text"]))
+
+
+# -- the four reasons a handle names no span, each reachable ---------------------------------
+
+
+def test_coordinates_the_passage_text_does_not_reach_are_unresolved_and_say_which_row():
+    """`CELL_OUT_OF_BOUNDS`, and it is **not** a model failure — it cannot be one.
+
+    The coordinates come off the `PackagedFact`, so this is a package and the passage text it
+    carries disagreeing about the table: a stored package replayed against a re-extracted
+    corpus. The `table_cells.CellOutOfBounds` text is carried through as the detail, because
+    *which* row is outside *how many* is the whole of what makes it diagnosable.
+    """
+    drifted = fact_from_table_row(SEVEN, cell=TableCellRef(
+        row_index=20, value_column_index=SEVEN["value_column_index"],
+        period_header_row_index=SEVEN["period_header_row_index"],
+        period_header_column_index=SEVEN["period_header_column_index"]))
+
+    located = span_for_handle(drifted, passage_of(SEVEN))
+
+    assert isinstance(located, EvidenceUnresolved)
+    assert located.reason is EvidenceUnresolvedReason.CELL_OUT_OF_BOUNDS
+    assert located.detail == "row 20 is outside the passage, which has 20 lines"
+
+
+def test_a_spacer_column_is_a_real_cell_holding_nothing_and_resolves_to_no_span():
+    """`CELL_EMPTY`, on a real spacer in a real filing table.
+
+    Column 1 of `Adjusted Gross Profit (Loss)` is a well-formed coordinate whose cell is the
+    empty string — these flattened tables have many. `quoted_text` is non-empty on 2,704 / 2,704
+    evidence edges, so a fact resolving here means its coordinates do not name the value it was
+    read from, and there is no span: `PassageCitation` requires `char_end > char_start`.
+
+    Kept apart from the out-of-bounds reason in core even though the writer maps both onto
+    `evidence_handle_out_of_bounds`, because the two are different defects and a caller that
+    wants to say so should not have to parse a string to tell them apart.
+    """
+    spacer = fact_from_table_row(SEVEN, cell=TableCellRef(
+        row_index=SEVEN["row_index"], value_column_index=1,
+        period_header_row_index=SEVEN["period_header_row_index"],
+        period_header_column_index=SEVEN["period_header_column_index"]))
+
+    assert resolve_cell(SEVEN["passage_text"], row_index=SEVEN["row_index"],
+                        column_index=1).text == ""
+
+    located = span_for_handle(spacer, passage_of(SEVEN))
+
+    assert isinstance(located, EvidenceUnresolved)
+    assert located.reason is EvidenceUnresolvedReason.CELL_EMPTY
+    assert located.detail.endswith("is empty; there is no span to cite")
+
+
+def test_a_narrative_quote_the_passage_no_longer_holds_is_unresolved():
+    """`NARRATIVE_QUOTE_ABSENT` — the package's own quote, and the package's own passage, no
+    longer agreeing. The model never wrote either string, so this is a defect in the evidence
+    and the caller must refuse rather than pick a nearby span."""
+    absent = fact_from_narrative_row(NARRATIVE_SENTENCE)
+
+    located = span_for_handle(absent, passage_of(SEVEN))
+
+    assert isinstance(located, EvidenceUnresolved)
+    assert located.reason is EvidenceUnresolvedReason.NARRATIVE_QUOTE_ABSENT
+    assert NARRATIVE_SENTENCE["quoted_text"] not in SEVEN["passage_text"]
+
+
+def test_a_narrative_quote_naming_two_places_in_its_own_passage_is_unresolved():
+    """`NARRATIVE_QUOTE_AMBIGUOUS`, and this is the whole of what it now means.
+
+    All **14 / 14** narrative quotes are whole sentences occurring exactly once in their passage,
+    so this does not fire on today's corpus — the fact here is built with a short quote against
+    a real table passage to reach the branch at all. It is kept because the requirement is real:
+    a narrative fact has no coordinate, so a quote naming two places resolves to no span.
+
+    What is gone is the branch that made the old retyped-quote contract unsatisfiable: a
+    **table** fact never reaches this path, and `'7'` — 27 occurrences — resolves by coordinate
+    two tests above.
+    """
+    passage = DEMO_PACKAGE.primary_passages[0]
+    assert passage.text.count("Gross Margin") == 2
+
+    ambiguous = fact_from_narrative_row(NARRATIVE_SENTENCE, quoted_text="Gross Margin")
+
+    located = span_for_handle(ambiguous, passage)
+
+    assert isinstance(located, EvidenceUnresolved)
+    assert located.reason is EvidenceUnresolvedReason.NARRATIVE_QUOTE_AMBIGUOUS
+    assert "occurs 2 times" in located.detail
+
+
+def test_every_reason_the_resolver_can_give_is_reached_by_a_test_here():
+    """The enum is closed, so a fifth member added without a case above is a hole this catches.
+
+    Named for what it holds rather than asserted as a count of a set: the four reasons are the
+    four the resolver distinguishes, and the writer maps each onto a §12 code.
+    """
+    assert set(EvidenceUnresolvedReason) == {
+        EvidenceUnresolvedReason.CELL_OUT_OF_BOUNDS,
+        EvidenceUnresolvedReason.CELL_EMPTY,
+        EvidenceUnresolvedReason.NARRATIVE_QUOTE_ABSENT,
+        EvidenceUnresolvedReason.NARRATIVE_QUOTE_AMBIGUOUS,
+    }
+
+
+# -- the scan the resolver and the compiler share --------------------------------------------
+
+
+def test_the_scan_is_case_sensitive_and_finds_every_start():
+    """`occurrences` is public in core because the compiler needs the same scan.
+
+    Case-sensitivity is the load-bearing half: a binding declares the characters of its own
+    sentence, and a case-insensitive match would let `"3.3%"` bind a span the sentence spells
+    differently — §13.1 would then compare a numeral the draft never wrote.
+    """
+    passage = DEMO_PACKAGE.primary_passages[0].text
+
+    starts = occurrences(passage, "Gross Margin")
+    assert len(starts) == 2
+    assert all(passage[start:start + 12] == "Gross Margin" for start in starts)
+    assert occurrences(passage, "gross margin") == ()
+    assert occurrences(passage, "") == ()

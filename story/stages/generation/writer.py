@@ -88,6 +88,13 @@ from typing import Any, Mapping, Sequence
 from pydantic import ValidationError
 
 from story.contracts import StoryGenerationProvider
+from story.core.evidence_slice import (
+    EvidenceUnresolved,
+    EvidenceUnresolvedReason,
+    occurrences as _core_occurrences,
+    passages_backing_facts,
+    span_for_handle,
+)
 from story.core.models import (
     DerivedFact,
     Draft,
@@ -102,7 +109,6 @@ from story.core.models import (
     SentenceKind,
     StoryEvidencePackage,
 )
-from story.core.table_cells import CellOutOfBounds, resolve_cell
 from story.providers.portable_schema import schema_violations, validate_portable_schema
 from story.providers.public import PINNED_TEMPERATURE, StoryProviderSchemaError
 from story.stages.generation.prompts import (
@@ -210,30 +216,20 @@ class WrittenStory:
 
 
 def writer_passages(package: StoryEvidencePackage) -> tuple[PackagedPassage, ...]:
-    """§10.2.1 point 3: the whole text of every passage a packaged fact was read from.
+    """§10.2.1 point 3's slice, under the name this stage's rule is stated in.
 
-    Takes no plan, by design. Order is the package's own — primary, context, explanatory,
-    counter-evidence — so two builds of one package render one prompt, and a passage appearing in
-    two sections is yielded once.
+    The slice itself is `evidence_slice.passages_backing_facts`, which carries the reasoning:
+    it moved to `core/` because the draft compiler resolves the same passages
+    (`docs/2026-08-23-deterministic-draft-compiler/01-TARGET-ARCHITECTURE.md` §4.5) and a stage
+    may not import another stage.
 
-    **A counter-evidence passage that evidences no packaged fact is not in the slice**, and that
-    is the correct outcome rather than an omission. §10's counter-evidence join is at *document*
-    grain, so the ordinary counter-evidence row is a neighbouring table of the same filing; §13.7
-    refuses citing one as support (`counter_evidence_cited_as_support`). A counterpoint resting
-    only on such a passage can therefore be honoured in exactly one way — by binding a fact read
-    from it — and that is the same way §13's `required_counterpoint_absent` accepts. The two
-    rules agree, and the writer is not shown text it could only misuse.
+    **The name and the signature stay here** because they are the rule rather than a convenience:
+    this module's docstring, the prompt printer and `story.stages.generation.__all__` all name
+    *the writer's passages*, and *one package, no plan* is §0c item 11's correction stated as a
+    signature. Renaming it at the call sites would have made the alias look like debt instead of
+    a boundary.
     """
-    wanted = {fact.passage_id for fact in package.facts if fact.passage_id}
-    found: list[PackagedPassage] = []
-    seen: set[str] = set()
-    for section in (package.primary_passages, package.context_passages,
-                    package.explanatory_passages, package.counter_evidence):
-        for passage in section:
-            if passage.passage_id in wanted and passage.passage_id not in seen:
-                seen.add(passage.passage_id)
-                found.append(passage)
-    return tuple(found)
+    return passages_backing_facts(package)
 
 
 # -- the §12 rules, as code -------------------------------------------------------------------
@@ -384,21 +380,11 @@ def _citation_violations(
     return found
 
 
-def _occurrences(haystack: str, needle: str) -> tuple[int, ...]:
-    """Every start index of `needle` in `haystack`. Case-sensitive, and deliberately so.
-
-    A binding declares the characters of its own sentence; a case-insensitive match would let
-    `"3.3%"` bind a span the sentence spells differently, and §13.1 then compares a numeral the
-    draft never wrote.
-    """
-    if not needle:
-        return ()
-    found: list[int] = []
-    start = haystack.find(needle)
-    while start != -1:
-        found.append(start)
-        start = haystack.find(needle, start + 1)
-    return tuple(found)
+#: Every start index of a substring, case-sensitive — `evidence_slice.occurrences`, which owns
+#: the reason the comparison is case-sensitive. Kept under this module's own name because rule 2
+#: (*"every `rendered` occurs exactly once in its own sentence"*) is stated in terms of it three
+#: times below, and because the compiler needs the same scan over text nobody has written yet.
+_occurrences = _core_occurrences
 
 
 # -- the answer, as a draft --------------------------------------------------------------------
@@ -588,73 +574,81 @@ def _span_for(
     Passage-relative; `_citations_from` rebases. One value out, and it is either the span or the
     reason there is none — a pair of optionals would have made "neither" and "both" constructible
     for a question that has exactly one answer.
+
+    **The resolution is `evidence_slice.span_for_handle`'s and the refusal is this stage's.** Core
+    answers *"where is it, or why is there nowhere"* in a closed enum; §12's codes and §12's
+    prose are minted here, because `core/` may not hold one stage's violation vocabulary and the
+    draft compiler will map the same four reasons onto a different one.
     """
-    if fact.cell is not None:
-        try:
-            cell = resolve_cell(passage.text,
-                                row_index=fact.cell.row_index,
-                                column_index=fact.cell.value_column_index)
-        except CellOutOfBounds as off_grid:
-            return DraftViolation(
-                EVIDENCE_HANDLE_OUT_OF_BOUNDS,
-                f"{where} cites evidence {handle!r} and {off_grid}. The coordinates are the "
-                "package's own, not the model's, so this is the package and the passage text it "
-                "carries disagreeing about the table")
-        if cell.char_end <= cell.char_start:
-            # A well-formed coordinate holding nothing — a spacer column, of which these tables
-            # have many. `quoted_text` is non-empty on 2,704 / 2,704 evidence edges, so a fact
-            # resolving to an empty cell means its coordinates do not name the value it was read
-            # from. Refused under the same code as an off-grid one, because the outcome is
-            # identical: the handle locates no span, and `PassageCitation` requires
-            # `char_end > char_start`.
-            return DraftViolation(
-                EVIDENCE_HANDLE_OUT_OF_BOUNDS,
-                f"{where} cites evidence {handle!r}, whose cell "
-                f"({fact.cell.row_index}, {fact.cell.value_column_index}) of "
-                f"{passage.passage_id} is empty; there is no span to cite")
-        return cell.char_start, cell.char_end
-
-    quote = fact.quoted_text or ""
-    occurrences = _occurrences(passage.text, quote)
-    if len(occurrences) != 1:
-        return _quote_violation(where, passage.passage_id, quote, occurrences)
-    return occurrences[0], occurrences[0] + len(quote)
+    located = span_for_handle(fact, passage)
+    if isinstance(located, EvidenceUnresolved):
+        return _unresolved_violation(where, handle, located)
+    return located.char_start, located.char_end
 
 
-def _quote_violation(
-    where: str, passage_id: str, quote: str, occurrences: Sequence[int]
+def _unresolved_violation(
+    where: str, handle: str, unresolved: EvidenceUnresolved
 ) -> DraftViolation:
-    """The two refusals that survive the move off retyped quotes, narrowed to narrative evidence.
+    """§12's refusal for a handle that names no span: core's reason, this stage's code and prose.
 
-    **Both stay registered and both stay reachable, and neither can any longer be caused by
-    anything the model wrote.** `quote` here is the *package's* own `EVIDENCED_BY.quoted_text`
-    for a fact with no `cell` — the 14 narrative observations, 0.5% of the corpus — located in
-    the passage the package carries beside it.
+    **All three codes stay registered and stay reachable, and none can any longer be caused by
+    anything the model wrote** — the coordinates and the quote are both the package's own.
 
-    * `citation_quote_not_in_passage` — zero occurrences. Also raised from
-      `_citation_violations` for a finished citation whose span falls outside the passage text
-      the package holds, which is the path a hand-written or replayed draft takes.
-    * `citation_quote_ambiguous_in_passage` — more than one. All **14 / 14** narrative quotes
-      are whole sentences occurring exactly once *(verified live 2026-08-13)*, so this does not
-      fire on today's corpus. It is kept rather than deleted because it is no longer a statement
-      about a model's typing: it now says *"the package's own quote no longer identifies one
-      place in the package's own passage"*, which is a defect in the evidence and must refuse.
-      Deleting a reachable code is worse than keeping one that has not fired.
+    * `evidence_handle_out_of_bounds` — the coordinates name no cell, or name an empty one. It
+      fires when a package and the passage text it carries disagree: a stored package replayed
+      against a re-extracted corpus, or an excerpted passage a fact was read outside of. **Two
+      of core's reasons land on this one code**, which is a judgment about what a *draft* may
+      say and not a claim that the two are the same event: an off-grid coordinate is a package
+      disagreeing with its own passage text about the table's shape, an empty cell is a
+      well-formed coordinate naming a spacer column. The outcome is identical — the handle
+      locates no span, and `PassageCitation` requires `char_end > char_start` — so a draft has
+      one thing to say about both and says it once. A caller that needs them apart reads the
+      reason instead of this code.
+    * `citation_quote_not_in_passage` — a narrative fact whose passage no longer holds the
+      sentence the edge quoted. Also raised from `_citation_violations` for a finished citation
+      whose span falls outside the passage text the package holds, which is the path a
+      hand-written or replayed draft takes.
+    * `citation_quote_ambiguous_in_passage` — a narrative quote naming more than one place. All
+      **14 / 14** narrative quotes are whole sentences occurring exactly once *(verified live
+      2026-08-13)*, so this does not fire on today's corpus. It is kept rather than deleted
+      because it is no longer a statement about a model's typing: it now says *"the package's own
+      quote no longer identifies one place in the package's own passage"*, which is a defect in
+      the evidence and must refuse. Deleting a reachable code is worse than keeping one that has
+      not fired.
 
     What is gone is the branch that made the old contract unsatisfiable: a **table** fact never
-    reaches this function, so no citation is ever refused for the ambiguity of a four-character
+    reaches the quote path, so no citation is ever refused for the ambiguity of a four-character
     cell value. That was 523 of 2,704 observations, and it is now zero.
+
+    Written as four branches naming their constant rather than as a reason → code mapping,
+    because `tests/story/test_demo_ui_code_catalogue.py` recovers this stage's vocabulary from
+    its own call sites: a code reached through a dict subscript is a code the catalogue's rot
+    guard cannot see, and the UI would then describe a refusal nothing appears to raise.
     """
-    if not occurrences:
+    if unresolved.reason is EvidenceUnresolvedReason.CELL_OUT_OF_BOUNDS:
         return DraftViolation(
-            CITATION_QUOTE_NOT_IN_PASSAGE,
-            f"{where} cites narrative evidence from {passage_id}, whose text no longer contains "
-            f"the package's own quote {quote!r}")
-    return DraftViolation(
-        CITATION_QUOTE_AMBIGUOUS,
-        f"{where} cites narrative evidence from {passage_id}, where the package's own quote "
-        f"{quote!r} occurs {len(occurrences)} times; a citation that cannot say which occurrence "
-        "resolves to no span, and this fact carries no cell coordinate to resolve it by")
+            EVIDENCE_HANDLE_OUT_OF_BOUNDS,
+            f"{where} cites evidence {handle!r} and {unresolved.detail}. The coordinates are "
+            "the package's own, not the model's, so this is the package and the passage text "
+            "it carries disagreeing about the table")
+    if unresolved.reason is EvidenceUnresolvedReason.CELL_EMPTY:
+        return DraftViolation(
+            EVIDENCE_HANDLE_OUT_OF_BOUNDS,
+            f"{where} cites evidence {handle!r}, {unresolved.detail}")
+    if unresolved.reason is EvidenceUnresolvedReason.NARRATIVE_QUOTE_ABSENT:
+        return DraftViolation(
+            CITATION_QUOTE_NOT_IN_PASSAGE, f"{where} cites {unresolved.detail}")
+    if unresolved.reason is EvidenceUnresolvedReason.NARRATIVE_QUOTE_AMBIGUOUS:
+        return DraftViolation(
+            CITATION_QUOTE_AMBIGUOUS, f"{where} cites {unresolved.detail}")
+    # Unreachable today — the enum has four members and each has a branch above, which
+    # `test_every_reason_the_resolver_can_give_is_reached_by_a_test_here` pins. It is a
+    # `return` and not a `raise` because a fifth reason added in `core/` must still refuse the
+    # draft, and refusing it under a registered code beats mislabelling it as the branch that
+    # happened to be last.
+    return DraftViolation(DRAFT_NOT_CONSTRUCTIBLE,
+                          f"{where} cites evidence {handle!r}, which names no span: "
+                          f"{unresolved.detail}")
 
 
 # -- the rendered post, and it comes from the draft ---------------------------------------------
