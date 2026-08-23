@@ -59,6 +59,13 @@ three** (§2's line: the model chooses words, code chooses facts).
   phrases would be refused for silence it was never told how to break. A test asserts the two
   copies are identical, so the duplication is checked rather than hoped over.
 
+**The first two of those three now live in `story/core/renderings.py`** and are re-exported here
+under the names above (S1 of `docs/2026-08-23-deterministic-draft-compiler/`). The draft compiler
+is a different stage and may not import this module, so a rendering rule only this module could
+reach would have had to be written a second time — which is exactly how the period rule came to
+have two spellings before the move. What stays this module's is the *instruction*: which line is
+printed, what it tells the model to do, and what it says when a row has no legal surface.
+
 **The writer no longer declares arithmetic at all, and `WRITER_OPERATIONS` is gone with the
 field it constrained** (DETERMINISTIC_FACT_TOOLS §5). Until this version a `calculated` sentence
 carried a `calculation` — an operation from a six-member enum, two input observation ids, an
@@ -97,8 +104,6 @@ what the sentence says; it simply no longer applies to a number the model worked
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
 
 from story.core.models import (
@@ -106,7 +111,6 @@ from story.core.models import (
     DerivationOperation,
     DerivationRequest,
     DerivedFact,
-    DisplaySemantics,
     EditorialPlan,
     EvidenceScopeFact,
     PackagedFact,
@@ -116,7 +120,13 @@ from story.core.models import (
     StoryEvidencePackage,
     UnusableReason,
 )
-from story.core.numerals import SCALE_MULTIPLIERS
+from story.core.renderings import (
+    DIRECTIONAL_SEMANTICS,
+    derived_figure,
+    metric_surfaces,
+    observed_figure,
+    period_surface_of_fact,
+)
 
 #: Bumped whenever the wording below or the rendering changes. It is a digest input to every
 #: stored generation, so answers produced under an older wording become unreachable rather
@@ -1049,107 +1059,15 @@ def writer_schema() -> dict[str, Any]:
     }
 
 
-def metric_surfaces_for(package: StoryEvidencePackage, metric_id: str) -> tuple[str, ...]:
-    """Surfaces that name this metric and no other metric in this package (§13.5).
-
-    A surface is dropped when it is a sub-phrase of some *other* package metric's surface —
-    `"gross margin"` inside `"adjusted gross margin"` — because §13.5 resolves by longest match
-    and the shorter one is exactly the ambiguity the section is about. Order is the metric's own
-    (`label`, then `aliases`, then the id), deduplicated on the normalised form, so a rendering
-    is stable across two builds of one package.
-
-    **The metric id is a surface, and leaving it out was a defect measured on the demo's own
-    package** *(2026-08-19)*. `MetricAliasIndex.from_package` indexes `(metric_id, label,
-    *aliases)` and `normalise` maps `_` to a space, so `"GAAP Gross Margin"` resolves through the
-    `gaap_gross_margin` **id** entry and §13.5 accepts it — which is exactly what the accepted
-    draft in `tests/story/fixtures/story_demo` binds. This function offered only `label` and
-    `aliases`, and `gaap_gross_margin`'s label is `"Gross Margin"`, dropped as a sub-phrase of
-    `"Adjusted Gross Margin"`. So both the FACTS row and the DERIVED FACTS row for a metric the
-    *plan* required the writer to state printed *"do not write about this fact"* while
-    `WRITER_SYSTEM` rule 4 told it to write `"GAAP gross margin"` — a contradiction with no legal
-    way out. The id is rendered with `_` as a space because that is the form a sentence can
-    carry; the verifier normalises both to one string.
-
-    The id goes **last** so a human label still wins where one is unambiguous, and it is filtered
-    by the same sub-phrase rule as everything else — an id that names two metrics inside this
-    package is no more writable than a label that does.
-
-    An empty result is still a real answer: the writer is then told not to name that metric,
-    which is the honest outcome for a package whose two metrics share every surface, id included.
-    """
-    own = next((metric for metric in package.metrics if metric.metric_id == metric_id), None)
-    if own is None:
-        return ()
-    others = {
-        _normalised_phrase(surface)
-        for metric in package.metrics if metric.metric_id != metric_id
-        for surface in (metric.metric_id, metric.label, *metric.aliases)
-    }
-    kept: list[str] = []
-    seen: set[str] = set()
-    for surface in (own.label, *own.aliases, own.metric_id.replace("_", " ")):
-        phrase = _normalised_phrase(surface)
-        if not phrase or phrase in seen:
-            continue
-        if any(f" {phrase} " in f" {other} " for other in others if other != phrase):
-            continue
-        seen.add(phrase)
-        kept.append(surface)
-    return tuple(kept)
-
-
-def _normalised_phrase(surface: str) -> str:
-    return " ".join(surface.replace("_", " ").lower().split())
-
-
-#: The ordinal a quarter is written with, and the day its last month ends on. A table and not
-#: arithmetic over month numbers, for `period_grammar`'s own reason: the failure mode of an index
-#: is silent, and the first draft of this table had September ending on the 31st.
-_QUARTERS: Mapping[int, tuple[str, int, int]] = {
-    1: ("first", 3, 31), 4: ("second", 6, 30), 7: ("third", 9, 30), 10: ("fourth", 12, 31)}
-
-_MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August",
-                "September", "October", "November", "December")
-
-
-def period_surface_for(fact: PackagedFact) -> str | None:
-    """The one surface §13.4's grammar accepts for this fact's own endpoints, or `None`.
-
-    Derived from `period_start`/`period_end`/`instant_date` and never from `period_key`: the key
-    is a label and the grammar resolves to endpoints, so a surface built from the key would be
-    an assertion that the two agree. `None` for a window the closed grammar has no form for —
-    the writer is then told that fact may not be named, which is §13.4's refusal reached before
-    the sentence is written rather than after.
-    """
-    if fact.instant_date:
-        moment = _as_date(fact.instant_date)
-        if moment is None:
-            return None
-        return f"{_MONTH_NAMES[moment.month - 1]} {moment.day}, {moment.year}"
-    start, end = _as_date(fact.period_start), _as_date(fact.period_end)
-    if start is None or end is None or start.year != end.year:
-        return None
-    if start.day == 1 and start.month in _QUARTERS:
-        ordinal, last_month, last_day = _QUARTERS[start.month]
-        if (end.month, end.day) == (last_month, last_day):
-            return f"the {ordinal} quarter of {start.year}"
-    if (start.month, start.day) == (1, 1):
-        if (end.month, end.day) == (12, 31):
-            return f"fiscal {start.year}"
-        if (end.month, end.day) == (9, 30):
-            return f"the nine months ended September 30, {start.year}"
-        if (end.month, end.day) == (6, 30):
-            return f"the first half of {start.year}"
-    return None
-
-
-def _as_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
+#: **Both of these moved to `story/core/renderings.py` and are re-exported here** (S1 of
+#: `docs/2026-08-23-deterministic-draft-compiler/02-IMPLEMENTATION-PLAN.md`). The prompt printer
+#: and the draft compiler must offer one string, and a private function inside this stage could
+#: not be the one — the compiler is a different stage and may not import this module. What is
+#: kept here is the *name*: both are in `story.stages.generation.__all__` and are imported by
+#: `tests/story/test_story_writer.py`, so the alias is what makes the move a move and not a
+#: rename every caller has to follow.
+metric_surfaces_for = metric_surfaces
+period_surface_for = period_surface_of_fact
 
 
 def writer_prompt(
@@ -1327,39 +1245,18 @@ def _writer_fact_lines(package: StoryEvidencePackage) -> list[str]:
     return lines
 
 
-def _observed_figure(fact: PackagedFact) -> str | None:
-    """A money reading spelled the way a sentence carries it, or `None` for every other row.
-
-    **H3, and the whole of it.** The FACTS row prints the value as the package stores it —
-    `556000000.0 USD` — and the DERIVED FACTS row beside it prints `$446 million`, because
-    `_derived_figure` renders a derived money figure at the scale its inputs were filed at.
-    Those are two shapes for one kind of thing, and a 9B model reconciled them the wrong way:
-    it scaled `556000000.0` itself to write *"Adjusted Gross Profit of 556 million USD"*, and
-    then copied **that** spelling onto the derived row, which had told it in so many words to
-    write `$446 million`. `446 million USD` carries no currency surface, so §13.2 refused it
-    (`derived_unit_mismatch`) — legal against an observation and illegal against a derivation —
-    and the run went from accepted to rejected on that one span *(measured live against
-    Qwen3.5-9B-Q4_K_M, 2026-08-19; see plan §14.7 for the control run)*.
-
-    So the scaling the model was doing by hand is done here, once, by the function the derived
-    row already used. The two sections now print one money value in one shape.
-
-    **`None` for anything that is not money at a filed scale, and the restraint is the point.**
-    A `percent` reading is already writable as it stands — the committed accepted draft writes
-    *"-12.6 percent"* — and `_DERIVED_FIGURE_FORMATS` would spell it `-12.6%`, which is a
-    narrowing of legal prose bought for nothing. Only the shape that forced the model to compute
-    is replaced; every other row prints exactly what it printed before, which is why the demo
-    candidate's writer prompt is byte-identical across this change.
-
-    **Offered rather than mandated, and the asymmetry with `_derived_figure_line` is real.**
-    §13.2 admits several surfaces for an *observed* numeral and admits only the currency-symbol
-    one for a derived USD result, so the derived row says *"write exactly … never …"* and this
-    one says *"write"*. Saying `never "556000000.0 USD"` here would be false: that spelling is
-    legal on an observation, and this module's rule is that a wording names a real failure.
-    """
-    if fact.unit != "USD":
-        return None
-    return _scaled_money(fact.value, fact.scale or "")
+#: `story.core.renderings.observed_figure`, under the name this module's own tests import and
+#: the docstrings above still name. The rendering rule is the compiler's too, so it moved; the
+#: *offer* — a `figure:` line printed only where there is a scaled form — stays here, because
+#: what a prompt tells a model to do is this module's question and not `core`'s.
+#:
+#: **Offered rather than mandated, and the asymmetry with `_derived_figure_line` is real.**
+#: §13.2 admits several surfaces for an *observed* numeral and admits only the currency-symbol
+#: one for a derived USD result, so the derived row says *"write exactly … never …"* and the
+#: FACTS row says *"write"*. Saying `never "556000000.0 USD"` there would be false: that spelling
+#: is legal on an observation — `legal_renderings` offers it as the second form — and this
+#: module's rule is that a wording names a real failure.
+_observed_figure = observed_figure
 
 
 # ---------------------------------------------------------------------------------------
@@ -1460,134 +1357,10 @@ def _derived_fact_lines(
     return lines
 
 
-#: The four `DisplaySemantics` whose word already states which way the comparison or the change
-#: runs. For these the `figure:` line prints the **magnitude**: *"decreased by -446000000.0"* and
-#: *"-15.9 percentage points lower than"* are double negatives in prose, and a written minus that
-#: argues with `result`'s sign is `sign_disagreement` at §13.1. `times`, `equal to` and
-#: `unchanged` are not here, and that is the point of listing rather than testing for a sign: a
-#: `ratio` over a negative reading is genuinely negative and its word says nothing about that.
-_DIRECTIONAL_SEMANTICS: frozenset[DisplaySemantics] = frozenset({
-    DisplaySemantics.INCREASED_BY,
-    DisplaySemantics.DECREASED_BY,
-    DisplaySemantics.HIGHER_THAN,
-    DisplaySemantics.LOWER_THAN,
-})
-
-
-#: How each derived unit is **written**, as against how it is spelled in `DERIVED_UNITS`.
-#:
-#: **Every entry produces a surface `tokenize_numerals` reads the unit off, and that is the whole
-#: requirement rather than a preference** *(measured 2026-08-19)*. §13.2 judges a derived
-#: numeral against `derived_facts.DERIVED_SURFACES`, which admits `USD` only for a
-#: currency-symbol surface and `percentage_points` only for the two-word one — a `SurfaceUnit` of
-#: `none` is `derived_unit_mismatch` there, unlike on an observation where it is tolerated. The
-#: first wording printed `{result} {unit}`, so the live run copied `"446000000.0 USD"` into its
-#: draft and earned exactly that finding, and the next one copied `"15.9 percentage_points"`
-#: into `rendered` while writing *"15.9 percentage points"* in its text.
-#:
-#: A checked copy and not an import: `story/stages/generation/` may not import
-#: `story/stages/verification/`, and `test_story_writer.py` asserts every row here tokenises
-#: into the surface set that module requires — the same trade `WARNING_QUALIFIER_PHRASES` makes.
-_DERIVED_FIGURE_FORMATS: Mapping[str, str] = {
-    "USD": "${value}",
-    "percent": "{value}%",
-    "percentage_points": "{value} percentage points",
-    "multiple": "{value}x",
-    "homes": "{value} homes",
-    "markets": "{value} markets",
-}
-
-
-def _derived_figure(fact: DerivedFact, package: StoryEvidencePackage) -> str:
-    """The figure as a sentence must carry it: a number in a surface §13.2 can read.
-
-    **A monetary figure is offered at the scale its inputs were filed at**, so a `$446,000,000`
-    delta between two rows printed in millions is offered as `"$446 million"`. That is not
-    tidying and it does not choose a precision: `_scaled_money` divides in `Decimal` and keeps
-    the result only when it multiplies back **exactly**, so the number the writer copies denotes
-    the same value to the last digit and §13.1's window is computed from what the draft prints,
-    as it always is. The reason it is worth doing is measured: `"$446000000.0"` is a legal
-    surface no 9B model would write, and the one it wrote instead — `"446000000.0 USD"`, the
-    shape of the FACTS rows above it — carries no unit surface at all and is
-    `derived_unit_mismatch`.
-
-    Everything else is printed as Python renders the float. The fallback for a unit with no row
-    in `_DERIVED_FIGURE_FORMATS` is the machine spelling with its underscores opened up —
-    writable, and refused by §13.2 rather than silently wrong.
-    """
-    magnitude = (abs(fact.result) if fact.display_semantics in _DIRECTIONAL_SEMANTICS
-                 else fact.result)
-    if fact.unit == "USD":
-        scaled = _derived_money(magnitude, fact, package)
-        if scaled is not None:
-            return scaled
-    template = _DERIVED_FIGURE_FORMATS.get(
-        fact.unit, "{value} " + fact.unit.replace("_", " "))
-    return template.format(value=magnitude)
-
-
-#: The scale words a filing writes, for the two `SCALE_MULTIPLIERS` entries that are not 1.
-#: Singular, because that is how a sentence carries one: *"$446 million"*, never *"millions"*.
-#: `numerals.MAGNITUDE_MULTIPLIERS` reads both spellings back, so the choice is a rendering one.
-_SCALE_WORDS: Mapping[str, str] = {"thousands": "thousand", "millions": "million"}
-
-#: How many fractional digits the scaled form may carry before the plain one is offered instead.
-#: A judgment and not a measurement: `$446.0000005 million` and `$446000000.5` state the same
-#: value, the scaled form exists only so a person can read the figure at a glance, and it stops
-#: earning its place the moment it is longer than what it replaced. One digit keeps `$446.5
-#: million` and refuses everything below it.
-_SCALED_MONEY_DECIMALS = 1
-
-
-def _derived_money(magnitude: float, fact: DerivedFact,
-                   package: StoryEvidencePackage) -> str | None:
-    """`_scaled_money` at the scale **both** of a derivation's inputs were filed at.
-
-    `None` — meaning *"print the plain form"* — when the inputs are not both in this package or
-    disagree about scale. A derived figure has no scale of its own; it inherits one only where
-    the two readings agree, and where they do not the prompt says so by printing the long form.
-    """
-    inputs = [row for row in package.facts
-              if row.observation_id in (fact.from_fact_id, fact.to_fact_id)]
-    scales = {row.scale for row in inputs}
-    if len(inputs) != 2 or len(scales) != 1:
-        return None
-    return _scaled_money(magnitude, next(iter(scales)) or "")
-
-
-def _scaled_money(magnitude: float, scale: str) -> str | None:
-    """`"$446 million"` when the reading was filed in millions and the division is exact.
-
-    `None` — meaning *"print the plain form"* — whenever anything is uncertain: the scale is
-    `units` or unknown, or the quotient does not multiply back to the same value. A prompt that
-    guessed here would be choosing the digits §13.1's tolerance window is computed from.
-
-    **One function for a FACTS row and a DERIVED FACTS row, which is H3's whole repair.** The
-    two sections printed a money value in two shapes — an observation as `556000000.0 USD` and a
-    derivation as `$446 million` — so a writer that wanted a sentence had to scale the first one
-    itself, and the spelling it invented doing that (`"556 million USD"`) is the spelling it then
-    copied onto the derived row, where §13.2 refuses it. See `_observed_figure`.
-    """
-    word = _SCALE_WORDS.get(scale)
-    if word is None:
-        return None
-    # The sign goes **outside** the symbol. Both `-$110 million` and `$-110 million` tokenise to
-    # the same value and unit, and the first is the one a filing writes; a reading that is
-    # negative in the corpus — a loss — has to be spellable, so this is not a hypothetical.
-    sign = "-" if magnitude < 0 else ""
-    exact = Decimal(str(abs(magnitude)))
-    try:
-        quotient = exact / SCALE_MULTIPLIERS[scale]
-        if quotient * SCALE_MULTIPLIERS[scale] != exact:
-            return None
-        # `quantize` raises rather than silently rounding when the result would not fit the
-        # context, which is the behaviour wanted: a figure that cannot be shortened safely is
-        # printed long.
-        if quotient != quotient.quantize(Decimal(1).scaleb(-_SCALED_MONEY_DECIMALS)):
-            return None
-    except InvalidOperation:
-        return None
-    return f"{sign}${quotient.normalize():f} {word}"
+#: `story.core.renderings.derived_figure`, for `_observed_figure`'s reason. The two tables that
+#: used to sit here — `_DERIVED_FIGURE_FORMATS` and `_SCALE_WORDS` — moved with it, and so did
+#: `_DIRECTIONAL_SEMANTICS`, which `_derived_figure_line` below still reads under its public name.
+_derived_figure = derived_figure
 
 
 def _derived_figure_line(fact: DerivedFact, package: StoryEvidencePackage) -> str:
@@ -1604,7 +1377,7 @@ def _derived_figure_line(fact: DerivedFact, package: StoryEvidencePackage) -> st
     against a mistake it cannot invite.
     """
     figure = _derived_figure(fact, package)
-    magnitude = (abs(fact.result) if fact.display_semantics in _DIRECTIONAL_SEMANTICS
+    magnitude = (abs(fact.result) if fact.display_semantics in DIRECTIONAL_SEMANTICS
                  else fact.result)
     machine = f"{magnitude} {fact.unit}"
     if machine == figure:

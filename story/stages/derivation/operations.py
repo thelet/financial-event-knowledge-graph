@@ -44,7 +44,7 @@ from story.core.numerals import (
     delta_relative,
     operation_result_surfaces,
 )
-from story.core.periods import PeriodShape, StoryPeriod
+from story.core.renderings import period_surface_of_period
 from story.core.series import DELTA_PRECISION
 from story.stages.derivation.public import (
     DIRECTION_DECREASE,
@@ -385,47 +385,27 @@ def _shared_direction(
     return None, (SIGN_CONVENTION_UNVERIFIED,)
 
 
-def period_surface_hint(period: StoryPeriod) -> str:
-    """The surface a `FactBinding` should carry for this period, minted by code (§2).
-
-    **This is the repair, not a convenience.** §2 measured that the demo's refusal was never the
-    arithmetic: `$446 million` recomputed cleanly and `unbound_numeral` fired on the literal
-    `2022`, because the model left `Calculation.period_surface` empty while its own text read
-    *"in the third quarter of 2022"*. A derived fact binds through an ordinary `FactBinding`,
-    whose `period_surface` is per binding, and this is where code fills it.
-
-    Every form here is one `story/stages/verification/period_grammar.py` resolves back to this
-    period — asserted by test rather than claimed, because a hint the verifier cannot parse
-    would be worse than none: it would look like a period surface and refuse as an unresolvable
-    one.
-
-    **An instant renders as its ISO date rather than as *"September 30, 2022"***, even though the
-    grammar accepts both. The worded form needs a month-name table, and a second copy of one
-    beside `period_grammar._MONTHS` is a table that can drift; the ISO form needs nothing and
-    round-trips through the same grammar.
-
-    `PeriodShape.OTHER` gets no hint. R3 refuses it before a derived fact can exist, so this
-    returns the empty string for a period that cannot arrive rather than inventing a phrase for
-    a window nobody can name.
-    """
-    if period.shape is PeriodShape.INSTANT and period.instant_date:
-        return period.instant_date
-    if period.shape is PeriodShape.QUARTER and period.period_end:
-        quarter = (int(period.period_end[5:7]) - 1) // 3 + 1
-        return f"the {_QUARTER_ORDINAL[quarter]} quarter of {period.period_end[:4]}"
-    if period.shape is PeriodShape.FISCAL_YEAR and period.period_end:
-        return f"fiscal year {period.period_end[:4]}"
-    if period.shape is PeriodShape.YTD_6M and period.period_end:
-        return f"the six months ended June 30, {period.period_end[:4]}"
-    if period.shape is PeriodShape.YTD_9M and period.period_end:
-        return f"the nine months ended September 30, {period.period_end[:4]}"
-    return ""
-
-
-#: The ordinal words `period_grammar._ORDINAL_QUARTER` reads. Written out rather than indexed
-#: into a list for that map's own stated reason: the failure mode of an index is silent
-#: (`"forth"` → 4) and the failure mode of a missing key is a refusal.
-_QUARTER_ORDINAL: dict[int, str] = {1: "first", 2: "second", 3: "third", 4: "fourth"}
+#: **The period emitter moved to `story/core/renderings.py` and this is the name it kept** (S1
+#: of `docs/2026-08-23-deterministic-draft-compiler/02-IMPLEMENTATION-PLAN.md`). Two emitters
+#: existed and disagreed: this one wrote `"fiscal year 2022"` and the ISO instant `"2022-09-30"`,
+#: while `prompts.period_surface_for` wrote `"fiscal 2022"` and `"September 30, 2022"` for the
+#: same windows. Both round-trip through `verification/period_grammar.resolve`, so neither was
+#: wrong — but the draft compiler that fills a `FactBinding.period_surface` would have been a
+#: third answer, so the two collapse into one.
+#:
+#: **The worded forms won, and that changes what this function returns for three shapes**: an
+#: instant is now `"September 30, 2022"` rather than `"2022-09-30"`, a fiscal year `"fiscal
+#: 2022"` rather than `"fiscal year 2022"`, and a first half `"the first half of 2022"` rather
+#: than `"the six months ended June 30, 2022"`. A sentence carries a worded date, and this string
+#: is written into a binding a sentence has to agree with. Quarters and nine-month windows — the
+#: only shapes any recorded run has produced — are byte-identical, which is why no committed
+#: artifact moves. The reason the old form gave for the ISO instant was that the worded one needs
+#: a month-name table beside `period_grammar._MONTHS`; that table now has exactly one home in
+#: `core/`, and `tests/story/test_story_renderings.py` round-trips every form it emits.
+#:
+#: `""` for a period no surface names. `PeriodShape.OTHER` is refused by R3 before a derived fact
+#: can exist, so that is a value for a period that cannot arrive rather than an invented phrase.
+period_surface_hint = period_surface_of_period
 
 
 __all__ = [
