@@ -384,38 +384,39 @@ def ontology_package():  # type: ignore[no-untyped-def]
             Ok(), source=SOURCE),))
 
 
+#: The planner's answer under 2.0.0: seven leaves, and a key point that names a *handle*.
+#:
+#: **Twelve fields the double used to supply are gone, and the surviving one changed shape.** It
+#: carried `required_citation_passage_ids`, `statement_class`, `required_warnings`,
+#: `causal_language`, `structure`, `prohibited_claims`, `unusable_evidence` and
+#: `requested_derivations` — every one of them either a lookup code already had or a field
+#: nothing read. `editorial_plan_from` fills all of them, so the `EditorialPlan` these tests
+#: drive through is the same object it always was. What the model still writes is prose plus
+#: `F1`, which is why `slots=` is now passed at every call site below: an unresolvable handle is
+#: `unresolvable_fact_handle` and the plan never reaches the writer.
 PLANNER_ANSWER = {
     "thesis": "Adjusted EBITDA crossed zero.",
     "why_it_matters": "It is the only sign reversal in the series.",
-    "key_points": [{"claim": "Adjusted EBITDA was negative in 2022Q3.",
-                    "required_fact_ids": ["obs:adjusted-ebitda:b"],
-                    "required_citation_passage_ids": ["psg:1"],
-                    "statement_class": "reported"}],
-    "counterpoints": [],
-    "requested_derivations": [],
-    "required_warnings": [],
-    "causal_language": CausalLanguage.FORBIDDEN.value,
     "uncertainty": "",
-    "structure": [],
-    "prohibited_claims": [],
-    "unusable_evidence": [],
+    "key_points": [{"claim": "Adjusted EBITDA was negative in 2022Q3.",
+                    "facts": ["F1"]}],
+    "counterpoint": "",
+    "counterpoint_facts": [],
 }
 
-#: The writer's answer under 3.0.0: a template with slots, no bindings and no citations.
+#: The writer's answer under 4.0.0: a title and sentence text, and there is no third field.
 #:
-#: **Three fields the double used to supply are gone, and this file is where that reads most
-#: plainly.** It used to carry a `fact_id`, a `rendered`, a `metric_surface`, a `period_surface`
-#: and an `evidence_id` — five strings a model had to get exactly right about a fact the prompt
-#: had already described to it. The slot table resolves `F1` to the same observation, code fills
-#: the figure and the period from the row, and the citation is minted from that fact's own
-#: handle. What is left here is a sentence.
+#: **Seven fields the double used to supply are gone, and this file is where that reads most
+#: plainly.** It carried a `fact_id`, a `rendered`, a `metric_surface`, a `period_surface` and an
+#: `evidence_id` — five strings a model had to get exactly right about a fact the prompt had
+#: already described to it — and then, under 3.0.0, a `kind` and a `rests_on`. The slot table
+#: resolves `F1` to the same observation, code fills the figure and the period from the row, and
+#: the citation is minted from that fact's own handle; `kind` and `rests_on` went the same way,
+#: because the compiler reads a sentence's kind off the rows its slots name and cites from them.
+#: What is left here is a sentence.
 WRITER_ANSWER = {
     "title": "Adjusted EBITDA in 2022Q3",
-    "sentences": [{
-        "text": "Adjusted EBITDA was {{F1}} in {{F1.period}}.",
-        "kind": "reported",
-        "rests_on": [],
-    }],
+    "sentences": [{"text": "Adjusted EBITDA was {{F1}} in {{F1.period}}."}],
 }
 
 

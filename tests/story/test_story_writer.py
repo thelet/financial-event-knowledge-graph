@@ -103,6 +103,7 @@ from story.stages.generation.writer import (
     BINDING_RENDERING_NOT_IN_TEXT,
     CITATION_QUOTE_AMBIGUOUS,
     CITATION_QUOTE_NOT_IN_PASSAGE,
+    DRAFT_NOT_CONSTRUCTIBLE,
     EVIDENCE_HANDLE_OUT_OF_BOUNDS,
     NO_SENTENCES,
     PLAN_NAMES_ANOTHER_PACKAGE,
@@ -115,11 +116,11 @@ from story.stages.generation.writer import (
     RESTS_ON_NOT_A_PASSAGE_HANDLE,
     RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE,
     DraftRejected,
-    SentenceTemplate,
     draft_from,
     draft_violations,
     render_markdown,
-    templates_from,
+    sentences_from,
+    thesis_violations,
     write_story,
     writer_passages,
 )
@@ -129,8 +130,13 @@ import story.stages.generation.writer as writer_module
 # may, and must: the demo claim is that these two meet.
 from story.stages.composition.compile import SLOT_PATTERN as COMPILER_SLOT_PATTERN
 from story.stages.composition.compile import compile_draft
-from story.stages.composition.public import SentenceTemplate as CompilerSentenceTemplate
-from story.stages.composition.public import SlotKind, SlotRow
+from story.stages.composition.public import (
+    CompositionRefused,
+    SentenceTemplate,
+    SlotKind,
+    SlotRow,
+)
+from story.stages.composition.recovery import normalize_templates
 from story.stages.composition.slot_table import slot_table
 from story.stages.derivation.execute import execute
 from story.stages.derivation.offers import offers
@@ -407,19 +413,21 @@ TEMPLATE_GGM_TEXT = "{{F2.metric}} was {{F2}} in {{F2.period}}."
 TEMPLATE_PROSE_METRIC_TEXT = "Adjusted Gross Margin was {{F1}} in {{F1.period}}."
 
 
-def template_sentence(text: str, kind: str, rests_on: Sequence[str] = ()) -> dict[str, Any]:
-    """One sentence row, with the three properties §4.2's schema has and no fourth.
+def template_sentence(text: str) -> dict[str, Any]:
+    """One sentence row, with the **one** property 4.0.0's schema has and no second.
 
-    There is nowhere in this helper to put a binding, a citation or a rendering. That is the
-    contract change stated as a signature: no test below can accidentally assert against a shape
-    the grammar refuses, and `rests_on` is present-and-possibly-empty because
-    `portable_schema` admits no optional property.
+    `kind` and `rests_on` left the grammar with `WRITER_PROMPT_VERSION` 4.0.0: `kind` is derived
+    from the rows a sentence's slots name (`story/stages/composition/recovery.derive_kind`), and
+    `rests_on` served the explanatory route, which `03` §2 measured cannot currently succeed —
+    `want_explanatory_search` is `False` in every detector, so no package in the corpus holds an
+    explanatory passage. There is nowhere in this helper to put either, which is the contract
+    change stated as a signature: no test below can assert against a shape the grammar refuses.
     """
-    return {"text": text, "kind": kind, "rests_on": list(rests_on)}
+    return {"text": text}
 
 
 def template_answer(**overrides: Any) -> dict[str, Any]:
-    """What a conformant model returns for `make_package()` under `make_plan()`, at 3.0.0.
+    """What a conformant model returns for `make_package()` under `make_plan()`, at 4.0.0.
 
     The same three sentences `valid_answer()` states — the two margins and the connective that
     carries the required `filing_date_unknown` qualifier — written as templates. Every numeral
@@ -428,9 +436,9 @@ def template_answer(**overrides: Any) -> dict[str, Any]:
     content: dict[str, Any] = {
         "title": "Two gross margins in one quarter",
         "sentences": [
-            template_sentence(TEMPLATE_AGM_TEXT, "reported"),
-            template_sentence(TEMPLATE_GGM_TEXT, "reported"),
-            template_sentence(WARNING_TEXT, "connective"),
+            template_sentence(TEMPLATE_AGM_TEXT),
+            template_sentence(TEMPLATE_GGM_TEXT),
+            template_sentence(WARNING_TEXT),
         ],
     }
     content.update(overrides)
@@ -599,17 +607,19 @@ AGP_DERIVED_TEMPLATE = "{{D1.metric}} {{D1.direction}} {{D1}} in {{D1.to_period}
 
 
 def derived_template_answer(**overrides: Any) -> dict[str, Any]:
-    """The 3.0.0 answer for §2's candidate: a reported row and a derived one, all slots.
+    """The 4.0.0 answer for §2's candidate: a reported row and a derived one, all slots.
 
-    The `calculated` sentence names `{{D1}}` and `{{D1.direction}}` and nothing else about the
+    The derived sentence names `{{D1}}` and `{{D1.direction}}` and nothing else about the
     derivation — no operation, no input list, no expression, no formula version. Those four
     fields are what §2's live run got wrong or left empty, and none of them is in the answer.
+    **Nor does it declare that it is `calculated`**: naming a `D` row is what makes it so, and
+    the derivation of that label is `story/stages/composition/`'s.
     """
     content: dict[str, Any] = {
         "title": "Adjusted gross profit in 2022Q3",
         "sentences": [
-            template_sentence(AGP_REPORTED_TEMPLATE, "reported"),
-            template_sentence(AGP_DERIVED_TEMPLATE, "calculated"),
+            template_sentence(AGP_REPORTED_TEMPLATE),
+            template_sentence(AGP_DERIVED_TEMPLATE),
         ],
     }
     content.update(overrides)
@@ -655,12 +665,31 @@ class FakeWriteProvider:
 def rows_for(
     package: StoryEvidencePackage, derived_facts: Sequence[DerivedFact] = ()
 ) -> tuple[SlotRow, ...]:
-    """This run's slot table, built the way `story/pipeline.py` will build it.
+    """This run's slot table, built the way `story/pipeline.py` builds it.
 
     A test may import the composition stage and `story/stages/generation/` may not — which is the
     whole reason `writer_prompt` and `write_story` take the rows as an argument. Calling
     `slot_table` here rather than hand-building rows is what makes these tests exercise the seam
     the pipeline uses instead of a shape only this file believes in.
+
+    **No passage rows, which is the 4.0.0 change and not an omission.** `pipeline.py` calls
+    `slot_table(package, derived, ())`: `rests_on` left the writer's contract, so a passage no
+    sentence can name is a row no prompt should print. `rows_with_passages` below is what the
+    two tests about `P` rows use, and the difference between the two is what
+    `test_the_prompt_omits_the_passages_section_when_no_row_can_name_one` measures.
+    """
+    return slot_table(package, derived_facts, ())
+
+
+def rows_with_passages(
+    package: StoryEvidencePackage, derived_facts: Sequence[DerivedFact] = ()
+) -> tuple[SlotRow, ...]:
+    """The same table with the `P` rows the pipeline no longer builds.
+
+    The rows, the `SlotKind.PASSAGE` member and the compiler's `rests_on` handling all stay in
+    the code, unreachable from the 4.0.0 contract — exactly as the eight pre-3.0.0 writer codes
+    stay for replayed artifacts. When a story type turns `want_explanatory_search` on, this is
+    the table it gets back, so it is built here rather than left untested.
     """
     return slot_table(package, derived_facts, writer_passages(package))
 
@@ -710,8 +739,14 @@ def compiled_of(
     package = package if package is not None else make_package()
     plan = plan if plan is not None else make_plan()
     written = write_with(FakeWriteProvider(answer), package, plan, derived_facts=derived_facts)
+    # `story/pipeline.py`'s own three lines, in order. The writer returns **strings** at 4.0.0;
+    # `normalize_templates` turns each into a `SentenceTemplate` — putting a slot where the model
+    # wrote a string some row already offers, and deriving `kind` from the rows the result names
+    # — and the compiler fills them. What that pass does is
+    # `tests/story/test_story_composition_recovery.py`'s subject and is not re-asserted here.
+    normalized = normalize_templates(written.sentences, rows_for(package, derived_facts))
     return compile_draft(
-        written.templates, package, plan,
+        normalized.templates, package, plan,
         derived_facts=derived_facts, title=written.title,
         model_id="Qwen3.5-9B-Q4_K_M.gguf", style_profile_id=PLAIN_INVESTOR_STYLE.profile_id,
         prompt_version=WRITER_PROMPT_VERSION).draft
@@ -797,8 +832,12 @@ def test_the_writer_takes_a_package_a_plan_a_provider_a_style_and_two_budgets():
     # facts out of the package, and the slot table lives in `story/stages/composition/`, which
     # this stage may not import. Everything §10.2.1 point 3 forbids — a retriever, a term list,
     # a passage set — is still absent.
+    # `feedback` joined them at 4.0.0 and is the one argument here that *is* downstream of a
+    # model: it carries a previous attempt's refusal back into the prompt under its own heading,
+    # appended last, touching no evidence section above it. It defaults to `""` and renders
+    # nothing, so a first attempt keys identically in the replay store to a run with no repair.
     assert list(parameters) == ["package", "plan", "provider", "style", "length_target",
-                                "max_tokens", "derived_facts", "slots"]
+                                "max_tokens", "derived_facts", "slots", "feedback"]
     assert parameters["max_tokens"].default is inspect.Parameter.empty
     assert parameters["length_target"].default is inspect.Parameter.empty
     assert "temperature" not in parameters
@@ -839,8 +878,10 @@ def test_a_plan_that_cites_fewer_passages_does_not_narrow_the_writers_universe()
     # The handle, not the id: a passage is named in `rests_on` by the handle its slot row
     # carries, and the id is not printed at all now. What the assertion is about is unchanged —
     # the plan named no passage and the writer was still shown the one its facts were read from.
+    # `rows_with_passages` is what a run with the explanatory route on would build; the pipeline
+    # builds none, and §10.2.1 point 3 is a rule about `writer_passages` either way.
     prompt = writer_prompt(package, narrow, writer_passages(package),
-                           slots=rows_for(package))
+                           slots=rows_with_passages(package))
     assert prompt.count("[P1]") == 1
     assert PASSAGE_TEXT.strip() in prompt.replace("\n      ", "\n")
     assert writer_passages(package) == writer_passages(package)
@@ -897,44 +938,54 @@ def test_every_object_in_the_writer_schema_forbids_extras_and_requires_every_pro
             assert isinstance(subschema.get("items"), Mapping), path
 
 
-def test_the_writer_schema_carries_three_properties_and_no_object_array():
-    """§4.2: three properties per sentence, and the two object arrays are gone with the six
-    model-authored strings inside them.
+def test_the_writer_schema_is_two_leaves_and_the_sentence_carries_only_its_text():
+    """4.0.0: a title and an array of sentences, and a sentence is a `text` and nothing else.
 
     Asserted over the **whole** schema rather than over the properties that used to hold them,
     because the failure being guarded against is a field coming back somewhere else — a
-    `metric_surface` beside the text, an `evidence_id` inside `rests_on`. Success criterion 3 of
-    the implementation plan is exactly this assertion: *"`rendered`, `metric_surface`,
+    `metric_surface` beside the text, an `evidence_id` inside a `rests_on`. Success criterion 3
+    of the implementation plan is exactly this assertion: *"`rendered`, `metric_surface`,
     `period_surface` and every citation are compiler-authored on the pipeline path, proved by a
-    test that greps the writer's schema for those names"*.
+    test that greps the writer's schema for those names"* — and `kind` and `rests_on` join that
+    list at 4.0.0.
     """
     schema = writer_schema()
+    assert sorted(schema["required"]) == sorted(schema["properties"]) == ["sentences", "title"]
     sentence_item = schema["properties"]["sentences"]["items"]
-    assert set(sentence_item["required"]) == {"text", "kind", "rests_on"}
-    assert set(sentence_item["properties"]) == set(sentence_item["required"])
-    assert sentence_item["properties"]["rests_on"] == {"type": "array",
-                                                       "items": {"type": "string"}}
-    # No object array anywhere below the sentence: `rests_on` holds strings, and there is no
-    # other array in the schema at all.
-    for path, subschema in walk_schema(schema):
-        if subschema.get("type") == "array" and path != "$.sentences":
-            assert subschema["items"]["type"] == "string", path
+    assert sentence_item["required"] == ["text"]
+    assert set(sentence_item["properties"]) == {"text"}
+
+    leaves = [path for path, subschema in walk_schema(schema)
+              if subschema.get("type") in ("string", "number", "boolean")]
+    assert leaves == ["$.title", "$.sentences[].text"], leaves
+    # One array in the whole schema, and it is the sentence list.
+    assert [path for path, subschema in walk_schema(schema)
+            if subschema.get("type") == "array"] == ["$.sentences"]
 
     flattened = json.dumps(schema)
     for retired in ("calculation", "operation", "expression", "result_rendered",
                     "formula_version_id", "input_observation_ids", "delta_pp",
                     "fact_bindings", "citations", "rendered", "metric_surface",
-                    "period_surface", "evidence_id", "facts_used"):
+                    "period_surface", "evidence_id", "facts_used", "kind", "rests_on"):
         assert retired not in flattened, retired
 
 
 def test_a_model_that_declares_a_calculation_anyway_is_refused_by_the_grammar():
-    """`additionalProperties: false` is what makes the removal a refusal rather than a hope.
+    """`additionalProperties: false` is what makes each removal a refusal rather than a hope.
 
-    The old contract's own answer, replayed against the new schema: it is not tolerated, not
-    ignored and not silently dropped — it fails `schema_violations` before a draft exists, which
-    is the same treatment any other invented field gets.
+    Two old contracts' own answers, replayed against the new schema: 3.0.0's `kind` and 2.2.0's
+    `calculation`. Neither is tolerated, ignored or silently dropped — both fail
+    `schema_violations` before a draft exists, which is the same treatment any other invented
+    field gets. `test_a_sentence_kind_outside_the_enum_fails_as_a_schema_error` stood below and
+    is retired into the first half of this one: there is no `kind` enum left to be outside of,
+    and the field itself is now the violation.
     """
+    answer = template_answer()
+    answer["sentences"][2]["kind"] = "connective"
+    with pytest.raises(StoryProviderSchemaError) as refused:
+        write_with(FakeWriteProvider(answer))
+    assert any("kind" in violation for violation in refused.value.violations)
+
     answer = template_answer()
     answer["sentences"][2]["calculation"] = [{
         "operation": "delta_pp", "input_observation_ids": [GGM_ID, AGM_ID],
@@ -977,12 +1028,12 @@ def test_two_style_profiles_change_the_system_message_and_nothing_the_evidence_s
 
     assert first.calls[0]["prompt"] == second.calls[0]["prompt"]
     assert first.calls[0]["system"] != second.calls[0]["system"]
-    # The templates, not the bindings: a style profile that could change a figure would have to
+    # The sentences, not the bindings: a style profile that could change a figure would have to
     # change a slot, and the slots are what the two answers are compared on. The figures
     # themselves are the compiler's and are not reachable from here at all, which is the strong
     # form of §12's rule that S4 makes true — `compile_draft` takes no style profile either.
-    assert plain.templates == terse_written.templates
-    assert terse_written.templates[0].text == TEMPLATE_AGM_TEXT
+    assert plain.sentences == terse_written.sentences
+    assert terse_written.sentences[0] == TEMPLATE_AGM_TEXT
 
 
 # -- rule: the surfaces the writer is told to use are the ones the verifier accepts ---------------
@@ -1258,6 +1309,54 @@ def test_every_period_surface_the_writer_emits_resolves_back_to_its_own_endpoint
     assert resolved.resolved
     assert (resolved.period_start, resolved.period_end, resolved.instant_date) == (
         start, end, instant)
+
+
+def test_the_prompt_omits_the_passages_section_when_no_row_can_name_one():
+    """**53% of the writer prompt, gone, and the rule is asked of the rows rather than a flag.**
+
+    A passage reaches the prompt so an `explanatory` sentence can rest on it. Where the table has
+    no `P` row no sentence can, and printing the passages anyway costs what `03` §1 measured on
+    the demo `metric_move` candidate: 5,924 of the prompt's 11,179 characters, and **182
+    numerals of which none is a figure the model is allowed to write**. The pipeline passes no
+    passage rows, so the section is omitted; a caller that still has `P` rows gets it back.
+    """
+    package, plan = make_package(), make_plan()
+    passages = writer_passages(package)
+    assert passages, "the fixture's fact is read from a passage"
+
+    # The printer takes the slice as an argument and omits the heading entirely for an empty
+    # one, rather than printing it over "(none)". Every other section here renders "(none)"
+    # because an absent section would read as an omission; this one is the opposite case — a
+    # heading over no passage invites a sentence resting on evidence the run does not carry.
+    without = writer_prompt(package, plan, (), slots=rows_for(package))
+    assert "PASSAGES (" not in without
+    assert PASSAGE_TEXT.strip() not in without.replace("\n      ", "\n")
+
+    with_rows = writer_prompt(package, plan, passages, slots=rows_with_passages(package))
+    assert "PASSAGES (1 whole passage" in with_rows
+    assert PASSAGE_TEXT.strip() in with_rows.replace("\n      ", "\n")
+    # The measurement, in the small: the omitted section is the bulk of the prompt and every
+    # numeral it prints is one the model may not write.
+    assert len(with_rows) > len(without)
+    assert "3,394" in with_rows and "3,394" not in without
+
+
+def test_write_story_asks_the_rows_whether_to_print_a_passage_at_all():
+    """The same rule at the stage rather than at the printer: `write_story` derives its own
+    passage slice, and it derives an **empty** one where the table offers no `P` row.
+
+    Asked of the rows because they are the one authority on what is nameable — a flag this stage
+    had to be told would be a second answer that could disagree with the table the compiler
+    fills from.
+    """
+    provider = FakeWriteProvider()
+    write_with(provider)
+    assert "PASSAGES (" not in provider.calls[0]["prompt"]
+
+    package = make_package()
+    with_rows = FakeWriteProvider()
+    write_with(with_rows, package, slots=rows_with_passages(package))
+    assert "PASSAGES (1 whole passage" in with_rows.calls[0]["prompt"]
 
 
 def test_a_window_outside_the_closed_grammar_is_offered_no_surface_at_all():
@@ -1590,32 +1689,29 @@ def test_content_that_is_not_json_fails_as_a_response_error_and_is_asked_for_onc
 
 
 def test_an_answer_missing_a_required_property_fails_as_a_schema_error_and_is_never_retried():
-    answer = valid_answer()
-    del answer["sentences"][0]["citations"]
+    answer = template_answer()
+    del answer["sentences"][0]["text"]
     provider = FakeWriteProvider(answer)
     with pytest.raises(StoryProviderSchemaError) as raised:
         write_with(provider)
-    assert any("citations" in violation for violation in raised.value.violations)
+    assert any("text" in violation for violation in raised.value.violations)
     assert len(provider.calls) == 1
 
 
-def test_a_sentence_kind_outside_the_enum_fails_as_a_schema_error():
-    answer = valid_answer()
-    answer["sentences"][0]["kind"] = "causal"
-    with pytest.raises(StoryProviderSchemaError) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert any("kind" in violation for violation in raised.value.violations)
-
-
-# `test_an_operation_outside_the_enum_fails_as_a_schema_error` is retired: there is no operation
-# enum in the writer's grammar to be outside of. The closed operation vocabulary moved to the
-# *planner*, where `requested_derivations[].operation` is an `enum` over §4.1's seven, and
-# `tests/story/test_story_planner.py` is where a word outside it is now shown to be refused.
+# `test_a_sentence_kind_outside_the_enum_fails_as_a_schema_error` stood here and is **retired
+# with the field**: 4.0.0's sentence has no `kind` for a word to be outside the enum of. What
+# replaced it is stricter and lives in
+# `test_a_model_that_declares_a_calculation_anyway_is_refused_by_the_grammar` — a `kind` of any
+# value at all is now a schema violation, and the label the draft carries is derived from the
+# rows a sentence's slots name by `story/stages/composition/recovery.derive_kind`.
+#
+# `test_an_operation_outside_the_enum_fails_as_a_schema_error` is retired for the same reason
+# and was already: there is no operation enum in the writer's grammar to be outside of.
 
 
 def test_an_answer_of_the_wrong_shape_fails_as_a_schema_error_rather_than_a_draft_rejection():
     with pytest.raises(StoryProviderSchemaError) as raised:
-        write_with(FakeWriteProvider(valid_answer(sentences="four of them")))
+        write_with(FakeWriteProvider(template_answer(sentences="four of them")))
     assert any("expected array" in violation for violation in raised.value.violations)
 
 
@@ -1628,25 +1724,23 @@ def test_a_schema_violation_and_a_draft_rejection_are_different_failures():
 # -- the accepted draft ----------------------------------------------------------------------------
 
 
-def test_a_conformant_answer_becomes_templates_and_the_compiler_writes_the_spans():
-    """The whole S4 path in one test: what the writer returns, and what the compiler makes of it.
+def test_a_conformant_answer_becomes_sentences_and_the_compiler_writes_the_spans():
+    """The whole path in one test: what the writer returns, and what the compiler makes of it.
 
-    **The writer's half carries no span at all**, which is the change. `index` is positional and
-    is not the model's, `kind` is, `rests_on` is empty on every sentence here, and `title` rides
-    beside the templates because a title carries no slot. The identity fields — candidate,
-    package, prompt version, model — are no longer stamped here either: `compile_draft` builds
-    the `Draft`, so it stamps them, and the two it cannot know are arguments.
+    **The writer's half is now plain strings**, which is the 4.0.0 change. It carries no span, no
+    index, no `kind` and no `rests_on` — there is nothing left for this stage to *build*, because
+    deriving `kind` reads the slot rows a sentence names and that is
+    `story/stages/composition/`'s question, over a module this stage may not import. `title`
+    rides beside them because a title carries no slot. The identity fields — candidate, package,
+    prompt version, model — are `compile_draft`'s, and the two it cannot know are arguments.
 
     **The compiler's half is R1 and R2.** `text[char_start:char_end] == rendered` holds because
     one operation produced both, and `rendered` is `slot_table`'s string rather than a substring
     the model retyped and this module then went looking for.
     """
     written = write_with(FakeWriteProvider())
-    assert [t.index for t in written.templates] == [0, 1, 2]
-    assert [t.kind for t in written.templates] == [
-        SentenceKind.REPORTED, SentenceKind.REPORTED, SentenceKind.CONNECTIVE]
-    assert [t.rests_on for t in written.templates] == [(), (), ()]
-    assert written.templates[0].text == TEMPLATE_AGM_TEXT
+    assert written.sentences == (TEMPLATE_AGM_TEXT, TEMPLATE_GGM_TEXT, WARNING_TEXT)
+    assert all(isinstance(one, str) for one in written.sentences)
     assert written.title == "Two gross margins in one quarter"
     assert written.generation.total_tokens == 2038
 
@@ -1703,7 +1797,7 @@ def test_the_writer_never_receives_and_never_returns_a_run_of_source_text():
         assert handle not in prompt
     properties = writer_schema()["properties"]["sentences"]["items"]["properties"]
     assert "citations" not in properties
-    assert sorted(properties) == ["kind", "rests_on", "text"]
+    assert sorted(properties) == ["text"]
 
 
 def test_the_identity_fields_come_from_the_package_and_not_from_the_model():
@@ -1738,6 +1832,11 @@ def test_the_markdown_renderer_takes_the_structured_draft_and_nothing_else():
     # accident. What it takes is what `compile_draft` built.
     written = write_with(FakeWriteProvider())
     assert not hasattr(written, "draft") and not hasattr(written, "markdown")
+    # …and not even a template: `WrittenStory.templates` became `sentences`, and the rename was
+    # deliberate rather than a shim. Every call site that read `templates` was reading something
+    # with an `index` and a `kind`, and a field that quietly became a string would have failed
+    # later and further away.
+    assert not hasattr(written, "templates")
     assert isinstance(compiled_of(template_answer()), Draft)
 
 
@@ -2256,145 +2355,196 @@ def test_the_seven_case_is_still_refused_when_the_handle_is_not_the_one_that_was
 
 
 # ---------------------------------------------------------------------------------------
-# S4 — the template contract, the three copies it rests on, and the three refusals it adds
+# 4.0.0 — what this stage still parses, what it still refuses, and the two copies left
 # ---------------------------------------------------------------------------------------
 #
-# **Three values are copied across a boundary this stage cannot import over**, and each is
-# asserted equal to its original here rather than kept equal by discipline. The rule is
+# **Two values are copied across a boundary this stage cannot import over**, and each is asserted
+# equal to its original here rather than kept equal by discipline. The rule is
 # `test_no_stage_imports_another_stage`'s: `story/stages/generation/` may not name
 # `story/stages/composition/`, and §4.5 of the architecture document nonetheless makes the
 # writer's output the compiler's input. A *test* may import both, which is what makes the copies
 # checkable — the same arrangement `WARNING_QUALIFIER_PHRASES` and
 # `slot_table.TWO_PERIOD_OPERATIONS` already use.
+#
+# **There were three copies and now there are two**, because the third — a `SentenceTemplate`
+# defined here as well as in `story/stages/composition/public.py` — was deleted rather than
+# re-asserted. That is the stronger answer to the same problem: a type that exists once cannot
+# drift from itself.
 
 
-def test_the_template_this_stage_returns_is_the_compilers_own():
-    """Field for field, and then driven through `compile_draft` to prove the copy is usable.
+def test_this_stage_builds_no_template_and_the_compilers_type_is_the_only_one():
+    """The copy that is gone, asserted as an absence and then driven through the real seam.
 
-    The dataclass comparison is the cheap half: a field added on either side fails here. The
-    second half is the one that matters — a tuple of *this* module's templates compiles into a
-    `Draft` through the real compiler, so the two types are not merely alike, they are
-    interchangeable at the seam `story/pipeline.py` will wire.
+    A `SentenceTemplate` carries a derived `kind`, and deriving it reads the slot rows a sentence
+    names — `story/stages/composition/`'s question, over a module this stage may not import. So
+    this stage stopped constructing the type at all and hands the composition root the strings,
+    which is the only shape that does not require one of the two stages to know the other.
     """
-    ours = [(f.name, f.type, f.default) for f in dataclasses.fields(SentenceTemplate)]
-    theirs = [(f.name, f.type, f.default)
-              for f in dataclasses.fields(CompilerSentenceTemplate)]
-    assert ours == theirs
+    assert not hasattr(writer_module, "SentenceTemplate")
+    assert not hasattr(writer_module, "templates_from")
     assert [f.name for f in dataclasses.fields(SentenceTemplate)] == [
         "index", "text", "kind", "rests_on"]
 
     package, plan = make_package(), make_plan()
     written = write_with(FakeWriteProvider(), package, plan)
-    assert all(isinstance(t, SentenceTemplate) for t in written.templates)
-    compiled = compile_draft(written.templates, package, plan)
+    assert all(isinstance(one, str) for one in written.sentences)
+    # `story/pipeline.py`'s own seam: strings out of this stage, templates out of the next.
+    normalized = normalize_templates(written.sentences, rows_for(package))
+    assert all(isinstance(t, SentenceTemplate) for t in normalized.templates)
+    compiled = compile_draft(normalized.templates, package, plan)
     assert [s.index for s in compiled.draft.sentences] == [0, 1, 2]
 
 
 def test_the_passage_row_marker_is_the_composition_enums_own():
     """`SlotKind` is a `str` enum so its *value* is what travels; this is the one member the
-    writer has to recognise, and the copy is one string."""
+    writer has to recognise, and the copy is one string.
+
+    It is still read on every call — `write_story` asks the rows whether any of them is a passage
+    row and prints the PASSAGES section only if one is — so the copy is live rather than
+    vestigial, even though the pipeline hands it a table that contains none.
+    """
     assert PASSAGE_ROW == SlotKind.PASSAGE == "passage"
-    assert PASSAGE_ROW in {row.kind for row in rows_for(make_package())}
+    assert PASSAGE_ROW in {row.kind for row in rows_with_passages(make_package())}
+    assert PASSAGE_ROW not in {row.kind for row in rows_for(make_package())}
 
 
 def test_the_slot_grammar_here_is_the_compilers_own():
-    """One regex, copied, and asserted identical. A writer that read braces by a different rule
-    would refuse an answer the compiler accepts, or pass one it cannot read."""
+    """One regex, copied, and asserted identical. A writer that read handles by a different rule
+    would refuse an answer the compiler accepts, or pass one it cannot read.
+
+    Still read on every call: `thesis_violations` finds the handles a draft names with it.
+    """
     assert writer_module.SLOT_PATTERN.pattern == COMPILER_SLOT_PATTERN.pattern
 
 
-@pytest.mark.parametrize("text", [
-    "Adjusted gross margin was {{F1} in {{F1.period}}.",     # never closes
-    "Adjusted gross margin was {{f1}} in {{F1.period}}.",    # lower-case handle
-    "Adjusted gross margin was {{F1.Period}} in 2022.",      # upper-case field
-    "Adjusted gross margin was {{ {{F1}} }}.",               # nested
-])
-def test_a_brace_the_slot_grammar_cannot_read_is_refused(text: str):
-    """§12 refuses the answer; the alternative was copying the braces into the published post.
+def test_the_three_codes_no_4_0_0_answer_can_raise_are_still_declared():
+    """`malformed_slot`, `rests_on_without_explanatory_sentence`, `rests_on_not_a_passage_handle`.
 
-    The check is on the **residue** — what is left after every well-formed slot is removed — so a
-    sentence carrying one good slot and one broken one is still refused for the broken one.
+    **Retired as tests, kept as constants, and the distinction matters.** Each was raised by
+    `templates_from`, which 4.0.0 replaced with `sentences_from`; the model writes no `rests_on`
+    and the brace check belongs to the one stage that has to read a template, so all three are
+    unreachable from this path. They are **not** deleted: a stored `rejected.json` names them —
+    `story-v1-76da8465cd95`'s does — and the demo UI's code catalogue renders a description for
+    every code an artifact on disk can carry. A catalogue offering a refusal no stage can produce
+    would describe a system this is not; one missing a code a stored artifact carries renders it
+    blank and non-blocking, which is untrue.
+
+    Where the live rules went:
+
+    * a brace the grammar cannot read → `compile_draft`'s `template_not_compilable`, asserted by
+      `tests/story/test_story_composition.py`, which is the one authority on the slot grammar;
+    * `rests_on` on the wrong kind → `compile_draft`'s `rests_on_without_explanatory_kind`;
+    * `rests_on` naming a non-passage row → `compile_draft`'s `passage_handle_unknown`.
     """
-    answer = template_answer(sentences=[template_sentence(text, "reported"),
-                                        template_sentence(TEMPLATE_GGM_TEXT, "reported")])
+    assert (MALFORMED_SLOT, RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE,
+            RESTS_ON_NOT_A_PASSAGE_HANDLE) == (
+        "malformed_slot", "rests_on_without_explanatory_sentence",
+        "rests_on_not_a_passage_handle")
+    # Exported, because `story/demo_ui/`'s catalogue reads the declared codes off the module by
+    # constant name rather than off a hand-kept list.
+    for name in ("MALFORMED_SLOT", "RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE",
+                 "RESTS_ON_NOT_A_PASSAGE_HANDLE"):
+        assert name in writer_module.__all__
+
+
+def test_an_answer_with_no_sentence_at_all_is_refused():
+    """`no_sentences` — a statement about the *answer*, which is why it survived into 4.0.0
+    while three of `templates_from`'s four refusals did not."""
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert MALFORMED_SLOT in raised.value.codes
+        write_with(FakeWriteProvider(template_answer(sentences=[])))
+    assert raised.value.codes == (NO_SENTENCES,)
+    # …and directly, because `sentences_from` is public and the composition root may call it.
+    with pytest.raises(DraftRejected) as direct:
+        sentences_from({"title": "t", "sentences": []})
+    assert direct.value.codes == (NO_SENTENCES,)
 
 
-@pytest.mark.parametrize("kind", ["reported", "calculated", "connective"])
-def test_rests_on_on_a_sentence_that_is_not_explanatory_is_refused(kind: str):
-    """The compiler resolves citations by kind and only `explanatory` rests on a passage, so a
-    `rests_on` anywhere else is asking for a citation the kind cannot carry."""
-    answer = template_answer(sentences=[
-        template_sentence(TEMPLATE_AGM_TEXT, "reported"),
-        template_sentence("The filing describes the two measures separately.", kind, ["P1"])])
+def test_a_text_that_is_not_a_string_is_refused_as_a_draft_that_will_not_construct():
+    """The schema re-check at the grain a JSON schema cannot express.
+
+    §15.3 has no `type` narrowing beyond the six keywords, and a replaying provider hands back
+    whatever was recorded — so an answer stored under an older grammar is exactly the shape that
+    arrives here with the wrong type. Every offending row is reported rather than the first,
+    because a caller repairing a refusal wants the whole list.
+    """
     with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE in raised.value.codes
+        sentences_from({"title": "t", "sentences": [
+            {"text": TEMPLATE_AGM_TEXT}, {"text": 3.3}, {"text": None}]})
+    assert raised.value.codes == (DRAFT_NOT_CONSTRUCTIBLE, DRAFT_NOT_CONSTRUCTIBLE)
+    assert "sentences[1]" in str(raised.value) and "sentences[2]" in str(raised.value)
 
 
-@pytest.mark.parametrize("handle", ["P7", "F1", "", "psg:opendoor-10q-2022q3:margins-table"])
-def test_rests_on_naming_anything_but_a_passage_handle_is_refused(handle: str):
-    """Four ways to get it wrong and one code, because they are one mistake: `rests_on` names the
-    passage a claim paraphrases. `F1` is in the table and is not a passage; the passage *id* is
-    not a handle at all, which is the whole reason handles exist."""
-    answer = template_answer(sentences=[
-        template_sentence(TEMPLATE_AGM_TEXT, "reported"),
-        template_sentence("The filing describes the two measures separately.",
-                          "explanatory", [handle])])
-    with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert RESTS_ON_NOT_A_PASSAGE_HANDLE in raised.value.codes
+def test_the_text_is_copied_through_untouched():
+    """No stripping, no normalising, no brace repair.
+
+    Every character the model wrote reaches either a slot's span or the reader, and a function
+    that tidied it would be one that could change a sentence's meaning between the check and the
+    post. The braces below are ones the grammar cannot read, and they are returned intact —
+    `compile_draft` refuses them as `template_not_compilable`, which is the one authority.
+    """
+    ragged = "  Adjusted gross margin was {{F1} in {{F1.period}}.\n"
+    assert sentences_from({"sentences": [{"text": ragged}]}) == (ragged,)
 
 
-def test_templates_naming_no_row_the_plan_asked_for_are_refused_as_a_changed_thesis():
+def test_a_draft_naming_no_planned_fact_is_refused_as_a_changed_thesis():
     """§12's *"the writer must not change the thesis"*, resolved through the slot rows.
 
     The plan's key points name `obs:` ids and a template names `F1`; the row is what joins them.
-    The answer below is well formed, compiles, and says nothing the plan asked for.
+    The sentence below is well formed, compiles, and says nothing the plan asked for.
     """
-    answer = template_answer(sentences=[
-        template_sentence("Both measures come from one table in the same filing.", "connective")])
-    with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(answer))
-    assert THESIS_ABANDONED in raised.value.codes
-    assert AGM_ID in str(raised.value)
+    package, plan = make_package(), make_plan()
+    found = thesis_violations(
+        ["Both measures come from one table in the same filing."], plan, rows_for(package))
+    assert [violation.code for violation in found] == [THESIS_ABANDONED]
+    assert AGM_ID in found[0].detail and "no fact at all" in found[0].detail
 
 
-def test_a_writer_handed_no_slot_table_can_resolve_no_handle_and_is_refused():
+def test_a_draft_naming_one_planned_fact_passes_even_where_it_names_others_too():
+    """The accepting half. One shared fact is the whole rule — the writer chooses which of the
+    plan's points to carry and in what order, and §13 judges the rest."""
+    package, plan = make_package(), make_plan()
+    rows = rows_for(package)
+    assert thesis_violations([TEMPLATE_AGM_TEXT, WARNING_TEXT], plan, rows) == ()
+    # Every handle a template names counts, not only its value slots: a `{{F1.period}}` with no
+    # `{{F1}}` beside it is refused by the compiler under R4, and calling that "the thesis was
+    # abandoned" would name the wrong fault for a sentence one slot short of correct.
+    assert thesis_violations(["The figure was reported in {{F1.period}}."], plan, rows) == ()
+
+
+def test_the_thesis_check_runs_after_recovery_and_that_is_why_it_is_public():
+    """**The measured reason it is not called from `sentences_from`.**
+
+    Before recovery a model writing plain prose names no handle at all, so running this on the
+    raw answer refuses every unslotted draft as *"the templates name no fact"* — which is exactly
+    the refusal `story-v1-1daff167348f` earned for three sentences that were factually correct in
+    every figure. Run on the same prose after `normalize_templates`, it abstains.
+    """
+    package, plan = make_package(), make_plan()
+    rows = rows_for(package)
+    prose = ["Adjusted Gross Margin was 3.3 percent in the third quarter of 2022."]
+
+    assert [v.code for v in thesis_violations(prose, plan, rows)] == [THESIS_ABANDONED]
+    recovered = [t.text for t in normalize_templates(prose, rows).templates]
+    assert thesis_violations(recovered, plan, rows) == ()
+    # And the pipeline is what puts them in that order: `write_story` does not call it at all.
+    provider = FakeWriteProvider(template_answer(
+        sentences=[template_sentence(prose[0])]))
+    assert write_with(provider).sentences == tuple(prose)
+
+
+def test_a_caller_that_built_no_slot_table_can_resolve_no_handle_and_is_refused():
     """The default is empty, and this is what it buys: a caller that forgot the table gets a
     refusal naming the plan's own ids, not a post built from handles nothing knows."""
-    with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(), slots=())
-    assert THESIS_ABANDONED in raised.value.codes
-    assert "no fact at all" in str(raised.value)
+    found = thesis_violations([TEMPLATE_AGM_TEXT], make_plan(), ())
+    assert [violation.code for violation in found] == [THESIS_ABANDONED]
+    assert "no fact at all" in found[0].detail
 
 
-def test_an_answer_with_no_sentence_at_all_is_refused_on_the_template_path_too():
-    with pytest.raises(DraftRejected) as raised:
-        write_with(FakeWriteProvider(template_answer(sentences=[])))
-    assert NO_SENTENCES in raised.value.codes
-
-
-def test_an_explanatory_sentence_rests_on_a_passage_and_code_cites_it():
-    """The one thing `rests_on` is for, end to end: the model names `P1` and the compiler
-    resolves it to the span of a fact read from that passage. The model wrote no handle, no
-    passage id and no offset."""
-    answer = template_answer(sentences=[
-        template_sentence(TEMPLATE_AGM_TEXT, "reported"),
-        template_sentence(TEMPLATE_GGM_TEXT, "reported"),
-        template_sentence("The filing sets the two measures out in one table.",
-                          "explanatory", ["P1"]),
-        template_sentence(WARNING_TEXT, "connective")])
-    written = write_with(FakeWriteProvider(answer))
-    assert written.templates[2].rests_on == ("P1",)
-
-    draft = compiled_of(answer)
-    cited = draft.sentences[2].citations
-    assert [c.passage_id for c in cited] == [PASSAGE_ID]
-    assert cited[0].evidence_handle in (AGM_HANDLE, GGM_HANDLE)
-    assert cited[0].char_end > cited[0].char_start
+def test_a_plan_with_no_key_point_leaves_the_thesis_check_nothing_to_judge():
+    """Silence rather than a refusal: a plan naming no fact chose no evidence for a draft to
+    abandon, and refusing there would be this check inventing a rule §11 does not have."""
+    plan = make_plan(key_points=(), counterpoints=())
+    assert thesis_violations(["Anything at all."], plan, rows_for(make_package())) == ()
 
 
 def test_a_metric_named_in_the_writers_own_words_verifies_clean(verifier):
@@ -2409,9 +2559,9 @@ def test_a_metric_named_in_the_writers_own_words_verifies_clean(verifier):
     """
     package, plan = make_package(), make_plan()
     answer = template_answer(sentences=[
-        template_sentence(TEMPLATE_PROSE_METRIC_TEXT, "reported"),
-        template_sentence(TEMPLATE_GGM_TEXT, "reported"),
-        template_sentence(WARNING_TEXT, "connective")])
+        template_sentence(TEMPLATE_PROSE_METRIC_TEXT),
+        template_sentence(TEMPLATE_GGM_TEXT),
+        template_sentence(WARNING_TEXT)])
     draft = compiled_of(answer, package, plan)
 
     assert draft.sentences[0].text == ("Adjusted Gross Margin was 3.3 percent in the third "
@@ -2531,9 +2681,10 @@ def test_the_real_model_writes_this_post_and_the_rules_judge_what_comes_back():
         pytest.skip(f"no model server listening on {config.base_url}")
 
     package, plan = make_package(), make_plan()
+    rows = rows_for(package)
     with StoryOpenAICompatibleProvider(config) as provider:
         try:
-            written = write_story(package, plan, provider=provider,
+            written = write_story(package, plan, provider=provider, slots=rows,
                                   length_target=5, max_tokens=WRITER_MAX_TOKENS)
         except DraftRejected as rejected:
             pytest.skip(f"the live model's draft was refused by §12: {rejected.codes}")
@@ -2542,14 +2693,32 @@ def test_the_real_model_writes_this_post_and_the_rules_judge_what_comes_back():
         except StoryProviderResponseError as unparseable:
             pytest.skip(f"the live model returned no usable object: {unparseable}")
 
-    assert draft_violations(written.draft, package, plan) == ()
+    # `story/pipeline.py`'s order, because at 4.0.0 there is no draft on this side of the seam:
+    # normalize, then the thesis rule over the normalized text, then compile. Running the thesis
+    # rule on the raw answer refuses every plain-prose draft, which is what §12 measured.
+    normalized = normalize_templates(written.sentences, rows)
+    thesis_found = thesis_violations(
+        [template.text for template in normalized.templates], plan, rows)
+    if thesis_found:
+        pytest.skip("the live model's draft was refused by §12: "
+                    + ", ".join(violation.code for violation in thesis_found))
+    try:
+        draft = compile_draft(
+            normalized.templates, package, plan, title=written.title,
+            model_id=provider.model_id,
+            style_profile_id=PLAIN_INVESTOR_STYLE.profile_id,
+            prompt_version=WRITER_PROMPT_VERSION).draft
+    except CompositionRefused as refused:
+        pytest.skip(f"the live model's templates would not compile: {refused.codes}")
+
+    assert draft_violations(draft, package, plan) == ()
     assert written.generation.attempts == 1
     assert written.generation.finish_reason == "stop"
     assert written.generation.prompt_tokens + written.generation.completion_tokens < 8192
 
     verified = DeterministicVerifier(
         graph_run_id=GRAPH_RUN_ID, run_complete_sha256=RUN_COMPLETE_SHA256,
-        ontology_definition_hash=ONTOLOGY_DEFINITION_HASH).verify(written.draft, package, plan)
+        ontology_definition_hash=ONTOLOGY_DEFINITION_HASH).verify(draft, package, plan)
     if not verified.passed:
         pytest.skip("the live draft is structurally sound and §13 refuses it: "
                     + ", ".join(sorted(codes_of(verified))))

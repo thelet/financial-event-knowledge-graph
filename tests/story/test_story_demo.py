@@ -2278,6 +2278,10 @@ def test_a_run_writes_the_derived_facts_it_computed_and_names_the_file_in_its_ma
 
     written = json.loads((outcome.directory / DERIVED_FACTS_FILENAME).read_text("utf-8"))
     assert [fact["operation"] for fact in written["facts"]] == ["compare_levels"]
+    # **The orientation is code's now, and it is the one the detector measured.** The planner
+    # used to choose it; `spine_derivations` picks the triple `execute._signal_applies` will
+    # cross-check, which is what keeps `reused_detector_signal` below non-empty. Picking the
+    # other one was implemented first and lost that second opinion silently.
     assert written["facts"][0]["result"] == 15.9
     assert written["facts"][0]["unit"] == "percentage_points"
     assert written["facts"][0]["display_semantics"] == "higher than"
@@ -2335,18 +2339,26 @@ def test_the_writer_is_shown_the_derived_fact_and_binds_the_id_it_was_shown(tmp_
 def test_the_offer_set_reaches_the_planner_prompt_and_bounds_what_it_may_ask_for(
     tmp_path, config
 ):
-    """§4.3: the list is printed, and it is the same list the answer is checked against."""
+    """The offer set no longer reaches the planner, because the planner no longer asks.
+
+    **§4.3's rule has not been relaxed; the thing it bounded has moved.** A plan could request a
+    derivation, so the list it could request from had to be printed and the request checked back
+    against it by string equality. Under §11 2.0.0 there is no `requested_derivations` field:
+    `pipeline.spine_derivations` executes the operations the detector's own `signals` say it
+    fired on, before the planner is called, and the results are printed as `VERIFIED CHANGE`.
+
+    So the prompt prints no offer list — an offer a plan may not take is an invitation to a
+    refusal — and what the planner is shown instead is the answer.
+    """
     inputs = demo_inputs()
-    provider = DerivingProvider([compare_levels_request()])
+    provider = DerivingProvider([])
     run_demo(inputs, provider=provider, config=config, out_dir=tmp_path / "run")
 
     prompt = provider.prompts["story_editorial_plan"]
-    offered = offers(inputs.package, inputs.candidate)
-    assert "DERIVATIONS OFFERED (4 available" in prompt
-    for request in offered:
-        assert (f'operation "{request.operation.value}"  '
-                f'from_fact_id "{request.from_fact_id}"  '
-                f'to_fact_id "{request.to_fact_id}"') in prompt
+    assert "DERIVATIONS OFFERED" not in prompt
+    assert VERIFIED_CHANGE_HEADING in prompt
+    # The rows it may name, and their handles, are printed where the ids used to be.
+    assert "[F1]" in prompt and "[F2]" in prompt
 
 
 def test_a_derivation_the_detectors_own_signal_contradicts_ends_the_run_and_writes_no_draft(
@@ -2359,13 +2371,16 @@ def test_a_derivation_the_detectors_own_signal_contradicts_ends_the_run_and_writ
     Recorded as its own disposition rather than as `plan_refused`, which would blame a model for
     a disagreement between two deterministic computations.
     """
-    provider = DerivingProvider([compare_levels_request()])
+    provider = DerivingProvider([])
     outcome = run_demo(misreported_signal_inputs(), provider=provider, config=config,
                        out_dir=tmp_path / "run")
 
     assert outcome.disposition == DERIVATION_REFUSED
     assert outcome.refusal_codes == ("derived_result_mismatch",)
-    assert provider.calls == ["story_editorial_plan"]
+    # **No model was called at all**, where the planner used to run first. The derivations a
+    # detector-defined story rests on are executed before the plan, so a disagreement between
+    # two deterministic computations is found before a token is spent.
+    assert provider.calls == []
     assert outcome.draft is None and outcome.verified is None
     assert not (outcome.directory / "post.md").exists()
     assert not (outcome.directory / "draft.json").exists()

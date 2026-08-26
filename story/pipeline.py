@@ -88,10 +88,16 @@ from story.core.spine import StorySpine, spine_for
 from story.stages.composition import (
     CompiledDraft,
     CompositionRefused,
+    NormalizedDraft,
     compile_draft,
+    normalize_templates,
     slot_table,
 )
-from story.stages.derivation.execute import DETECTOR_SIGNALS, execute_all
+from story.stages.derivation.execute import (
+    DETECTOR_SIGNALS,
+    execute_all,
+    signal_applies_to,
+)
 from story.stages.derivation.offers import offers
 from story.stages.derivation.public import TOOL_VERSION as DERIVATION_TOOL_VERSION
 from story.stages.derivation.public import DerivationResult
@@ -715,7 +721,7 @@ def run_demo(
     #
     # A plan may no longer request a derivation at all (§11 2.0.0 has no field for one), so this
     # is the only executor call on the path for a story type with a spine.
-    requested = spine_derivations(inputs.candidate, offered)
+    requested = spine_derivations(inputs.candidate, package, offered)
     if requested:
         derivation = execute_all(
             requested, package, inputs.candidate,
@@ -923,7 +929,9 @@ def run_demo(
 
 
 def spine_derivations(
-    candidate: StoryCandidate, offered: Sequence[DerivationRequest]
+    candidate: StoryCandidate,
+    package: StoryEvidencePackage,
+    offered: Sequence[DerivationRequest],
 ) -> tuple[DerivationRequest, ...]:
     """Which offered derivations code executes for a detector-defined story, before planning.
 
@@ -947,19 +955,28 @@ def spine_derivations(
     it was: no spine, no pre-plan derivation.
     """
     signals = DETECTOR_SIGNALS.get(candidate.story_type, {})
+    by_id = {fact.observation_id: fact for fact in package.facts}
     taken: dict[DerivationOperation, DerivationRequest] = {}
     for request in offered:
         if candidate.signals.get(signals.get(request.operation, "")) in (None, False):
             continue
-        # **One triple per operation, and the first `offers` emitted.** `cross_metric_divergence`
-        # offers `compare_levels` in **both** orientations, and taking both would put two mirror
-        # rows in front of the writer — `A lower than B` and `B higher than A` — one of which it
-        # would have to choose against with no ground for choosing. `offers` is a pure function
-        # of the package and the candidate and orders its output stably, so "the first" is a
-        # deterministic answer rather than an arbitrary one; which side of a comparing word a
-        # figure then goes on stays the model's claim, which is what §13's
-        # `comparative_not_supported_by_text` exists to judge.
-        taken.setdefault(request.operation, request)
+        from_fact, to_fact = by_id.get(request.from_fact_id), by_id.get(request.to_fact_id)
+        if from_fact is None or to_fact is None:
+            continue
+        # **One triple per operation, and the orientation the detector actually measured.**
+        # `cross_metric_divergence` offers `compare_levels` in **both** directions, and taking
+        # both would put two mirror rows in front of the writer — `A lower than B` and `B higher
+        # than A` — one of which it would have to choose against with no ground for choosing.
+        #
+        # Which one to keep is not a preference: `execute._signal_applies` will only cross-check
+        # a result against the detector's own number when the pair runs the way the detector
+        # measured it, so the other orientation silently loses §4.4's second opinion. Measured
+        # 2026-08-26 — taking the first offered triple left `reused_detector_signal` empty and
+        # made a deliberately misreported signal reach the planner instead of being refused.
+        if signal_applies_to(from_fact, to_fact, candidate):
+            taken[request.operation] = request
+        else:
+            taken.setdefault(request.operation, request)
     return tuple(taken.values())
 
 
@@ -1061,13 +1078,18 @@ def _generation_of(exc: Exception) -> GenerationResult | None:
 def schema_digests_for(package: StoryEvidencePackage) -> dict[str, str]:
     """The two schemas this run constrained the model with, digested (§14).
 
-    The planner's schema is built from the package rather than fetched: §11 pins
-    `causal_language` to one value inside the grammar, so two packages with different causal
-    standing are constrained by two different schemas and must not digest alike.
+    **The package is no longer an argument to either grammar, and the parameter stays.** §11 used
+    to pin `causal_language` to a one-member enum inside the planner's schema, so two packages of
+    different causal standing were constrained by two different schemas and had to digest
+    differently. 2.0.0 removes the field — `plan_story` re-stamped the computed value over the
+    model's answer regardless, so the grammar was pinning something the model could not
+    influence — and both schemas are now package-independent.
+
+    The signature keeps `package` because this function's callers pass one and because a schema
+    that becomes package-dependent again should not need every call site edited to notice.
     """
     return {
-        PLANNER_SCHEMA_NAME: _digest(planner_schema(
-            causal_language=causal_language_for(package))),
+        PLANNER_SCHEMA_NAME: _digest(planner_schema()),
         WRITER_SCHEMA_NAME: _digest(writer_schema()),
     }
 

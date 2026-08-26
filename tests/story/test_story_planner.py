@@ -69,6 +69,7 @@ from story.providers.public import (
     StoryProviderSchemaError,
     load_provider_config,
 )
+from story.core import lexicon
 from story.core.spine import spine_for
 from story.stages.generation.planner import (
     CAUSAL_LANGUAGE_NOT_COMPUTED,
@@ -1480,3 +1481,200 @@ def test_a_plan_requesting_a_derivation_when_none_was_offered_is_refused():
         operation=DerivationOperation.ABSOLUTE_CHANGE,
         from_fact_id=AGP_Q2_ID, to_fact_id=AGP_Q3_ID),))
     assert [v.code for v in plan_violations(plan, package)] == [DERIVATION_NOT_OFFERED]
+
+
+# ---------------------------------------------------------------------------------------
+# 02-PLANNER-STABILIZATION §4 — the spine the plan may not contradict
+# ---------------------------------------------------------------------------------------
+#
+# **The schema is the primary defence and this is the second half.** 2.0.0 carries no direction
+# field, no value and no derivation triple, so a plan cannot *author* the factual spine. It can
+# still write a sentence stating one, and `thesis` is rendered verbatim into the writer's prompt
+# — which is exactly what `story-v1-76da8465cd95` did. `spine_violations` applies
+# `story/core/lexicon.py`, the same closed vocabulary `verification/derived_facts` already
+# applies to every draft sentence, one stage earlier.
+
+
+def agp_spine(package: StoryEvidencePackage | None = None,
+              candidate: StoryCandidate | None = None):
+    """§2's candidate as `spine_for` builds it: 556 -> 110, `decrease`, polarity `False`."""
+    package = package if package is not None else agp_package()
+    candidate = candidate if candidate is not None else agp_candidate()
+    spine = spine_for(candidate, package, agp_derived(package),
+                      causal_language=causal_language_for(package))
+    assert spine is not None
+    return spine
+
+
+def test_the_recorded_inverted_plan_is_refused_against_its_own_spine():
+    """**The run this check exists for**, driven from its own three committed artifacts.
+
+    `story-v1-76da8465cd95`'s plan opens *"Opendoor's adjusted gross profit **rose** from 2022Q2
+    to 2022Q3"* over a package whose two readings are 556 and 110. Nothing between there and the
+    writer read the claim, and the run reached a model with a factually inverted plan.
+
+    The spine is `spine_for`'s over that run's own candidate, package and derived facts — not a
+    hand-built one — so what is measured is that this check would have stopped that run, rather
+    than that a string matches a lexicon.
+    """
+    package, plan, spine = recorded_spine(INVERTED_RUN)
+    assert (spine.from_value, spine.to_value) == (556_000_000.0, 110_000_000.0)
+    assert spine.direction == "decrease" and spine.direction_polarity is False
+    assert "rose" in plan.thesis
+
+    found = spine_violations(plan, spine)
+    assert [violation.code for violation in found] == [DIRECTION_CONTRADICTS_SPINE]
+    # The feedback is fully structured, which is what makes this a repairable refusal: the
+    # offending word, the verified pair and the verified direction are all in the detail.
+    detail = found[0].detail
+    assert "'rose'" in detail and "decrease" in detail
+    assert f"{spine.metric_id} {spine.from_period} -> {spine.to_period}" in detail
+
+
+def test_the_recorded_correct_plan_passes_against_the_same_spine():
+    """The accepting half, and it is the same candidate under a different model.
+
+    `story-v1-1daff167348f`'s thesis says *"fell from 556 million USD … to 110 million USD"* over
+    the identical spine. A check that refused this one would be refusing the corpus's best plan.
+    """
+    package, plan, spine = recorded_spine(CORRECT_RUN)
+    assert spine.direction == "decrease"
+    assert "fell" in plan.thesis
+    assert spine_violations(plan, spine) == ()
+
+
+def test_a_plan_that_states_no_direction_at_all_is_not_a_contradiction():
+    """The asymmetry §4 records deliberately.
+
+    §13's `derived_direction_not_stated_in_text` refuses a *sentence* that binds a directional
+    derived fact and names no direction, because such a sentence states a figure the reader
+    cannot place. A *plan* has no such duty — its job is the angle — and copying the stronger
+    rule up would refuse valid plans.
+    """
+    package = agp_package()
+    silent = agp_plan(package, thesis="Adjusted gross profit was $110 million in 2022Q3.")
+    assert spine_violations(silent, agp_spine(package)) == ()
+
+
+@pytest.mark.parametrize("word", ["improved", "widened", "turned", "reversed"])
+def test_a_word_that_states_no_direction_of_the_stored_number_never_raises(word: str):
+    """`CHANGE_DIRECTION`'s third state, and it is the reason the map is tri-state.
+
+    `improved`, `widened`, `turned` and `reversed` are change verbs whose polarity is `None`:
+    they say something moved, not which way the *stored number* went. A two-state map would have
+    had to guess, and guessing here refuses a true plan.
+    """
+    package = agp_package()
+    plan = agp_plan(package, thesis=f"Adjusted gross profit {word} between the two quarters.")
+    assert spine_violations(plan, agp_spine(package)) == ()
+
+
+def test_a_negated_change_verb_is_not_a_contradiction():
+    """*"did not rise"* over a fall states the fall. Scoped to the marker's own clause by
+    `lexicon.negated`, the same function §13.10 negation-checks a causal marker with."""
+    package = agp_package()
+    plan = agp_plan(
+        package, thesis="Adjusted gross profit did not rise between the two quarters.")
+    assert spine_violations(plan, agp_spine(package)) == ()
+    # …and the unnegated sentence is refused, so what the assertion above measures is the
+    # negation and not the absence of a change verb.
+    inverted = agp_plan(package, thesis="Adjusted gross profit rose between the two quarters.")
+    assert [v.code for v in spine_violations(inverted, agp_spine(package))] == [
+        DIRECTION_CONTRADICTS_SPINE]
+
+
+def test_an_ordering_word_is_skipped_and_the_set_is_derived_from_the_two_vocabularies():
+    """*"Profit was higher in Q2 than in Q3"* is a **true** statement of a decrease.
+
+    A word in both `CHANGE_DIRECTION` and `COMPARATIVE_DIRECTION` does whichever the sentence's
+    word order says, and a plan binds nothing that would let this function tell which. The set
+    is derived from the two maps rather than typed out, so a term added to either joins it
+    automatically — asserted here both ways round.
+    """
+    assert ORDERING_WORDS == {"higher", "lower"}
+    assert ORDERING_WORDS == set(lexicon.CHANGE_DIRECTION) & set(lexicon.COMPARATIVE_DIRECTION)
+    package = agp_package()
+    for thesis in ("Adjusted gross profit was higher in 2022Q2 than in 2022Q3.",
+                   "Adjusted gross profit was lower in 2022Q3 than in 2022Q2."):
+        assert spine_violations(agp_plan(package, thesis=thesis), agp_spine(package)) == ()
+
+
+def test_a_key_points_claim_is_read_as_well_as_the_thesis():
+    """Both are free prose and both are rendered into the writer's prompt, so both are checked.
+
+    The corpus's own failure is the case: `story-v1-76da8465cd95`'s first key point says
+    *"2022Q3 is higher than 2022Q2"* — an ordering word, correctly skipped — while its thesis
+    says *"rose"*. A check reading only one of the two fields would be a check that could be
+    walked around by moving the sentence.
+    """
+    package = agp_package()
+    plan = agp_plan(package, key_points=(KeyPoint(
+        claim="Adjusted gross profit increased over the two quarters.",
+        required_fact_ids=(AGP_Q3_ID,),
+        required_citation_passage_ids=(PASSAGE_ID,),
+        statement_class=StatementClass.REPORTED),))
+    found = spine_violations(plan, agp_spine(package))
+    assert [violation.code for violation in found] == [DIRECTION_CONTRADICTS_SPINE]
+    assert "key_points[0]" in found[0].detail
+
+
+def test_an_unverified_direction_abstains_rather_than_guessing():
+    """`quantity_direction` answers `None` where a metric's sign convention has no observation to
+    measure it from — `cost_of_revenue`, `inventory_valuation_adjustment` — and the spine says so.
+
+    The check abstains there, matching the detector's own behaviour: a check that guessed would
+    be inventing the one thing the detector refused to. A `None` spine abstains for the same
+    reason, which is what a story type with no spine shape hands this function.
+    """
+    package = agp_package()
+    unverified = agp_candidate().model_copy(update={"signals": {
+        "crosses_zero": False, "delta": -446_000_000.0, "delta_pct": -80.215827338,
+        "period_shape": "quarter", "polarity": "revenue"}})
+    spine = agp_spine(package, unverified)
+    assert spine.direction_verified is False and spine.direction_polarity is None
+
+    inverted = agp_plan(package, thesis="Adjusted gross profit rose between the two quarters.")
+    assert spine_violations(inverted, spine) == ()
+    assert spine_violations(inverted, None) == ()
+
+
+def test_the_spine_reaches_plan_story_and_refuses_an_inverted_answer_end_to_end():
+    """The seam, not the function: `run_demo` computes the spine and hands it to `plan_story`,
+    and a plan whose thesis inverts it is refused before a writer is ever called."""
+    package, derived = agp_package(), agp_derived()
+    answer = agp_answer(
+        thesis="Adjusted gross profit rose between the second and third quarters of 2022.")
+    provider = FakePlanProvider(answer)
+    with pytest.raises(EditorialPlanRejected) as raised:
+        plan_with(provider, package, derived_facts=derived, spine=agp_spine(package))
+    assert DIRECTION_CONTRADICTS_SPINE in raised.value.codes
+    # The generation is attached, because this refusal refuses an answer the run paid for.
+    assert raised.value.generation is not None
+    assert len(provider.calls) == 1
+
+
+def test_the_verified_change_section_prints_what_the_planner_may_not_contradict():
+    """§6's one new prompt section, and every string in it is a value code already holds.
+
+    The figures are the slot rows' own — a figure spelled one way under FACTS and another way
+    here is two figures as far as a 9B model is concerned — the handles are the table's, and the
+    direction is the detector's word from `quantity_direction`, which reads the metric's sign
+    convention and is therefore not recoverable from the sign of a delta.
+    """
+    package, derived = agp_package(), agp_derived()
+    rows = slot_table(package, derived, ())
+    prompt = planner_prompt(package, slots=rows, derived_facts=derived,
+                            spine=agp_spine(package))
+
+    assert VERIFIED_CHANGE_HEADING in prompt
+    section = prompt.split(VERIFIED_CHANGE_HEADING)[1].split("\n\n")[0]
+    assert "adjusted_gross_profit" in section
+    assert '$556 million' in section and '$110 million' in section
+    assert "[F1]" in section and "[F2]" in section
+    assert "direction  decrease" in section
+    assert "computed   [D1] decreased by $446 million" in section
+    # The handles are printed beside the ids in FACTS too, which is what lets a plan name `F1`
+    # while a reader of the stored prompt can still join it to the `obs:` id an evidence panel
+    # shows.
+    facts = prompt.split("\nFACTS\n")[1].split("\n\n")[0]
+    assert f"[F1]  [{AGP_Q2_ID}]" in facts
