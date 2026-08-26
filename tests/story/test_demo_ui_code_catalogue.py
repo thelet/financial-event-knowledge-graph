@@ -17,6 +17,7 @@ import json
 import pathlib
 
 import pytest
+from typing import Mapping
 
 from story.demo_ui import code_catalogue
 from story.demo_ui.code_catalogue import (
@@ -69,8 +70,15 @@ EXPECTED_SIZES = {
     FAMILY_PACKAGE_WARNING: 30,
     FAMILY_FRESHNESS: 8,
     # 11 until DETERMINISTIC_FACT_TOOLS §5 gave §11 `derivation_not_offered` — the plan asking
-    # code for a quantity that was not on the list of derivations the prompt printed.
-    FAMILY_PLANNER: 12,
+    # code for a quantity that was not on the list of derivations the prompt printed. 12 → 14 at
+    # §11 2.0.0: `unresolvable_fact_handle`, because a plan now names two-character handles
+    # rather than 70-character ids and an unknown *handle* is what it gets wrong; and
+    # `direction_contradicts_spine`, the refusal `story-v1-76da8465cd95` should have earned for
+    # writing "rose" over 556 → 110 and did not, because nothing between the plan and the writer
+    # read the claim. Four of the twelve — `derivation_not_offered`, `causal_language_not_computed`,
+    # `unknown_warning_code`, `unknown_unusable_id` — are unreachable from a 2.0.0 *answer* and
+    # keep their entries: `plan_violations` still raises them for a hand-built or replayed plan.
+    FAMILY_PLANNER: 14,
     # 11 until TABLE_CELL_CITATIONS S4 added `unresolvable_evidence_handle` and
     # `evidence_handle_out_of_bounds` — the two ways a citation can fail once it is a handle
     # rather than a retyped quote. Neither quote code was removed; a table-backed fact no longer
@@ -183,6 +191,22 @@ def composition_violation_codes() -> set[str]:
                          _string_constants(stage / "public.py", stage / "compile.py"))
 
 
+#: Codes a stage declares and no longer raises, with the reason each stays catalogued.
+#:
+#: The 4.0.0 writer contract has no `kind` and no `rests_on` for a model to get wrong, so
+#: nothing constructs these on the current path. `story/stages/composition/` refuses the same
+#: three faults about a *template* under its own names, and `data/story_demo/
+#: story-v1-76da8465cd95/rejected.json` still names these three — a stored run the demo UI
+#: renders.
+RETIRED_BUT_RENDERABLE: Mapping[str, frozenset[str]] = {
+    FAMILY_WRITER: frozenset({
+        "malformed_slot",
+        "rests_on_without_explanatory_sentence",
+        "rests_on_not_a_passage_handle",
+    }),
+}
+
+
 @pytest.mark.parametrize(
     "family,module_name,class_name",
     [(FAMILY_PLANNER, "planner", "PlanViolation"),
@@ -191,7 +215,13 @@ def test_every_code_the_stage_raises_is_described(family, module_name, class_nam
     """The rot guard for the two families with no table upstream to read."""
     raised = violation_codes(module_name, class_name)
     assert raised, "the AST scan found no violation construction; it proves nothing"
-    assert raised == declared_codes(family)
+    # **Total, and a superset is permitted only for a named reason.** A code the stage no longer
+    # raises is still rendered from a stored `rejected.json` — `story-v1-76da8465cd95` names all
+    # three the 4.0.0 writer contract retired — and a panel meeting an undocumented code shows a
+    # bare string. Anything extra beyond `RETIRED_BUT_RENDERABLE` still fails, so a code added
+    # with nothing able to produce it is caught exactly as before.
+    assert raised <= declared_codes(family), "a raised code has no catalogue entry"
+    assert declared_codes(family) - raised <= RETIRED_BUT_RENDERABLE.get(family, frozenset())
 
 
 def test_every_code_the_draft_compiler_raises_is_described():

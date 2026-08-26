@@ -83,7 +83,8 @@ from story.stages.derivation.offers import (
     offers,
 )
 from story.stages.detection import detector_config
-from story.stages.generation.planner import causal_language_for
+from story.pipeline import spine_derivations
+from story.stages.generation.planner import causal_language_for, editorial_plan_from
 from story.stages.verification.deterministic import DeterministicVerifier
 
 from conftest import make_package
@@ -107,23 +108,26 @@ def _recorded_plan() -> EditorialPlan:
 
     Read from the store rather than hand-written, because the plan is one of the four inputs
     `DeterministicVerifier.verify` judges against and a plan invented here would be judging the
-    compiler against a story nobody asked for. The two identity fields are the package's, exactly
-    as `planner.plan_from` fills them: a model that returned a different candidate id could not
-    re-key the artifact.
+    compiler against a story nobody asked for.
+
+    **Built through `editorial_plan_from` rather than validated straight into the type**, which
+    it was until 2026-08-26. At §11 2.0.0 the *answer* and the *artifact* have different shapes:
+    the model returns seven leaves naming slot handles, and the twelve fields the type still
+    carries — `required_citation_passage_ids`, `statement_class`, `required_warnings`,
+    `causal_language` and the rest — are filled by that function from the package and the slot
+    table. Feeding the raw answer to `EditorialPlan.model_validate` fed it `key_points[].facts`,
+    which the type has no field for, and the module stopped importing.
     """
     for line in (FIXTURES / "local_openai_compatible" / "generations.jsonl").read_text(
             encoding="utf-8").splitlines():
         row = json.loads(line)
         if row["schema_name"] == "story_editorial_plan":
-            return EditorialPlan.model_validate({
-                **json.loads(row["raw_content"]),
-                "candidate_id": DEMO_PACKAGE.candidate_id,
-                "package_id": DEMO_PACKAGE.package_id,
-            })
+            derived = _demo_derived()
+            return editorial_plan_from(
+                json.loads(row["raw_content"]), DEMO_PACKAGE, model_id=row["model_id"],
+                slots=slot_table(DEMO_PACKAGE, derived, passages_backing_facts(DEMO_PACKAGE)),
+                derived_facts=derived)
     raise AssertionError("the committed store holds no planner row")
-
-
-DEMO_PLAN = _recorded_plan()
 
 
 def _demo_derived() -> tuple[DerivedFact | EvidenceScopeFact, ...]:
@@ -132,9 +136,15 @@ def _demo_derived() -> tuple[DerivedFact | EvidenceScopeFact, ...]:
     A test may import any stage, and driving the real one is the point: a hand-built
     `DerivedFact` would let the compiler agree with a row the derivation stage would never mint,
     which is the disagreement between two stages this whole arrangement exists to avoid.
+
+    **The requests come from `pipeline.spine_derivations` and no longer from the plan.** §11
+    2.0.0 has no `requested_derivations` field — the derivations a detector-defined story rests
+    on are executed before the planner is called — so reading them off the plan would read an
+    always-empty tuple, and the plan itself now needs these facts to resolve its `D` handles.
     """
     result = execute_all(
-        DEMO_PLAN.requested_derivations, DEMO_PACKAGE, DEMO_CANDIDATE,
+        spine_derivations(DEMO_CANDIDATE, DEMO_PACKAGE, offers(DEMO_PACKAGE, DEMO_CANDIDATE)),
+        DEMO_PACKAGE, DEMO_CANDIDATE,
         direction=detector_config.quantity_direction,
         causal_language=causal_language_for(DEMO_PACKAGE),
         causal_marker_fact_ids=(),
@@ -144,6 +154,7 @@ def _demo_derived() -> tuple[DerivedFact | EvidenceScopeFact, ...]:
 
 
 DEMO_DERIVED = _demo_derived()
+DEMO_PLAN = _recorded_plan()
 DEMO_PASSAGES = passages_backing_facts(DEMO_PACKAGE)
 
 
@@ -288,8 +299,12 @@ def test_a_two_metric_derivation_offers_from_and_to_and_never_a_bare_metric():
     holds, and offering a redundant spelling is offering a way to be inconsistent for no gain."""
     row = slot_table(DEMO_PACKAGE, DEMO_DERIVED, DEMO_PASSAGES)[2]
 
-    assert row.offers["from_metric"] == "Adjusted Gross Margin"
-    assert row.offers["to_metric"] == "gaap gross margin"
+    # The orientation is `pipeline.spine_derivations`' now, and it is the one the detector
+    # measured — `execute.signal_applies_to` only cross-checks a result against the detector's
+    # own number when the pair runs the way the detector ran it. The planner used to choose,
+    # and chose the same way.
+    assert row.offers["from_metric"] == "gaap gross margin"
+    assert row.offers["to_metric"] == "Adjusted Gross Margin"
     assert "metric" not in row.offers
 
 
@@ -387,10 +402,15 @@ def test_a_passage_row_offers_no_text_slot_and_carries_the_handles_of_its_facts(
 
 def test_a_derived_row_carries_its_two_inputs_handles_and_never_one_of_its_own():
     """§6: no handle is ever minted for a derived fact, so a sentence stating one cites the two
-    observations it was computed from — `(from, to)`, the order the derivation reads them in."""
+    observations it was computed from — `(from, to)`, the order the derivation reads them in.
+
+    `(gaap, adjusted)` because that is the orientation the detector measured and therefore the
+    one `pipeline.spine_derivations` executes; the passage row above holds the same two handles
+    in *package* order, which is the other way round.
+    """
     row = slot_table(DEMO_PACKAGE, DEMO_DERIVED, DEMO_PASSAGES)[2]
 
-    assert row.evidence_handles == (AGM_HANDLE, GGM_HANDLE)
+    assert row.evidence_handles == (GGM_HANDLE, AGM_HANDLE)
 
 
 # ---------------------------------------------------------------------------------------
@@ -483,7 +503,7 @@ def test_a_derived_binding_declares_the_to_metric_and_the_to_period():
     binding = compiled.draft.sentences[0].fact_bindings[0]
 
     assert binding.fact_id == DEMO_DERIVED[0].fact_id
-    assert binding.metric_surface == "gaap gross margin"       # derived.metric_id, the `to` side
+    assert binding.metric_surface == "Adjusted Gross Margin"   # derived.metric_id, the `to` side
     assert binding.period_surface == "the third quarter of 2022"
     assert binding.rendered == "15.9 percentage points"
 
@@ -887,5 +907,5 @@ def test_a_compiled_draft_survives_the_deterministic_verifier_end_to_end():
     assert [entry.fact_id for entry in verified.fact_ledger] == [
         GGM_ID, AGM_ID, DEMO_DERIVED[0].fact_id]
     assert compiled.draft.sentences[2].text == (
-        "The gaap gross margin was 15.9 percentage points lower than the Adjusted Gross Margin "
+        "The Adjusted Gross Margin was 15.9 percentage points higher than the gaap gross margin "
         "for the third quarter of 2022.")

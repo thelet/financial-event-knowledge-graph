@@ -629,6 +629,13 @@ FRESHNESS_DESCRIPTIONS: Mapping[str, str] = {
 # -- §11's planner refusals, 11 codes -----------------------------------------------------------
 
 PLANNER_DESCRIPTIONS: Mapping[str, str] = {
+    "unresolvable_fact_handle":
+        "The plan names a slot handle this run's rows do not print. §11 2.0.0 asks for handles "
+        "(F1, D1) rather than 70-character ids, and the prompt prints every one a plan may use.",
+    "direction_contradicts_spine":
+        "The plan states the metric moved the opposite way from the direction code measured. "
+        "The direction comes from the detector's own sign-convention-aware computation, not "
+        "from the sign of a delta, and a plan may not contradict it.",
     "unresolvable_fact_id":
         "The plan names a fact the evidence package does not hold.",
     "unresolvable_passage_id":
@@ -804,6 +811,7 @@ _PLANNER_CODE_NAMES: tuple[str, ...] = (
     "COUNTERPOINT_UNGROUNDED", "COUNTER_EVIDENCE_UNACCOUNTED", "UNKNOWN_WARNING_CODE",
     "UNKNOWN_UNUSABLE_ID", "CAUSAL_LANGUAGE_NOT_COMPUTED", "DERIVATION_NOT_OFFERED",
     "THESIS_EMPTY", "NO_KEY_POINTS", "PLAN_NOT_CONSTRUCTIBLE",
+    "UNRESOLVABLE_FACT_HANDLE", "DIRECTION_CONTRADICTS_SPINE",
 )
 
 #: §12's compiler refusals, by constant name for the same reason as the two above. The two
