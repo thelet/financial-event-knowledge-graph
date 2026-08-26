@@ -24,13 +24,23 @@ Three other things are pinned:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 
 from ontology import load_ontology
 
-from story.core.models import CausalLanguage, PackagedMetric, PackagedSubject
+from story.core.models import (
+    DerivationRequest,
+    DerivedFact,
+    EditorialPlan,
+    PackagedMetric,
+    PackagedSubject,
+    StoryCandidate,
+    StoryEvidencePackage,
+)
+from story.core.spine import spine_for
 from story.core.periods import story_period
 from story.core.series import (
     RULE_ORDER,
@@ -57,6 +67,13 @@ from story.stages.generation import (
     plan_story,
     write_story,
 )
+from story.stages.generation.prompts import (
+    OFFER_HEADING,
+    PASSAGE_ROW,
+    VERIFIED_CHANGE_HEADING,
+    planner_prompt,
+    writer_prompt,
+)
 from story.stages.packaging import ontology_facts
 
 from conftest import (  # type: ignore[import-not-found]
@@ -65,6 +82,8 @@ from conftest import (  # type: ignore[import-not-found]
     make_package,
     make_plan,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ONTOLOGY = load_ontology(ONTOLOGY_ID)
 REGISTRY = ONTOLOGY.registry
@@ -384,39 +403,50 @@ def ontology_package():  # type: ignore[no-untyped-def]
             Ok(), source=SOURCE),))
 
 
+#: The planner's answer under 2.0.0: seven leaves, and a key point that names a *handle*.
+#:
+#: **Twelve fields the double used to supply are gone, and the surviving one changed shape.** It
+#: carried `required_citation_passage_ids`, `statement_class`, `required_warnings`,
+#: `causal_language`, `structure`, `prohibited_claims`, `unusable_evidence` and
+#: `requested_derivations` — every one of them either a lookup code already had or a field
+#: nothing read. `editorial_plan_from` fills all of them, so the `EditorialPlan` these tests
+#: drive through is the same object it always was. What the model still writes is prose plus
+#: `F1`, which is why `slots=` is now passed at every call site below: an unresolvable handle is
+#: `unresolvable_fact_handle` and the plan never reaches the writer.
 PLANNER_ANSWER = {
     "thesis": "Adjusted EBITDA crossed zero.",
     "why_it_matters": "It is the only sign reversal in the series.",
-    "key_points": [{"claim": "Adjusted EBITDA was negative in 2022Q3.",
-                    "required_fact_ids": ["obs:adjusted-ebitda:b"],
-                    "required_citation_passage_ids": ["psg:1"],
-                    "statement_class": "reported"}],
-    "counterpoints": [],
-    "requested_derivations": [],
-    "required_warnings": [],
-    "causal_language": CausalLanguage.FORBIDDEN.value,
     "uncertainty": "",
-    "structure": [],
-    "prohibited_claims": [],
-    "unusable_evidence": [],
+    "key_points": [{"claim": "Adjusted EBITDA was negative in 2022Q3.",
+                    "facts": ["F1"]}],
+    "counterpoint": "",
+    "counterpoint_facts": [],
 }
 
-#: The writer's answer under 3.0.0: a template with slots, no bindings and no citations.
+#: The writer's answer under 4.0.0: a title and sentence text, and there is no third field.
 #:
-#: **Three fields the double used to supply are gone, and this file is where that reads most
-#: plainly.** It used to carry a `fact_id`, a `rendered`, a `metric_surface`, a `period_surface`
-#: and an `evidence_id` — five strings a model had to get exactly right about a fact the prompt
-#: had already described to it. The slot table resolves `F1` to the same observation, code fills
-#: the figure and the period from the row, and the citation is minted from that fact's own
-#: handle. What is left here is a sentence.
+#: **Seven fields the double used to supply are gone, and this file is where that reads most
+#: plainly.** It carried a `fact_id`, a `rendered`, a `metric_surface`, a `period_surface` and an
+#: `evidence_id` — five strings a model had to get exactly right about a fact the prompt had
+#: already described to it — and then, under 3.0.0, a `kind` and a `rests_on`. The slot table
+#: resolves `F1` to the same observation, code fills the figure and the period from the row, and
+#: the citation is minted from that fact's own handle; `kind` and `rests_on` went the same way,
+#: because the compiler reads a sentence's kind off the rows its slots name and cites from them.
+#: What is left here is a sentence.
 WRITER_ANSWER = {
     "title": "Adjusted EBITDA in 2022Q3",
-    "sentences": [{
-        "text": "Adjusted EBITDA was {{F1}} in {{F1.period}}.",
-        "kind": "reported",
-        "rests_on": [],
-    }],
+    "sentences": [{"text": "Adjusted EBITDA was {{F1}} in {{F1.period}}."}],
 }
+
+
+def rows_for(package):  # type: ignore[no-untyped-def]
+    """The slot table the composition root would have passed, built once per call site.
+
+    2.0.0 made `slots` load-bearing for the *planner* as well as the writer: `F1` is resolved
+    back to `obs:adjusted-ebitda:b` through this table, and a call that omitted it would refuse
+    the plan as `unresolvable_fact_handle` before any of the assertions below were reached.
+    """
+    return slot_table(package, (), passages_backing_facts(package))
 
 
 def user_message(request: httpx.Request) -> str:
@@ -434,7 +464,8 @@ def test_the_planner_request_on_the_wire_carries_every_semantic_identity_and_com
     """
     package = ontology_package()
     provider, posted = capturing(PLANNER_ANSWER)
-    planned = plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS)
+    planned = plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS,
+                         slots=rows_for(package))
 
     prompt = user_message(posted[0])
     for fact in package.semantic_facts:
@@ -446,7 +477,10 @@ def test_the_planner_request_on_the_wire_carries_every_semantic_identity_and_com
     assert "METRIC SEMANTICS" in prompt
     assert "COMPANY IDENTITY" in prompt
     assert "COMPARISON RULES" in prompt
-    assert planned.plan.prompt_version == PLANNER_PROMPT_VERSION == "1.2.0"
+    # 2.0.0 is the seven-leaf schema and the VERIFIED CHANGE section; 1.2.0 was
+    # DETERMINISTIC_FACT_TOOLS' offer set. The literal is kept beside the constant so a version
+    # that stops moving is as loud as one that moves for the wrong reason.
+    assert planned.plan.prompt_version == PLANNER_PROMPT_VERSION == "2.0.0"
 
 
 def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim():
@@ -456,24 +490,28 @@ def test_the_writer_request_on_the_wire_carries_the_same_declarations_verbatim()
     provider, posted = capturing(WRITER_ANSWER)
     written = write_story(package, make_plan(package_id=package.package_id),
                           provider=provider,
-                          slots=slot_table(package, (), passages_backing_facts(package)), length_target=4, max_tokens=WRITER_MAX_TOKENS)
+                          slots=rows_for(package), length_target=4,
+                          max_tokens=WRITER_MAX_TOKENS)
 
     prompt = user_message(posted[0])
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.statement in prompt, fact.fact_id
-    # 3.0.0 is the draft compiler: the writer answers with sentence templates, and
-    # `fact_bindings` and `citations` left the schema the way `calculation` left it at 2.0.0.
-    # 2.1.0 was `metric_surfaces_for` offering the metric id; 1.4.0 was TABLE_CELL_CITATIONS
-    # S4's evidence handle; 1.3.0 was S6's warning phrases. The literal is kept beside the
-    # constant so a version that stops moving is as loud as one that moves for the wrong reason.
+    # 4.0.0 is the two-leaf schema: `kind` and `rests_on` left it the way `fact_bindings` and
+    # `citations` left it at 3.0.0 and `calculation` at 2.0.0. 2.1.0 was `metric_surfaces_for`
+    # offering the metric id; 1.4.0 was TABLE_CELL_CITATIONS S4's evidence handle; 1.3.0 was S6's
+    # warning phrases. The literal is kept beside the constant so a version that stops moving is
+    # as loud as one that moves for the wrong reason.
     #
     # **`written` no longer carries a draft, and that is the contract rather than an accident**:
-    # `write_story` returns the templates the model wrote, and the `Draft` is what
+    # `write_story` returns the sentences the model wrote, and the `Draft` is what
     # `story/stages/composition/` makes of them. The version is asserted on the constant, which
     # is what reaches the wire and the manifest.
-    assert WRITER_PROMPT_VERSION == "3.0.0"
-    assert written.templates and not hasattr(written, "draft")
+    assert WRITER_PROMPT_VERSION == "4.0.0"
+    assert written.sentences and not hasattr(written, "draft")
+    # Strings, not objects. 4.0.0 removed `SentenceTemplate` along with the two fields it held
+    # beside the text, so what a caller gets back is what the model typed.
+    assert all(isinstance(sentence, str) for sentence in written.sentences)
 
 
 @pytest.mark.parametrize("stage", ["planner", "writer"])
@@ -484,12 +522,14 @@ def test_the_unavailable_description_reaches_the_wire_marked_unavailable(stage: 
     package = ontology_package()
     if stage == "planner":
         provider, posted = capturing(PLANNER_ANSWER)
-        plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS)
+        plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS,
+                   slots=rows_for(package))
     else:
         provider, posted = capturing(WRITER_ANSWER)
         write_story(package, make_plan(package_id=package.package_id),
                     provider=provider,
-                    slots=slot_table(package, (), passages_backing_facts(package)), length_target=4, max_tokens=WRITER_MAX_TOKENS)
+                    slots=rows_for(package), length_target=4,
+                    max_tokens=WRITER_MAX_TOKENS)
 
     prompt = user_message(posted[0])
     assert "NOT AVAILABLE - " + ontology_facts.NO_DESCRIPTION_STATEMENT in prompt
@@ -505,13 +545,129 @@ def test_no_ontology_fact_id_reaches_either_prompt():
     or `idn:` id is an invitation to a rejection. The ids stay on the package, for the panel."""
     package = ontology_package()
     provider, posted = capturing(PLANNER_ANSWER)
-    plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS)
+    plan_story(package, provider=provider, max_tokens=PLANNER_MAX_TOKENS,
+               slots=rows_for(package))
     writer_provider, writer_posted = capturing(WRITER_ANSWER)
     write_story(package, make_plan(package_id=package.package_id),
                 provider=writer_provider,
-                slots=slot_table(package, (), passages_backing_facts(package)), length_target=4, max_tokens=WRITER_MAX_TOKENS)
+                slots=rows_for(package), length_target=4,
+                max_tokens=WRITER_MAX_TOKENS)
 
     both = user_message(posted[0]) + user_message(writer_posted[0])
     for fact in (*package.semantic_facts, *package.identity_facts,
                  *package.comparability_facts):
         assert fact.fact_id not in both, fact.fact_id
+
+
+# ---------------------------------------------------------------------------------------
+# The sections a prompt prints, and the two it stopped printing
+#
+# Here rather than beside the rendering helpers for the reason the wire tests above are here:
+# the question this file asks is *what does the model receive*, and a section that stopped
+# being rendered is the same kind of change as a declaration that stopped reaching a prompt.
+# Driven from `data/story_demo/h1-metricmove/`, the committed run whose plan §11's correction
+# was written against — its spine is 556 -> 110 and `story-v1-76da8465cd95` wrote *"rose"* over
+# it, which is what VERIFIED CHANGE exists to make unstateable.
+# ---------------------------------------------------------------------------------------
+
+METRIC_MOVE_RUN = REPO_ROOT / "data" / "story_demo" / "h1-metricmove"
+
+
+def metric_move_run():  # type: ignore[no-untyped-def]
+    """That run's candidate, package, derived facts and plan, read off its own artifacts."""
+    def read(name: str) -> dict:
+        return json.loads((METRIC_MOVE_RUN / name).read_text(encoding="utf-8"))
+
+    derivation = read("derived_facts.json")
+    return (
+        StoryCandidate.model_validate(read("candidate.json")),
+        StoryEvidencePackage.model_validate(read("evidence_package.json")),
+        tuple(DerivedFact.model_validate(row) for row in derivation["facts"]),
+        EditorialPlan.model_validate(read("editorial_plan.json")),
+    )
+
+
+def test_the_verified_change_section_is_printed_from_a_spine_and_from_nothing_else():
+    """The measurement the planner is shown so that it cannot be the one to work it out.
+
+    `quantity_direction` reads the metric's sign convention, so *which way it went* is not
+    recoverable from the sign of a delta — a planner given two floats six lines apart was being
+    asked for an inference it had no basis for, and `story-v1-76da8465cd95` got it backwards and
+    reached a model with a factually inverted plan.
+
+    The strings are asserted to be the ones the rows above already print, because a figure
+    spelled one way under FACTS and another way here is two figures to a 9B model. Nothing is
+    retyped: the expected surfaces are read off the slot table this call was handed.
+    """
+    candidate, package, derived, _plan = metric_move_run()
+    spine = spine_for(candidate, package, derived)
+    assert spine is not None, "the committed metric_move run must still bind a spine"
+    rows = {row.fact_id: row for row in slot_table(
+        package, derived, passages_backing_facts(package))}
+
+    prompt = planner_prompt(package, slots=rows.values(), spine=spine, derived_facts=derived)
+    section = prompt[prompt.index(VERIFIED_CHANGE_HEADING):].split("\n\n")[0]
+
+    assert spine.metric_id in section
+    for fact_id, period in ((spine.from_fact_id, spine.from_period),
+                            (spine.to_fact_id, spine.to_period)):
+        row = rows[fact_id]
+        assert f"[{row.handle}]" in section
+        assert row.offers[""] in section          # the figure, spelled as FACTS spells it
+        assert period in section
+    # The detector's own word, not the sign of `to_value - from_value`.
+    assert spine.direction_verified and f"direction  {spine.direction}" in section
+    assert all(f"[{rows[fact.fact_id].handle}]" in section for fact in derived)
+
+    # And nothing at all without one: the heading is the whole section, so a run with no spine
+    # prints no measurement rather than an empty claim about one.
+    assert VERIFIED_CHANGE_HEADING not in planner_prompt(package, slots=rows.values(),
+                                                         derived_facts=derived)
+
+
+def test_the_planner_is_shown_no_offer_list_when_nothing_is_left_to_ask_for():
+    """An offer the planner may not take is an invitation to a refusal.
+
+    `story/core/spine.py` executes the derivations the detector fired on *before* this call, so
+    for a detector-defined story the offer set is empty and the section is omitted entirely —
+    not printed as *"(none)"*. The heading used to render either way, and a 1.2.0 prompt showed
+    the model a `requested_derivations` field with nothing legal to put in it.
+    """
+    _candidate, package, derived, _plan = metric_move_run()
+    rows = slot_table(package, derived, passages_backing_facts(package))
+
+    assert OFFER_HEADING not in planner_prompt(package, slots=rows, derived_facts=derived)
+    # The heading is still rendered where a caller does hand over an offer, so the omission
+    # above is a statement about the offer set and not about the section having been deleted.
+    offer = DerivationRequest(operation=derived[0].operation,
+                              from_fact_id=derived[0].from_fact_id,
+                              to_fact_id=derived[0].to_fact_id)
+    assert OFFER_HEADING in planner_prompt(package, slots=rows, offered=(offer,),
+                                           derived_facts=derived)
+
+
+def test_the_writer_is_shown_no_passages_because_the_pipeline_hands_it_none():
+    """5,925 characters of table that hold no figure the writer may write.
+
+    Every passage in the section prints numerals off a filed table, and under 4.0.0 not one of
+    them is a figure the model is allowed to type: a figure comes from a slot or from a row's own
+    printed string. The section survived to let an `explanatory` sentence rest on a passage, and
+    `rests_on` left the schema at 4.0.0 — so `story/pipeline.py` builds its slot table with no
+    passage rows at all (`slot_table(package, derived, ())`), `write_story` reads the answer off
+    those rows, and `writer_prompt` omits the heading rather than printing it over nothing.
+    """
+    _candidate, package, derived, plan = metric_move_run()
+    rows = slot_table(package, derived, passages_backing_facts(package))
+    pipeline_rows = slot_table(package, derived, ())
+
+    assert [row.handle for row in pipeline_rows if row.kind == PASSAGE_ROW] == []
+    without = writer_prompt(package, plan, (), slots=pipeline_rows, derived_facts=derived)
+    assert "PASSAGES" not in without
+
+    # What it costs when it is printed, measured rather than asserted from memory. The claim is
+    # the omission's size, so the two prompts differ by the section and by nothing else.
+    with_passages = writer_prompt(package, plan, package.primary_passages, slots=rows,
+                                  derived_facts=derived)
+    assert "PASSAGES" in with_passages
+    assert len(with_passages) - len(writer_prompt(
+        package, plan, (), slots=rows, derived_facts=derived)) > 5_000

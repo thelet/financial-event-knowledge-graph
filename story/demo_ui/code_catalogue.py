@@ -46,11 +46,12 @@ from typing import Mapping
 
 from story.core.models import Severity, WarningCategory, WarningKind
 from story.stages.freshness.freshness_report import RefusalCode
+from story.stages.composition import public as composition
 from story.stages.generation import planner, writer
 from story.stages.packaging.warning_codes import CATEGORY_OF, KIND_OF, SEVERITY_OF
 from story.stages.verification.codes import GATE
 
-#: The five vocabularies a demo reader can meet, named for the stage that raises them. The
+#: The six vocabularies a demo reader can meet, named for the stage that raises them. The
 #: order is the precedence `explain()` uses for a bare code: the verifier's gate is what an
 #: evidence panel renders most, and a §12 refusal is the rarest thing a reader sees.
 FAMILY_VERIFICATION = "verification_gate"
@@ -58,6 +59,14 @@ FAMILY_PACKAGE_WARNING = "package_warning"
 FAMILY_FRESHNESS = "freshness_refusal"
 FAMILY_PLANNER = "planner_refusal"
 FAMILY_WRITER = "writer_refusal"
+#: **Five until 03-WRITER-AND-COMPOSITION-STABILIZATION §10**, which measured the consequence of
+#: the draft compiler having no family here at all: `story/stages/composition/public.py` declares
+#: nine refusal codes, `api.py` picked a family by disposition and fell through to
+#: `FAMILY_VERIFICATION` for `composition_refused`, and `_explanations` then found nothing and
+#: rendered every one of them as `{"description": "", "severity": "", "blocking": false}`. The
+#: empty sentence was a gap; `blocking: false` was **untrue** — the run was refused and no draft
+#: exists.
+FAMILY_COMPOSITION = "composition_refusal"
 
 FAMILY_ORDER: tuple[str, ...] = (
     FAMILY_VERIFICATION,
@@ -65,6 +74,7 @@ FAMILY_ORDER: tuple[str, ...] = (
     FAMILY_FRESHNESS,
     FAMILY_PLANNER,
     FAMILY_WRITER,
+    FAMILY_COMPOSITION,
 )
 
 #: What each family *is*, for the panel heading above the code. One sentence, same register as
@@ -89,6 +99,11 @@ FAMILY_DESCRIPTIONS: Mapping[str, str] = {
     FAMILY_WRITER: (
         "Reasons a draft could not be constructed at all (§12) — these fire before the verifier "
         "ever sees a draft, so they are not verification findings."
+    ),
+    FAMILY_COMPOSITION: (
+        "Reasons the draft compiler refused a set of sentence templates. The model's sentences "
+        "were well formed and code could not fill their slots from the trusted rows, so no "
+        "draft was built and the verifier was never asked."
     ),
 }
 
@@ -614,6 +629,13 @@ FRESHNESS_DESCRIPTIONS: Mapping[str, str] = {
 # -- §11's planner refusals, 11 codes -----------------------------------------------------------
 
 PLANNER_DESCRIPTIONS: Mapping[str, str] = {
+    "unresolvable_fact_handle":
+        "The plan names a slot handle this run's rows do not print. §11 2.0.0 asks for handles "
+        "(F1, D1) rather than 70-character ids, and the prompt prints every one a plan may use.",
+    "direction_contradicts_spine":
+        "The plan states the metric moved the opposite way from the direction code measured. "
+        "The direction comes from the detector's own sign-convention-aware computation, not "
+        "from the sign of a delta, and a plan may not contradict it.",
     "unresolvable_fact_id":
         "The plan names a fact the evidence package does not hold.",
     "unresolvable_passage_id":
@@ -704,12 +726,55 @@ WRITER_DESCRIPTIONS: Mapping[str, str] = {
 }
 
 
+# -- the draft compiler's refusals, 9 codes -----------------------------------------------------
+#
+# `story/stages/composition/public.py` declares these and the compiler raises them by
+# `CompositionViolation(NAME, detail)`. They are named for the **template's** failure and never
+# for a §13 code, which is that module's own rule: they fire before a verifier sees a draft, and
+# a repair loop that confused the two vocabularies would send the fault back to the wrong stage.
+#
+# The two `value_*` constants beside them in that file are deliberately **absent here**. They are
+# recovery diagnostics, not refusals: recovery leaves the literal alone and the verifier then
+# refuses the sentence as `unbound_numeral` with an exact span. Describing them in a family whose
+# every row renders `blocking: true` would state the opposite of what they mean.
+
+COMPOSITION_DESCRIPTIONS: Mapping[str, str] = {
+    "unknown_slot_handle":
+        "A sentence names a slot handle this run has no row for — {{F9}} where the table stops "
+        "at F2. The handle is well formed and names nothing.",
+    "unknown_slot_field":
+        "A sentence asks a row for a field name that exists for no row at all, such as "
+        "{{F1.colour}}. The vocabulary of fields is closed.",
+    "field_not_offered_by_row":
+        "A sentence asks a row for a field the vocabulary knows and this particular row has no "
+        "legal value for — a period on a two-period derivation, or the value of a passage.",
+    "slot_without_binding":
+        "A sentence names a row's period or metric without also stating its value, so nothing "
+        "binds the row and the verifier would refuse the year in it as an unbound numeral.",
+    "no_legal_rendering":
+        "A sentence asks for the value of a row whose answer is a word rather than a number, so "
+        "there is no numeral the verifier would accept for it.",
+    "no_evidence_handle_for_bound_fact":
+        "A sentence states a fact whose evidence cannot be cited: no evidence id was minted for "
+        "it, its passage is outside the slice the writer saw, or its id resolves to no span.",
+    "passage_handle_unknown":
+        "A sentence rests on a passage handle this run has no passage for.",
+    "rests_on_without_explanatory_kind":
+        "A sentence that is not explanatory rests on a passage. Only an explanatory sentence "
+        "cites a passage for what it paraphrases.",
+    "template_not_compilable":
+        "A sentence carries braces the slot grammar cannot read — an unclosed {{, or a handle "
+        "that is not a letter followed by digits. There is no third slot form and no escape.",
+}
+
+
 DESCRIPTIONS: Mapping[str, Mapping[str, str]] = {
     FAMILY_VERIFICATION: VERIFICATION_DESCRIPTIONS,
     FAMILY_PACKAGE_WARNING: PACKAGE_WARNING_DESCRIPTIONS,
     FAMILY_FRESHNESS: FRESHNESS_DESCRIPTIONS,
     FAMILY_PLANNER: PLANNER_DESCRIPTIONS,
     FAMILY_WRITER: WRITER_DESCRIPTIONS,
+    FAMILY_COMPOSITION: COMPOSITION_DESCRIPTIONS,
 }
 
 
@@ -730,6 +795,8 @@ def declared_codes(family: str) -> frozenset[str]:
         return frozenset(getattr(planner, name) for name in _PLANNER_CODE_NAMES)
     if family == FAMILY_WRITER:
         return frozenset(getattr(writer, name) for name in _WRITER_CODE_NAMES)
+    if family == FAMILY_COMPOSITION:
+        return frozenset(getattr(composition, name) for name in _COMPOSITION_CODE_NAMES)
     raise KeyError(f"{family!r} is not one of {', '.join(FAMILY_ORDER)}")
 
 
@@ -744,6 +811,19 @@ _PLANNER_CODE_NAMES: tuple[str, ...] = (
     "COUNTERPOINT_UNGROUNDED", "COUNTER_EVIDENCE_UNACCOUNTED", "UNKNOWN_WARNING_CODE",
     "UNKNOWN_UNUSABLE_ID", "CAUSAL_LANGUAGE_NOT_COMPUTED", "DERIVATION_NOT_OFFERED",
     "THESIS_EMPTY", "NO_KEY_POINTS", "PLAN_NOT_CONSTRUCTIBLE",
+    "UNRESOLVABLE_FACT_HANDLE", "DIRECTION_CONTRADICTS_SPINE",
+)
+
+#: §12's compiler refusals, by constant name for the same reason as the two above. The two
+#: recovery diagnostics in that module — `VALUE_CLAIMED_BY_TWO_ROWS`, `VALUE_OCCURS_TWICE` — are
+#: **not** here: they are notes about a numeral recovery declined to bind, the compiler does not
+#: refuse on them, and no `CompositionViolation` is ever constructed with one. The AST scan in
+#: `tests/story/test_demo_ui_code_catalogue.py` walks `CompositionViolation(...)` and would fail
+#: this catalogue loudly if a tenth refusal were added upstream and left undescribed.
+_COMPOSITION_CODE_NAMES: tuple[str, ...] = (
+    "UNKNOWN_SLOT_HANDLE", "UNKNOWN_SLOT_FIELD", "FIELD_NOT_OFFERED_BY_ROW",
+    "SLOT_WITHOUT_BINDING", "NO_LEGAL_RENDERING", "NO_EVIDENCE_HANDLE_FOR_BOUND_FACT",
+    "PASSAGE_HANDLE_UNKNOWN", "RESTS_ON_WITHOUT_EXPLANATORY_KIND", "TEMPLATE_NOT_COMPILABLE",
 )
 
 _WRITER_CODE_NAMES: tuple[str, ...] = (
@@ -781,6 +861,10 @@ def _explanation(family: str, code: str, description: str) -> CodeExplanation:
                                severity="refuse", section="7", blocking=True)
     # §11 and §12 declare no severity and no remedy: a refusal there means no plan and no draft
     # exists, which is not a gradation. Leaving both empty is the honest rendering.
+    #
+    # **`blocking` is `True` for all three, and that is the fix §10 asked for.** The compiler
+    # raises `CompositionRefused` and no draft is built, so a row rendering `blocking: false` for
+    # one of these codes states the opposite of what happened.
     section = "11" if family == FAMILY_PLANNER else "12"
     return CodeExplanation(code=code, family=family, description=description,
                            section=section, blocking=True)
@@ -846,6 +930,7 @@ def catalogue_payload() -> dict[str, object]:
 
 __all__ = [
     "CATALOGUE",
+    "FAMILY_COMPOSITION",
     "FAMILY_DESCRIPTIONS",
     "FAMILY_FRESHNESS",
     "FAMILY_ORDER",
@@ -854,6 +939,7 @@ __all__ = [
     "FAMILY_VERIFICATION",
     "FAMILY_WRITER",
     "CodeExplanation",
+    "COMPOSITION_DESCRIPTIONS",
     "DESCRIPTIONS",
     "FRESHNESS_DESCRIPTIONS",
     "PACKAGE_WARNING_DESCRIPTIONS",

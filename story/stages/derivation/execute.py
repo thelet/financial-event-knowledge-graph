@@ -321,15 +321,23 @@ def _detector_agreement(
     )
 
 
-def _signal_applies(validated: ValidatedDerivation, candidate: StoryCandidate) -> bool:
+def signal_applies_to(
+    from_fact: PackagedFact, to_fact: PackagedFact, candidate: StoryCandidate
+) -> bool:
     """Does the candidate's signal describe **this** pair, in this direction?
 
     A package can carry more facts of a metric than the candidate anchored on — `max_facts` is
     12 and a two-period `metric_move` anchors two — so a signal named for the candidate's own
     step says nothing about a derivation over a different pair of quarters, and asserting
     against it would refuse a correct result.
+
+    **Public and taking two facts rather than a `ValidatedDerivation`**, because
+    `pipeline.spine_derivations` has to ask the same question *before* anything is validated:
+    where a package offers a comparison in both orientations, the one the detector measured is
+    the one whose result can be cross-checked, and choosing the other silently drops §4.4's
+    second opinion. Measured 2026-08-26 — picking the first offered triple instead left
+    `reused_detector_signal` empty on `cross_metric_divergence`.
     """
-    from_fact, to_fact = validated.from_fact, validated.to_fact
     if candidate.story_type == "cross_metric_divergence":
         signals = candidate.signals
         return (from_fact.period_key == to_fact.period_key
@@ -342,6 +350,11 @@ def _signal_applies(validated: ValidatedDerivation, candidate: StoryCandidate) -
         return False
     # `delta` and its neighbours are `later − earlier`; only the forward orientation is checked.
     return _anchor(from_fact) < _anchor(to_fact)
+
+
+def _signal_applies(validated: ValidatedDerivation, candidate: StoryCandidate) -> bool:
+    """The rule above, asked of a validated derivation. One rule, two callers."""
+    return signal_applies_to(validated.from_fact, validated.to_fact, candidate)
 
 
 def _anchor(fact: PackagedFact) -> str:

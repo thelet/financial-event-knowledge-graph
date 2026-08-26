@@ -1,0 +1,20 @@
+{
+  "title": "Opendoor 2022Q3",
+  "sentences": [
+    {
+      "text": "$556 million Adjusted Gross Profit in the second quarter of 2022.",
+      "kind": "reported",
+      "rests_on": []
+    },
+    {
+      "text": "$110 million Adjusted Gross Profit in the third quarter of 2022.",
+      "kind": "reported",
+      "rests_on": []
+    },
+    {
+      "text": "Adjusted Gross Profit decreased by $446 million from the second quarter of 2022 to the third quarter of 2022.",
+      "kind": "calculated",
+      "rests_on": []
+    }
+  ]
+}

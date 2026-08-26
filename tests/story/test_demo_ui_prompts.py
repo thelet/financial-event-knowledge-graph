@@ -244,23 +244,33 @@ def test_this_module_restates_no_rule():
     assert [phrase for phrase in phrases if f'"{phrase}"' in source] == []
 
 
-def test_the_rules_are_the_constants_own_and_the_counts_are_nine_and_fourteen():
+def test_the_rules_are_the_constants_own_and_the_counts_are_seven_and_thirteen():
     """Parsed, not listed. A rule added upstream appears here; a rule dropped disappears.
 
-    **The counts have moved twice and each movement is the evidence the parsing is real.** On
-    2026-08-19 (DETERMINISTIC_FACT_TOOLS §5) the planner gained `requested_derivations` and the
-    writer lost three arithmetic rules and gained one about the derived facts it binds, so 8 and
-    18 became 9 and 17. At S4 of `docs/2026-08-23-deterministic-draft-compiler/` the writer went
-    17 -> 14: four rules about declaring bindings and citations collapsed into two — *"write a
-    slot, not a number"* and *"code cites for you"* — three pairs that were each one idea split
-    across two lines merged, and two genuinely new rules arrived for the two ways a *template*
-    fails. The planner's prompt is untouched by that change and its count did not move, which is
-    the half of this assertion that says the parsing is reading two different constants.
+    **The counts have moved three times and each movement is the evidence the parsing is real.**
+    On 2026-08-19 (DETERMINISTIC_FACT_TOOLS §5) the planner gained `requested_derivations` and
+    the writer lost three arithmetic rules and gained one about the derived facts it binds, so 8
+    and 18 became 9 and 17. At S4 of `docs/2026-08-23-deterministic-draft-compiler/` the writer
+    went 17 -> 14: four rules about declaring bindings and citations collapsed into two, three
+    pairs that were each one idea split across two lines merged, and two genuinely new rules
+    arrived for the two ways a *template* fails.
+
+    **Both moved this time, and they moved because two schemas shrank.** Planner 2.0.0 dropped
+    twelve of nineteen leaves — `causal_language`, `requested_derivations`, `statement_class`,
+    `structure`, `prohibited_claims`, `unusable_evidence` and the rest — and every rule that
+    existed to govern a field the model no longer writes went with them: 9 -> 7. Writer 4.0.0
+    dropped `kind` and `rests_on`, which took the rule about declaring a sentence's kind: 14 ->
+    13. So both constants moved for the same reason, which is the opposite of the last change and
+    is why the two halves of this assertion are still worth keeping separate — they read two
+    different constants and can still disagree.
     """
-    assert len(PLANNER_RULES) == 9 and len(WRITER_RULES) == 14
-    assert tuple(rule.number for rule in WRITER_RULES) == tuple(range(1, 15))
+    assert len(PLANNER_RULES) == 7 and len(WRITER_RULES) == 13
+    assert tuple(rule.number for rule in WRITER_RULES) == tuple(range(1, 14))
+    assert tuple(rule.number for rule in PLANNER_RULES) == tuple(range(1, 8))
     assert [rule.text for rule in WRITER_RULES] == [text for _, text
                                                     in numbered_rules(WRITER_SYSTEM)]
+    assert [rule.text for rule in PLANNER_RULES] == [text for _, text
+                                                     in numbered_rules(PLANNER_SYSTEM)]
 
 
 def test_every_code_the_panel_names_is_one_something_can_actually_emit():
@@ -578,8 +588,8 @@ def test_the_presets_payload_carries_the_split_and_serialises():
     assert set(sections) == {"planner_persona", "planner_rules", "writer_persona",
                              "writer_rules", "warning_qualifiers"}
     assert all(section["editable"] is False for section in sections.values())
-    assert len(sections["writer_rules"]["rules"]) == 14
-    assert len(sections["planner_rules"]["rules"]) == 9
+    assert len(sections["writer_rules"]["rules"]) == 13
+    assert len(sections["planner_rules"]["rules"]) == 7
     assert payload["limits"]["request_fields"] == list(REQUEST_FIELDS)
     assert payload["not_exposed"][0]["name"] == "planner_excerpt_chars"
 
@@ -590,7 +600,17 @@ def test_the_payload_renders_the_fixed_rules_so_a_user_can_read_them():
     sections = {s["section_id"]: s for s in payload["fixed_sections"]}
     rendered = [entry["text"] for entry in sections["writer_rules"]["rules"]]
     assert rendered == [rule.text for rule in WRITER_RULES]
-    assert any("percentage points" in text for text in rendered)  # rule 8, verbatim
+    assert any("percentage points" in text for text in rendered)  # rule 7, verbatim
+    # **This asserts the mapping the module holds, and that mapping is wrong at the time of
+    # writing.** `_WRITER_RULE_CODES` is keyed by rule *number*, and 4.0.0 deleted the rule about
+    # declaring a sentence's `kind`, so every writer rule from 7 down shifted up by one while the
+    # table did not: the three `percent_change_*` codes below now sit beside rule 8, which is the
+    # superlatives rule, and rule 7 — the percentage-points rule this test just read — is labelled
+    # with `connective_sentence_carries_a_claim` and two other codes about a `kind` the schema no
+    # longer carries. `_PLANNER_RULE_CODES` shifted the same way at 2.0.0. The assertion is left
+    # reading the module rather than the intended pairing so that the fix lands in
+    # `story/demo_ui/prompt_presets.py` and moves this line with it; asserting the *correct*
+    # pairing here would put the failure in the test file rather than where the table is.
     assert sections["writer_rules"]["rules"][7]["refusal_codes"] == [
         "percent_change_ambiguous", "percentage_point_surface_missing",
         "percent_change_reported_not_calculated"]

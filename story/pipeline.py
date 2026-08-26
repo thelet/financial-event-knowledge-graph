@@ -61,6 +61,7 @@ from story.core.graph_identity import GraphIdentity, read_graph_identity
 from story.core.keys import story_run_id as mint_story_run_id
 from story.core.manifest import StoryRunManifest, build_manifest
 from story.core.models import (
+    DerivationOperation,
     DerivedFact,
     Draft,
     EditorialPlan,
@@ -83,13 +84,20 @@ from story.providers.public import (
     StoryProviderSchemaError,
 )
 from story.core.evidence_slice import passages_backing_facts
+from story.core.spine import StorySpine, spine_for
 from story.stages.composition import (
     CompiledDraft,
     CompositionRefused,
+    NormalizedDraft,
     compile_draft,
+    normalize_templates,
     slot_table,
 )
-from story.stages.derivation.execute import execute_all
+from story.stages.derivation.execute import (
+    DETECTOR_SIGNALS,
+    execute_all,
+    signal_applies_to,
+)
 from story.stages.derivation.offers import offers
 from story.stages.derivation.public import TOOL_VERSION as DERIVATION_TOOL_VERSION
 from story.stages.derivation.public import DerivationResult
@@ -113,6 +121,16 @@ from story.stages.detection import (
     trend_reversal,
 )
 from story.stages.freshness import FreshnessReport, check_freshness
+from story.stages.generation import (
+    thesis_violations,
+)
+from story.stages.generation.repair import (
+    FailureOwner,
+    planner_feedback,
+    prose_feedback,
+    repairable_owner,
+    structural_feedback,
+)
 from story.stages.generation import (
     PLANNER_MAX_TOKENS,
     PLANNER_PROMPT_VERSION,
@@ -317,6 +335,14 @@ class DemoConfig:
     length_target: int
     planner_max_tokens: int
     writer_max_tokens: int
+    #: `generation.max_planner_repairs` / `max_writer_repairs`. **In the config file and not in
+    #: code, because `story_run_id` has seventeen inputs and the number of generations is not
+    #: among them.** Two runs of one candidate — one that repaired, one that did not — would
+    #: otherwise mint the same id and therefore the same directory, and finalisation is
+    #: `os.replace`, so one would overwrite the other. `config_hash` **is** a run-id input, which
+    #: is the same argument `_mint_run_id` records for `length_target`.
+    max_planner_repairs: int
+    max_writer_repairs: int
 
     @classmethod
     def load(cls, root: Path) -> "DemoConfig":
@@ -351,6 +377,8 @@ class DemoConfig:
                                                       PLANNER_MAX_TOKENS)),
                 writer_max_tokens=int(generation.get("writer_max_tokens",
                                                      WRITER_MAX_TOKENS)),
+                max_planner_repairs=int(generation.get("max_planner_repairs", 1)),
+                max_writer_repairs=int(generation.get("max_writer_repairs", 1)),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise DemoConfigurationError(f"{path}: {type(exc).__name__}: {exc}") from exc
@@ -653,6 +681,9 @@ def run_demo(
     # could disagree.
     offered = offers(package, inputs.candidate)
     results: list[GenerationResult] = []
+    #: The story's factual core, computed before any model call. `None` for a story type that
+    #: has no spine shape yet, which is every detector but `metric_move` today.
+    spine: StorySpine | None = None
     planned: PlannedStory | None = None
     written: WrittenStory | None = None
     #: The compiler's answer, kept beside `written` rather than replacing it. The writer's
@@ -660,6 +691,10 @@ def run_demo(
     #: both: a reader asking *"did the model write that number or did code?"* has to be able to
     #: see the sentence before it was filled in.
     compiled: CompiledDraft | None = None
+    #: The model's sentences after recovery, kept beside `written` rather than replacing it: the
+    #: two artifacts answer *"what did the model write"* and *"what did code make of it"*, and a
+    #: reader has to be able to see both.
+    normalized: NormalizedDraft | None = None
     derived: tuple[DerivedFact | EvidenceScopeFact, ...] = ()
     derivation: DerivationResult | None = None
     #: The two call sites' own results, kept **separately from the disposition** because a
@@ -674,31 +709,22 @@ def run_demo(
     refusal_codes: tuple[str, ...] = ()
     fault: ProviderFault | None = None
 
-    try:
-        planned = plan_story(package, provider=provider, offered=offered,
-                             max_tokens=config.planner_max_tokens)
-        planner_result = planned.generation
-    except EditorialPlanRejected as exc:
-        disposition, refusal, refusal_codes = PLAN_REFUSED, str(exc), _codes_of(exc)
-        planner_result = _generation_of(exc)
-    except StoryProviderError as exc:
-        disposition, refusal, refusal_codes, fault = _provider_failure(
-            exc, refused=PLAN_REFUSED, stage=STAGE_PLANNER)
-        planner_result = _generation_of(exc)
-    if planner_result is not None:
-        results.append(planner_result)
-
-    if planned is not None:
-        # §5's stage, between plan and draft. No provider, no clock, no network: the plan's
-        # requests in, `DerivedFact`s out, and §7's evidence-scope facts minted from the package
-        # alone beside them. It cannot raise a `StoryProviderError` and has no `try` around it
-        # for that reason — every refusal it produces is a value on the result.
+    # **The derivation stage runs before the planner for a detector-defined story, and that
+    # ordering is the whole of the truth boundary.** Until now the planner was shown two raw
+    # floats six lines apart and had to work out which way the metric moved;
+    # `story-v1-76da8465cd95` worked it out backwards and wrote *"rose"* over 556 -> 110, and
+    # nothing between there and the writer read the claim. The detector already published the
+    # answer — `signals["direction"]`, from `quantity_direction`, which reads the metric's sign
+    # convention and is therefore not recoverable from the sign of a delta — and
+    # `spine_derivations` says which operations it fired on. So code computes them, the spine
+    # names them, and the planner is shown a measurement instead of a subtraction.
+    #
+    # A plan may no longer request a derivation at all (§11 2.0.0 has no field for one), so this
+    # is the only executor call on the path for a story type with a spine.
+    requested = spine_derivations(inputs.candidate, package, offered)
+    if requested:
         derivation = execute_all(
-            planned.plan.requested_derivations, package, inputs.candidate,
-            # The composition root's three arguments, each one a thing the derivation stage
-            # needs and may not import: a sibling stage owns the sign convention, and another
-            # owns what counts as causal language. `public.DirectionOracle` argues why passing
-            # the real function beats restating its 26-row table.
+            requested, package, inputs.candidate,
             direction=detector_config.quantity_direction,
             causal_language=causal_language_for(package),
             causal_marker_fact_ids=_causal_marker_fact_ids(package),
@@ -709,80 +735,195 @@ def run_demo(
             refusal = "; ".join(
                 f"{item.code.value}: {item.detail}" for item in derivation.refusals)
             refusal_codes = tuple(item.code.value for item in derivation.refusals)
+        else:
+            spine = spine_for(inputs.candidate, package, derived,
+                              causal_language=causal_language_for(package))
 
-    if planned is not None and disposition != DERIVATION_REFUSED:
-        # The composition root's job again, and for the reason it computes `offered` above: the
-        # slot table is the writer's whole vocabulary, `story/stages/generation/` may not import
-        # `story/stages/composition/`, and a second table built downstream is the one way the
-        # rows the model was shown and the rows the compiler resolves could disagree. One table,
-        # printed into the prompt and read back by the compiler.
-        slots = slot_table(package, derived, passages_backing_facts(package))
-        try:
-            written = write_story(
-                package, planned.plan, provider=provider, derived_facts=derived,
-                slots=slots,
-                length_target=config.length_target, max_tokens=config.writer_max_tokens)
-            writer_result = written.generation
-        except DraftRejected as exc:
-            disposition, refusal, refusal_codes = DRAFT_REFUSED, str(exc), _codes_of(exc)
-            writer_result = _generation_of(exc)
-        except StoryProviderError as exc:
-            disposition, refusal, refusal_codes, fault = _provider_failure(
-                exc, refused=DRAFT_REFUSED, stage=STAGE_WRITER)
-            writer_result = _generation_of(exc)
-        if writer_result is not None:
-            results.append(writer_result)
+    #: The rows the planner names handles from and the writer writes slots from. Built once,
+    #: here, and handed to both — a table built twice is a table that can disagree with the one
+    #: the model was shown.
+    #:
+    #: **Passage rows are in it even though no sentence can name one.** `rests_on` left the
+    #: writer's contract, so a `P` handle reaches no draft; but a *plan* grounds a counterpoint
+    #: by naming a handle, and `plan_violations` requires that grounding to be drawn from
+    #: `counter_evidence` — a passage. Building the table without them made a package carrying
+    #: counter-evidence unplannable: every counterpoint earned `counterpoint_ungrounded` and
+    #: every empty one earned `counterpoint_missing`, with no third answer. The writer omits the
+    #: passage *section* on its own grounds (its schema has nowhere to put one), which is a
+    #: different question from whether the row exists.
+    slots = slot_table(package, derived, passages_backing_facts(package))
 
-    if planned is not None and written is not None:
-        # S5 of docs/2026-08-23-deterministic-draft-compiler. The one stage between the model's
-        # answer and the verifier, and it is deterministic: the templates in, a `Draft` whose
-        # renderings, surfaces, spans and citations were all chosen by code out. It is a
-        # separate `try` from the writer's because a refusal here is a different disposition —
-        # the model answered, and what it asked for could not be filled.
-        try:
-            compiled = compile_draft(
-                written.templates, package, planned.plan,
-                derived_facts=derived, passages=passages_backing_facts(package),
-                # The four fields no template carries and no slot can fill. `title` is the
-                # model's prose and travels on `WrittenStory` rather than through the compiler's
-                # substitution, because §13.15 gives a title no binding and refuses every
-                # numeral in one — a slot there would insert exactly such a numeral. The other
-                # three identify what wrote the sentences, and they are this module's to supply
-                # for the reason every other cross-stage value here is: the compiler may not
-                # import the generation stage to ask.
-                title=written.title,
-                # The provider's **identity** model id, not `GenerationResult.model_id`, which
-                # is the wire value. The local server answers with the path it loaded the
-                # weights from — `/home/<user>/models/…/Qwen3.5-9B-Q4_K_M.gguf` — and
-                # `Draft.model_id` is rendered into the demo's API responses, where
-                # `test_no_response_carries_an_absolute_path` refuses an operator's home
-                # directory. `write_story` read it off the provider for the same reason.
-                model_id=getattr(provider, "model_id", "") or (
-                    writer_result.model_id if writer_result is not None else ""),
-                style_profile_id=PLAIN_INVESTOR_STYLE.profile_id,
-                prompt_version=WRITER_PROMPT_VERSION)
-        except CompositionRefused as exc:
-            disposition = COMPOSITION_REFUSED
-            refusal = str(exc)
-            refusal_codes = tuple(violation.code for violation in exc.violations)
+    #: One row per model call, in call order: which stage asked, which attempt it was, and what
+    #: came back. The manifest's two named provenance blocks could say *"the writer call"* when
+    #: there was exactly one; a bounded repair makes the count variable and this is where it is
+    #: recorded.
+    call_sites: list[dict[str, Any]] = []
 
-    if planned is not None and compiled is not None:
-        # The three freshness arguments are the *expected* identity §13.13 pins, supplied by
-        # what resolved it. Passing the package's own values would make the check compare a
-        # document with itself; these come from the graph run the gate just verified.
-        verified = DeterministicVerifier(
-            graph_run_id=inputs.identity.graph_run_id,
-            run_complete_sha256=inputs.identity.run_complete_sha256,
-            ontology_definition_hash=inputs.identity.ontology_definition_hash,
-        ).verify(compiled.draft, package, planned.plan, derived_facts=derived)
-        disposition = ACCEPTED if verified.passed else REJECTED
+    def _record(stage: str, attempt: int, result: GenerationResult | None,
+                outcome: str, codes: Sequence[str] = ()) -> None:
+        call_sites.append({
+            "stage": stage, "attempt": attempt, "outcome": outcome,
+            "codes": list(codes),
+            "schema_name": (PLANNER_SCHEMA_NAME if stage == STAGE_PLANNER
+                            else WRITER_SCHEMA_NAME),
+            "answered": result is not None,
+        })
+
+    if disposition != DERIVATION_REFUSED:
+        # **The planner, with at most `max_planner_repairs` further attempts.** A repair is only
+        # attempted when every code the refusal carries belongs to the planner: a refusal mixing
+        # a plan fault with something code owns is not repaired at all, because the repair prompt
+        # would then carry an engineering defect for a model to apologise for.
+        feedback = ""
+        for attempt in range(1 + max(0, config.max_planner_repairs)):
+            try:
+                planned = plan_story(package, provider=provider, offered=(), slots=slots,
+                                     derived_facts=derived, spine=spine, feedback=feedback,
+                                     max_tokens=config.planner_max_tokens)
+                planner_result = planned.generation
+                results.append(planner_result)
+                _record(STAGE_PLANNER, attempt, planner_result, ACCEPTED)
+                disposition, refusal, refusal_codes = ACCEPTED, "", ()
+                break
+            except EditorialPlanRejected as exc:
+                disposition, refusal, refusal_codes = PLAN_REFUSED, str(exc), _codes_of(exc)
+                planner_result = _generation_of(exc)
+                if planner_result is not None:
+                    results.append(planner_result)
+                _record(STAGE_PLANNER, attempt, planner_result, PLAN_REFUSED, refusal_codes)
+                if (attempt >= config.max_planner_repairs
+                        or repairable_owner(refusal_codes) is not FailureOwner.PLANNER):
+                    break
+                feedback = planner_feedback(spine, refusal_codes, refusal)
+            except StoryProviderError as exc:
+                disposition, refusal, refusal_codes, fault = _provider_failure(
+                    exc, refused=PLAN_REFUSED, stage=STAGE_PLANNER)
+                planner_result = _generation_of(exc)
+                if planner_result is not None:
+                    results.append(planner_result)
+                _record(STAGE_PLANNER, attempt, planner_result, disposition, refusal_codes)
+                # A fault has already exhausted the adapter's own retry bound (§15.3). Re-asking
+                # here would be the blind retry this whole mechanism exists not to be.
+                break
+
+    if planned is not None and disposition not in (DERIVATION_REFUSED, PLAN_REFUSED,
+                                                   PROVIDER_FAILED):
+        offered_slots = {
+            (f"{{{{{row.handle}}}}}" if not field else f"{{{{{row.handle}.{field}}}}}"): value
+            for row in slots for field, value in row.offers.items()}
+        feedback = ""
+        for attempt in range(1 + max(0, config.max_writer_repairs)):
+            written = normalized = compiled = verified = None
+            try:
+                written = write_story(
+                    package, planned.plan, provider=provider, derived_facts=derived,
+                    slots=slots, feedback=feedback,
+                    length_target=config.length_target, max_tokens=config.writer_max_tokens)
+                writer_result = written.generation
+                results.append(writer_result)
+            except DraftRejected as exc:
+                disposition, refusal, refusal_codes = DRAFT_REFUSED, str(exc), _codes_of(exc)
+                writer_result = _generation_of(exc)
+                if writer_result is not None:
+                    results.append(writer_result)
+                _record(STAGE_WRITER, attempt, writer_result, DRAFT_REFUSED, refusal_codes)
+                if (attempt >= config.max_writer_repairs
+                        or repairable_owner(refusal_codes)
+                        is not FailureOwner.WRITER_STRUCTURAL):
+                    break
+                feedback = structural_feedback(refusal_codes, refusal, offered_slots)
+                continue
+            except StoryProviderError as exc:
+                disposition, refusal, refusal_codes, fault = _provider_failure(
+                    exc, refused=DRAFT_REFUSED, stage=STAGE_WRITER)
+                writer_result = _generation_of(exc)
+                if writer_result is not None:
+                    results.append(writer_result)
+                _record(STAGE_WRITER, attempt, writer_result, disposition, refusal_codes)
+                break
+
+            # **The normalization pass, and the reason the writer's contract could shrink to two
+            # leaves.** The model writes prose; this puts a slot where it wrote a string some row
+            # already offers, and derives the sentence kind from the rows the result names. It is
+            # text-preserving by construction — only strings a row offers are matched — so a
+            # compiled sentence is byte-identical to what the model wrote, recovered or not.
+            #
+            # Measured against `story-v1-1daff167348f`, refused `thesis_abandoned` for writing
+            # three factually correct sentences with no slot in them: recovered, that answer
+            # compiles and verifies with zero findings at any severity.
+            #
+            # An ambiguous literal is left alone rather than guessed at. Where two rows offer one
+            # string, or one row's string occurs twice in a sentence, nothing is bound and the
+            # numeral reaches §13.1 as `unbound_numeral` — a refusal with an exact span, from the
+            # stage that is supposed to be the authority.
+            normalized = normalize_templates(written.sentences, slots)
+            thesis_found = thesis_violations(
+                [template.text for template in normalized.templates], planned.plan, slots)
+            compose_violations: tuple[str, ...] = ()
+            if thesis_found:
+                disposition, refusal = DRAFT_REFUSED, (
+                    "the writer's answer is refused before compilation (§12): "
+                    + "; ".join(str(violation) for violation in thesis_found))
+                refusal_codes = tuple(violation.code for violation in thesis_found)
+                compose_violations = refusal_codes
+            else:
+                try:
+                    compiled = compile_draft(
+                        normalized.templates, package, planned.plan,
+                        derived_facts=derived, passages=passages_backing_facts(package),
+                        title=written.title,
+                        # The provider's **identity** model id, not `GenerationResult.model_id`,
+                        # which is the wire value: the local server answers with the path it
+                        # loaded the weights from, and `Draft.model_id` reaches the demo's API
+                        # responses, where `test_no_response_carries_an_absolute_path` refuses an
+                        # operator's home directory.
+                        model_id=getattr(provider, "model_id", "") or (
+                            writer_result.model_id if writer_result is not None else ""),
+                        style_profile_id=PLAIN_INVESTOR_STYLE.profile_id,
+                        prompt_version=WRITER_PROMPT_VERSION)
+                except CompositionRefused as exc:
+                    disposition = COMPOSITION_REFUSED
+                    refusal = str(exc)
+                    refusal_codes = tuple(violation.code for violation in exc.violations)
+                    compose_violations = refusal_codes
+
+            if compiled is not None:
+                # The three freshness arguments are the *expected* identity §13.13 pins, supplied
+                # by what resolved it. Passing the package's own values would make the check
+                # compare a document with itself.
+                verified = DeterministicVerifier(
+                    graph_run_id=inputs.identity.graph_run_id,
+                    run_complete_sha256=inputs.identity.run_complete_sha256,
+                    ontology_definition_hash=inputs.identity.ontology_definition_hash,
+                ).verify(compiled.draft, package, planned.plan, derived_facts=derived)
+                disposition = ACCEPTED if verified.passed else REJECTED
+                refusal_codes = tuple(dict.fromkeys(
+                    f.code for f in verified.all_findings if f.blocking))
+                refusal = "" if verified.passed else "; ".join(refusal_codes)
+
+            _record(STAGE_WRITER, attempt, writer_result, disposition,
+                    compose_violations or refusal_codes)
+            if disposition == ACCEPTED or attempt >= config.max_writer_repairs:
+                break
+            owner = repairable_owner(refusal_codes)
+            if owner is FailureOwner.WRITER_STRUCTURAL and compiled is None:
+                feedback = structural_feedback(refusal_codes, refusal, offered_slots)
+                continue
+            if owner is FailureOwner.WRITER_PROSE and compiled is not None:
+                feedback = prose_feedback(compiled.draft, verified.all_findings)
+                continue
+            # Everything else — a code the routing table gives to code or to retrieval, a plan
+            # fault surfacing at §13, or a mixture — is not a writer's to repair. Stop, and let
+            # the disposition say what happened.
+            break
 
     story_run = _mint_run_id(inputs, config, provider=provider, results=results)
     directory = Path(out_dir) if out_dir is not None else (
         config.resolved_path(config.out_root) / story_run)
     manifest = _write_run(
         directory, inputs=inputs, config=config, story_run=story_run,
-        disposition=disposition, planned=planned, written=written, compiled=compiled,
+        disposition=disposition, planned=planned, written=written,
+        normalized=normalized, compiled=compiled, call_sites=call_sites,
         verified=verified, derivation=derivation, offered=offered,
         planner_result=planner_result, writer_result=writer_result,
         refusal=refusal, refusal_codes=refusal_codes, fault=fault, results=results,
@@ -793,6 +934,58 @@ def run_demo(
         draft=compiled.draft if compiled else None, verified=verified,
         refusal=refusal, refusal_codes=refusal_codes, fault=fault,
         artifacts=manifest.artifacts)
+
+
+def spine_derivations(
+    candidate: StoryCandidate,
+    package: StoryEvidencePackage,
+    offered: Sequence[DerivationRequest],
+) -> tuple[DerivationRequest, ...]:
+    """Which offered derivations code executes for a detector-defined story, before planning.
+
+    **The detector already said, and this reads its answer rather than inventing a policy.**
+    `DETECTOR_SIGNALS` maps each story type's operations to the `signals` key that detector
+    publishes for the same quantity — it exists so `execute` can cross-check its arithmetic
+    against the detector's — and a candidate whose `signals` carries that key is a candidate
+    whose detector measured that quantity. So the rule is: take every offered triple whose
+    operation has a signal this candidate actually published.
+
+    For `cand:metric-move:adjusted-gross-profit:opendoor:2022Q2_2022Q3` that is
+    `absolute_change` (`delta`) and `percentage_change` (`delta_pct`) — exactly the two the Qwen
+    planner requested, and exactly the two a correct planner *must* request. The request was
+    never an editorial choice, which is why it stopped being the model's.
+
+    `crossed_zero` is offered for that candidate and is **not** taken: `signals["crosses_zero"]`
+    is `False`, and a derivation whose answer the detector already published as *"it did not"*
+    adds a row a post would have to explain rather than a figure it could use.
+
+    Empty for a story type with no row in `DETECTOR_SIGNALS`, which leaves the run exactly where
+    it was: no spine, no pre-plan derivation.
+    """
+    signals = DETECTOR_SIGNALS.get(candidate.story_type, {})
+    by_id = {fact.observation_id: fact for fact in package.facts}
+    taken: dict[DerivationOperation, DerivationRequest] = {}
+    for request in offered:
+        if candidate.signals.get(signals.get(request.operation, "")) in (None, False):
+            continue
+        from_fact, to_fact = by_id.get(request.from_fact_id), by_id.get(request.to_fact_id)
+        if from_fact is None or to_fact is None:
+            continue
+        # **One triple per operation, and the orientation the detector actually measured.**
+        # `cross_metric_divergence` offers `compare_levels` in **both** directions, and taking
+        # both would put two mirror rows in front of the writer — `A lower than B` and `B higher
+        # than A` — one of which it would have to choose against with no ground for choosing.
+        #
+        # Which one to keep is not a preference: `execute._signal_applies` will only cross-check
+        # a result against the detector's own number when the pair runs the way the detector
+        # measured it, so the other orientation silently loses §4.4's second opinion. Measured
+        # 2026-08-26 — taking the first offered triple left `reused_detector_signal` empty and
+        # made a deliberately misreported signal reach the planner instead of being refused.
+        if signal_applies_to(from_fact, to_fact, candidate):
+            taken[request.operation] = request
+        else:
+            taken.setdefault(request.operation, request)
+    return tuple(taken.values())
 
 
 def _causal_marker_fact_ids(package: StoryEvidencePackage) -> tuple[str, ...]:
@@ -893,13 +1086,18 @@ def _generation_of(exc: Exception) -> GenerationResult | None:
 def schema_digests_for(package: StoryEvidencePackage) -> dict[str, str]:
     """The two schemas this run constrained the model with, digested (§14).
 
-    The planner's schema is built from the package rather than fetched: §11 pins
-    `causal_language` to one value inside the grammar, so two packages with different causal
-    standing are constrained by two different schemas and must not digest alike.
+    **The package is no longer an argument to either grammar, and the parameter stays.** §11 used
+    to pin `causal_language` to a one-member enum inside the planner's schema, so two packages of
+    different causal standing were constrained by two different schemas and had to digest
+    differently. 2.0.0 removes the field — `plan_story` re-stamped the computed value over the
+    model's answer regardless, so the grammar was pinning something the model could not
+    influence — and both schemas are now package-independent.
+
+    The signature keeps `package` because this function's callers pass one and because a schema
+    that becomes package-dependent again should not need every call site edited to notice.
     """
     return {
-        PLANNER_SCHEMA_NAME: _digest(planner_schema(
-            causal_language=causal_language_for(package))),
+        PLANNER_SCHEMA_NAME: _digest(planner_schema()),
         WRITER_SCHEMA_NAME: _digest(writer_schema()),
     }
 
@@ -1153,7 +1351,7 @@ def _counts(inputs: DemoInputs, written: WrittenStory | None,
         # The writer's count and not the compiler's, deliberately: a run whose templates were
         # refused wrote sentences and produced no draft, and a zero here would report that it
         # wrote nothing. `slots_filled` is the compiler's own half of the same question.
-        "sentences": len(written.templates) if written else 0,
+        "sentences": len(written.sentences) if written else 0,
         "slots_filled": len(compiled.slots) if compiled else 0,
         "derivations_offered": len(offered),
         "derivations_requested": 0 if derivation is None else (
@@ -1191,7 +1389,9 @@ def _write_run(
     disposition: str,
     planned: PlannedStory | None,
     written: WrittenStory | None,
+    normalized: NormalizedDraft | None,
     compiled: CompiledDraft | None,
+    call_sites: Sequence[Mapping[str, Any]],
     verified: VerifiedDraft | None,
     #: `None` exactly when the derivation stage never ran — a planner refusal or a provider
     #: fault. An empty `DerivationResult` is a different thing and says so: the stage ran, the
@@ -1238,14 +1438,15 @@ def _write_run(
         write(PLAN_FILENAME, _render_json(planned.plan.model_dump(mode="json")))
     if derivation is not None:
         write(DERIVED_FACTS_FILENAME, _render_json(_derived_facts_payload(derivation)))
-    if compiled is not None:
+    if compiled is not None and written is not None and normalized is not None:
         write(DRAFT_FILENAME, _render_json(compiled.draft.model_dump(mode="json")))
         # S5. The provenance the `Draft` deliberately does not carry: which slot of which
         # template became which span. It is a separate artifact rather than a field on
         # `DraftSentence` because `Draft.digestible_payload()` feeds `draft_content_sha256`, and
         # a field on the type would re-key every artifact already written for a value nothing
         # verifies.
-        write(COMPOSITION_FILENAME, _render_json(_composition_payload(written, compiled)))
+        write(COMPOSITION_FILENAME,
+              _render_json(_composition_payload(written, normalized, compiled)))
     if verified is not None:
         write(VERIFICATION_FILENAME, _render_json(verified.model_dump(mode="json")))
     if disposition == ACCEPTED and compiled is not None:
@@ -1289,6 +1490,7 @@ def _write_run(
             provider, writer_result,
             prompt_version=WRITER_PROMPT_VERSION, schema_name=WRITER_SCHEMA_NAME,
             max_tokens=config.writer_max_tokens),
+        call_sites=call_sites,
         provider_settings=_provider_settings(
             provider, results,
             # The budgets the requests that came back actually carried, taken from the two
@@ -1353,23 +1555,47 @@ def _write_run(
     return manifest
 
 
-def _composition_payload(written: WrittenStory, compiled: CompiledDraft) -> dict[str, Any]:
-    """The templates the model returned, and the fills code made from them.
+def _composition_payload(
+    written: WrittenStory, normalized: NormalizedDraft, compiled: CompiledDraft
+) -> dict[str, Any]:
+    """What the model wrote, what recovery made of it, and what code then filled.
 
-    Two lists rather than one nested structure, for the reason `_derived_facts_payload` keeps
-    its rows flat: a fill names its sentence by index, and a reader diffing two runs wants to
-    see *which fill moved* rather than to walk a tree to find it.
+    **Three lists rather than one nested structure**, for the reason `_derived_facts_payload`
+    keeps its rows flat: a fill names its sentence by index, and a reader diffing two runs wants
+    to see *which fill moved* rather than walk a tree to find it.
 
-    The template text is stored with its `{{slots}}` intact. That is the whole point of the
-    artifact — `draft.json` beside it holds the same sentence with every slot resolved, and the
-    pair is the evidence for which half of the sentence each author wrote.
+    **`sentences` is new and is the point of the artifact under 4.0.0.** The model no longer
+    writes slots — it may write plain prose, and `story/stages/composition/recovery.py` puts the
+    slots there. Recording only the template would leave a reader unable to tell a model that
+    used the grammar from one that did not, which is precisely the question this change makes
+    interesting. `recovered` names, per sentence, which literal became which slot; `ambiguous`
+    names the literals recovery declined to bind and why.
+
+    The template text is stored with its `{{slots}}` intact. `draft.json` beside it holds the
+    same sentence with every slot resolved, and the three together are the evidence for which
+    half of each sentence each author wrote.
     """
     return {
         "prompt_version": WRITER_PROMPT_VERSION,
+        "sentences": list(written.sentences),
         "templates": [
             {"index": template.index, "text": template.text,
              "kind": template.kind.value, "rests_on": list(template.rests_on)}
-            for template in written.templates
+            for template in normalized.templates
+        ],
+        "hand_written": list(normalized.hand_written),
+        "recovered": [
+            {"sentence_index": slot.sentence_index, "handle": slot.handle,
+             "field": slot.field, "literal": slot.literal,
+             "char_start": slot.char_start, "char_end": slot.char_end,
+             "also_offered_by": list(slot.also_offered_by)}
+            for slot in normalized.recovered
+        ],
+        "ambiguous": [
+            {"sentence_index": row.sentence_index, "code": row.code, "literal": row.literal,
+             "char_start": row.char_start, "char_end": row.char_end,
+             "handles": list(row.handles)}
+            for row in normalized.ambiguous
         ],
         "fills": [
             {"sentence_index": fill.sentence_index, "handle": fill.handle,

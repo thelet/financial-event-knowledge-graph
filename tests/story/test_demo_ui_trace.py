@@ -76,9 +76,16 @@ def test_the_declared_stages_are_the_ones_the_brief_names():
     derivation stage sits between the plan and the draft and code instruments three steps of it.
     DETERMINISTIC_FACT_TOOLS §8 asked for four; `test_no_stage_reports_the_same_measurement_
     twice` below is why there are three.
+
+    **Sixteen and not fourteen since 2026-08-26** (03-WRITER-AND-COMPOSITION-STABILIZATION §10).
+    `compiling_draft` is the draft compiler, which is a stage with its own refusal vocabulary and
+    its own disposition and had no name on this timeline, so a `composition_refused` run showed
+    `drafting · passed` and then nothing. `repairing` is 04-REPAIR-ROUTING's bounded repair pass
+    and is the one entry here that nothing emits yet — the vocabulary landing ahead of the
+    behaviour, deliberately, so two changes do not collide in this mapping.
     """
     assert len(STAGES_BY_PHASE["discovery"]) == 11
-    assert len(STAGES_BY_PHASE["generation"]) == 14
+    assert len(STAGES_BY_PHASE["generation"]) == 16
     assert STAGES_BY_PHASE["discovery"][0] == "loading_graph_snapshot"
     assert STAGES_BY_PHASE["generation"][-1] == "rendering"
     # Ordered as discovery runs: the distributions are built before the grouping and the ranking
@@ -101,6 +108,57 @@ def test_the_derivation_stages_sit_between_the_plan_and_the_draft():
             < stages.index("executing_derivations")
             < stages.index("derived_facts_added")
             < stages.index("drafting"))
+
+
+def test_the_compiler_sits_between_the_draft_and_the_checks_and_repair_follows_them():
+    """§10's placement, as an order rather than as a sentence in a comment.
+
+    The model writes templates, code fills their slots, and only then does a draft exist for §13
+    to examine — so `compiling_draft` cannot follow a check. A repair is a *response* to
+    findings, so `repairing` cannot precede the checks that produced them, and it precedes
+    `rendering` because a run that repairs and then renders has one post, not two.
+    """
+    stages = STAGES_BY_PHASE["generation"]
+    assert (stages.index("drafting")
+            < stages.index("compiling_draft")
+            < stages.index("checking_numbers_and_units"))
+    assert (stages.index("checking_causal_language")
+            < stages.index("repairing")
+            < stages.index("rendering"))
+
+
+@pytest.mark.parametrize("stage", STAGES)
+def test_every_stage_survives_model_dump_and_not_merely_construction(stage):
+    """The failure mode a construction test cannot see, asserted where it actually happens.
+
+    `TraceEvent.stage` is validated against `STAGES_BY_PHASE` and `message` is a
+    `computed_field` that reads `STAGE_LABELS[self.stage]`. A stage declared in the first and
+    missing from the second therefore **constructs fine** and raises `KeyError` only when the
+    event is serialised — which is inside the generation worker thread, on the SSE path, where
+    the traceback reaches a reader as a dead stream rather than as a failing test.
+
+    So this dumps every stage rather than emitting it, and asserts the label reached the payload.
+    """
+    phase = next(name for name, stages in STAGES_BY_PHASE.items() if stage in stages)
+    event = TraceEvent(run_id="run-discovery-0001", phase=phase, stage=stage,
+                       status="running", sequence=0, timestamp="2026-08-26T00:00:00.000Z")
+    payload = event.model_dump()
+    assert payload["stage"] == stage
+    assert payload["message"].startswith(STAGE_LABELS[stage] + " · running")
+
+
+def test_the_two_stages_the_stabilization_added_round_trip_through_the_artifact_writer():
+    """`compiling_draft` and `repairing`, through `model_dump_json` as the sink writes it.
+
+    Named separately from the parametrised sweep above because these two are the reason it
+    exists: `repairing` has no emitter yet, so nothing else in this suite would touch it, and a
+    vocabulary entry that has never been serialised is one nobody has checked.
+    """
+    for stage in ("compiling_draft", "repairing"):
+        emit, sink = emitter("generation")
+        emit.emit(stage, "running")
+        assert sink.events[-1].model_dump()["message"].startswith(STAGE_LABELS[stage])
+        assert json.loads(sink.events[-1].model_dump_json())["stage"] == stage
 
 
 def test_no_stage_reports_the_same_measurement_twice():

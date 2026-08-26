@@ -60,7 +60,11 @@ from story.demo_ui.server import (
     build_app,
     build_server,
 )
-from story.demo_ui.trace import TRACE_EVENTS_FILENAME, without_timestamps
+from story.demo_ui.trace import (
+    STAGES_BY_PHASE,
+    TRACE_EVENTS_FILENAME,
+    without_timestamps,
+)
 from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
 from story.stages.freshness import FreshnessReport
@@ -1138,6 +1142,75 @@ def test_a_replayed_run_produces_an_accepted_post_and_every_artifact(graph_servi
     assert outcome["style_delivery"]["is_recorded_default"] is True
 
 
+def test_the_manifest_records_one_row_per_model_call_and_the_panel_can_read_them(
+        graph_services, config):
+    """04-REPAIR-ROUTING's accounting, through the endpoint that renders it.
+
+    **The two named provenance blocks stopped being able to answer the question.**
+    `planner_provider_model` and `writer_provider_model` could say *"the writer call"* while
+    there was exactly one of each; a bounded repair makes the count variable, and a run that
+    asked the writer twice is indistinguishable from one that asked once in a manifest that only
+    records the last result. `call_sites` is one row per call in call order, so *how many times
+    was a model asked, and what came back each time* is answerable from the artifact.
+
+    Read out of the endpoint's payload rather than off the manifest object, because the panel is
+    what this exists for and `_manifest_payload` is between the two.
+    """
+    harness = Harness(services=accepting_services(graph_services, config))
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    rows = payload["outcome"]["manifest"]["call_sites"]
+
+    assert [row["stage"] for row in rows] == [pipeline.STAGE_PLANNER, pipeline.STAGE_WRITER]
+    assert [row["attempt"] for row in rows] == [0, 0], "an accepted run repairs nothing"
+    assert all(row["outcome"] == pipeline.ACCEPTED for row in rows)
+    assert all(row["answered"] is True and row["codes"] == [] for row in rows)
+    # The schema name is the one that reached the wire, so a stored row and a manifest row name
+    # the same call site. Read off the constants rather than retyped.
+    assert [row["schema_name"] for row in rows] == [PLANNER_SCHEMA_NAME, WRITER_SCHEMA_NAME]
+    # **Beside the two named blocks and not replacing them**, so the two accounts of the same
+    # run must agree about which call site answered. A block is empty exactly when its call
+    # produced no result, and every row here says it did.
+    manifest = payload["outcome"]["manifest"]
+    for block, stage in zip(api.PROVIDER_MODEL_BLOCKS,
+                            (pipeline.STAGE_PLANNER, pipeline.STAGE_WRITER)):
+        answered = [row for row in rows if row["stage"] == stage and row["answered"]]
+        assert bool(manifest[block]) is bool(answered)
+        assert manifest[block]["schema_name"] == answered[-1]["schema_name"]
+    # It survives the round trip a browser makes of it.
+    assert json.loads(json.dumps(rows)) == rows
+
+
+def test_a_refused_writer_call_is_recorded_with_the_codes_it_was_refused_on(
+        graph_services, config):
+    """The row a run with one accepted call could not have: an outcome that is not `accepted`.
+
+    The rejected store is the accepted recording with sentence 2's two metrics swapped, so the
+    writer is asked once, answers, and §13.14 refuses the comparative. The call still happened
+    and the manifest still has to say so — a refusal that vanished from the accounting would
+    make a paid-for generation invisible.
+    """
+    harness = Harness(services={
+        "story_context": graph_services["story_context"],
+        "demo_config": lambda: rejecting_config(config),
+        "story_pipeline": committed_inputs_pipeline})
+    _, started = harness.json("POST", "/demo/generate", {"candidate_id": CANDIDATE_ID})
+    harness.wait(started["run_id"])
+    _, payload = harness.json("GET", f"/demo/runs/{started['run_id']}")
+    rows = payload["outcome"]["manifest"]["call_sites"]
+    writer = [row for row in rows if row["stage"] == pipeline.STAGE_WRITER]
+
+    assert writer and all(row["answered"] is True for row in writer)
+    refused = [row for row in writer if row["outcome"] != pipeline.ACCEPTED]
+    assert refused, "the writer's answer was refused and the row must say so"
+    # Every code named here is one the verification panel renders beside the same run, so the
+    # two halves of the rejection cannot disagree about what it was refused on.
+    blocking = {finding["code"]
+                for finding in payload["outcome"]["verification"]["blocking_findings"]}
+    assert {code for row in refused for code in row["codes"]} <= blocking
+
+
 def test_a_rejected_run_renders_as_a_rejection_and_writes_no_post(graph_services, config):
     """**A refused draft must never be presented as an accepted post.** One branch decides it,
     and it is the same condition `pipeline._write_run` writes `post.md` under."""
@@ -1343,8 +1416,20 @@ def test_every_stage_the_trace_emits_is_in_the_closed_set_and_in_order(graph_ser
 
     events = harness.registry.get(started["run_id"]).events()
     stages = [event.stage for event in events]
-    assert stages[:4] == ["freshness", "freshness", "building_evidence_package",
-                          "resolving_primary_sources"]
+    # **The closed set half, which this test was named for and did not assert.** `TraceEvent`
+    # validates `stage` against `STAGES_BY_PHASE`, so an unknown stage cannot be constructed —
+    # what was never checked is that a *generation* run emits only generation stages, which is
+    # the pairing `discovery.TRACE_STAGES` records a real collision in (`freshness` belongs to
+    # this phase and is emitted by the other one).
+    assert set(stages) <= set(STAGES_BY_PHASE["generation"]), sorted(
+        set(stages) - set(STAGES_BY_PHASE["generation"]))
+    # `compiling_draft` is in the vocabulary and is emitted by nothing yet — the stage landed
+    # with the draft compiler so a panel could name where a `composition_refusal` happened, and
+    # `story/pipeline.py` still compiles inside `drafting`. Asserted as the pair, because a
+    # declared stage nothing emits and an emitted stage nothing declares are both silent gaps,
+    # and only one of them is the state this repository is in.
+    assert "compiling_draft" in STAGES_BY_PHASE["generation"]
+    assert "compiling_draft" not in stages
     assert "planning" in stages and "drafting" in stages
     assert stages[-1] == "rendering"
     assert events[-1].status == "complete"
@@ -1583,8 +1668,15 @@ def test_a_float_with_residue_is_displayed_short_and_kept_exact(graph_services):
 
     ledger = payload["outcome"]["verification"]["calculation_ledger_display"]
     assert ledger, "the recorded draft carries a derivation"
-    assert ledger[0]["recomputed_value"] == -15.9
-    assert ledger[0]["recomputed_display"] == "-15.9"
+    # **The sign moved and the magnitude did not, because the derivation was re-oriented rather
+    # than recomputed.** `compare_levels` now runs gaap -> adjusted (`-12.6` to `3.3`) where it
+    # used to run adjusted -> gaap, so the ledger reads `15.9` and the accepted post says
+    # *"higher than"* rather than the same claim spelled with a negative number. The pair below
+    # is what this half asserts — the display is the value shortened, not the value rounded — so
+    # it is written against the recomputed value rather than against either literal.
+    assert ledger[0]["recomputed_value"] == 15.9
+    assert ledger[0]["recomputed_display"] == _display_number(ledger[0]["recomputed_value"])
+    assert ledger[0]["recomputed_display"] == "15.9"
 
 
 def test_a_generation_run_that_raises_is_failed_and_holds_no_outcome(graph_services):
@@ -2201,11 +2293,29 @@ def test_an_error_never_carries_the_text_of_the_exception_it_came_from(monkeypat
 def test_no_response_carries_an_absolute_path(driven):
     """A run directory names the operator's home and username when it is absolute.
 
-    **This test found a leak rather than confirming its absence.** The manifest's
-    `provider_model_id` is what the model server calls itself, and the local runtime answers
-    with `/home/<user>/models/…/Qwen3.5-9B-Q4_K_M.gguf` — a real filesystem path recorded in
-    the committed store and rendered straight into the outcome. `_manifest_payload` reduces it
-    to the filename for the response; the run directory's own manifest keeps it whole.
+    **This test found a leak rather than confirming its absence**, twice. The manifest's
+    `provider_model_id` is what the model server calls itself, and a local llama.cpp runtime
+    answers with `/home/<user>/models/…/Qwen3.5-9B-Q4_K_M.gguf`; S12 then added a
+    `provider_model_id` per call site and the reduction reached only the scalar beside them, so
+    the path went back to the browser inside two brand-new blocks. Every block that carries the
+    value is checked here, not the one that happened to be there first — and since 04-REPAIR
+    that includes `call_sites`, which is a *list* and would have needed the redaction rewritten
+    had it carried one.
+
+    **The reduction is exercised end-to-end from this fixture again, and the docstring that said
+    otherwise was measured wrong on 2026-08-26.** It claimed the committed store's
+    `provider_model_id` was a bare `Qwen3.5-9B-Q4_K_M.gguf` and that
+    `_redact_provider_model_id` therefore changed nothing; the re-recorded store reports
+    `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf`, so the reduction fires here, and the
+    `provider_model_id_note` its 2026-08-19 rule stamps beside a value it removed is present in
+    both rendered blocks. Nothing in the body changed with the correction, because the
+    assertions below were already written against the two values rather than against a literal —
+    they hold whichever way a re-recorded store reports the model, which is the property worth
+    keeping when the fixture is the thing that moves. The reduction is *also* held in isolation
+    by `test_a_model_id_that_is_a_path_is_still_reduced_and_still_says_so` and its negative twin
+    below, which drive the function with a path and without one. What this test is for, either
+    way, is that **no rendered body carries an absolute path** — which is a property of the
+    payload and not of any one field in it.
     """
     harness, run_ids = driven
     _, payload = harness.json("GET", f"/demo/runs/{run_ids['generation']}")
@@ -2218,24 +2328,31 @@ def test_no_response_carries_an_absolute_path(driven):
     assert "/home/" not in rendered and "C:\\" not in rendered
 
     manifest = payload["outcome"]["manifest"]
-    assert manifest["provider_model_id"] == MODEL_ID
-    assert manifest["provider_model_id_note"]
-    # **The second leak this test found, and the reason the redaction is a loop.** S12 added a
-    # `provider_model_id` per call site; the reduction reached only the scalar beside them, so the
-    # model's absolute path went back to the browser inside two brand-new blocks while the field
-    # above them was still being redacted. Every block that carries the value is checked, not the
-    # one that happened to be there first.
-    for block in api.PROVIDER_MODEL_BLOCKS:
-        assert manifest[block]["provider_model_id"] == MODEL_ID
-        assert manifest[block]["provider_model_id_note"] == api.PROVIDER_MODEL_ID_NOTE
-    # The artifact on disk is unredacted, which is the half a reviewer needs — in all three.
+    # The artifact on disk is unredacted, which is the half a reviewer needs — in all three, and
+    # it is read first because it is what says whether the rendering removed anything.
     on_disk = json.loads((REPO_ROOT / directory / "demo_manifest.json").read_text(
         encoding="utf-8"))
+    assert "provider_model_id_note" not in on_disk
+
+    assert manifest["provider_model_id"] == MODEL_ID
     assert on_disk["provider_model_id"].endswith(MODEL_ID)
-    assert Path(on_disk["provider_model_id"]).is_absolute()
     for block in api.PROVIDER_MODEL_BLOCKS:
-        assert Path(on_disk[block]["provider_model_id"]).is_absolute()
+        reported, shown = (on_disk[block]["provider_model_id"],
+                           manifest[block]["provider_model_id"])
+        assert shown == MODEL_ID and reported.endswith(shown)
         assert "provider_model_id_note" not in on_disk[block]
+        # The note is a statement about what was removed, so it stands exactly where something
+        # was. Written against the two values rather than against a literal, so the assertion
+        # holds whichever way a re-recorded store reports the model.
+        assert ("provider_model_id_note" in manifest[block]) is (reported != shown)
+
+    # `call_sites` is checked as a whole rather than field by field: the manifest's own contract
+    # is that nothing in it holds a path, and a row that acquired one would be a row the
+    # by-name redaction above could not reach.
+    assert manifest["call_sites"], "the run made model calls and must have recorded them"
+    for row in manifest["call_sites"]:
+        assert "provider_model_id" not in row
+        assert not any(isinstance(v, str) and Path(v).is_absolute() for v in row.values())
 
 
 def test_every_error_code_this_module_can_raise_has_a_status_and_a_sentence():

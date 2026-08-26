@@ -134,6 +134,21 @@ generation:
   planner_max_tokens: 2048
   writer_max_tokens: 2048
 
+  # How many times a refused call may be re-asked **with deterministic feedback added to the
+  # prompt**. Never a blind retry: measured across the stored corpus, the local llama.cpp server
+  # returned byte-identical answers to an identical request 4 times in 4, so re-asking an
+  # unchanged prompt cannot change the outcome and only charges twice.
+  #
+  # These live here rather than in code because `story_run_id` does not count generations. Two
+  # runs of one candidate — one repaired, one not — would mint the same id and the same
+  # directory, and finalisation is `os.replace`. `config_hash` is a run-id input, so a bound
+  # written here is a bound the id can see.
+  #
+  # 1 each, deliberately. A bound of one makes repair a straight-line second attempt rather than
+  # a loop, which cannot oscillate and needs no convergence argument.
+  max_planner_repairs: 1
+  max_writer_repairs: 1
+
   # §12's `length_target`, in sentences. **4, and the code default is 5** — measured, not
   # preferred. Six live writer calls against the demo package, one per target, with the
   # planner's answer replayed so only this number moved.

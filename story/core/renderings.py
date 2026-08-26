@@ -23,9 +23,13 @@ independent readers — `period_grammar.resolve`, `MetricAliasIndex`, `numerals.
 writer that imported the verifier would make the two ends one end.
 
 **Imports.** `story.core.models`, `story.core.periods`, `story.core.numerals` and the standard
-library. The third is one constant — `SCALE_MULTIPLIERS`, which `scaled_money` divides by — and
-it is imported rather than restated because the alternative is a second copy of the scale table
-inside the module whose whole purpose is to stop there being two copies of a rendering rule.
+library. From the third: `SCALE_MULTIPLIERS`, which `scaled_money` divides by, and
+`tokenize_numerals`/`compare_token_to_fact`, which `derived_figure` runs its own rounded output
+through before it will emit it. They are imported rather than restated because the alternative
+is a second copy of the scale table — and of §13.1's window — inside the module whose whole
+purpose is to stop there being two copies of a rendering rule. Reading §13.1 here is not the
+same as verifying: the verifier still asks its own question of the finished draft, and this
+module merely refuses to hand it a string it can already see would fail.
 Nothing under `story/stages/` or `story/providers/` may be imported here, and
 `tests/story/test_story_package_structure.py` enforces it.
 """
@@ -43,7 +47,11 @@ from story.core.models import (
     PackagedFact,
     StoryEvidencePackage,
 )
-from story.core.numerals import SCALE_MULTIPLIERS
+from story.core.numerals import (
+    SCALE_MULTIPLIERS,
+    compare_token_to_fact,
+    tokenize_numerals,
+)
 from story.core.periods import StoryPeriod
 
 # ---------------------------------------------------------------------------------------
@@ -278,6 +286,40 @@ SCALE_WORDS: Mapping[str, str] = {"thousands": "thousand", "millions": "million"
 #: million` and refuses everything below it.
 SCALED_MONEY_DECIMALS = 1
 
+#: How many fractional digits a derived figure is **written** to, by unit. Rounding happens here
+#: and nowhere else: `DerivedFact.result` keeps every digit the derivation tool computed, so the
+#: verifier still recomputes against the exact value and the ledger still records it.
+#:
+#: **The bug this closes was measured** *(plan §8, 2026-08-26)*. `{{D2}}` rendered
+#: `80.215827338%`. Nothing in the module chose eleven digits: `derived_figure` printed the raw
+#: float, and the float carries nine decimals because `derivation/operations.round_delta` rounds
+#: to `series.DELTA_PRECISION = 9` — a **comparison** constant, there so `13.2 − 3.3` does not
+#: publish `9.899999999999999`, reused as a **presentation** precision. Nothing caught it either:
+#: `over_precision` compares a draft numeral against the fact's own `quoted_text` and a derived
+#: fact has no printed form because nobody printed it (`deterministic.py:690-695`, explicit), and
+#: it is a warning in any case.
+#:
+#: **Each entry is the precision the corpus writes that unit at**, which is the same kind of
+#: argument `SCALED_MONEY_DECIMALS` is defended by — a rendering exists to be read at a glance:
+#:
+#: * `percent` — 1: the filings print margins as `13.2 %` and `(12.6) %`.
+#: * `percentage_points` — 1: already effectively 1 (`15.9`); the table makes it a rule rather
+#:   than luck, so a subtraction that lands on nine decimals prints like the ones that do not.
+#: * `multiple` — 2: `1.35x`.
+#: * `homes`, `markets` — 0: a count of houses is an integer.
+#: * `USD` — **absent, deliberately.** `scaled_money` already owns money and owns it with a
+#:   stronger guarantee than rounding: it keeps the scaled quotient only where it multiplies
+#:   back exactly, so the number written denotes the same value to the last digit.
+#:
+#: A unit with no row here is printed exactly as it was before, at full float precision.
+DERIVED_PRESENTATION_DECIMALS: Mapping[str, int] = {
+    "percent": 1,
+    "percentage_points": 1,
+    "multiple": 2,
+    "homes": 0,
+    "markets": 0,
+}
+
 
 def observed_figure(fact: PackagedFact) -> str | None:
     """A money reading spelled the way a sentence carries it, or `None` for every other row.
@@ -320,9 +362,13 @@ def derived_figure(fact: DerivedFact, package: StoryEvidencePackage) -> str:
     9B model would write, and the one it wrote instead — `"446000000.0 USD"`, the shape of the
     FACTS rows above it — carries no unit surface at all and is `derived_unit_mismatch`.
 
-    Everything else is printed as Python renders the float. The fallback for a unit with no row
-    in `DERIVED_FIGURE_FORMATS` is the machine spelling with its underscores opened up —
-    writable, and refused by §13.2 rather than silently wrong.
+    **Every other unit is written to `DERIVED_PRESENTATION_DECIMALS`**, and only written to it —
+    `fact.result` keeps its full precision, so the verifier recomputes against the exact value.
+    This is the fix for `80.215827338%` (plan §8): the nine decimals were a comparison constant
+    (`series.DELTA_PRECISION`) leaking into presentation, not a precision anyone chose. The
+    fallback for a unit with no row in `DERIVED_FIGURE_FORMATS` is the machine spelling with its
+    underscores opened up — writable, and refused by §13.2 rather than silently wrong; a unit
+    with no row in `DERIVED_PRESENTATION_DECIMALS` keeps every digit of the float.
 
     Callers with a word-valued row must not reach here: `crossed_zero` and `trend_direction`
     carry `result=None`, and `legal_renderings` returns `()` for them rather than a numeral
@@ -335,7 +381,50 @@ def derived_figure(fact: DerivedFact, package: StoryEvidencePackage) -> str:
             return scaled
     template = DERIVED_FIGURE_FORMATS.get(
         fact.unit, "{value} " + fact.unit.replace("_", " "))
-    return template.format(value=magnitude)
+    rounded = _rounded_figure(template, magnitude, fact)
+    return rounded if rounded is not None else template.format(value=magnitude)
+
+
+def _rounded_figure(template: str, magnitude: float, fact: DerivedFact) -> str | None:
+    """The rendering at this unit's written precision, or `None` where the full float is safer.
+
+    **The rounded string is checked before it is emitted, which is the same defence
+    `scaled_money` mounts.** That function keeps its quotient only where it multiplies back
+    exactly; this one keeps its rounding only where §13.1 — asked here exactly as
+    `deterministic._check_derived_binding` asks it downstream, `compare_token_to_fact` against
+    `fact.result` — still accepts the shortened numeral against the unrounded value.
+
+    The check is not decoration, and the failing case is reachable. §13.1's window is
+    `0.5 × 10^(e − d + 1)` with `e` taken from the **fact**, so rounding to a fixed number of
+    *decimals* only lines up with the window while the value is at least 1. A `percent` result of
+    `0.04` written to one decimal is `0.0`, whose window is `0.005` against a difference of
+    `0.04`: `number_outside_tolerance`, a blocking refusal manufactured by a presentation rule.
+    Below that magnitude the full float is written instead, and it is the shorter claim.
+
+    `None` also for a unit with no policy and for a word-valued row (`result is None`), which
+    reaches here only through a caller that ignored `legal_renderings`.
+    """
+    decimals = DERIVED_PRESENTATION_DECIMALS.get(fact.unit)
+    if decimals is None or fact.result is None:
+        return None
+    try:
+        quantised = Decimal(str(magnitude)).quantize(Decimal(1).scaleb(-decimals))
+    except InvalidOperation:
+        return None  # `nan`, `inf`, or a value too long to quantise: write it as it is
+    # `normalize()` and `:f`, exactly as `scaled_money` finishes: the table is a **maximum**
+    # number of fractional digits, so `2.50x` is written `2.5x` and `8380.0 homes` `8380 homes`.
+    # It also keeps a decade-crossing round writable — `9.95` to one decimal is `10.0`, three
+    # significant figures against a window of `0.005`, and `10` is one figure against `5`.
+    written = f"{quantised.normalize():f}"
+    if written.startswith("-") and quantised == 0:
+        # `-0.0%` carries a minus §13.1 reads as an explicit sign claim, invented by the rounding
+        # rather than present in the value. The unsigned zero makes no claim.
+        written = written[1:]
+    candidate = template.format(value=written)
+    tokens = tokenize_numerals(candidate)
+    if len(tokens) != 1:
+        return None
+    return candidate if compare_token_to_fact(tokens[0], fact.result).accepted else None
 
 
 def _derived_magnitude(fact: DerivedFact) -> float:
@@ -493,6 +582,7 @@ def direction_phrase(derived: DerivedFact) -> str:
 
 __all__ = [
     "DERIVED_FIGURE_FORMATS",
+    "DERIVED_PRESENTATION_DECIMALS",
     "NON_NUMERIC_DERIVED_UNITS",
     "DIRECTIONAL_SEMANTICS",
     "SCALED_MONEY_DECIMALS",

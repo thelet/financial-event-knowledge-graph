@@ -1051,6 +1051,30 @@ def discovery_result(request: Request) -> JsonResponse:
 # ---------------------------------------------------------------------------------------
 
 
+def _rejection_family(disposition: str, pipeline: Any) -> str:
+    """Which catalogue family declares the codes a refused run carries.
+
+    A table rather than a conditional chain, and taking `pipeline` as an argument rather than
+    importing it, for this module's own rule: the endpoint layer names no composition root.
+
+    **The compiler's row was missing and the fall-through was not harmless**
+    (03-WRITER-AND-COMPOSITION-STABILIZATION §10). A `composition_refused` run carries codes
+    from `story/stages/composition/public.py` — `unknown_slot_handle`,
+    `no_evidence_handle_for_bound_fact`, seven more — and the verification family holds none of
+    them, so `_explanations` below found nothing and emitted `{"description": "", "severity": "",
+    "remedy": "", "blocking": false}` for each. The empty sentence was a gap. `blocking: false`
+    was **untrue**: the compiler raised, no draft was built, and the run was refused.
+
+    The default stays `FAMILY_VERIFICATION` because `REJECTED` is the disposition of a draft that
+    existed and was refused by §13, and that is the family §13's codes are in.
+    """
+    return {
+        pipeline.PLAN_REFUSED: code_catalogue.FAMILY_PLANNER,
+        pipeline.DRAFT_REFUSED: code_catalogue.FAMILY_WRITER,
+        pipeline.COMPOSITION_REFUSED: code_catalogue.FAMILY_COMPOSITION,
+    }.get(disposition, code_catalogue.FAMILY_VERIFICATION)
+
+
 def _explanations(codes: Sequence[str], family: str | None = None) -> list[dict[str, Any]]:
     """Every code with the catalogue's sentence, and the bare code when it has none.
 
@@ -2000,11 +2024,7 @@ def _outcome_payload(outcome: Any, *, pipeline: Any, root: Path, live: bool,
     #: to render.
     fault = getattr(outcome, "fault", None)
     if not accepted:
-        family = (code_catalogue.FAMILY_PLANNER
-                  if outcome.disposition == pipeline.PLAN_REFUSED
-                  else code_catalogue.FAMILY_WRITER
-                  if outcome.disposition == pipeline.DRAFT_REFUSED
-                  else code_catalogue.FAMILY_VERIFICATION)
+        family = _rejection_family(outcome.disposition, pipeline)
         # **A verifier rejection does not carry its codes on `refusal_codes`.** `_codes_of`
         # reads §11's and §12's exceptions; §13 does not raise, it returns a `VerifiedDraft`
         # whose codes are on the findings. Reading only `refusal_codes` reported `codes: []`
