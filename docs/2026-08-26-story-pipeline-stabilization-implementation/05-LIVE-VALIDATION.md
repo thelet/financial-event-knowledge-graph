@@ -31,7 +31,7 @@ Six candidates per provider, one run each, all `metric_move`, three distinct met
 | verifier-pass | 3/6 (50%) | 1/5 (20%) |
 | **accepted-post** | **3/6 (50%)** | **1/5 (20%)** |
 | repair-attempt | 3/6 | 4/5 |
-| repair-success | **0** | **0** |
+| repair-success | see §8 — **1 conversion in 10 attempts** across all 16 live runs |  |
 | provider failures | 0 | 0 |
 
 *(The OpenAI run reports five: the harness's sixth candidate was the one excluded in §4.)*
@@ -103,5 +103,22 @@ post types later.
   not several. OpenAI never receives the temperature field at all.
 * Two distinct metrics carry the accepted/rejected split almost entirely; a third was excluded
   for §4's reason. A wider corpus would need more of the graph's candidates promoted.
-* **Repair has not yet earned its cost on this corpus**: it fired seven times and converted
-  nothing. See `03-REPAIR-ROUTING.md` §6.
+* **Repair converts about one attempt in ten.** The first 11 runs showed zero conversions and
+  this file said so; a later batch produced one — a `market_count` draft the verifier refused,
+  repaired once from its own findings, and accepted. See §8 and `03-REPAIR-ROUTING.md` §6.
+
+
+## 8. Correction
+
+The tables in §2 are the six-per-provider batch. A fourth batch of four local runs was made
+after the last source change, as a sanity check, and it changed one published number:
+
+| | §2 batch (11 runs) | all live runs (16) |
+| --- | --- | --- |
+| accepted | 4 | **7** |
+| repair attempts | 7 | **10** |
+| repair conversions | **0** | **1** |
+
+The conversion — `market_count`, `calls: [planner#0, writer#0, writer#1]`, `accepted` — is the
+only evidence in this work that the repair loop closes a run on its own. It is one observation,
+and it is recorded because the "zero conversions" claim had already been written down here.

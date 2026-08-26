@@ -85,15 +85,23 @@ cardinality assumption, and a repair prompt keys its own row automatically.
 
 ## 6. What repair actually did, live
 
-Over 24 live runs across two providers, repair fired on roughly half of the refused ones and
-converted none of them by itself — the accepted runs were accepted on the **first** attempt.
+**16 live runs across two providers: 7 accepted, 9 rejected, 10 repair attempts, 1 conversion.**
 
-That is worth stating plainly rather than dressing up. The reading is that Phases 1–3 removed
-the failures repair was designed for: recovery makes the slot grammar optional, so the
-structural failures that killed both original live runs no longer happen, and what is left is
-prose the model gets wrong in ways one round of feedback does not fix. Repair is bounded, it is
-recorded, it never routes a code-owned defect to a model, and on this corpus it is not yet
-earning its cost.
+The conversion is real and was nearly missed. An earlier reading of 11 runs showed **zero**
+conversions and this section said so; a fourth batch then produced a `market_count` run with
+`calls: [planner#0, writer#0, writer#1]` and `disposition: accepted` — a draft the verifier
+refused, repaired once with its own findings, and accepted. Recorded here because the earlier
+claim was published in this file and was wrong.
+
+So: repair works, and on this corpus it converts about **one attempt in ten**. That is a poor
+return, and the reading is not that repair is broken but that Phases 1–3 removed most of what it
+was designed for. Recovery makes the slot grammar optional, so the structural failures that
+killed both original live runs no longer happen; what remains is prose the model gets wrong in
+ways one round of feedback usually does not fix.
+
+Repair is bounded, every attempt is recorded in `call_sites`, and it never routes a code-owned
+defect to a model. Whether one-in-ten justifies a second model call per refused run is a cost
+decision this measurement now supports making, and did not before.
 
 ## 7. `MissingGenerationError`
 
