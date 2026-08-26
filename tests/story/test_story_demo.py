@@ -23,11 +23,14 @@ failure this file can commit without any test noticing. What the stores still pr
 what the tests below assert: that the committed request digests are the ones this tree builds,
 that a replay is byte-identical, and that the two dispositions differ in one sentence's prose.
 
-| store | rows | disposition | findings |
-| --- | --- | --- | --- |
-| `local_openai_compatible/generations.jsonl` | plan + draft | **`accepted`** | none |
-| `local_openai_compatible/generations_rejected_synthetic.jsonl` | plan + draft | **`rejected`** | `comparative_not_supported_by_text` ×1 |
-| `openai/generations.jsonl` | plan + draft | **`accepted`** | none |
+Two rows each — one `story_editorial_plan`, one `story_post_draft` — and three dispositions
+between them. `ACCEPTED_STORE` and `REJECTED_STORE` below name the two local files.
+
+| store | disposition | blocking findings |
+| --- | --- | --- |
+| local `ACCEPTED_STORE` | **`accepted`** | none |
+| local `REJECTED_STORE` | **`rejected`** | `comparative_not_supported_by_text` |
+| `openai/generations.jsonl` | **`accepted`** | none |
 
 Every row carries `prompt_version: ""`, no token count, no latency and no attempt count —
 `generation_store.py` argues at length that a row holding them could never be byte-identical —
@@ -88,7 +91,7 @@ import json
 import re
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 import pytest
 
@@ -128,7 +131,6 @@ from story.providers.generation_store import (
     StoredGeneration,
 )
 from story.providers.public import PROVIDER_LOCAL, PROVIDER_OPENAI
-from story.stages.derivation.offers import offers
 from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
 from story.stages.generation.prompts import VERIFIED_CHANGE_HEADING
@@ -784,8 +786,9 @@ def test_a_rejected_run_writes_its_artifacts_and_writes_no_post(tmp_path, config
 def test_an_accepted_run_writes_the_post_and_no_rejection(tmp_path, config):
     """The accepted branch: the two files are mutually exclusive.
 
-    Driven by the **accepted local store**. The prose is rendered from the structured draft and never from the model's own text (§12),
-    which is why the post can be asserted to hold a figure the verifier bound — and the second
+    Driven by the **accepted local store**. The prose is rendered from the structured draft and
+    never from the model's own text (§12), which is why the post can be asserted to hold a figure
+    the verifier bound at all — and the second
     assertion is the S13 property on the accepted branch: the one computed figure in the post is
     one **code** produced, bound by its `fact:derived:` id, so no numeral in an accepted post is
     the model's arithmetic.
@@ -859,8 +862,10 @@ ARTIFACTS_OF_THE_ACCEPTED_STORE: dict[str, str] = {
 #: shared and only the writer's answer moves.
 ARTIFACTS_OF_THE_SYNTHETIC_STORES: dict[str, dict[str, str]] = {
     REJECTED_STORE: {
-        "editorial_plan.json": "88029a3ceffd2d681dbd4f5045b4749484748aef8707d77de4ab76e57511064e",
-        "derived_facts.json": "ac0dca2b3d173d0680a51af9b22f25b8316d3a0bd85d57cebbb9cb7e9c823fd7",
+        "editorial_plan.json":
+            "88029a3ceffd2d681dbd4f5045b4749484748aef8707d77de4ab76e57511064e",
+        "derived_facts.json":
+            "ac0dca2b3d173d0680a51af9b22f25b8316d3a0bd85d57cebbb9cb7e9c823fd7",
         "composition.json": "e8f6c4fe5d6396266bef94cfeb4d6b74f8bc52df76c54eab98b9b3c38e5d551b",
         "draft.json": "83bdde21c87a9c8705c16bfd407b91bbd05215d3c0ccc34aacbcd38b02e64ef8",
         "verification_report.json":
@@ -2012,7 +2017,7 @@ def test_a_refused_draft_is_still_a_call_the_manifest_accounts_for(tmp_path, con
     assert outcome.disposition == DRAFT_REFUSED
     # **Three, not two, since the bounded repair landed.** `no_sentences` is the writer's own, so
     # `config.max_writer_repairs` buys one further attempt; the double answers the same way and
-    # the run stops. Every one of the three was a request that came back and every one is counted.
+    # the run stops. All three came back and all three are counted.
     assert manifest["token_totals"]["generation_calls"] == 3
     assert [(row["stage"], row["attempt"]) for row in manifest["call_sites"]] == [
         (STAGE_PLANNER, 0), (STAGE_WRITER, 0), (STAGE_WRITER, 1)]
