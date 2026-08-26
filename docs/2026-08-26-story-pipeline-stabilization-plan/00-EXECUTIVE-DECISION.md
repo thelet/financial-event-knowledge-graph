@@ -1,5 +1,12 @@
 # 00 — Executive decision
 
+> **Implemented 2026-08-26 on `feat/story-pipeline-stabilization`.** What actually landed, what
+> deviated from this plan and why, and what the live runs measured, are in
+> `docs/2026-08-26-story-pipeline-stabilization-implementation/`. **This document is the plan as
+> written and has not been edited to match the outcome** — six decisions here were changed
+> during implementation, and the record of each is `06-DEVIATIONS-AND-REMAINING-WORK.md` §1.
+> Read that file beside this one; do not read this one as a description of the code.
+
 *Stabilization plan for `metric_move`. Architecture and implementation planning only — no code
 changed. Every claim is marked **(verified)** with how it was checked, or **(unverified)**.
 Measured 2026-08-26 against commit `fbac777`.*
