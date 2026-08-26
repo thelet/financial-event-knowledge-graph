@@ -64,7 +64,7 @@ did not move.
 
 | Selection | Result |
 | --- | --- |
-| `pytest tests/ -m "not live and not neo4j"` | **6,753 results, 0 failures** |
+| `pytest tests/ -m "not live and not neo4j"`, on merged `main`, run alone | **6,657 results, 0 failures, exit 0** |
 | `pytest tests/story -m "neo4j"` (against the running `fkg-neo4j` container, read only) | **140 results, 0 failures** |
 
 `test_story_demo.py` — the whole-pipeline integration file — was the last to migrate. Its golden
@@ -79,9 +79,16 @@ being skipped.
 ### One flake, named rather than absorbed
 
 `tests/graph/test_export_determinism.py::test_the_real_run_is_byte_identical_across_two_seeded_processes`
-failed **once**, in a run made while a live validation was competing for the same machine, and
-passed on immediate re-run and in every other run. It projects 28,836 nodes in two subprocesses
-under different `PYTHONHASHSEED`s and compares bytes.
+failed **once**, in a run made while a live validation was competing for the same machine. It
+passed on immediate re-run, and did not recur in the post-merge run made with nothing else on
+the machine. It projects 28,836 nodes in two subprocesses under different `PYTHONHASHSEED`s and
+compares bytes.
+
+A second, larger false alarm is worth recording beside it: one run reported **74** failures
+across `test_story_demo.py`. Two full-suite `pytest` processes were running at once, and the
+whole-pipeline integration tests write and read shared paths under `data/story_demo/`. Run
+alone, the same tree is green. Neither observation is a regression, and both were chased down
+rather than assumed.
 
 `git diff --stat main HEAD -- graph/ normalization/ extraction/ acquisition/ ontology/` is
 **empty** — this branch changes nothing that test exercises. Recorded as a pre-existing flake
