@@ -6,17 +6,22 @@ explorable knowledge graph of companies, products, technologies, executives, fin
 metrics, and business events, where every extracted fact links back to the exact passage
 that supports it.
 
-**Status:** three layers implemented and verified — acquisition, normalization, and the
-executable ontology. Claim extraction is planned and not yet built.
+**Status:** six layers implemented and verified — acquisition, normalization, the executable
+ontology, claim extraction, the graph projection, and the story agent that writes an investor
+post from the graph and refuses to publish one it cannot verify.
 
 | Layer | State |
 | --- | --- |
 | `acquisition/` | 109 filings, 2,019 artifacts, 739.6 MiB |
 | `normalization/` | 294 documents, 12,442 passages (1,935 table), catalogs and reports |
 | `ontology/` | `real_estate_marketplace_v1`, `definition_hash e8d4af709be2…`, 26 metrics |
-| extraction | **planned only** — see the plan below |
+| `extraction/` | `extract-v1-lexical-833f7bcfbce9` — 2,704 observations, 2,714 claims, 6 events from 11,848 candidates |
+| `graph/` | `graph-v1-0483dc6b4b10` — 28,836 nodes, 35,600 edges, loaded into Neo4j |
+| `story/` | detectors, bounded evidence packages, planner, code-owned derivation, writer, a 12-check deterministic verifier, and a local demo UI |
 
-`pytest -m "not live"` runs 717 tests offline.
+`pytest -m "not live and not neo4j"` runs **6,175 tests** offline *(measured 2026-08-23)*. The
+`neo4j` marker is separate from `live` on purpose — the database is local and free, so
+deselecting it means "no container running", not "no network and no cost".
 
 ## Documents
 
@@ -37,7 +42,13 @@ executable ontology. Claim extraction is planned and not yet built.
 | [plans/normalization/V1_DOCUMENT_NORMALIZATION.md](plans/normalization/V1_DOCUMENT_NORMALIZATION.md) | Implemented — 294 documents, 12,442 passages. §16b records an encoding defect the first run shipped, and its correction |
 | [plans/ontology/OPENDOOR_CONCEPT_AND_METRIC_RESEARCH.md](plans/ontology/OPENDOOR_CONCEPT_AND_METRIC_RESEARCH.md) | Complete — concept and metric research behind the first ontology |
 | [plans/ontology/ONTOLOGY_V1_IMPLEMENTATION.md](plans/ontology/ONTOLOGY_V1_IMPLEMENTATION.md) | Implemented — `real_estate_marketplace_v1`, 24 fixtures behaving as declared |
-| [plans/extraction/V1_CLAIM_EXTRACTION.md](plans/extraction/V1_CLAIM_EXTRACTION.md) | **Planned, not implemented** — candidate selection, table and narrative lanes, ontology validation |
+| [plans/extraction/V1_CLAIM_EXTRACTION.md](plans/extraction/V1_CLAIM_EXTRACTION.md) | Implemented — candidate selection, table and narrative lanes, ontology validation |
+| [plans/graph/V1_GRAPH_PROTOTYPE.md](plans/graph/V1_GRAPH_PROTOTYPE.md) | Implemented — deterministic projection, Neo4j load, 27 verification checks |
+| [plans/llm-agent/V1_STORY_AGENT.md](plans/llm-agent/V1_STORY_AGENT.md) | Implemented — detectors, evidence packages, planner, writer, deterministic verifier |
+| [plans/llm-agent/INTERACTIVE_DEMO_UI.md](plans/llm-agent/INTERACTIVE_DEMO_UI.md) | Implemented — a loopback-only demo UI over the story pipeline |
+| [plans/llm-agent/MULTI_PROVIDER_OPENAI.md](plans/llm-agent/MULTI_PROVIDER_OPENAI.md) | Implemented — a second model provider beside the local one, selectable per run |
+| [plans/llm-agent/DETERMINISTIC_FACT_TOOLS.md](plans/llm-agent/DETERMINISTIC_FACT_TOOLS.md) | Implemented — code computes every derived quantity; the model only words it |
+| [docs/2026-08-18-live-extraction-implementation-plan](docs/2026-08-18-live-extraction-implementation-plan/IMPLEMENTATION-PLAN.md) | **Planned, not implemented** — a live model path for the extraction lane |
 
 ## Anchor company
 
@@ -53,7 +64,8 @@ anchor was chosen. Doc 04 §7 records the required revision to `real_estate_mark
 ```text
 Documents → acquisition → canonical normalized passages → extraction
     → entity resolution → graph mutations → graph repository
-        → visual exploration (later: Q&A and investor posts)
+        → visual exploration → detectors → bounded evidence package
+            → planner → deterministic derivation → writer → verifier → post
 ```
 
 ## Architectural rule
@@ -64,10 +76,14 @@ and the component contracts — not any particular provider, framework, or datab
 
 ## Next step
 
-Claim extraction. The plan is
-[plans/extraction/V1_CLAIM_EXTRACTION.md](plans/extraction/V1_CLAIM_EXTRACTION.md); the
-first build step is a manually reviewed extraction benchmark, then the deterministic table
-lane.
+A live model path for the **extraction** lane. The story layer can call a model; extraction
+cannot — `extraction/context.py` hard-codes `inner=None`, so a store miss is recorded as
+`NOT_ATTEMPTED` rather than sent anywhere, and `python -m extraction run` has no `--live` flag.
+The audit is
+[docs/2026-08-18-extraction-model-path-audit](docs/2026-08-18-extraction-model-path-audit/EXTRACTION-MODEL-PATH-AUDIT.md)
+and the plan is
+[docs/2026-08-18-live-extraction-implementation-plan](docs/2026-08-18-live-extraction-implementation-plan/IMPLEMENTATION-PLAN.md);
+both were re-verified on 2026-08-23 and neither has been started.
 
 ## Acquisition (v0)
 
@@ -142,3 +158,78 @@ ontology.validate_claim(claim)        # -> ValidationResult
 26 metrics, of which 20 are sourceable from the normalized narrative and table lanes; the
 other six name XBRL as their first source lane and wait on an XBRL lane that does not exist
 yet. See `V1_CLAIM_EXTRACTION.md` §3.
+
+## Extraction (v1)
+
+Turns normalized passages into ontology-validated claims, with every claim carrying the passage
+that supports it. Two lanes: a deterministic table lane, and a model-assisted narrative/event
+lane.
+
+```bash
+python -m extraction run                # -> data/extraction_runs/<run_id>/
+python -m extraction runs               # list runs
+python -m extraction inspect <run_id>   # counts, issues, manifest
+python -m extraction report <run_id>    # -> markdown reports
+python -m extraction verify             # via `graph verify` on the projection
+```
+
+Current run `extract-v1-lexical-833f7bcfbce9`: **2,704 observations, 2,714 claims, 6 events**
+from 11,848 candidates, with 17,130 recorded issues. 2,690 of the 2,704 observations came from
+the deterministic table lane.
+
+**The run made zero provider calls.** The narrative and event lanes ran replay-only against a
+cached answer store — not because the answers were cached by choice, but because the lane has no
+code path to a model at all. That is the gap the "Next step" section names.
+
+## Graph (v1)
+
+A deterministic projection from an extraction run into nodes and edges, then a load into Neo4j.
+The projection is a **pure function returning a value**, so byte-identity between two runs is
+checkable rather than asserted.
+
+```bash
+python -m graph project <extraction_run_id>   # -> data/graph_runs/<graph_run_id>/
+python -m graph load <graph_run_id>           # into the local Neo4j
+python -m graph verify <graph_run_id>         # 27 checks
+```
+
+Current run `graph-v1-0483dc6b4b10`: **28,836 nodes, 35,600 edges**. Roughly 59% of the nodes
+are recorded silence — `:Issue` and `:NotAttempted` — which is deliberate: a candidate that
+produced no claim is a fact about the corpus and is kept.
+
+Neo4j runs in Docker; see [docs/05_LOCAL_NEO4J_ENVIRONMENT.md](docs/05_LOCAL_NEO4J_ENVIRONMENT.md).
+
+## Story agent (v1)
+
+Reads the graph, finds a candidate story, packages a bounded slice of evidence, and asks a model
+to plan and write an investor post — then refuses to publish one it cannot verify.
+
+```bash
+python -m story demo --candidate-id <ID>              # replay a recorded run
+python -m story demo --candidate-id <ID> --live       # call a model
+python -m story demo --candidate-id <ID> --live --provider openai --model gpt-5.4
+python -m story ui                                    # loopback-only demo UI on :8765
+```
+
+The rule the whole layer is built around: **code chooses the facts, the model chooses only the
+words.** Concretely —
+
+- the model sees one bounded evidence package and has no retriever, no tools and no database;
+- every derived quantity is computed by `story/stages/derivation/` from two package facts and
+  bound by id; the writer declares no arithmetic of its own;
+- a 12-check deterministic verifier with a closed 102-code gate table is the final authority,
+  and a draft that fails it produces a recorded rejection rather than a post;
+- two providers are selectable per run — a local llama.cpp server and the OpenAI Responses API
+  — and which one answered is part of the run's identity, so two otherwise identical runs cannot
+  collide.
+
+`OPENAI_API_KEY` is read from the gitignored `.env` or the environment, never from a tracked
+file and never sent to the browser.
+
+
+ui run- 
+python -m story ui
+
+llama server-
+ ~/llama.cpp/build/bin/llama-server -m ~/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf -ngl 99 -c 8192 --host 127.0.0.1 --port 8080      
+  --jinja -fa on --cache-type-k q8_0 --cache-type-v q8_0 > /tmp/llama.log 2>&1 &
