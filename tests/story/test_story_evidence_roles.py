@@ -24,6 +24,9 @@ silently.
 
 from __future__ import annotations
 
+import inspect
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -31,7 +34,6 @@ from story.core.keys import package_content_digest
 from story.core.models import (
     PACKAGE_VERSION,
     BudgetParameters,
-    CausalLanguage,
     ComparabilityFact,
     EvidenceRole,
     FactKind,
@@ -45,6 +47,7 @@ from story.core.models import (
     SemanticFact,
     UnusableReason,
 )
+from story.providers import validate_portable_schema
 from story.stages.generation.prompts import planner_prompt, planner_schema, writer_prompt
 from story.stages.packaging import counter_evidence as counter
 from story.stages.packaging import ontology_facts
@@ -89,20 +92,51 @@ def test_the_passage_quality_reasons_are_the_four_S2_will_decide():
         "insufficient_content"]
 
 
-def test_the_planner_reason_vocabulary_did_not_widen_by_one_member():
+def test_no_passage_quality_reason_reaches_the_planners_grammar():
     """**Why `PassageUnusableReason` is separate from `UnusableReason`.**
 
-    `UnusableReason`'s members are editorial dispositions the *model* declares (§11 point 2) and
-    they reach it as an `enum` in §15.3's portable schema. The four content reasons are decided
-    by code before any model runs. Extending the existing enum would have handed the planner
-    `corrupted_extraction` as a judgement it has no way to establish — so the test is over the
-    schema the server is actually constrained by, not over the enum's own members.
-    """
-    schema = planner_schema(causal_language=CausalLanguage.FORBIDDEN)
-    offered = schema["properties"]["unusable_evidence"]["items"]["properties"]["reason"]["enum"]
+    The four content reasons are decided by code before any model runs, so handing the planner
+    `corrupted_extraction` would be asking it for a judgement it has no way to establish. The
+    test is over the schema the server is actually constrained by, not over the enum's members.
 
-    assert offered == [member.value for member in UnusableReason]
-    assert not set(offered) & {reason.value for reason in PassageUnusableReason}
+    **The surface it used to read is gone, and the claim got stronger rather than weaker.** Until
+    2.0.0 this read `unusable_evidence[].reason`'s `enum` and asserted it was `UnusableReason`
+    exactly. 2.0.0 dropped `unusable_evidence` from the schema altogether — `counterpoint_facts`
+    says which counter-evidence items a plan used, so the unused remainder is code's arithmetic
+    and not a field for the model to fill — which removed the only `enum` the planner schema ever
+    carried. So the assertion is now that *neither* vocabulary reaches the wire, over the whole
+    rendered schema rather than over one property of it. The separation the plan argued for is
+    still what is being held: a code-side content reason must never arrive as a model's grammar.
+    """
+    rendered = json.dumps(planner_schema())
+
+    assert "unusable_evidence" not in rendered
+    assert [r.value for r in PassageUnusableReason if r.value in rendered] == []
+    assert [r.value for r in UnusableReason if r.value in rendered] == []
+
+
+def test_the_planner_schema_is_portable_and_takes_no_argument():
+    """§15.3's portable subset, and a signature that cannot carry a decision code already made.
+
+    `planner_schema(causal_language=...)` used to interpolate a one-member enum the planner could
+    not influence and `plan_story` re-stamped `causal_language_for(package)` over the answer
+    regardless — so the parameter shaped a grammar around a field the model could not change.
+    Taking no argument is the correction stated as a signature: there is nowhere left to put one.
+
+    Portability is asserted through `validate_portable_schema`, which is the same check
+    `plan_story` runs before it hands the schema to a provider, so this is the constraint the
+    server is under and not a restatement of it.
+    """
+    assert inspect.signature(planner_schema).parameters == {}
+
+    schema = planner_schema()
+    validate_portable_schema(schema)  # raises if a keyword outside §15.3's subset appears
+    assert schema["required"] == ["thesis", "why_it_matters", "uncertainty", "key_points",
+                                  "counterpoint", "counterpoint_facts"]
+    assert set(schema["properties"]["key_points"]["items"]["required"]) == {"claim", "facts"}
+    # Built fresh per call: the returned mapping reaches a provider that copies it into a request
+    # body, and a shared nested dict is one mutation away from re-keying every stored generation.
+    assert planner_schema() is not schema
 
 
 # ---------------------------------------------------------------------------------------

@@ -741,9 +741,17 @@ def run_demo(
 
     #: The rows the planner names handles from and the writer writes slots from. Built once,
     #: here, and handed to both — a table built twice is a table that can disagree with the one
-    #: the model was shown. **No passage rows**: `rests_on` left the writer's contract, so a
-    #: passage no sentence can name is a row no prompt should print.
-    slots = slot_table(package, derived, ())
+    #: the model was shown.
+    #:
+    #: **Passage rows are in it even though no sentence can name one.** `rests_on` left the
+    #: writer's contract, so a `P` handle reaches no draft; but a *plan* grounds a counterpoint
+    #: by naming a handle, and `plan_violations` requires that grounding to be drawn from
+    #: `counter_evidence` — a passage. Building the table without them made a package carrying
+    #: counter-evidence unplannable: every counterpoint earned `counterpoint_ungrounded` and
+    #: every empty one earned `counterpoint_missing`, with no third answer. The writer omits the
+    #: passage *section* on its own grounds (its schema has nowhere to put one), which is a
+    #: different question from whether the row exists.
+    slots = slot_table(package, derived, passages_backing_facts(package))
 
     #: One row per model call, in call order: which stage asked, which attempt it was, and what
     #: came back. The manifest's two named provenance blocks could say *"the writer call"* when

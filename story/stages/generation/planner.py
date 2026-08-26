@@ -584,6 +584,8 @@ def _resolved_facts(
     rows: Mapping[str, Any],
     package: StoryEvidencePackage,
     inputs_of: Mapping[str, tuple[str, ...]],
+    *,
+    passages_ground: bool = False,
 ) -> tuple[tuple[str, ...], tuple[str, ...], StatementClass, tuple[str, ...]]:
     """One point's handles as `(fact ids, passage ids, statement class, unknown handles)`.
 
@@ -606,6 +608,7 @@ def _resolved_facts(
     """
     passage_of = {fact.observation_id: fact.passage_id for fact in package.facts}
     fact_ids: list[str] = []
+    passages_named: list[str] = []
     unknown: list[str] = []
     derived_named = False
     for handle in handles:
@@ -617,12 +620,25 @@ def _resolved_facts(
             derived_named = True
             fact_ids.extend(inputs_of.get(row.fact_id, ()))
         elif row.kind == PASSAGE_ROW:
-            unknown.append(str(handle))
+            # **A passage grounds a counterpoint and never a key point**, which is `passages_ground`
+            # and is not a convenience. §11 requires a counterpoint to rest on something drawn
+            # from `counter_evidence`, and counter-evidence is typed as *passages* — a package
+            # whose counter passage backs no packaged fact cannot be answered with a fact handle
+            # at all, and building the table without `P` rows made such a package unplannable:
+            # every counterpoint earned `counterpoint_ungrounded` and every empty one earned
+            # `counterpoint_missing`, with no third answer. A key point is the opposite case: it
+            # states a figure, so a passage where a fact belongs is the model naming the wrong
+            # kind of thing and is refused as one.
+            if passages_ground:
+                passages_named.append(row.fact_id)
+            else:
+                unknown.append(str(handle))
         else:
             fact_ids.append(row.fact_id)
     ordered = tuple(dict.fromkeys(fact_ids))
     passages = tuple(dict.fromkeys(
-        passage for passage in (passage_of.get(fact_id) for fact_id in ordered) if passage))
+        [passage for passage in (passage_of.get(fact_id) for fact_id in ordered) if passage]
+        + passages_named))
     kind = StatementClass.CALCULATED if derived_named else StatementClass.REPORTED
     return ordered, passages, kind, tuple(unknown)
 
@@ -690,7 +706,8 @@ def editorial_plan_from(
         counter_claim = str(content.get("counterpoint") or "").strip()
         if counter_claim:
             fact_ids, passages, _kind, missing = _resolved_facts(
-                tuple(content.get("counterpoint_facts") or ()), rows, package, inputs_of)
+                tuple(content.get("counterpoint_facts") or ()), rows, package, inputs_of,
+                passages_ground=True)
             unknown.extend(missing)
             counterpoints.append(Counterpoint(
                 claim=counter_claim,

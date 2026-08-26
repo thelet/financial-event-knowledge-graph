@@ -1,29 +1,28 @@
-"""The second model call: an accepted plan in, sentence templates out. Never prose alone.
+"""The second model call: an accepted plan in, the sentences the model wrote out.
 
-Responsibility: assemble the writer's slice of one package **by code**, build one request, read
-one answer, and refuse the answer if it names a passage handle the run does not hold, writes a
-brace the slot grammar cannot read, or rests on nothing the plan asked for. **No graph, no
-retrieval, no tools, no verifier, and no draft compiler.** This module has a
-`StoryGenerationProvider`, a `StoryEvidencePackage`, an `EditorialPlan` and a slot table it was
-handed, and nothing else — the structural half of that claim is asserted by
+Responsibility: assemble the writer's request from one package **by code**, build it, read one
+answer, and refuse an answer nothing can be built from. **No graph, no retrieval, no tools, no
+verifier, and no draft compiler.** This module has a `StoryGenerationProvider`, a
+`StoryEvidencePackage`, an `EditorialPlan` and a slot table it was handed, and nothing else —
+the structural half of that claim is asserted by
 `tests/story/test_story_writer.py::test_the_writer_module_reaches_no_graph_no_retrieval_and_no_verifier`,
 which reads this file's imports rather than trusting this paragraph.
 
-**What this stage returns changed at S4 of
-`docs/2026-08-23-deterministic-draft-compiler/`.** It used to return a `Draft` with every
-`FactBinding` and every `PassageCitation` already resolved. It now returns
-`tuple[SentenceTemplate, ...]` — the sentences with their slots unfilled — and
-`story/stages/composition/compile.py` turns those into the same `Draft` type the verifier has
-always consumed, inserting every figure from a trusted row and recording the span it wrote into.
-The model no longer declares a rendering, a metric surface, a period surface or a citation,
-because there is no field left in its schema for any of them.
+**What this stage returns changed twice, and the second change is why so little is left here.**
+Through 2.2.0 it returned a `Draft` with every `FactBinding` and every `PassageCitation` already
+resolved. At 3.0.0 it returned `tuple[SentenceTemplate, ...]` — sentences with their slots
+unfilled. At 4.0.0 it returns `tuple[str, ...]`: the model writes `text` and nothing else, so
+there is no `kind` to validate against an enum and no `rests_on` to check against a slot table.
+Building a `SentenceTemplate` needs a derived `kind`, the derivation reads the rows a sentence
+names, and that is `story/stages/composition/`'s question — a stage this one may not import. So
+the strings go to the composition root and it hands them on.
 
-**§10.2.1 point 3 is the reason this module exists in the shape it does.** The writer's passage
-set is derived from *fact bindings* by code — `writer_passages` — and never from the plan's
-`required_citation_passage_ids`, which are model output. The first draft of §10 said "give the
-writer the plan plus the passages the plan cites", and that would have let one model filter the
-next model's universe (§0c item 11). `writer_passages(package)` takes no plan argument at all,
-which is that correction stated as a signature rather than as a promise.
+**§10.2.1 point 3 is still the reason `writer_passages` exists, and it is no longer called on
+the request path.** The writer's passage set was derived from *fact bindings* by code and never
+from the plan's `required_citation_passage_ids`, so that one model could not filter the next
+model's universe. 4.0.0 has no field that could name a passage, so the section is not printed at
+all; the function stays because the slice is still the honest answer to *"what may this writer
+cite?"* and a caller reconstructing it from the plan would reintroduce exactly that fault.
 
 **Which refusals live here now, and which moved.** §12's question is *"may this answer be built
 from at all"*; the compiler's is *"what does this template mean"*. The split is by subject and
@@ -31,57 +30,29 @@ not by convenience.
 
 Here, over the model's answer:
 
-1. the answer has at least one sentence (`no_sentences`);
-2. every sentence's `kind` is a `SentenceKind` and its `rests_on` is a list of strings
-   (`draft_not_constructible`) — §15.3 has an `enum` for the first and nothing for the second;
-3. no sentence carries a brace the slot grammar cannot read (`malformed_slot`);
-4. only an `explanatory` sentence rests on a passage (`rests_on_without_explanatory_sentence`),
-   and every handle it rests on is a **passage** handle of this run's slot table
-   (`rests_on_not_a_passage_handle`);
-5. the templates rest on the plan: they name at least one row the plan's key points named
-   (`thesis_abandoned`). A draft that shares no fact with the plan it was given is a different
-   story, which is §12's *"the writer must not change the thesis"* in the only form the contract
-   can express — there is no `thesis` field on a template to compare.
+1. the plan and the package are about the same candidate (`plan_names_another_package`), checked
+   **before** a request is built, so a wrong answer is never recorded under a legitimate-looking
+   request;
+2. the answer has at least one sentence (`no_sentences`);
+3. every sentence's `text` is a string (`draft_not_constructible`) — the schema re-check at the
+   grain §15.3's six keywords cannot express, reachable because a replaying provider hands back
+   whatever was recorded under an older grammar.
 
-There, over what a template *means*: an unknown handle, an unknown field, a field the row does
-not offer, a field slot with no value slot beside it, a row with no legal rendering, a bound fact
-with no evidence handle. Those are R3, R4 and R6 of the architecture document, they need the slot
-table's `offers` to answer, and a weaker copy of them here would be exactly the second authority
-`story/stages/composition/` exists to remove.
+And `thesis_violations`, which is public and is **not** called from here: it reads the slot
+handles a draft names, and under 4.0.0 a model writing plain prose names none until
+`story/stages/composition/recovery.py` has put one there. The composition root calls it on the
+normalized text. Running it on the raw answer is what refused `story-v1-1daff167348f`, whose
+every figure was correct.
 
-**The two spans this module used to compute are both gone, and each was a real contract.** A
-binding used to declare `rendered`, a substring of the model's own sentence, and this module
-located it — refusing a substring occurring twice rather than choosing between the occurrences.
-A citation used to declare an `evidence_id`, and this module resolved the cell behind it through
-`story.core.table_cells`. That second contract replaced a worse one: the model used to retype a
-`quote`, which was **unsatisfiable for a fifth of the corpus** — `EVIDENCED_BY.quoted_text` is a
-bare cell value of median 4 characters occurring more than once in its own passage for **523 of
-2,704** observations *(verified live 2026-08-13)*. Both survive below in `draft_from`, unused by
-this path; on the S4 path the compiler writes the span because it did the substitution (R2) and
-mints the citation from the row's own `evidence_handles` (R5), so the model is asked for neither.
+Everything else moved to the compiler, which is the one stage that has to read a template:
+`template_not_compilable` for a brace the grammar cannot read, `rests_on_without_explanatory_kind`
+and `passage_handle_unknown` for the route 4.0.0 closed. The three constants this module still
+declares for that route — `MALFORMED_SLOT`, `RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE`,
+`RESTS_ON_NOT_A_PASSAGE_HANDLE` — are unreachable from a 4.0.0 answer and stay declared, because
+a stored `rejected.json` names them and the demo UI must still explain what it is rendering.
 
-**`derived_facts` and `slots` are both sequences this stage is handed rather than anything it
-computes, for two different reasons.** §3 forbids a derived fact from entering
-`StoryEvidencePackage.facts` — that would put a model's selection inside
-`package_content_digest`, a `story_run_id` input — so there is nothing here to recompute one
-from. The slot rows are `story.stages.composition.slot_table`'s, and this stage may not import
-that module at all; `story/pipeline.py` is the composition root and hands the same rows to this
-call and to `compile_draft`, so the prompt prints exactly what the compiler will fill from.
-Both default to empty, which is the safe direction in both cases: a caller that ran no derivation
-stage writes a post with no derived figure in it, and a caller that built no slot table earns
-`thesis_abandoned` rather than a post built from handles nothing knows.
-
-**What this module deliberately does not check.** Percentage-point surfaces, causal language,
-superlatives, period grammar, metric ambiguity, calculation recomputation, required warnings and
-counterpoint survival are all §13's, and `story.stages.verification` is not a surface this stage
-may import (`test_no_stage_imports_another_stage`). Re-implementing a weaker copy of a §13 check
-here would create a second authority that could disagree with the first; the prompt tells the
-writer what §13 will refuse, and the verifier decides. `tests/story/test_story_writer.py` runs
-D5's `DeterministicVerifier` over this module's output end to end, which is where that division
-is shown to work rather than asserted.
-
-**A schema violation is the model's answer and is never retried**, exactly as at the planner —
-and `DraftRejected` is not a provider error, because nothing is wrong with the server.
+`draft_from` and `draft_violations` below are the pre-3.0.0 reader, called by nothing on this
+path and kept for the 50 recorded `data/story_demo/*/draft.json` artifacts.
 """
 
 from __future__ import annotations
@@ -934,15 +905,18 @@ def write_story(
                 f"plan names {plan.candidate_id} / {plan.package_id}; the package is "
                 f"{package.candidate_id} / {package.package_id}"),))
 
-    # **The slice is printed only when the slot table offers a passage row to name it with.**
-    # A passage reaches the prompt so that an `explanatory` sentence can rest on it; where the
-    # table has no `P` row, no sentence can, and printing the passages anyway costs what it was
-    # measured to cost — for the demo `metric_move` candidate the section is 5,924 of the
-    # prompt's 11,179 characters and prints 182 numerals, **none** of which is a figure the
-    # model is allowed to write. The rows are the one authority on what is nameable, so the
-    # question is asked of them rather than of a flag this stage would have to be told.
-    passages = (writer_passages(package)
-                if any(getattr(row, "kind", "") == PASSAGE_ROW for row in slots) else ())
+    # **The slice is not printed at all, because the 4.0.0 grammar has no field that could name
+    # it.** A passage reached the writer's prompt so that an `explanatory` sentence could rest on
+    # one; `rests_on` left the schema with the route it served, so a passage here is text the
+    # model can read and nothing it can cite. What that costs was measured: for the demo
+    # `metric_move` candidate the section is 5,924 of the prompt's 11,179 characters and prints
+    # **182 numerals, none of which is a figure the model is allowed to write.**
+    #
+    # The question is asked of the *schema* rather than of the slot table, and the difference
+    # matters: the table still carries `P` rows, because a plan grounds a counterpoint by naming
+    # one. Reading the absence of a route off the absence of a row would have coupled two things
+    # that are not the same.
+    passages: tuple[PackagedPassage, ...] = ()
     schema = writer_schema()
     # The real provider refuses a non-portable schema when it builds the request body; the
     # replaying one never builds a body at all. Refusing here makes §15.3's guarantee a property

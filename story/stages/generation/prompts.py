@@ -442,6 +442,32 @@ def _spine_lines(
     return lines
 
 
+TITLE_PERIODS_HEADING = (
+    "TITLE PERIODS (the only numeral a title may carry, spelled exactly like this)")
+
+
+def _title_period_lines(package: StoryEvidencePackage) -> list[str]:
+    """The period keys this package's own facts carry, which is what §13.15 licenses in a title.
+
+    **Printed rather than described, and finding out why is what this section is for.** Rule 12
+    used to say *"the compact form the candidate id uses (2022Q3)"* and left the model to derive
+    it. `claims.check_title` licenses a numeral only inside an exact occurrence of a period key
+    **the package carries** — and half the corpus's `metric_move` candidates are instant-dated,
+    so their keys are `2025-06-30`, not `2025Q2`. Measured live 2026-08-26 against three of
+    them: Qwen followed the rule, wrote *"Opendoor 2025Q2"*, and earned `unbound_numeral` twice
+    over — on `2025` and on `2` — for a title the rule had asked for. The instruction was
+    unsatisfiable and the model was refused for obeying it.
+
+    So the admissible strings are printed, the way every other legal string in this prompt is.
+    A package whose facts carry no period key at all prints the line that says so, and rule 12's
+    *"may"* then means no numeral at all.
+    """
+    keys = sorted({fact.period_key for fact in package.facts if fact.period_key})
+    if not keys:
+        return ["  (none — this title may carry no numeral at all)"]
+    return [f"  {key}" for key in keys]
+
+
 def _feedback_lines(feedback: str) -> list[str]:
     """A previous attempt's refusal, appended as its own section, or nothing at all.
 
@@ -993,9 +1019,10 @@ no index, no "the market", no "the industry", no "peers".
 11. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists, and \
 write every counterpoint the plan lists, resting on the same rows the plan names.
 12. The title carries no figure and states no claim of its own: no superlative, no comparison, \
-no cause. It may name the period the post is about, written in the compact form the candidate \
-id uses (2022Q3), and that is the only numeral a title may hold. Inside a sentence a period is \
-written the way its row prints it and never in the compact form.
+no cause. It may name the period the post is about, and the only spelling it may use is one of \
+the tokens printed under TITLE PERIODS below - that is the only numeral a title may hold. \
+Inside a sentence a period is written the way its row prints it and never as one of those \
+tokens.
 13. COMPANY IDENTITY, METRIC SEMANTICS, COMPARISON RULES and EVIDENCE SCOPE carry no figure and \
 are not evidence. The first three are definitions - what the subject is, what each figure \
 means, which figures may be set against which - and where a line says NOT AVAILABLE the corpus \
@@ -1300,6 +1327,8 @@ def writer_prompt(
                       "is a passage a fact above was read from. Read them; write no text out "
                       "of them, and name one only in rests_on, by its handle)"]
         lines.extend(_writer_passage_lines(passages, by_fact_id))
+    lines += ["", TITLE_PERIODS_HEADING]
+    lines.extend(_title_period_lines(package))
     lines += ["", f"LENGTH  about {length_target} sentences."]
     lines.extend(_feedback_lines(feedback))
     return "\n".join(lines)

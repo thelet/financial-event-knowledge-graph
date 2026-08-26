@@ -19,6 +19,14 @@ module produced from a fake generation, judged by S9's `DeterministicVerifier` w
 all. It is the first place the two halves of the pipeline meet, and the division of labour it
 demonstrates is asserted from both sides: everything §13 owns is shown *refusing* a writer draft
 in the tests above it, and none of those refusals is re-implemented in `writer.py`.
+
+**At `WRITER_PROMPT_VERSION` 4.0.0 this stage returns plain strings.** `kind` and `rests_on`
+left the model's grammar, `SentenceTemplate` and `templates_from` left this module, and
+`story/stages/composition/` owns normalization, `kind` derivation and every template refusal.
+So the compiled `Draft` every test below judges is built the way `story/pipeline.py` builds it —
+`write_story` → `normalize_templates` → `compile_draft` — through `compiled_of`. What that
+middle pass *does* is `tests/story/test_story_composition_recovery.py`'s subject and is
+deliberately not re-asserted here; what is asserted here is the seam.
 """
 
 from __future__ import annotations
@@ -1341,22 +1349,27 @@ def test_the_prompt_omits_the_passages_section_when_no_row_can_name_one():
     assert "3,394" in with_rows and "3,394" not in without
 
 
-def test_write_story_asks_the_rows_whether_to_print_a_passage_at_all():
-    """The same rule at the stage rather than at the printer: `write_story` derives its own
-    passage slice, and it derives an **empty** one where the table offers no `P` row.
+def test_write_story_prints_no_passage_section_because_the_schema_cannot_name_one() -> None:
+    """The 4.0.0 grammar has no `rests_on`, so a passage is text the model can read and nothing
+    it can cite — and the section is 5,924 of the demo candidate's 11,179 prompt characters,
+    printing 182 numerals of which **none** is a figure the model may write.
 
-    Asked of the rows because they are the one authority on what is nameable — a flag this stage
-    had to be told would be a second answer that could disagree with the table the compiler
-    fills from.
+    **Asked of the schema and not of the slot table**, and the difference is load-bearing: the
+    table still carries `P` rows, because a plan grounds a counterpoint by naming one. Reading
+    the absence of a route off the absence of a row coupled two things that are not the same,
+    and made a package carrying counter-evidence unplannable.
     """
+    package, plan = make_package(), make_plan()
     provider = FakeWriteProvider()
-    write_with(provider)
-    assert "PASSAGES (" not in provider.calls[0]["prompt"]
+    # The table carries a `P` row and the prompt still prints no passage section.
+    write_story(package, plan, provider=provider, slots=rows_with_passages(package),
+                length_target=5, max_tokens=64)
 
-    package = make_package()
-    with_rows = FakeWriteProvider()
-    write_with(with_rows, package, slots=rows_with_passages(package))
-    assert "PASSAGES (1 whole passage" in with_rows.calls[0]["prompt"]
+    prompt = provider.calls[0]["prompt"]
+    assert "PASSAGES" not in prompt
+    assert PASSAGE_TEXT.strip() not in prompt.replace("\n      ", "\n")
+    # And the schema is why: there is no field a passage handle could be written into.
+    assert "rests_on" not in json.dumps(provider.calls[0]["schema"])
 
 
 def test_a_window_outside_the_closed_grammar_is_offered_no_surface_at_all():
@@ -2499,11 +2512,12 @@ def test_a_draft_naming_no_planned_fact_is_refused_as_a_changed_thesis():
     assert AGM_ID in found[0].detail and "no fact at all" in found[0].detail
 
 
-def test_a_draft_naming_one_planned_fact_passes_even_where_it_names_others_too():
-    """The accepting half. One shared fact is the whole rule — the writer chooses which of the
-    plan's points to carry and in what order, and §13 judges the rest."""
+def test_a_draft_naming_one_of_the_plans_facts_passes_though_it_drops_the_other():
+    """The accepting half. One shared fact is the whole rule — the plan names two and the draft
+    carries one, which is the writer choosing what to say, and §13 judges the rest."""
     package, plan = make_package(), make_plan()
     rows = rows_for(package)
+    assert [point.required_fact_ids for point in plan.key_points] == [(AGM_ID,), (GGM_ID,)]
     assert thesis_violations([TEMPLATE_AGM_TEXT, WARNING_TEXT], plan, rows) == ()
     # Every handle a template names counts, not only its value slots: a `{{F1.period}}` with no
     # `{{F1}}` beside it is refused by the compiler under R4, and calling that "the thesis was
@@ -2545,6 +2559,17 @@ def test_a_plan_with_no_key_point_leaves_the_thesis_check_nothing_to_judge():
     abandon, and refusing there would be this check inventing a rule §11 does not have."""
     plan = make_plan(key_points=(), counterpoints=())
     assert thesis_violations(["Anything at all."], plan, rows_for(make_package())) == ()
+
+
+# `test_an_explanatory_sentence_rests_on_a_passage_and_code_cites_it` stood here and is
+# **retired with the field the model wrote it in**. It drove `rests_on: ["P1"]` through
+# `write_story`, and 4.0.0's grammar has no `rests_on`; the pipeline also builds no `P` rows, so
+# no answer can reach the route. The compiler's half of it is unchanged and is where the claim
+# now lives: `tests/story/test_story_composition.py` compiles an `EXPLANATORY` template resting
+# on `P1` and asserts the citation code mints, and
+# `tests/story/test_story_composition_recovery.py::test_derive_kind_*` covers the label. Neither
+# is reachable from a model answer today, and both return unchanged when a story type turns
+# `want_explanatory_search` on.
 
 
 def test_a_metric_named_in_the_writers_own_words_verifies_clean(verifier):

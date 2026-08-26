@@ -1313,9 +1313,9 @@ def offer_line(request: DerivationRequest) -> str:
             f'from_fact_id "{request.from_fact_id}"  to_fact_id "{request.to_fact_id}"')
 
 
-def as_request(request: DerivationRequest) -> dict[str, str]:
-    return {"operation": request.operation.value, "from_fact_id": request.from_fact_id,
-            "to_fact_id": request.to_fact_id}
+# `as_request` stood here — one offered triple as the JSON object a 1.2.0 answer spelled it back
+# as — and is gone with the field. 2.0.0's grammar has no `requested_derivations`, so there is
+# nothing left for a model to spell back and nothing to convert for it.
 
 
 def test_the_derivation_vocabulary_is_exactly_the_seven_operations_and_nothing_else():
