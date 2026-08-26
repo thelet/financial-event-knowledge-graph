@@ -22,7 +22,7 @@ look uniform:
     codes.py           §13.17's gate — severity and remedy per code, in one table      392
     period_grammar.py  §13.4's closed grammar for a period surface                     328
     metric_surfaces.py §13.5's alias index, longest match wins                         256
-    language.py        the closed lexicons §13.6, §13.10, §13.14, §13.15 refuse on     459
+    language.py        the closed lexicons §13.6, §13.10, §13.14, §13.15 refuse on     364
     package_index.py   the lookups over one package, incl. §13.7.1's column census     263
     derived_facts.py   S13 §6 and §7 — a derived fact, re-derived; evidence scope      728
     citations.py       §13.7's three rules — reconstruction, containment, Rule C     1,019

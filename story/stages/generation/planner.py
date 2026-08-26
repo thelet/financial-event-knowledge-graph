@@ -77,13 +77,18 @@ from typing import Any, Mapping, Sequence
 from pydantic import ValidationError
 
 from story.contracts import StoryGenerationProvider
+from story.core import lexicon
+from story.core.spine import StorySpine
 from story.core.models import (
     CausalLanguage,
     Counterpoint,
     DerivationRequest,
+    DerivedFact,
     EditorialPlan,
+    EvidenceScopeFact,
     GenerationResult,
     KeyPoint,
+    StatementClass,
     StoryEvidencePackage,
     UnusableEvidence,
     WarningKind,
@@ -91,6 +96,8 @@ from story.core.models import (
 from story.providers.portable_schema import schema_violations, validate_portable_schema
 from story.providers.public import PINNED_TEMPERATURE, StoryProviderSchemaError
 from story.stages.generation.prompts import (
+    DERIVED_ROW,
+    PASSAGE_ROW,
     PLANNER_PROMPT_VERSION,
     PLANNER_SCHEMA_NAME,
     PLANNER_SYSTEM,
@@ -151,6 +158,18 @@ CAUSAL_LANGUAGE_NOT_COMPUTED = "causal_language_not_computed"
 #: runs*: a plan resting on a quantity nothing will compute is a plan whose key point cannot be
 #: written, and discovering that after a writer call has been paid for helps nobody.
 DERIVATION_NOT_OFFERED = "derivation_not_offered"
+
+#: A handle the slot table does not hold. Replaces `unresolvable_fact_id` on the current path:
+#: §11 rule 1 now asks for `F1`, so an unknown *handle* is what a plan gets wrong. The id code
+#: is kept beside it because a replayed 1.2.0 plan still names ids.
+UNRESOLVABLE_FACT_HANDLE = "unresolvable_fact_handle"
+
+#: The plan states a direction the spine measured the other way. §3 of
+#: `docs/2026-08-26-story-pipeline-stabilization-plan/02-PLANNER-STABILIZATION.md`: this is the
+#: refusal `story-v1-76da8465cd95` should have earned and did not, and it fires **before** a
+#: writer is asked to carry the claim into prose.
+DIRECTION_CONTRADICTS_SPINE = "direction_contradicts_spine"
+
 THESIS_EMPTY = "thesis_empty"
 NO_KEY_POINTS = "no_key_points"
 PLAN_NOT_CONSTRUCTIBLE = "plan_not_constructible"
@@ -399,6 +418,95 @@ def plan_violations(
     return tuple(found)
 
 
+#: The words that appear in **both** `lexicon.CHANGE_DIRECTION` and
+#: `lexicon.COMPARATIVE_DIRECTION` — today exactly `higher` and `lower`.
+#:
+#: **Derived from the two vocabularies rather than written down, because the reason they are
+#: excluded is precisely that they are in both.** A word in the change map states which way a
+#: quantity moved; a word in the comparative map states an ordering of two named sides. A word
+#: in both does whichever the sentence's word order says, and a plan binds nothing that would
+#: let this function tell which. Measured while writing the check: *"Profit was higher in Q2
+#: than Q3"* is a **true** statement of a decrease and was refused as a contradiction.
+#:
+#: A term added to either map on some later day joins this set automatically, which is the
+#: property a hand-typed pair would not have.
+ORDERING_WORDS: frozenset[str] = frozenset(
+    set(lexicon.CHANGE_DIRECTION) & set(lexicon.COMPARATIVE_DIRECTION))
+
+
+def spine_violations(
+    plan: EditorialPlan, spine: StorySpine | None
+) -> tuple[PlanViolation, ...]:
+    """Every way this plan's prose disagrees with what code already measured. Empty means agrees.
+
+    **The primary defence against a factually inverted plan is that the schema no longer has a
+    field for the direction** — §11's 2.0.0 shape carries no `direction`, no value and no
+    derivation triple, so a plan cannot *author* the factual spine. This function is the second
+    half: `thesis` and `claim` are free prose and are rendered verbatim into the writer's prompt,
+    so a plan that cannot author the direction can still *write a sentence stating it*, and
+    `story-v1-76da8465cd95` did exactly that — *"adjusted gross profit **rose** from 2022Q2 to
+    2022Q3"* over 556 -> 110.
+
+    **This is not prose parsing in the sense worth avoiding.** It applies `story/core/lexicon.py`
+    — the same closed, tested vocabulary `verification/derived_facts._direction_findings` already
+    applies to every draft sentence — one stage earlier. `CHANGE_DIRECTION` is asserted total over
+    `numerals.CHANGE_VERBS` by a test, and its third state matters: `improved`, `widened`,
+    `turned` and `reversed` map to `None`, meaning *"states no direction of the stored number"*,
+    and none of them raises here.
+
+    **Silence is not a violation, and that asymmetry is deliberate.** §13's
+    `derived_direction_not_stated_in_text` refuses a *sentence* that binds a directional derived
+    fact and names no direction, because such a sentence states a figure the reader cannot place.
+    A *plan* has no such duty — its job is the angle, and a thesis that never says which way the
+    metric went is a thesis the writer can still carry correctly. Copying the stronger rule up
+    would refuse valid plans.
+
+    **A `None` spine, or one whose direction is unverified, disables the direction check and
+    nothing else.** `quantity_direction` answers `None` where a metric's sign convention has no
+    observation to measure it from, and a check that guessed there would be inventing the one
+    thing the detector refused to.
+
+    **`ORDERING_WORDS` is skipped for the same reason, and finding it is why that set is derived
+    rather than typed out.**
+
+    **Comparatives are deliberately not checked here, and the reason is a false positive found
+    while writing this.** A change verb states which way the quantity moved and needs no
+    knowledge of word order — *"fell"* means one thing wherever it sits. A comparative states an
+    ordering of two named sides, and both sides of this spine are the **same metric in different
+    periods**: *"the third quarter was higher than the second"* contradicts a decrease and *"the
+    second quarter was higher than the third"* states it correctly. Telling them apart needs the
+    periods resolved on each side of the comparing word, which `claims._comparison_text_findings`
+    can do for a **draft sentence** only because §13 requires such a sentence to bind a
+    `compare_levels` fact naming both. A plan binds nothing, so the same resolution is not
+    available, and a check that flagged every *"higher"* would refuse a true plan. The draft-side
+    check keeps its teeth; this one declines the question rather than answering it badly.
+    """
+    if spine is None or spine.direction_polarity is None:
+        return ()
+    found: list[PlanViolation] = []
+    wanted = spine.direction_polarity
+    for where, text in (("thesis", plan.thesis),
+                        *((f"key_points[{index}]", point.claim)
+                          for index, point in enumerate(plan.key_points))):
+        for match in lexicon.change_verbs(text):
+            if match.term.lower() in ORDERING_WORDS:
+                continue
+            stated = lexicon.change_direction(match.term)
+            if stated is None or stated is wanted:
+                continue
+            if lexicon.negated(text, match):
+                # "did not rise" over a fall is not a contradiction. Scoped to the marker's own
+                # clause by the same function §13.10 negation-checks a causal marker with.
+                continue
+            found.append(PlanViolation(
+                DIRECTION_CONTRADICTS_SPINE,
+                f"{where} says {match.term!r}, which states the quantity went "
+                f"{'up' if stated else 'down'}; code measured "
+                f"{spine.metric_id} {spine.from_period} -> {spine.to_period} as "
+                f"{spine.direction} and the plan may not contradict it"))
+    return tuple(found)
+
+
 def claim_qualifying_warnings(
     codes: Sequence[str], package: StoryEvidencePackage
 ) -> tuple[str, ...]:
@@ -471,6 +579,54 @@ def _id_violations(
 # -- the answer, as a plan -------------------------------------------------------------------
 
 
+def _resolved_facts(
+    handles: Sequence[str],
+    rows: Mapping[str, Any],
+    package: StoryEvidencePackage,
+    inputs_of: Mapping[str, tuple[str, ...]],
+) -> tuple[tuple[str, ...], tuple[str, ...], StatementClass, tuple[str, ...]]:
+    """One point's handles as `(fact ids, passage ids, statement class, unknown handles)`.
+
+    **A `D` handle resolves to its two input observations, not to the derived id.** §11 rule 1
+    restricts `required_fact_ids` to ids beginning `obs:`, and a derived fact is not one — so a
+    point built on `D1` requires the two readings `D1` was computed from, which is exactly what
+    the point rests on. That also keeps `writer.thesis_violations` comparable: it reads the
+    handles a draft names against these ids, and a draft naming `D1` names a row whose `fact_id`
+    is the derived id, so the join has to happen on one side or the other. It happens here,
+    where the package is in scope.
+
+    **The passage ids are a lookup and never the model's.** `PackagedFact.passage_id` is the
+    passage a reading was cited in; a plan cannot know a different answer and could only spell
+    this one wrong, which is what 1.2.0's `unresolvable_passage_id` existed to catch.
+
+    **The statement class follows the handles.** A point naming only observations is `reported`;
+    one naming any derived row is `calculated`. `explanatory` is unreachable from a handle,
+    which is correct for every package in the corpus — all of them carry zero explanatory
+    passages, and `story-v1-76da8465cd95` returned `explanatory` for one of them.
+    """
+    passage_of = {fact.observation_id: fact.passage_id for fact in package.facts}
+    fact_ids: list[str] = []
+    unknown: list[str] = []
+    derived_named = False
+    for handle in handles:
+        row = rows.get(str(handle))
+        if row is None:
+            unknown.append(str(handle))
+            continue
+        if row.kind == DERIVED_ROW:
+            derived_named = True
+            fact_ids.extend(inputs_of.get(row.fact_id, ()))
+        elif row.kind == PASSAGE_ROW:
+            unknown.append(str(handle))
+        else:
+            fact_ids.append(row.fact_id)
+    ordered = tuple(dict.fromkeys(fact_ids))
+    passages = tuple(dict.fromkeys(
+        passage for passage in (passage_of.get(fact_id) for fact_id in ordered) if passage))
+    kind = StatementClass.CALCULATED if derived_named else StatementClass.REPORTED
+    return ordered, passages, kind, tuple(unknown)
+
+
 def editorial_plan_from(
     content: Mapping[str, Any],
     package: StoryEvidencePackage,
@@ -478,75 +634,108 @@ def editorial_plan_from(
     model_id: str,
     prompt_version: str = PLANNER_PROMPT_VERSION,
     offered: Sequence[DerivationRequest] = (),
+    slots: Sequence[Any] = (),
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
+    spine: StorySpine | None = None,
 ) -> EditorialPlan:
     """One schema-conformant answer as an `EditorialPlan`, or `EditorialPlanRejected`.
 
-    Four fields never come from the model: `candidate_id` and `package_id` identify the package
-    the plan was made from, `prompt_version` and `model_id` identify what made it, and
-    `causal_language` is computed here from the package. The model's own `causal_language` is
-    **not read at all** — the schema pins it to one value, and reading it back would make the
-    field the model's on the day the grammar is wrong.
+    **`EditorialPlan` is unchanged and the schema is not, which is what makes this affordable.**
+    2.0.0 asks the model for seven leaves; the type still carries nineteen fields, and the twelve
+    the model no longer writes are filled here from the package, the slot table and the spine. So
+    every stored `editorial_plan.json` still loads, the demo UI's plan panel is untouched, and
+    the verifier's `required_counterpoint_absent` and `required_warning_absent` keep reading the
+    fields they always read.
 
-    `required_warnings` is the model's, narrowed by `claim_qualifying_warnings`: the model may
-    choose which caveats the post must state, and may not put the package's build provenance
-    among them.
+    What code fills, and from what:
+
+    | field | source |
+    | --- | --- |
+    | `candidate_id`, `package_id` | the package |
+    | `prompt_version`, `model_id` | the call site |
+    | `causal_language` | `causal_language_for(package)` — computed, never read from the answer |
+    | `required_fact_ids` | the handles the point named, resolved through the slot table |
+    | `required_citation_passage_ids` | `PackagedFact.passage_id` for those facts |
+    | `statement_class` | whether any handle named a derived row |
+    | `required_warnings` | `claim_qualifying_warnings` over the package's own codes, in full |
+    | `requested_derivations` | empty — `story/core/spine.py` executed what the detector fired on, before this call |
+    | `structure`, `prohibited_claims`, `unusable_evidence` | empty; nothing read them |
+
+    `slots` is the same table the prompt printed the handles from, passed by the composition
+    root for the reason every other cross-stage value is: a table built twice is a table that can
+    disagree with the one the model was shown.
     """
     computed = causal_language_for(package)
+    rows = {row.handle: row for row in slots}
+    # A derived row's two inputs, read off the fact rather than off the row: `SlotRow` carries
+    # `evidence_handles` (cells) and not fact ids, and §11 restricts `required_fact_ids` to
+    # observations. This is the one join the slot table cannot answer.
+    inputs_of = {fact.fact_id: (fact.from_fact_id, fact.to_fact_id)
+                 for fact in derived_facts if isinstance(fact, DerivedFact)}
+    unknown: list[str] = []
     try:
+        points: list[KeyPoint] = []
+        for row in content.get("key_points") or ():
+            fact_ids, passages, kind, missing = _resolved_facts(
+                tuple(row.get("facts") or ()), rows, package, inputs_of)
+            unknown.extend(missing)
+            points.append(KeyPoint(
+                claim=row["claim"],
+                required_fact_ids=fact_ids,
+                required_citation_passage_ids=passages,
+                statement_class=kind,
+            ))
+
+        counterpoints: list[Counterpoint] = []
+        counter_claim = str(content.get("counterpoint") or "").strip()
+        if counter_claim:
+            fact_ids, passages, _kind, missing = _resolved_facts(
+                tuple(content.get("counterpoint_facts") or ()), rows, package, inputs_of)
+            unknown.extend(missing)
+            counterpoints.append(Counterpoint(
+                claim=counter_claim,
+                required_fact_ids=fact_ids,
+                required_citation_passage_ids=passages,
+            ))
+
         plan = EditorialPlan(
             candidate_id=package.candidate_id,
             package_id=package.package_id,
             thesis=content["thesis"],
             why_it_matters=content["why_it_matters"],
-            key_points=tuple(
-                KeyPoint(
-                    claim=row["claim"],
-                    required_fact_ids=tuple(row.get("required_fact_ids") or ()),
-                    required_citation_passage_ids=tuple(
-                        row.get("required_citation_passage_ids") or ()),
-                    statement_class=row["statement_class"],
-                ) for row in content.get("key_points") or ()),
-            counterpoints=tuple(
-                Counterpoint(
-                    claim=row["claim"],
-                    required_fact_ids=tuple(row.get("required_fact_ids") or ()),
-                    required_citation_passage_ids=tuple(
-                        row.get("required_citation_passage_ids") or ()),
-                ) for row in content.get("counterpoints") or ()),
-            # Read as the model wrote them, with no tidying. A triple this constructor
-            # normalised — an operation lower-cased, an id stripped — would be a triple
-            # `plan_violations` then compared against the offer set having already repaired it,
-            # so a plan that asked for something it was not shown would pass by having been
-            # corrected on the way past. The `DerivationOperation` enum refuses a word outside
-            # the seven here, which is a schema-shaped failure and not a repair.
-            requested_derivations=tuple(
-                DerivationRequest(
-                    operation=row["operation"],
-                    from_fact_id=row["from_fact_id"],
-                    to_fact_id=row["to_fact_id"],
-                ) for row in content.get("requested_derivations") or ()),
+            key_points=tuple(points),
+            counterpoints=tuple(counterpoints),
+            # Empty, and not because the field is deprecated. The spine executed the operations
+            # the detector fired on before this call, so there is nothing left for a plan to
+            # request for a detector-defined story — and a plan that could still ask would be
+            # asking for a second copy of what already exists.
+            requested_derivations=(),
             required_warnings=claim_qualifying_warnings(
-                tuple(content.get("required_warnings") or ()), package),
+                tuple(warning.code for warning in package.warnings), package),
             causal_language=computed,
             uncertainty=content.get("uncertainty") or "",
-            structure=tuple(content.get("structure") or ()),
-            prohibited_claims=tuple(content.get("prohibited_claims") or ()),
-            unusable_evidence=tuple(
-                UnusableEvidence(id=row["id"], reason=row["reason"])
-                for row in content.get("unusable_evidence") or ()),
+            structure=(),
+            prohibited_claims=(),
+            unusable_evidence=(),
             prompt_version=prompt_version,
             model_id=model_id,
         )
     except (ValidationError, KeyError, TypeError, AttributeError, ValueError) as exc:
-        # `Counterpoint` refuses an entirely ungrounded counterpoint at construction and
-        # `UnusableReason` refuses a free-text reason; both arrive here as the same kind of
-        # answer — one the frozen types will not hold — and both are the model's answer rather
-        # than a fault.
+        # `Counterpoint` refuses an entirely ungrounded counterpoint at construction; it arrives
+        # here as the same kind of answer — one the frozen types will not hold — and it is the
+        # model's answer rather than a fault.
         raise EditorialPlanRejected(
             f"the model's plan cannot be constructed: {exc}",
             (PlanViolation(PLAN_NOT_CONSTRUCTIBLE, str(exc)),)) from exc
 
-    violations = plan_violations(plan, package, offered=offered)
+    violations = tuple(
+        PlanViolation(
+            UNRESOLVABLE_FACT_HANDLE,
+            f"the plan names {handle!r}, which is not a handle this run's rows print; the "
+            f"handles are {sorted(rows) or 'none at all'}")
+        for handle in dict.fromkeys(unknown))
+    violations += plan_violations(plan, package, offered=offered)
+    violations += spine_violations(plan, spine)
     if violations:
         raise EditorialPlanRejected(
             "the plan is refused before the writer runs (§11): "
@@ -561,6 +750,10 @@ def plan_story(
     provider: StoryGenerationProvider,
     max_tokens: int,
     offered: Sequence[DerivationRequest] = (),
+    slots: Sequence[Any] = (),
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
+    spine: StorySpine | None = None,
+    feedback: str = "",
 ) -> PlannedStory:
     """§11's whole stage: package in, accepted plan out.
 
@@ -579,8 +772,7 @@ def plan_story(
     otherwise. `temperature` is not a parameter at all — `PINNED_TEMPERATURE` is pinned here,
     at the call site, exactly as §15.1 requires.
     """
-    causal_language = causal_language_for(package)
-    schema = planner_schema(causal_language=causal_language)
+    schema = planner_schema()
     # The real provider refuses a non-portable schema when it builds the request body; the
     # replaying one never builds a body at all. Refusing here makes §15.3's guarantee a
     # property of this stage rather than of whichever provider it was handed.
@@ -588,7 +780,8 @@ def plan_story(
 
     result = provider.generate(
         system=PLANNER_SYSTEM,
-        prompt=planner_prompt(package, offered=offered),
+        prompt=planner_prompt(package, offered=offered, slots=slots, spine=spine,
+                              derived_facts=derived_facts, feedback=feedback),
         schema=schema,
         schema_name=PLANNER_SCHEMA_NAME,
         max_tokens=max_tokens,
@@ -615,7 +808,7 @@ def plan_story(
             # server reports back — the distinction `generation_store` keeps as two fields.
             model_id=getattr(provider, "model_id", "") or result.model_id,
             prompt_version=PLANNER_PROMPT_VERSION,
-            offered=offered)
+            offered=offered, slots=slots, derived_facts=derived_facts, spine=spine)
     except (EditorialPlanRejected, StoryProviderSchemaError) as exc:
         exc.generation = result
         raise

@@ -1,8 +1,14 @@
 """The contracts the draft compiler is spoken to in: what a template is, what a row offers.
 
 Responsibility: the vocabulary of one stage — the sentence a model wrote before any slot is
-filled, the trusted row a slot resolves against, the provenance of each substitution, and the
-closed set of reasons a template may be refused. No parsing, no substitution, no I/O.
+filled, the trusted row a slot resolves against, the provenance of each substitution, the record
+of what `recovery` rewrote and what it declined to, and the closed set of reasons a template may
+be refused. No parsing, no substitution, no I/O.
+
+**Two vocabularies, and the file keeps them apart.** The nine `*_slot_*` / `*_row` constants are
+*refusals*: a template carrying one produces no draft. The two under *recovery diagnostics* are
+not — recovery never refuses, and a diagnostic there is a note explaining why a numeral reached
+the verifier unbound.
 
 **Why the codes live beside the types.** A refusal a caller has to parse out of prose is not
 dispatchable, which is the reason `story/stages/generation/writer.py` names its own; and every
@@ -96,15 +102,30 @@ class SentenceTemplate:
     `index` is positional and is not the model's — `Draft` requires `0..n-1` in order, and a
     model that numbered its own sentences would eventually skip one and make every §13 finding
     unaddressable. The caller that parses the model's answer assigns it.
+
+    **Only `text` is the model's now.** Writer contract 4.0.0 narrowed the schema to
+    `{title, sentences[].text}`, so `index`, `kind` and `rests_on` are all code-authored and
+    `recovery.normalize_templates` is what authors them. The plan's §4 measurement is the
+    argument: three of the four `kind` labels a model could write were wrong in a way the
+    verifier either refused or — for a derived-bearing sentence labelled `reported` — missed
+    entirely, and a field a model cannot get right is a field code should own.
     """
 
     index: int
     #: Carries `{{H}}` and `{{H.field}}` placeholders. Everything outside them is the model's
-    #: own prose and is copied through untouched.
+    #: own prose and is copied through untouched. The one field the model still writes — either
+    #: with slots, or as plain prose that `recovery` turns into slots.
     text: str
+    #: Derived from the slots and `rests_on` by `recovery.derive_kind`, never stated by a model.
     kind: SentenceKind
     #: Passage handles, `explanatory` only. Required-and-possibly-empty because
     #: `story/providers/portable_schema.py` forbids optional properties.
+    #:
+    #: **`()` throughout this phase**, and the field stays for when it is not. `03` §2 measured
+    #: `EvidenceRequest.want_explanatory_search` off in every detector, so
+    #: `package.explanatory_passages` is empty in every run that exists and no sentence can
+    #: honestly rest on a passage. The type keeps the field so the route returns by turning the
+    #: search on — and by fixing §7's citation disagreement first.
     rests_on: tuple[str, ...] = ()
 
 
@@ -152,6 +173,132 @@ class SlotFill:
     inserted: str
     char_start: int
     char_end: int
+
+
+# -- recovery diagnostics ----------------------------------------------------------------------
+#
+# **Not refusal codes**, and the separation is the safety property of the whole pass. Recovery
+# never refuses: where it cannot say which row a literal belongs to it leaves the literal alone
+# and records one of these, and the verifier then refuses the sentence as `unbound_numeral` with
+# an exact span. A second stage that could refuse a numeral would be a second authority over the
+# same question, which is R7 in the one place it would be easiest to break.
+
+#: One span is the value of two different rows — `$110 million` where two facts render alike.
+#: Binding either would be a guess about which fact the sentence is about.
+VALUE_CLAIMED_BY_TWO_ROWS = "value_claimed_by_two_rows"
+#: One row's value string occurs twice in one sentence. The row is unambiguous and the *span* is
+#: not, and a binding declares a span.
+VALUE_OCCURS_TWICE = "value_occurs_twice"
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveredSlot:
+    """One literal the model wrote that code turned into a slot, and where it stood.
+
+    **The span is into the model's original sentence, not into the template and not into the
+    compiled draft.** `SlotFill` already records where the string landed in the finished text;
+    the audit question this record answers is the other one — *"which characters of the model's
+    own answer did code claim?"* — and a reader holding `composition.json` beside the recorded
+    generation wants to highlight them there.
+
+    `also_offered_by` is the deterministic tie, recorded rather than hidden: where two anchored
+    rows offer the identical string for the identical span, the pick is `(handle, field)`-sorted
+    and the rivals are named here. It is only ever populated for a **field** slot, because a
+    value-slot tie is an ambiguity and refuses to bind at all — and a field slot mints no
+    `FactBinding` (`compile._bindings_from` iterates value slots only), so the compiled draft is
+    byte-identical whichever rival wins.
+    """
+
+    sentence_index: int
+    handle: str
+    #: `""` for a value slot, matching the key `SlotRow.offers` holds it under.
+    field: str
+    #: The model's own characters, which are also exactly what the compiler will insert.
+    literal: str
+    char_start: int
+    char_end: int
+    also_offered_by: tuple[str, ...] = ()
+
+    def as_json(self) -> dict[str, object]:
+        """The row as `story/pipeline.py` writes it into `composition.json`."""
+        return {
+            "sentence_index": self.sentence_index,
+            "handle": self.handle,
+            "field": self.field,
+            "literal": self.literal,
+            "char_start": self.char_start,
+            "char_end": self.char_end,
+            "also_offered_by": list(self.also_offered_by),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AmbiguousLiteral:
+    """A literal recovery declined to bind, with the rows that could have claimed it.
+
+    A diagnostic and never a violation — see the note above `VALUE_CLAIMED_BY_TWO_ROWS`. The
+    literal is left in the prose exactly as written, which is what makes the outcome a §13
+    refusal naming the digits rather than a compile-time refusal naming a rule.
+    """
+
+    sentence_index: int
+    #: One of the two codes above.
+    code: str
+    literal: str
+    char_start: int
+    char_end: int
+    #: Every row that offered this string as its value, sorted. One handle for
+    #: `value_occurs_twice`, two or more for `value_claimed_by_two_rows`.
+    handles: tuple[str, ...] = ()
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "sentence_index": self.sentence_index,
+            "code": self.code,
+            "literal": self.literal,
+            "char_start": self.char_start,
+            "char_end": self.char_end,
+            "handles": list(self.handles),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedDraft:
+    """What the compiler is handed, and the record of how much of it code wrote.
+
+    The seam between the generation stage and this one. `story/stages/generation/` may not
+    import `story/stages/composition/`, so the writer returns bare strings and every structural
+    field — the index, the slots, the kind — is authored here.
+
+    **Four collections and not one nested tree**, for `pipeline._composition_payload`'s reason:
+    a reader diffing two runs asks *which literal moved*, and a tree makes that a walk. Each one
+    answers a different question, and a sentence that appears in none of the last three is a
+    sentence recovery found nothing to do with — which is not an error and is the ordinary fate
+    of a connective.
+    """
+
+    templates: tuple[SentenceTemplate, ...]
+    #: Every literal that became a slot, in sentence then span order.
+    recovered: tuple[RecoveredSlot, ...] = ()
+    #: Every literal that could have been a slot and was left alone. A diagnostic, not a refusal.
+    ambiguous: tuple[AmbiguousLiteral, ...] = ()
+    #: Indexes of sentences that already carried `{{` and were passed through untouched.
+    #: Recovery never mixes modes, and *"recovery did nothing here"* has two causes a reader of
+    #: the artifact has to be able to tell apart.
+    hand_written: tuple[int, ...] = ()
+
+    def as_json(self) -> dict[str, object]:
+        """The diagnostics block, for `composition.json`.
+
+        The templates are **not** in it: `pipeline._composition_payload` already renders them
+        beside the fills, and one artifact carrying the same sentence twice under two keys is a
+        pair that can disagree.
+        """
+        return {
+            "recovered": [one.as_json() for one in self.recovered],
+            "ambiguous": [one.as_json() for one in self.ambiguous],
+            "hand_written": list(self.hand_written),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,9 +355,14 @@ __all__ = [
     "TEMPLATE_NOT_COMPILABLE",
     "UNKNOWN_SLOT_FIELD",
     "UNKNOWN_SLOT_HANDLE",
+    "VALUE_CLAIMED_BY_TWO_ROWS",
+    "VALUE_OCCURS_TWICE",
+    "AmbiguousLiteral",
     "CompiledDraft",
     "CompositionRefused",
     "CompositionViolation",
+    "NormalizedDraft",
+    "RecoveredSlot",
     "SentenceTemplate",
     "SlotFill",
     "SlotKind",

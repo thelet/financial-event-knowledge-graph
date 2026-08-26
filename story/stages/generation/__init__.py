@@ -19,7 +19,7 @@ Entry points:
     written = write_story(package, planned.plan, provider=provider, derived_facts=derived,
                           slots=slot_table(package, derived, passages),   # composition's
                           length_target=DEFAULT_LENGTH_TARGET, max_tokens=WRITER_MAX_TOKENS)
-    written.templates     # sentences with their slots unfilled; the compiler fills them
+    written.sentences     # exactly what the model wrote; composition normalizes them
     written.title         # prose, and it carries no slot
     written.generation    # tokens, latency and content digest, for §14's manifest
     render_markdown(draft)   # the post, from a compiled draft and never from the model
@@ -113,12 +113,12 @@ from story.stages.generation.writer import (
     UNRESOLVABLE_EVIDENCE_HANDLE,
     DraftRejected,
     DraftViolation,
-    SentenceTemplate,
     WrittenStory,
     draft_from,
     draft_violations,
     render_markdown,
-    templates_from,
+    sentences_from,
+    thesis_violations,
     write_story,
     writer_passages,
 )
@@ -175,7 +175,6 @@ __all__ = [
     "EditorialPlanRejected",
     "PlanViolation",
     "PlannedStory",
-    "SentenceTemplate",
     "SlotRowView",
     "StyleProfile",
     "WrittenStory",
@@ -193,7 +192,8 @@ __all__ = [
     "planner_prompt",
     "planner_schema",
     "render_markdown",
-    "templates_from",
+    "sentences_from",
+    "thesis_violations",
     "write_story",
     "writer_passages",
     "writer_prompt",

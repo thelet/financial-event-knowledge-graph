@@ -491,13 +491,34 @@ def _rests_on_violation(
 def _unused_handle(row: SlotRow, already_cited: set[str]) -> str | None:
     """The first handle of a passage no earlier sentence has cited, or the first one anyway.
 
-    The fallback is deliberate and is not the compiler shrugging. A passage every one of whose
-    facts is already cited may still be the passage a second explanatory sentence paraphrases,
-    and whether *this* claim may rest on *that* span is
-    `citation_reused_for_unrelated_claim` — a semantic judgment §13.7 makes by reading the
-    sentence. Refusing here would pre-empt a check with a rule that cannot see the prose, which
-    is R7; emitting nothing would land as `uncited_factual_sentence`, which names the wrong
-    fault.
+    **The fallback is a known disagreement with §13.7, kept deliberately, and this is the
+    record** *(measured 2026-08-26)*. `citations._reuse_findings` refuses the second use of an
+    identical `(passage_id, char_start, char_end)` by a sentence that binds no fact that passage
+    evidences — and an `explanatory` sentence binds no fact **by construction**, so for the only
+    kind of sentence that reaches this function the predicate is vacuous and the refusal is
+    certain rather than judged. The proof is order-dependence: `reported` then `explanatory` over
+    one passage fails, `explanatory` then `reported` passes, on the same two sentences.
+
+    **Why it is not repaired here.** Three ways were measured and each is blocked:
+
+    * an invented passage-scoped handle earns `unresolvable_evidence_handle`, because the
+      verifier resolves handles through `package.facts_by_evidence_handle()`;
+    * keeping the cell handle and widening the span to the whole passage earns
+      `evidence_cell_span_mismatch`;
+    * refusing here rather than emitting the citation was implemented, and reverted: it makes the
+      run end at the compiler where it used to end at the verifier with a nameable finding, which
+      is the *"gates ending runs before authoritative verification"* problem this work exists to
+      reduce. Twenty-one recorded drafts in `test_story_composition_regression.py` take that
+      shape.
+
+    The expressive fix is to record `rests_on` on `DraftSentence` so a paraphrase-rest is visible
+    to §13.7 as something other than a bound fact's cell — additive, but it re-keys
+    `draft_content_sha256` and needs a verifier change, and **no package in the corpus carries an
+    explanatory passage at all** (`want_explanatory_search` is off in every detector), so there is
+    no live candidate to test it against. Deferred with its evidence rather than guessed at.
+
+    Unreachable on the current path regardless: `normalize_templates` authors `rests_on` and
+    authors it empty, so no template reaching the compiler names a passage.
     """
     for handle in row.evidence_handles:
         if handle not in already_cited:

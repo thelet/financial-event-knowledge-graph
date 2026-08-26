@@ -50,6 +50,7 @@ from story.core.numerals import (
 )
 from story.core.periods import PeriodShape, story_period
 from story.core.renderings import (
+    DERIVED_PRESENTATION_DECIMALS,
     NON_NUMERIC_DERIVED_UNITS,
     derived_figure,
     direction_phrase,
@@ -251,6 +252,118 @@ def test_every_derived_rendering_carries_a_unit_surface_13_2_reads(unit):
     surface = assert_one_admissible_numeral(renderings[0], abs(result))
     assert surface in derived_rules.DERIVED_SURFACES[unit], (
         f"{renderings[0]!r} reads as {surface.value}, which §13.2 refuses for a {unit} result")
+
+
+#: §13.1's window against the exact `{{D2}}` value the plan §8 measured, reproduced here rather
+#: than quoted: `d` is the **draft's** significant figures, so a shortened figure widens its own
+#: window and stays inside it. The last row is the one that must fail — a rounding that flipped
+#: the sign would be a different claim, and §13.1 refuses it on a separate test from the window.
+D2_RESULT = 80.215827338
+D2_TOLERANCE: tuple[tuple[str, int, float, bool], ...] = (
+    ("80.215827338%", 11, 5e-10, True),
+    ("80.22%", 4, 0.005, True),
+    ("80.2%", 3, 0.05, True),
+    ("80%", 1, 5.0, True),
+    ("-80.2%", 3, 0.05, False),
+)
+
+
+@pytest.mark.parametrize("written,figures,window,accepted", D2_TOLERANCE,
+                         ids=[row[0] for row in D2_TOLERANCE])
+def test_rounding_a_derived_percentage_stays_inside_13_1s_window(written, figures, window,
+                                                                 accepted):
+    """The measurement `DERIVED_PRESENTATION_DECIMALS` rests on, run rather than cited.
+
+    Plan §8's table, against §13.1's own function. It is the load-bearing fact of the change:
+    the tolerance window is computed from what the **draft** printed, so writing `80.2%` for
+    `80.215827338` widens the window from `5e-10` to `0.05` and the figure lands inside it. A
+    presentation rule that had to be checked against a *fixed* tolerance could not be adopted at
+    all.
+    """
+    tokens = tokenize_numerals(written)
+    assert len(tokens) == 1
+    verdict = compare_token_to_fact(tokens[0], D2_RESULT)
+    assert verdict.draft_significant_figures == figures
+    assert verdict.window == pytest.approx(window)
+    assert verdict.accepted is accepted
+    if not accepted:
+        assert verdict.within_window and not verdict.sign_agrees, (
+            "the last row must fail on the sign and not on the window")
+
+
+def test_a_derived_percentage_is_written_at_the_precision_the_corpus_prints_margins_at():
+    """`{{D2}}` printed `80.215827338%`, and nine of those decimals were a comparison constant.
+
+    `derivation/operations.round_delta` rounds to `series.DELTA_PRECISION = 9` so that
+    `13.2 − 3.3` does not publish `9.899999999999999`; the renderer then printed the float. This
+    is the fix asserted end to end — the string, and the fact that `result` did not move.
+    """
+    package = money_package()
+    fact = make_derived(unit="percent", currency=None, result=D2_RESULT,
+                        operation=DerivationOperation.PERCENTAGE_CHANGE,
+                        display_semantics=DisplaySemantics.DECREASED_BY)
+    assert derived_figure(fact, package) == "80.2%"
+    assert fact.result == D2_RESULT, "the row keeps every digit the derivation tool computed"
+    assert_one_admissible_numeral("80.2%", D2_RESULT)
+
+
+@pytest.mark.parametrize("unit,result,expected", (
+    ("percent", 80.215827338, "80.2%"),
+    ("percent", -12.6, "12.6%"),          # directional semantics; the word carries the sign
+    ("percentage_points", 15.899999999999999, "15.9 percentage points"),
+    ("multiple", 1.3512396694214877, "1.35x"),
+    ("multiple", 2.5, "2.5x"),            # a maximum, so a trailing zero is not written
+    ("homes", 4953.0, "4953 homes"),
+    ("markets", 39.0, "39 markets"),
+))
+def test_every_unit_with_a_presentation_precision_is_written_to_it(unit, result, expected):
+    """The table, row by row, on values the corpus holds or the demo produced.
+
+    `4953.0 homes` is one of the three stored renderings this change alters — a count of houses
+    with a decimal point on it — and `2.5x` is the reason the table is a **maximum**: quantising
+    to two decimals and then normalising, exactly as `scaled_money` finishes, writes `2.5x`
+    rather than `2.50x`.
+    """
+    fact = make_derived(unit=unit, currency=None, result=result,
+                        display_semantics=(DisplaySemantics.TIMES if unit == "multiple"
+                                           else DisplaySemantics.DECREASED_BY))
+    assert derived_figure(fact, money_package()) == expected
+    assert_one_admissible_numeral(expected, abs(result))
+
+
+def test_a_unit_with_no_presentation_precision_is_printed_exactly_as_before():
+    """`USD` is absent from the table on purpose and money is unchanged by this policy.
+
+    `scaled_money` already owns it with the stronger guarantee — the quotient is kept only where
+    it multiplies back exactly — and a second rounding rule over the same unit would be the two
+    copies of a rendering rule this module exists to prevent.
+    """
+    assert "USD" not in DERIVED_PRESENTATION_DECIMALS
+    package = money_package()
+    assert derived_figure(make_derived(), package) == "$446 million"
+    # …and the plain form, where the inputs' scale gives `scaled_money` nothing to work with.
+    unscaled = make_derived(result=-446_000_000.5)
+    assert derived_figure(unscaled, package) == "$446000000.5"
+
+
+def test_a_value_too_small_for_its_precision_is_written_in_full_rather_than_rounded_to_zero():
+    """The guard, on the case that makes it necessary rather than on a hypothetical.
+
+    §13.1's window is `0.5 × 10^(e − d + 1)` with `e` taken from the **fact**, so rounding to a
+    fixed number of *decimals* only coincides with the window while the value is at least 1. A
+    `percent` result of `0.04` written to one decimal is `0.0`: a difference of `0.04` against a
+    window of `0.005`, which is `number_outside_tolerance` — a blocking refusal manufactured by
+    a presentation rule. The renderer checks its own output and writes the full float instead.
+    """
+    package = money_package()
+    tiny = make_derived(unit="percent", currency=None, result=0.04,
+                        display_semantics=DisplaySemantics.DECREASED_BY)
+    assert derived_figure(tiny, package) == "0.04%"
+    assert_one_admissible_numeral("0.04%", 0.04)
+
+    rounded = tokenize_numerals("0.0%")
+    assert not compare_token_to_fact(rounded[0], 0.04).within_window, (
+        "the string the guard refused to write must be the one §13.1 refuses")
 
 
 def test_the_word_valued_units_are_the_two_the_verifier_refuses_a_numeral_on():

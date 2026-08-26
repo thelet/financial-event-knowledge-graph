@@ -21,6 +21,7 @@ import pytest
 from story.demo_ui import code_catalogue
 from story.demo_ui.code_catalogue import (
     CATALOGUE,
+    FAMILY_COMPOSITION,
     FAMILY_FRESHNESS,
     FAMILY_ORDER,
     FAMILY_PACKAGE_WARNING,
@@ -83,6 +84,13 @@ EXPECTED_SIZES = {
     # removed — `draft_from` and every code it raises stay as the parser for the 50 recorded
     # `draft.json` artifacts and the pre-3.0.0 replay stores.
     FAMILY_WRITER: 15,
+    # Nine, and zero before 03-WRITER-AND-COMPOSITION-STABILIZATION §10 — the draft compiler had
+    # no family here at all, so `api.py` fell through to `FAMILY_VERIFICATION` for a
+    # `composition_refused` run and rendered every one of these with an empty description and
+    # `blocking: false`, which was untrue of a refused run. The two recovery diagnostics in the
+    # same module (`value_claimed_by_two_rows`, `value_occurs_twice`) are deliberately not in
+    # this family: recovery never refuses on them.
+    FAMILY_COMPOSITION: 9,
 }
 
 
@@ -120,6 +128,36 @@ def test_the_freshness_family_is_the_enum_and_not_a_copy_of_it():
     assert declared_codes(FAMILY_FRESHNESS) == {code.value for code in RefusalCode}
 
 
+def _string_constants(*paths: pathlib.Path) -> dict[str, str]:
+    """Every `NAME = "literal"` in these files, so a construction's `Name` can be resolved.
+
+    More than one file because the composition stage declares its codes in `public.py` — the
+    contract module — and raises them in `compile.py`. The planner and the writer happen to do
+    both in one file; the scan should not require that.
+    """
+    found: dict[str, str] = {}
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
+                    and isinstance(node.value.value, str):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        found[target.id] = node.value.value
+    return found
+
+
+def _codes_raised(class_name: str, source: pathlib.Path,
+                  constants: dict[str, str]) -> set[str]:
+    """Every code constructed as `class_name(NAME, …)` in `source`."""
+    raised: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == class_name and node.args
+                and isinstance(node.args[0], ast.Name)):
+            raised.add(constants[node.args[0].id])
+    return raised
+
+
 def violation_codes(module_name: str, class_name: str) -> set[str]:
     """Every code a generation module actually raises, read from its call sites.
 
@@ -128,22 +166,21 @@ def violation_codes(module_name: str, class_name: str) -> set[str]:
     the AST answers it without this file holding a second copy of the list.
     """
     path = PACKAGE / "story" / "stages" / "generation" / f"{module_name}.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    constants = {
-        target.id: node.value.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
-        for target in node.targets
-        if isinstance(target, ast.Name)
-    }
-    raised: set[str] = set()
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                and node.func.id == class_name and node.args
-                and isinstance(node.args[0], ast.Name)):
-            raised.add(constants[node.args[0].id])
-    return raised
+    return _codes_raised(class_name, path, _string_constants(path))
+
+
+def composition_violation_codes() -> set[str]:
+    """Every code the draft compiler raises, read the same way and across two files.
+
+    The walk is over `story/stages/composition/compile.py` because that is where every
+    `CompositionViolation(...)` is constructed, and the constants come from `public.py` beside
+    it. **This is the loud failure §10 asked for**: a tenth refusal added to the compiler while
+    this catalogue is not looking fails `test_every_code_the_stage_raises_is_described` below,
+    rather than reaching a reader as an empty sentence in a rejection panel.
+    """
+    stage = PACKAGE / "story" / "stages" / "composition"
+    return _codes_raised("CompositionViolation", stage / "compile.py",
+                         _string_constants(stage / "public.py", stage / "compile.py"))
 
 
 @pytest.mark.parametrize(
@@ -155,6 +192,47 @@ def test_every_code_the_stage_raises_is_described(family, module_name, class_nam
     raised = violation_codes(module_name, class_name)
     assert raised, "the AST scan found no violation construction; it proves nothing"
     assert raised == declared_codes(family)
+
+
+def test_every_code_the_draft_compiler_raises_is_described():
+    """The same rot guard, extended to the third family with no table upstream to read.
+
+    Separate from the parametrised pair above because the scan has to look in two files: the
+    codes are declared in `composition/public.py` and constructed in `composition/compile.py`.
+    """
+    raised = composition_violation_codes()
+    assert raised, "the AST scan found no CompositionViolation construction; it proves nothing"
+    assert raised == declared_codes(FAMILY_COMPOSITION)
+
+
+def test_the_recovery_diagnostics_are_not_in_the_refusal_family():
+    """Recovery never refuses, and a family whose every row is `blocking: true` would say it did.
+
+    `value_claimed_by_two_rows` and `value_occurs_twice` are notes about a literal recovery
+    declined to bind; the verifier then refuses the sentence as `unbound_numeral` with an exact
+    span. Asserted against the module's own constants so that moving one of them into the
+    refusal vocabulary — which would be a real design change — fails here first.
+    """
+    from story.stages.composition import public as composition
+
+    declared = declared_codes(FAMILY_COMPOSITION)
+    assert composition.VALUE_CLAIMED_BY_TWO_ROWS not in declared
+    assert composition.VALUE_OCCURS_TWICE not in declared
+    assert composition.VALUE_CLAIMED_BY_TWO_ROWS not in composition_violation_codes()
+
+
+def test_every_composition_row_is_blocking_because_a_refused_run_has_no_draft():
+    """The defect §10 measured, asserted at the field that carried it.
+
+    `api.py` picked a family by disposition, had no branch for `composition_refused`, and fell
+    through to `FAMILY_VERIFICATION` — where none of these nine codes exists. `_explanations`
+    then emitted `{"description": "", "severity": "", "blocking": false}` for each one, and
+    `blocking: false` was a false statement about a run from which no draft was built.
+    """
+    rows = for_family(FAMILY_COMPOSITION)
+    assert rows and all(row.blocking for row in rows)
+    assert all(row.section == "12" for row in rows)
+    assert all(row.description for row in rows)
 
 
 # -- everything but the sentence comes from the real tables --------------------------------------

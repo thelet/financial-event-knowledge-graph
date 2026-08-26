@@ -538,10 +538,18 @@ def test_an_explanatory_sentence_walks_past_a_handle_an_earlier_sentence_already
 def test_an_explanatory_sentence_falls_back_rather_than_leaving_a_claim_uncited():
     """Every handle of the passage is spent, and the compiler emits the first one anyway.
 
-    Whether *this* claim may rest on *that* span is `citation_reused_for_unrelated_claim`, a
-    semantic judgment §13.7 makes by reading the sentence. Refusing here would pre-empt a check
-    with a rule that cannot see the prose (R7); emitting nothing would land as
-    `uncited_factual_sentence`, which names the wrong fault.
+    **A known disagreement with §13.7, kept deliberately, and `compile._unused_handle` carries
+    the evidence.** The verifier will refuse the resulting draft with
+    `citation_reused_for_unrelated_claim`, and that refusal is certain rather than judged,
+    because an explanatory sentence binds no fact for the predicate's second clause to be about.
+
+    Refusing here instead was implemented and reverted on 2026-08-26: it ends the run at the
+    compiler where it used to end at the verifier with a nameable finding, which is the *"gates
+    ending runs before authoritative verification"* problem this work exists to reduce — and 21
+    recorded drafts in `test_story_composition_regression.py` take that shape. Emitting nothing
+    would land as `uncited_factual_sentence`, which names the wrong fault.
+
+    Unreachable on the current path: `normalize_templates` authors `rests_on` empty.
     """
     compiled = compile_demo(
         SentenceTemplate(0, "The {{F1.metric}} was {{F1}} in {{F1.period}}.",
@@ -725,7 +733,11 @@ def test_every_refusal_code_is_reachable():
     declared = {value for name, value in vars(public).items()
                 if name.isupper() and isinstance(value, str) and not name.startswith("_")}
     reached = {code for _name, code, _templates, _kwargs in REFUSALS} | {
-        NO_LEGAL_RENDERING, NO_EVIDENCE_HANDLE_FOR_BOUND_FACT}
+        NO_LEGAL_RENDERING, NO_EVIDENCE_HANDLE_FOR_BOUND_FACT,
+        # Recovery's two, raised by `normalize_templates` rather than by `compile_draft`, and
+        # driven in `test_story_composition_recovery.py`. They are declared here because they
+        # are the composition stage's vocabulary and the demo UI catalogues them with the rest.
+        public.VALUE_CLAIMED_BY_TWO_ROWS, public.VALUE_OCCURS_TWICE}
 
     assert declared == reached, declared ^ reached
 

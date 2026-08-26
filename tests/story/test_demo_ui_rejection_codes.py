@@ -121,3 +121,74 @@ def test_a_transport_failure_still_has_no_code_and_still_says_so() -> None:
         f.code for f in outcome_verified.all_findings if f.blocking)
     ) if outcome_verified is not None else ()
     assert blocking == ()
+
+
+# -- the compiler's refusals, which had no family at all ----------------------------------------
+
+
+def test_each_refusing_stage_is_rendered_from_its_own_families_vocabulary() -> None:
+    """03-WRITER-AND-COMPOSITION-STABILIZATION §10, at the function that chooses the family.
+
+    `_rejection_family` is a table and this is the whole of it: three refusing stages name their
+    own vocabulary, and everything else — `rejected`, above all — is §13's gate. The row that
+    was missing is `composition_refused`, and its absence was not a cosmetic one: see the test
+    below.
+    """
+    from story.demo_ui import api
+    from story.demo_ui import code_catalogue
+
+    assert api._rejection_family(pipeline.PLAN_REFUSED, pipeline) == \
+        code_catalogue.FAMILY_PLANNER
+    assert api._rejection_family(pipeline.DRAFT_REFUSED, pipeline) == \
+        code_catalogue.FAMILY_WRITER
+    assert api._rejection_family(pipeline.COMPOSITION_REFUSED, pipeline) == \
+        code_catalogue.FAMILY_COMPOSITION
+    assert api._rejection_family(pipeline.REJECTED, pipeline) == \
+        code_catalogue.FAMILY_VERIFICATION
+
+
+def test_a_compile_time_refusal_renders_a_sentence_and_says_it_blocked() -> None:
+    """The payload the panel gets, for every code the compiler can raise.
+
+    Before the fix the family fell through to `FAMILY_VERIFICATION`, which declares none of
+    these nine codes, so `_explanations` produced `{"description": "", "severity": "",
+    "remedy": "", "blocking": false}` for each one — an empty explanation is a gap, and
+    `blocking: false` is a **false statement** about a run from which no draft was built.
+
+    Driven through `_explanations` with the family `_rejection_family` returns, which is exactly
+    the pair `_outcome_payload` passes, rather than through a hand-written family name.
+    """
+    from story.demo_ui import api
+    from story.demo_ui.code_catalogue import FAMILY_COMPOSITION, declared_codes
+
+    codes = sorted(declared_codes(FAMILY_COMPOSITION))
+    assert len(codes) == 9, "the compiler declares nine refusals; the catalogue must hold them"
+    family = api._rejection_family(pipeline.COMPOSITION_REFUSED, pipeline)
+    for row in api._explanations(codes, family):
+        assert row["family"] == FAMILY_COMPOSITION
+        assert row["description"], f"{row['code']} would render as a bare code"
+        assert row["blocking"] is True, (
+            f"{row['code']} refused the run, so a panel may not call it non-blocking")
+
+
+def test_the_compilers_codes_are_the_modules_own_and_not_a_copy_of_the_strings() -> None:
+    """A renamed constant must fail at import, which is what reading by name buys.
+
+    The catalogue holds `_COMPOSITION_CODE_NAMES` — constant *names* — and reads the values off
+    `story/stages/composition/public.py`, the same technique the planner and writer families
+    use. A copied string list would go stale silently the day a code is respelled.
+    """
+    from story.demo_ui.code_catalogue import FAMILY_COMPOSITION, declared_codes
+    from story.stages.composition import public as composition
+
+    assert declared_codes(FAMILY_COMPOSITION) == frozenset({
+        composition.UNKNOWN_SLOT_HANDLE,
+        composition.UNKNOWN_SLOT_FIELD,
+        composition.FIELD_NOT_OFFERED_BY_ROW,
+        composition.SLOT_WITHOUT_BINDING,
+        composition.NO_LEGAL_RENDERING,
+        composition.NO_EVIDENCE_HANDLE_FOR_BOUND_FACT,
+        composition.PASSAGE_HANDLE_UNKNOWN,
+        composition.RESTS_ON_WITHOUT_EXPLANATORY_KIND,
+        composition.TEMPLATE_NOT_COMPILABLE,
+    })
