@@ -62,16 +62,31 @@ did not move.
 
 ## 5. Final counts
 
-Everything outside `tests/story/test_story_demo.py`: **3,865 passed, 0 failed** (offline
-selection, `-m "not live and not neo4j"`).
+| Selection | Result |
+| --- | --- |
+| `pytest tests/ -m "not live and not neo4j"` | **6,753 results, 0 failures** |
+| `pytest tests/story -m "neo4j"` (against the running `fkg-neo4j` container, read only) | **140 results, 0 failures** |
 
-`test_story_demo.py` — the whole-pipeline integration file — was the last to migrate; its golden
-artifact-digest tables had to be recomputed twice, because the planner prompt moved again after
-the first re-recording when a live run turned up the counter-evidence defect.
+`test_story_demo.py` — the whole-pipeline integration file — was the last to migrate. Its golden
+artifact-digest tables had to be recomputed **three** times: once for the new prompts and
+schemas, again when a live run turned up the counter-evidence defect and moved the planner
+request digest, and once more when the planner gained its `COMPUTED FIGURES` section.
 
 Live-marked tests were additionally exercised against the running llama.cpp server during the
 writer and planner migration; both reached their own documented decision points rather than
 being skipped.
+
+### One flake, named rather than absorbed
+
+`tests/graph/test_export_determinism.py::test_the_real_run_is_byte_identical_across_two_seeded_processes`
+failed **once**, in a run made while a live validation was competing for the same machine, and
+passed on immediate re-run and in every other run. It projects 28,836 nodes in two subprocesses
+under different `PYTHONHASHSEED`s and compares bytes.
+
+`git diff --stat main HEAD -- graph/ normalization/ extraction/ acquisition/ ontology/` is
+**empty** — this branch changes nothing that test exercises. Recorded as a pre-existing flake
+under load rather than a regression, and not investigated further because it is outside this
+work's scope. It is worth someone's attention on its own.
 
 ## 6. Replay and artifact compatibility
 
