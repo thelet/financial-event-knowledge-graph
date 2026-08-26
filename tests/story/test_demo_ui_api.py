@@ -289,7 +289,7 @@ def executor() -> RecordedReadExecutor:
 
 @pytest.fixture
 def config() -> pipeline.DemoConfig:
-    return _config_over(pipeline.DemoConfig.load(REPO_ROOT), ACCEPTED_STORE)  # TEMP-PROBE
+    return pipeline.DemoConfig.load(REPO_ROOT)
 
 
 @pytest.fixture
@@ -1052,7 +1052,7 @@ def test_a_system_message_without_its_fixed_rules_is_refused_at_the_wire(config)
 #: draft started passing §13 on its own — see `test_story_demo.py`'s module docstring. So the
 #: accepted branch this file exercises is now a real model's answer and only the rejected branch
 #: is hand-edited.
-STORE_ROOT = "/tmp/claude-1000/-mnt-c-Users-thele-Projects-Prototyping-Financial-Knowlege-Graph/7c615a7e-910a-408e-a905-07c84f159b51/scratchpad/restore/local_openai_compatible"
+STORE_ROOT = "tests/story/fixtures/story_demo/local_openai_compatible"
 REJECTED_STORE = f"{STORE_ROOT}/generations_rejected_synthetic.jsonl"
 ACCEPTED_STORE = f"{STORE_ROOT}/generations.jsonl"
 
@@ -2302,15 +2302,20 @@ def test_no_response_carries_an_absolute_path(driven):
     that includes `call_sites`, which is a *list* and would have needed the redaction rewritten
     had it carried one.
 
-    **The reduction is no longer exercised end-to-end from this fixture, and the assertion says
-    so rather than quietly asserting nothing.** The committed store's `provider_model_id` is a
-    bare `Qwen3.5-9B-Q4_K_M.gguf`, so `_redact_provider_model_id` correctly changes nothing and
-    correctly stamps no note — its own rule since 2026-08-19 is that the note is a statement
-    about what was removed. The reduction itself is held by
-    `test_a_model_id_that_is_a_path_is_still_reduced_and_still_says_so` and its negative twin
-    below, which drive the function with a path and without one. What this test still holds, and
-    the only thing it was ever really for, is that **no rendered body carries an absolute path**
-    — which is a property of the payload and not of any one field in it.
+    **The reduction is exercised end-to-end from this fixture again, and the docstring that said
+    otherwise was measured wrong on 2026-08-26.** It claimed the committed store's
+    `provider_model_id` was a bare `Qwen3.5-9B-Q4_K_M.gguf` and that
+    `_redact_provider_model_id` therefore changed nothing; the re-recorded store reports
+    `/home/thele/models/qwen3.5-9b/Qwen3.5-9B-Q4_K_M.gguf`, so the reduction fires here, and the
+    `provider_model_id_note` its 2026-08-19 rule stamps beside a value it removed is present in
+    both rendered blocks. Nothing in the body changed with the correction, because the
+    assertions below were already written against the two values rather than against a literal —
+    they hold whichever way a re-recorded store reports the model, which is the property worth
+    keeping when the fixture is the thing that moves. The reduction is *also* held in isolation
+    by `test_a_model_id_that_is_a_path_is_still_reduced_and_still_says_so` and its negative twin
+    below, which drive the function with a path and without one. What this test is for, either
+    way, is that **no rendered body carries an absolute path** — which is a property of the
+    payload and not of any one field in it.
     """
     harness, run_ids = driven
     _, payload = harness.json("GET", f"/demo/runs/{run_ids['generation']}")
