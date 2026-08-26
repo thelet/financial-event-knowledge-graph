@@ -289,7 +289,7 @@ def executor() -> RecordedReadExecutor:
 
 @pytest.fixture
 def config() -> pipeline.DemoConfig:
-    return pipeline.DemoConfig.load(REPO_ROOT)
+    return _config_over(pipeline.DemoConfig.load(REPO_ROOT), ACCEPTED_STORE)  # TEMP-PROBE
 
 
 @pytest.fixture
@@ -1052,7 +1052,7 @@ def test_a_system_message_without_its_fixed_rules_is_refused_at_the_wire(config)
 #: draft started passing §13 on its own — see `test_story_demo.py`'s module docstring. So the
 #: accepted branch this file exercises is now a real model's answer and only the rejected branch
 #: is hand-edited.
-STORE_ROOT = "tests/story/fixtures/story_demo/local_openai_compatible"
+STORE_ROOT = "/tmp/claude-1000/-mnt-c-Users-thele-Projects-Prototyping-Financial-Knowlege-Graph/7c615a7e-910a-408e-a905-07c84f159b51/scratchpad/restore/local_openai_compatible"
 REJECTED_STORE = f"{STORE_ROOT}/generations_rejected_synthetic.jsonl"
 ACCEPTED_STORE = f"{STORE_ROOT}/generations.jsonl"
 

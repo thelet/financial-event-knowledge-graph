@@ -727,8 +727,15 @@ def editorial_plan_from(
             # request for a detector-defined story — and a plan that could still ask would be
             # asking for a second copy of what already exists.
             requested_derivations=(),
+            # **Deduplicated, and finding out why cost two live runs.** A package raises one
+            # warning per *fact*, so two `warned` readings of one metric put
+            # `unpreferred_source_lane` in this tuple twice — and §13's `required_warning_absent`
+            # then wanted the qualifying phrase said twice, in a four-sentence post about two
+            # figures. Measured 2026-08-26 against both providers on `market_count`. A caveat
+            # stated twice is not two caveats; the model used to pick the set by hand and
+            # naturally listed it once.
             required_warnings=claim_qualifying_warnings(
-                tuple(warning.code for warning in package.warnings), package),
+                tuple(dict.fromkeys(warning.code for warning in package.warnings)), package),
             causal_language=computed,
             uncertainty=content.get("uncertainty") or "",
             structure=(),

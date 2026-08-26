@@ -221,9 +221,10 @@ matters about it; you do not decide whether it rose or fell.
 4. Say why something happened only if a quoted span in the package says so. Where the package \
 carries no such span you may not state a cause, imply one, or place two facts side by side so \
 that a reader infers one.
-5. If the package carries counter-evidence, write a counterpoint resting on at least one \
-handle drawn from it. A counterpoint grounded in nothing is not a counterpoint. Where there is \
-none, leave `counterpoint` empty.
+5. Write a counterpoint **only** if the COUNTER-EVIDENCE section below lists an item, and rest \
+it on at least one handle drawn from that section. Where that section says none, return an \
+empty `counterpoint` and an empty `counterpoint_facts`: a counterpoint grounded in nothing is \
+not a counterpoint, and writing one loses the whole plan.
 6. `thesis` is one sentence stating the claim of the post. `why_it_matters` says why a reader \
 should care. `uncertainty` states what the evidence does not settle - or is empty if nothing \
 qualifies the claim.
@@ -383,9 +384,21 @@ def planner_prompt(
     # vacuity §11's correction predicted.
     counter = _passage_lines(package.counter_evidence, "counter")
     count = len(package.counter_evidence)
-    lines += ["", f"COUNTER-EVIDENCE ({count} item{'' if count == 1 else 's'}; where there is "
-                  "one, the counterpoint must rest on a handle drawn from it)"]
-    lines.extend(counter or ["  (none)"])
+    if count:
+        lines += ["", f"COUNTER-EVIDENCE ({count} item{'' if count == 1 else 's'}; the "
+                      "counterpoint must rest on a handle drawn from one of these)"]
+        lines.extend(counter)
+    else:
+        # **Stated as an instruction rather than as an empty list**, because a model reading
+        # "(none)" wrote one anyway. Measured live 2026-08-26 against gpt-5.4 on two candidates:
+        # both returned a well-formed counterpoint with no handles, `Counterpoint`'s validator
+        # refused a claim grounded in nothing, and the whole plan was lost to
+        # `plan_not_constructible` — for the one field the package could not support.
+        lines += ["", "COUNTER-EVIDENCE (none)",
+                  "  This package carries no counter-evidence, so there is nothing a "
+                  "counterpoint could rest on.",
+                  '  Return `counterpoint: ""` and `counterpoint_facts: []`. A counterpoint '
+                  "grounded in nothing is not a counterpoint, and writing one loses the plan."]
     lines.extend(_feedback_lines(feedback))
     return "\n".join(lines)
 

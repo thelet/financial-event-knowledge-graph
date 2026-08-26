@@ -2849,3 +2849,25 @@ def test_live_the_model_server_answers_the_planner_about_the_same_package(config
     assert live.plan.model_id == MODEL_ID
     assert live.generation.model_id.endswith(".gguf")
     assert live.generation.total_tokens > 0
+
+
+def test_zzz_tmp_dump_prompt(tmp_path, config):
+    import story.providers.generation_store as gs
+    SP = Path("/tmp/claude-1000/-mnt-c-Users-thele-Projects-Prototyping-Financial-Knowlege-Graph/7c615a7e-910a-408e-a905-07c84f159b51/scratchpad")
+    log = []
+    orig = gs.request_identity
+    def patched(**kw):
+        d = orig(**kw)
+        log.append({"schema": kw["schema_name"], "digest": d, "prompt": kw["prompt"],
+                    "system": kw["system"], "max_tokens": kw["max_tokens"]})
+        return d
+    gs.request_identity = patched
+    try:
+        try:
+            run_demo(demo_inputs(), provider=replaying(), config=config, out_dir=tmp_path / "r")
+        except Exception as exc:
+            print("ERR", exc)
+    finally:
+        gs.request_identity = orig
+    (SP / "pytest_calls.json").write_text(json.dumps(log, indent=1))
+    print([(r["schema"], r["digest"][:8]) for r in log])

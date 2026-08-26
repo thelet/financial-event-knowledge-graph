@@ -59,6 +59,12 @@ ROUTING: Mapping[str, FailureOwner] = {
     "direction_contradicts_spine": FailureOwner.PLANNER,
     "unresolvable_fact_handle": FailureOwner.PLANNER,
     "thesis_empty": FailureOwner.PLANNER,
+    # **The model's answer, not a contract fault, and the distinction was measured.** A plan can
+    # satisfy the grammar and still not build — `Counterpoint` refuses a claim grounded in
+    # nothing, which gpt-5.4 produced on two of six live candidates whose packages carry no
+    # counter-evidence at all. The correction is exact and statable in one sentence, which is
+    # what makes it a repair rather than a rejection.
+    "plan_not_constructible": FailureOwner.PLANNER,
     "no_key_points": FailureOwner.PLANNER,
     "counterpoint_missing": FailureOwner.PLANNER,
     "counterpoint_ungrounded": FailureOwner.PLANNER,
