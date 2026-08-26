@@ -645,17 +645,31 @@ def run_demo(
     live: bool = False,
     now: str | None = None,
 ) -> DemoOutcome:
-    """Plan, write, verify, and write the directory. One candidate, one pass, no retry.
+    """Derive, plan, write, normalize, compile, verify, and write the directory. One candidate.
 
     `provider` is anything satisfying `story.contracts.StoryGenerationProvider` — the replaying
     provider over a committed store on the deterministic path, the HTTP one under `--live`.
     Neither is constructed here: this module names no transport, and the composition happens in
     `story/cli.py`.
 
-    **Nothing is retried.** §15.3 and §27's D7: a schema violation is the model's answer, not a
-    transport fault, and re-asking at temperature 0 returns the same thing while charging for it
-    twice. §11 and §12's refusals are the same kind of answer and are recorded as dispositions
-    rather than retried around.
+    **Nothing is retried, and something is now repaired — those are different things.** This
+    docstring read *"one pass, no retry"* until 2026-08-26, and the argument under it still
+    holds exactly as written: a schema violation is the model's answer, not a transport fault,
+    and **re-asking the same prompt at temperature 0 returns the same thing while charging for
+    it twice** — measured, 4 identical answers in 4 live repeats against the local server.
+
+    A repair is not that. It re-asks a **changed** prompt, one carrying the deterministic reason
+    the last answer was refused, and only where `story/stages/generation/repair.py` says the
+    refusal belongs to the stage being re-asked. A refusal owned by code, or by the evidence, or
+    by a different stage, is never repaired — it is recorded as a disposition, as before.
+
+    Bounds are `config.max_planner_repairs` and `config.max_writer_repairs`, both 1, which makes
+    a repair a straight-line second attempt rather than a loop. They live in `config/story.yaml`
+    because `story_run_id`'s seventeen inputs do not include the number of generations, so two
+    runs of one candidate — one repaired, one not — would otherwise mint the same directory.
+
+    Every attempt is recorded, in `generations.jsonl` (the store keys a changed prompt on its
+    own digest) and in the manifest's `call_sites`.
 
     **A fault is not an answer, and gets its own disposition rather than a stage's.** The
     transport *does* retry inside the adapter, within its own bound; what arrives here has
