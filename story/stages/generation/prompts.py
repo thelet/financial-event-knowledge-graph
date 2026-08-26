@@ -340,11 +340,20 @@ def planner_prompt(
     lines += ["", "FACTS"]
     by_fact_id = _by_fact_id(slots)
     lines.extend(_fact_lines(package.facts, by_fact_id))
-    # **No DERIVED FACTS section here, and the writer's is unchanged.** That section prints each
-    # row's *slots*, which is writer vocabulary — a planner names a handle and writes no slot at
-    # all. VERIFIED CHANGE below lists the same rows with their handles and their figures, which
-    # is everything a plan can use, and printing both would show the planner a grammar it is not
-    # allowed to write in.
+    # **The derived rows are printed to the planner in the planner's own vocabulary.** The
+    # writer's DERIVED FACTS section prints each row's *slots*; a planner names a handle and
+    # writes no slot at all, so showing it that grammar would show it something it may not use.
+    #
+    # Printed only where VERIFIED CHANGE does not already carry them, and the gap that closes is
+    # measured: `spine_for` returns `None` for every story type but `metric_move`, so a
+    # `cross_metric_divergence` planner saw no `[D1]` anywhere — while `slot_table` held the row
+    # and `plan_violations` accepted a key point grounded in it. The committed fixture plan does
+    # exactly that, which means it is a plan no model could have written from the prompt it was
+    # given.
+    derived = [row for row in derived_facts if isinstance(row, DerivedFact)]
+    if derived and spine is None:
+        lines += ["", PLANNER_DERIVED_HEADING]
+        lines.extend(_planner_derived_lines(derived, by_fact_id))
     if spine is not None:
         # Printed **after** the rows so that the handles it names are already on the page, and
         # printed at all because the planner used to have to infer this from two raw floats six
@@ -401,6 +410,40 @@ def planner_prompt(
                   "grounded in nothing is not a counterpoint, and writing one loses the plan."]
     lines.extend(_feedback_lines(feedback))
     return "\n".join(lines)
+
+
+PLANNER_DERIVED_HEADING = (
+    "COMPUTED FIGURES (code computed each one from two FACTS rows; name one by its handle)")
+
+
+def _planner_derived_lines(
+    derived: Sequence[DerivedFact], by_fact_id: Mapping[str, SlotRowView] | None = None
+) -> list[str]:
+    """Each derived row as a handle, a figure and the words for which way it runs.
+
+    **No slot syntax**, which is the difference from `_derived_fact_lines`: `{{D1.direction}}` is
+    a thing a *writer* writes, and a plan that copied one would be writing in a grammar its own
+    schema has no field for.
+
+    The strings come off the slot row rather than being formatted again, for the reason
+    `_spine_lines` gives: a figure spelled one way here and another way in the writer's prompt is
+    two figures as far as a 9B model is concerned.
+    """
+    rows = by_fact_id or {}
+    lines: list[str] = []
+    for fact in derived:
+        row = rows.get(fact.fact_id)
+        if row is None:
+            continue
+        figure = row.offers.get("", "")
+        phrase = row.offers.get("direction", "")
+        subject = row.offers.get("metric") or row.offers.get("to_metric", "")
+        against = row.offers.get("from_metric", "")
+        # subject, figure, direction, other side — the order the sentence reads in, so a
+        # planner naming this row has already seen the claim spelled out once.
+        gloss = " ".join(part for part in (subject, figure, phrase, against) if part)
+        lines.append(f"  [{row.handle}]  {fact.operation.value}  {gloss}".rstrip())
+    return lines or ["  (none)"]
 
 
 VERIFIED_CHANGE_HEADING = (

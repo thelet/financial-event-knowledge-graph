@@ -133,7 +133,10 @@ from story.providers.generation_store import (
 from story.providers.public import PROVIDER_LOCAL, PROVIDER_OPENAI
 from story.stages.detection import cross_metric_divergence
 from story.stages.detection.canonicalization import POLICY_VERSION
-from story.stages.generation.prompts import VERIFIED_CHANGE_HEADING
+from story.stages.generation.prompts import (
+    PLANNER_DERIVED_HEADING,
+    VERIFIED_CHANGE_HEADING,
+)
 from story.stages.freshness import FreshnessReport
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -853,7 +856,7 @@ ARTIFACTS_OF_THE_ACCEPTED_STORE: dict[str, str] = {
     "verification_report.json":
         "1416efeb26bc7b351320c12e847a563adf94f718e14de547b3af68dcf3aa6bc4",
     "post.md": "92046770e65fa9dc6a159fa6fe86d495548c180c1b6742993e529042477e35f6",
-    "generations.jsonl": "44d45011b4c773f45ab90d58628811596ffe1c2c248d7647d17ce911a1e5ee98",
+    "generations.jsonl": "1ad9f4b774ea00ae0fb9541c9e0d5efc2babb6493fef7b7b9eff5ed66128ecb2",
 }
 
 #: The same, for the local store whose third sentence is reversed. Its own table because the
@@ -2314,7 +2317,7 @@ def test_the_writer_is_shown_the_derived_fact_and_binds_the_id_it_was_shown(tmp_
     assert gap.fact_bindings[0].rendered == "15.9 percentage points"
 
 
-def test_the_planner_is_no_longer_offered_a_derivation_it_could_ask_for(tmp_path, config):
+def test_the_planner_is_shown_the_computed_row_and_not_the_offer_list(tmp_path, config):
     """The offer set no longer reaches the planner, because the planner no longer asks.
 
     **§4.3's rule has not been relaxed; the thing it bounded has moved.** A plan could request a
@@ -2324,15 +2327,20 @@ def test_the_planner_is_no_longer_offered_a_derivation_it_could_ask_for(tmp_path
     fired on, before the planner is called. So the prompt prints no offer list — an offer a plan
     may not take is an invitation to a refusal.
 
-    **And it prints no `VERIFIED CHANGE` section either, for this candidate, which is a gap
-    rather than a design** *(measured 2026-08-26)*. That section is the replacement route: it is
-    where a derived row would be shown to the planner with its handle. `prompts._spine_lines`
-    only runs when there is a `StorySpine`, and `core.spine.spine_for` returns `None` for every
-    story type but `metric_move` — so for this `cross_metric_divergence` candidate the run
-    computes `D1`, puts it in the slot table, prints it to the *writer*, and shows the planner
-    nothing. The committed plan grounds a key point on `D1` regardless and `plan_violations`
-    accepts it, because the slot table holds the row; a model reading this prompt could not have
-    written it. Asserted as the measurement rather than as the wish, and reported upward.
+    **What replaces it depends on whether the candidate has a spine, and this one does not.**
+    `core.spine.spine_for` returns `None` for every story type but `metric_move`, so
+    `VERIFIED CHANGE` — which carries the computed rows for a `metric_move` — does not render
+    here.
+
+    That left a gap, found by this test on 2026-08-26 and fixed rather than recorded: the run
+    computed `D1`, put it in the slot table, printed it to the *writer*, and showed the planner
+    nothing — while `plan_violations` accepted a key point grounded in `D1`, because the slot
+    table held the row. The committed plan does exactly that, which made it a plan no model
+    could have written from the prompt it was given.
+
+    `COMPUTED FIGURES` is the planner-shaped route: handle, operation and the claim spelled out
+    once, with **no slot syntax** — `{{D1.direction}}` is a thing a writer writes, and a plan has
+    no field to put one in.
     """
     from story.core.spine import spine_for
 
@@ -2344,12 +2352,17 @@ def test_the_planner_is_no_longer_offered_a_derivation_it_could_ask_for(tmp_path
     assert "DERIVATIONS OFFERED" not in prompt
     # The rows it may name, and their handles, are printed where the ids used to be.
     assert "[F1]" in prompt and "[F2]" in prompt
-    # The gap, stated with its cause beside it so a reader does not have to bisect the prompt.
+    # No spine for this story type, so no VERIFIED CHANGE — and the row still reaches the
+    # planner, by the other route.
     assert spine_for(inputs.candidate, inputs.package) is None
     assert VERIFIED_CHANGE_HEADING not in prompt
-    assert "[D1]" not in prompt
-    # …while the writer, which is spine-independent, is shown the row the run computed.
+    assert PLANNER_DERIVED_HEADING in prompt
+    assert "[D1]" in prompt
+    # In the planner's vocabulary: a handle it may name, and not a slot it may not write.
+    assert "{{D1" not in prompt
+    # …while the writer is shown the same row with its slots.
     assert "[D1]" in provider.prompts["story_post_draft"]
+    assert "{{D1}}" in provider.prompts["story_post_draft"]
     assert outcome.disposition == ACCEPTED
 
 
