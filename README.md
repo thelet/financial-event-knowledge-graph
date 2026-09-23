@@ -1,6 +1,6 @@
 # Financial Event Knowledge Graph
 
-A prototype that turns financial documents — annual and quarterly reports, current-event
+A prototype that turns financial documents: annual and quarterly reports, current-event
 filings, earnings-call transcripts, press releases, and shareholder letters — into an
 explorable knowledge graph of companies, products, technologies, executives, financial
 metrics, and business events, where every extracted fact links back to the exact passage
