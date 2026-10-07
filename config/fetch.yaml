@@ -19,8 +19,11 @@ date_from: "2020-01-01"
 date_to: null
 
 http:
-  # SEC requires a User-Agent naming the application with a contact email.
-  user_agent: "Financial-KG-Prototype thelet.shevach@gmail.com"
+  # SEC requires a User-Agent naming the application with a contact email. This tracked value
+  # is a placeholder: set SEC_USER_AGENT in the gitignored .env (or the environment) to your
+  # own, e.g. SEC_USER_AGENT="Financial-KG-Prototype you@example.com". The override is applied
+  # at load time and is not part of config_hash, so a contact address never changes a run id.
+  user_agent: "Financial-KG-Prototype contact@example.com"
   # SEC's ceiling is ~10 req/s. Deliberately conservative: being slow is free, being
   # IP-blocked is not.
   requests_per_second: 5.0
