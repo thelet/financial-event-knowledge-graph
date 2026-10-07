@@ -8,8 +8,7 @@ table cell.
 
 This started as an R&D prototype for [Shares](https://apps.apple.com/il/app/shares-social/id6785920729),
 a social investing app. The goal was to see whether company filings could be turned
-automatically into evidence-backed stock posts and company updates for a social feed. It was
-built and evaluated as a research prototype and was never deployed or used to publish posts.
+automatically into evidence-backed stock posts and company updates for a social feed. 
 
 The system does not trust the language model with financial facts or arithmetic. Code
 acquires and parses the filings, extracts the metrics, builds the graph, selects the facts and
@@ -71,11 +70,11 @@ A versioned **ontology** (`real_estate_marketplace_v1`, declared entirely in YAM
 
 | Principle | In practice |
 | --- | --- |
-| **Code chooses the facts, the model chooses the words** | The model gets one bounded evidence package. It has no database access, no retriever and no tools. |
-| **Evidence or it didn't happen** | Every claim, graph node and post figure links to a specific passage or table cell (for example `…#p23:r10c3`, row 10 column 3 of a table passage) in a specific filing. |
-| **Deterministic derivations** | Every change, ratio and percentage is computed in `story/stages/derivation/` from two package facts and bound by ID *before* the model is asked anything. The direction of a move is a measurement the planner is shown, not something it infers. |
+| **Code chooses the facts, the model chooses the words** | The model gets bounded evidence package. |
+| **Evidence or it didn't happen** | Every claim, graph node and post figure links to a specific passage or table cell .|
+| **Deterministic derivations** | Every change, ratio and percentage is computed in `story/stages/derivation/` from two package facts and bound by ID. The direction of a move is a measurement the planner is shown, not something it infers. |
 | **Refuse rather than guess** | A draft that fails verification becomes a recorded rejection with codes from a closed 102-entry gate table. It is never patched into a post. |
-| **Record the silence** | A candidate that produced no claim stays in the graph as an `:Issue` or `:NotAttempted` node, about 59% of all nodes. What wasn't found is part of the result. |
+| **Record the silence** | A candidate that produced no claim stays in the graph as an `:Issue` or `:NotAttempted` node. |
 | **Deterministic by default** | Content-hashed run IDs, a pure-function graph projection, pinned temperature and a seeded graph layout. Independent normalization runs, and independent graph projections, are byte-identical. |
 | **Replaceable components** | Each pipeline stage sits behind a project-owned contract and is wired in one composition root (`context.py`). The data, ontology and contracts are meant to outlast any particular parser, model or database. |
 | **Config, not code** | Companies, forms, dates, the ontology and model settings live in YAML under `config/` and `ontology/`. |
@@ -136,10 +135,6 @@ the configured forms.
 | Graph | 28,836 nodes, 35,600 edges in Neo4j, validated by 27 graph verification checks |
 | Story agent | 4 detectors, ranking, packaging, derivation, planner, writer, composition, 12-check verifier, demo UI |
 
-Engineering defects are written up in the plans rather than hidden. For example,
-[V1_DOCUMENT_NORMALIZATION.md §16b](plans/normalization/V1_DOCUMENT_NORMALIZATION.md) covers an
-encoding defect in the first normalization run, why the existing checks missed it, and the
-corrected counts.
 
 ## Tech stack
 
@@ -258,15 +253,12 @@ The six layers (acquisition, normalization, ontology, extraction, graph and stor
 implemented and tested end to end on one company. Some things were intentionally left outside
 the prototype's scope:
 
-- **The extraction narrative/event lane replays cached answers.** The run that built the
-  current graph made no provider calls, and `extraction/context.py` has no live model path.
-  Nearly all observations come from the deterministic table lane. A live path is designed
+- **The extraction narrative/event lane replays cached answers.** A live path is designed
   ([audit](docs/2026-08-18-extraction-model-path-audit/EXTRACTION-MODEL-PATH-AUDIT.md),
   [plan](docs/2026-08-18-live-extraction-implementation-plan/IMPLEMENTATION-PLAN.md)) but not
   implemented. The story layer, by contrast, does call live models.
 - **One company.** The corpus and ontology cover Opendoor only. The pipeline is
   config-driven, but other companies were never ingested.
-- **No XBRL lane.** Six of the 26 metrics name XBRL as their source and are not extracted.
 - **No natural-language graph querying.** Exploration happens through the demo UI and Cypher.
 - **Single local user.** The demo UI is loopback-only (it also rejects non-loopback `Host`
   headers) and has no user accounts.
