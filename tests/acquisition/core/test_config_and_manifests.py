@@ -44,6 +44,41 @@ def test_user_agent_must_carry_a_contact_email(repo_config):
         HttpConfig(user_agent="no-contact-here")
 
 
+def _copy_config_dir(tmp_path):
+    import shutil
+
+    from conftest import REPO_ROOT
+
+    shutil.copytree(REPO_ROOT / "config", tmp_path / "config")
+    return tmp_path
+
+
+def test_user_agent_override_comes_from_the_environment(tmp_path, monkeypatch):
+    root = _copy_config_dir(tmp_path)
+    monkeypatch.setenv("SEC_USER_AGENT", "My-App me@example.org")
+    assert load_config(root).fetch.http.user_agent == "My-App me@example.org"
+
+
+def test_user_agent_override_comes_from_the_env_file(tmp_path, monkeypatch):
+    root = _copy_config_dir(tmp_path)
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    (root / ".env").write_text('export SEC_USER_AGENT="Env-App env@example.org"\n', encoding="utf-8")
+    assert load_config(root).fetch.http.user_agent == "Env-App env@example.org"
+
+
+def test_user_agent_override_is_validated_and_not_hashed(tmp_path, monkeypatch):
+    root = _copy_config_dir(tmp_path)
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    baseline = load_config(root).config_hash()
+
+    monkeypatch.setenv("SEC_USER_AGENT", "My-App me@example.org")
+    assert load_config(root).config_hash() == baseline
+
+    monkeypatch.setenv("SEC_USER_AGENT", "no-contact-here")
+    with pytest.raises(ValueError):
+        load_config(root)
+
+
 def test_config_hash_is_stable_across_calls(repo_config):
     assert repo_config.config_hash() == repo_config.config_hash()
 

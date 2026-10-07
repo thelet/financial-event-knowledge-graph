@@ -26,8 +26,7 @@ constraints, indexes and a full-text index, all of which Community Edition provi
 ## Setup
 
 ```bash
-pip install -e .              # brings in the neo4j driver declared in pyproject.toml
-pip install lxml 'sec-parser==0.58.1'   # NOT declared there — see the note below
+pip install -e ".[dev]"       # all runtime dependencies, including the neo4j driver
 cp .env.example .env          # then set NEO4J_PASSWORD — it is empty in the template
 docker compose up -d
 docker compose ps             # wait for STATUS to read (healthy)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,10 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from .identity import cik10
+
+#: Overrides `fetch.http.user_agent`. Read from the repository-root `.env`, then the process
+#: environment (later wins), so a personal contact address never has to live in a tracked file.
+ENV_USER_AGENT = "SEC_USER_AGENT"
 
 
 class CompanyConfig(BaseModel):
@@ -180,13 +185,43 @@ def load_config(root: Path | None = None) -> AppConfig:
     if not companies:
         raise ValueError("config/companies.yaml lists no companies")
 
+    fetch = FetchConfig(**raw_fetch)
+    user_agent = _user_agent_override(resolved_root)
+    if user_agent:
+        # Applied to the effective config only. `raw_fetch` keeps the tracked file's value, so
+        # config_hash describes scope, not whose contact address made the requests.
+        fetch = fetch.model_copy(
+            update={"http": HttpConfig(**{**fetch.http.model_dump(), "user_agent": user_agent})}
+        )
+
     return AppConfig(
         companies=companies,
-        fetch=FetchConfig(**raw_fetch),
+        fetch=fetch,
         root=resolved_root,
         raw_companies=raw_companies,
         raw_fetch=raw_fetch,
     )
+
+
+def _user_agent_override(root: Path) -> str | None:
+    value = os.environ.get(ENV_USER_AGENT)
+    if value is None:
+        value = _read_env_file(root / ".env").get(ENV_USER_AGENT)
+    return value.strip() if value and value.strip() else None
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    """`KEY=VALUE` lines of a `.env` file, stripping `export ` and surrounding quotes."""
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip().removeprefix("export ").strip()] = value.strip().strip("'\"")
+    return values
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
