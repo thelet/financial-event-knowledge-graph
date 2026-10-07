@@ -28,6 +28,9 @@ candidates ranked and grouped into 112 clusters.</sub>
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | SEC filings | citable passages | metric observations | graph nodes | graph edges | offline tests |
 
+📦 **Data:** the Opendoor case-study data is published on Hugging Face at
+[thelets/opendoor-knowledge-graph](https://huggingface.co/datasets/thelets/opendoor-knowledge-graph).
+
 ---
 
 ## Why this exists
@@ -125,7 +128,8 @@ the plan.</sub>
 
 The corpus is **Opendoor Technologies Inc.** (Nasdaq: OPEN, CIK `0001801169`), a real-estate
 iBuyer with a metric-heavy filing history. Of 665 filings from 2020 onward, 109 fall within
-the configured forms.
+the configured forms. The data is available as a dataset on
+[Hugging Face](https://huggingface.co/datasets/thelets/opendoor-knowledge-graph).
 
 | Layer | Current run |
 | --- | --- |
@@ -144,7 +148,7 @@ corrected counts.
 ## Tech stack
 
 - **Python 3.10+** with a deliberately small dependency set: `httpx`, `pydantic`, `PyYAML`,
-  `neo4j`, `lxml`
+  `neo4j`, and `lxml` + `sec-parser` for parsing filings
 - **Neo4j 5.26 LTS** (Community, via Docker Compose, bound to loopback)
 - **LLM providers:** a local [llama.cpp](https://github.com/ggml-org/llama.cpp) server
   (OpenAI-compatible) or the OpenAI Responses API
@@ -158,15 +162,17 @@ corrected counts.
 git clone https://github.com/thelet/financial-event-knowledge-graph.git
 cd financial-event-knowledge-graph
 python -m venv .venv && source .venv/bin/activate
-pip install "httpx>=0.27" "pydantic>=2.6" "PyYAML>=6.0" "neo4j>=6.2,<7" lxml pytest
+pip install -e ".[dev]"
 
-cp .env.example .env          # set NEO4J_PASSWORD (8+ letters/digits); OPENAI_API_KEY is optional
+cp .env.example .env          # set NEO4J_PASSWORD (8+ letters/digits) and SEC_USER_AGENT;
+                              # OPENAI_API_KEY is optional
 docker compose up -d          # Neo4j: Browser on localhost:7474, Bolt on :7687
 ```
 
-> SEC EDGAR requires a User-Agent with a contact address. Set `http.user_agent` in
-> [`config/fetch.yaml`](config/fetch.yaml) to your own before fetching. Secrets belong only in
-> the gitignored `.env`; the story config explicitly refuses credential keys.
+> SEC EDGAR requires a User-Agent with a contact address. Set `SEC_USER_AGENT` in `.env`
+> (for example `SEC_USER_AGENT=My-App you@example.com`). It overrides the placeholder in
+> [`config/fetch.yaml`](config/fetch.yaml). Secrets and personal details belong only in the
+> gitignored `.env`; the story config explicitly refuses credential keys.
 
 Build the corpus and the graph:
 
@@ -273,3 +279,7 @@ the prototype's scope:
 
 This is a research prototype. Nothing it generates is investment advice, and no generated
 post was published to users.
+
+## License
+
+Released under the [MIT License](LICENSE).
