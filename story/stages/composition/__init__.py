@@ -6,17 +6,26 @@ the bindings and the citations, and emits the same `Draft` the verifier already 
 property the stage exists for, stated so it can be tested: *every numeral a reader sees is
 either inserted by code from a trusted row, or refused.*
 
-    public.py       the contracts and the nine refusal codes
+    public.py       the contracts, the nine refusal codes and the two recovery diagnostics
     slot_table.py   slot_table(package, derived_facts, passages) -> the rows and their offers
+    recovery.py     normalize_templates(texts, rows) -> NormalizedDraft — prose becomes slots
     compile.py      compile_draft(templates, package, plan, ...) -> CompiledDraft, or a refusal
 
-**Three files and not one, and not five.** `public.py` is a vocabulary two other stages will
+**Four files and not one, and not six.** `public.py` is a vocabulary two other stages will
 name (the pipeline catches `CompositionRefused`, the demo UI catalogues its codes) and holds no
 logic; `slot_table.py` is the seam a Research Agent later produces and is a pure function of
 trusted rows; `compile.py` is the parse-substitute-bind-cite pass, which is one concern and
 stays one file at ~330 lines. Splitting the pass into a parser, a binder and a citer would put
 three ~90-line modules where one readable left-to-right function belongs, which is the failure
 mode `CLAUDE.md`'s *proportion over symmetry* names.
+
+`recovery.py` is the fourth because it is the **inverse** of `compile.py` and answers a
+different question: the compiler asks *"what does this template mean"*, recovery asks *"which
+of these words are already a row's own string"*. It refuses nothing, it reads no package, and
+it runs **before** the compiler rather than inside it — a pass folded into `_substitute` would
+have made a sentence's meaning depend on which of two search orders ran first. It is also the
+seam writer contract 4.0.0 created: the generation stage now returns bare strings, so `kind`
+and the slots are authored here.
 
 **It imports `story.core.*` and nothing else** — no sibling stage, no provider, no contract.
 `tests/story/test_story_package_structure.py::test_no_stage_imports_another_stage` derives the
@@ -57,13 +66,24 @@ from story.stages.composition.public import (
     TEMPLATE_NOT_COMPILABLE,
     UNKNOWN_SLOT_FIELD,
     UNKNOWN_SLOT_HANDLE,
+    VALUE_CLAIMED_BY_TWO_ROWS,
+    VALUE_OCCURS_TWICE,
+    AmbiguousLiteral,
     CompiledDraft,
     CompositionRefused,
     CompositionViolation,
+    NormalizedDraft,
+    RecoveredSlot,
     SentenceTemplate,
     SlotFill,
     SlotKind,
     SlotRow,
+)
+from story.stages.composition.recovery import (
+    RecoveredSentence,
+    derive_kind,
+    normalize_templates,
+    recover_sentence,
 )
 from story.stages.composition.slot_table import (
     SAME_PERIOD_OPERATIONS,
@@ -87,14 +107,23 @@ __all__ = [
     "TWO_PERIOD_OPERATIONS",
     "UNKNOWN_SLOT_FIELD",
     "UNKNOWN_SLOT_HANDLE",
+    "VALUE_CLAIMED_BY_TWO_ROWS",
     "VALUE_FIELD",
+    "VALUE_OCCURS_TWICE",
+    "AmbiguousLiteral",
     "CompiledDraft",
     "CompositionRefused",
     "CompositionViolation",
+    "NormalizedDraft",
+    "RecoveredSentence",
+    "RecoveredSlot",
     "SentenceTemplate",
     "SlotFill",
     "SlotKind",
     "SlotRow",
     "compile_draft",
+    "derive_kind",
+    "normalize_templates",
+    "recover_sentence",
     "slot_table",
 ]

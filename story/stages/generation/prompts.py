@@ -137,6 +137,7 @@ from story.core.models import (
     StoryEvidencePackage,
     UnusableReason,
 )
+from story.core.spine import StorySpine
 from story.core.renderings import metric_surfaces, period_surface_of_fact
 
 #: Bumped whenever the wording below or the rendering changes. It is a digest input to every
@@ -156,7 +157,7 @@ from story.core.renderings import metric_surfaces, period_surface_of_fact
 #: one in, so every generation recorded under it answers a prompt with no offer set. Bumped
 #: rather than re-keyed, which is §9's whole point — S12's two re-keys were valid precisely
 #: because the request was unchanged, and this one is not.
-PLANNER_PROMPT_VERSION = "1.2.0"
+PLANNER_PROMPT_VERSION = "2.0.0"
 
 #: Reaches the wire and the store. `extraction`'s provider hard-codes one schema name for every
 #: call; three story personas against one package would be indistinguishable in a capture.
@@ -207,154 +208,97 @@ access to any database: the package is your entire universe. Plan the post; you 
 it.
 
 Rules:
-1. Every key point and every counterpoint names the ids it rests on. Use only ids that appear \
-in the package below, spelled exactly as they appear. A plan naming any other id is rejected \
-and never reaches the writer. `required_fact_ids` holds only ids beginning `obs:`, from the \
-FACTS section. `required_citation_passage_ids` holds only passage ids, from the PASSAGE \
-EXCERPTS and COUNTER-EVIDENCE sections. Putting a passage id in `required_fact_ids` is a \
-rejection.
+1. Name a fact by its handle, never by its id. Every row of FACTS and DERIVED FACTS prints a \
+handle in brackets - `F1`, `D1` - and `facts` holds those handles and nothing else. A handle \
+that is not printed is rejected and the plan never reaches the writer.
 2. Introduce no number, no period and no entity that is not in the package. Do not restate a \
 figure in different units, and never work one out yourself - not a change, not a percentage, \
-not a gap, not a ratio. To use a figure that is not in FACTS, ask for it: put a line from \
-DERIVATIONS OFFERED into `requested_derivations` and code computes it for you.
-3. `requested_derivations` holds only lines copied from DERIVATIONS OFFERED, with `operation`, \
-`from_fact_id` and `to_fact_id` exactly as that section spells them. A triple that is not on \
-that list is rejected and the plan never reaches the writer, so do not adjust one, do not swap \
-the two ids around, and do not invent an operation. Ask only for what a key point actually \
-needs; an empty list is a correct answer for a plan that states levels and nothing else. Each \
-requested derivation becomes one fact the writer may state, and the writer may state no \
-computed figure you did not ask for.
-4. Say why something happened only if a quoted span in the package says so. The \
-`causal_language` field is fixed for you and you may not choose it.
-5. If the package carries counter-evidence, every counterpoint you write must rest on at least \
-one id drawn from it, and every counter-evidence item you do not use must appear in \
-`unusable_evidence` with one of the five listed reasons. A counterpoint grounded in nothing is \
-not a counterpoint.
-6. `required_warnings` may name only warning codes listed in the package's WARNINGS section. \
-The writer is refused if it drops one.
-7. `statement_class` is `reported` for a figure quoted from a filing, `calculated` for a \
-figure code computed from two of them under rule 3, and `explanatory` for a claim resting on a \
-passage rather than a number.
-8. `prohibited_claims` are claims the writer must not make even though the evidence is nearby \
-- name them plainly.
-9. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
+not a gap, not a ratio. Every figure you may build on is already printed, including the ones \
+code computed for you under DERIVED FACTS.
+3. VERIFIED CHANGE states what the filings show and which way it runs. It is measured, not \
+inferred, and it is not yours to restate or contradict. You decide what it means and what \
+matters about it; you do not decide whether it rose or fell.
+4. Say why something happened only if a quoted span in the package says so. Where the package \
+carries no such span you may not state a cause, imply one, or place two facts side by side so \
+that a reader infers one.
+5. Write a counterpoint **only** if the COUNTER-EVIDENCE section below lists an item, and rest \
+it on at least one handle drawn from that section. Where that section says none, return an \
+empty `counterpoint` and an empty `counterpoint_facts`: a counterpoint grounded in nothing is \
+not a counterpoint, and writing one loses the whole plan.
+6. `thesis` is one sentence stating the claim of the post. `why_it_matters` says why a reader \
+should care. `uncertainty` states what the evidence does not settle - or is empty if nothing \
+qualifies the claim.
+7. COMPANY IDENTITY, METRIC SEMANTICS and COMPARISON RULES tell you what the subject is, what \
 each figure means and which figures may be set against which. They are definitions: they carry \
-no figure and no id you may name. Where a line says NOT AVAILABLE, the corpus does not hold \
+no figure and no handle you may name. Where a line says NOT AVAILABLE, the corpus does not hold \
 that answer and neither do you - plan no claim that needs it.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
 
-
-def planner_schema(*, causal_language: CausalLanguage) -> dict[str, Any]:
-    """§11's output shape, inside §15.3's portable subset, with `causal_language` pinned.
+def planner_schema() -> dict[str, Any]:
+    """§11's output shape, reduced to the seven leaves that are editorial. Portable subset.
 
     Built fresh on every call rather than shared as a module constant: the returned mapping
     reaches a provider that copies it into a request body, and a shared nested dict is one
     mutation away from re-keying every stored generation that ever used it.
 
-    `causal_language`'s enum holds exactly one member — the value code computed from the
-    package. §15.3 permits `enum` and prohibits everything that could express a range, so a
-    single-member enum is the only way to say "this field is not yours to choose" in a grammar.
+    **Seven leaves left, and each of the twelve that went because code already knew the
+    answer or because nothing read it.** 1.2.0 asked for nineteen. What went, and what fills it:
 
-    **`requested_derivations[]` is package-independent and its enum is all seven operations**
-    (DETERMINISTIC_FACT_TOOLS §4.1), which looks like an exception to this module's rule and is
-    not one. The rule is that a *package-dependent* answer must be checked by code so that one
-    wrong answer does not mean two different things in two packages; `operation` is a closed
-    vocabulary the same in every package, exactly like `statement_class`. Whether a given
-    **triple** is available here is package-dependent, and that is checked by code —
-    `planner.plan_violations` refuses `derivation_not_offered` against the list the prompt
-    printed. Pinning the enum per package to the operations this offer set happens to contain
-    would have made the two providers' grammars differ per candidate for no gain: it still
-    could not constrain the ids, which are the half a model gets wrong.
+    | field | why it is gone |
+    | --- | --- |
+    | `causal_language` | a one-member enum the planner could not influence, and `plan_story` re-stamped `causal_language_for(package)` over the answer regardless. A field the model cannot change does not belong in its grammar |
+    | `requested_derivations` (3) | the detector already published which arithmetic it fired on (`signals["fired_on"]`), and `story/core/spine.py` executes it **before** this call. The planner was copying a triple out of a list code generated so that code could compare it back by string equality |
+    | `required_citation_passage_ids` | a lookup: `PackagedFact.passage_id` gives the passage for every fact a point names, and `_referenced_passage_ids` already did the join |
+    | `statement_class` | decided by which rows a point names — an `F` row is `reported`, a `D` row is `calculated`. Observed wrong in the corpus: `story-v1-76da8465cd95` returned `explanatory` for a package holding **zero** explanatory passages |
+    | `required_warnings` | `claim_qualifying_warnings` already computes the admissible set by filtering build provenance out. Pinning it to that whole set is the only answer that can be right |
+    | `structure` | rendered into the writer prompt and validated by nothing. gpt-5-nano returned the schema's own property names as its structure |
+    | `prohibited_claims` | rendered into the writer prompt and read by no check anywhere. The real guard is `language_safety`'s five closed lexicons and 96 refusing codes; a free-text hint nothing enforces can only mislead |
+    | `unusable_evidence` (2) | exists to account for unused counter-evidence, and is code's the moment `counterpoint_facts` says which items were used |
 
-    **Three fields and no fourth, deliberately.** No expression string — §10 rejects a generic
-    `evaluate(expression)` as *"arbitrary Python by another name"*. No result: a request
-    carrying one would be the model doing the arithmetic with code checking its homework, which
-    is the arrangement §1 replaces. And no native tool-calling on either provider, because two
-    tool protocols keyed under one replay store is a request shape that would differ per
-    provider while `request_identity` already digests this schema.
+    **The ids became handles, and that is the largest change to what the model must produce.**
+    `required_fact_ids` held 70-character `obs:` digests the model had to spell back exactly;
+    `facts` holds `F1`, `D1` — two characters, printed beside their values in the prompt.
+    `editorial_plan_from` resolves them, so `EditorialPlan` keeps every field it has today and
+    every stored plan still loads. A `D` handle resolves to its two **input observations**,
+    because §11 restricts `required_fact_ids` to ids beginning `obs:` and a derived fact is not
+    one.
+
+    **`angle` was in the plan for this change and is not here.** It was proposed as somewhere for
+    editorial framing to go once `structure` and `prohibited_claims` left. `why_it_matters`
+    already carries that, unvalidated, and a second unvalidated field saying the same thing is
+    what `structure` was.
+
+    **`counterpoint` stays, as prose plus handles rather than a nested array.** No package in the
+    corpus carries counter-evidence, so it is empty for every candidate that exists — but
+    `plan_violations` refuses a package *with* counter-evidence and no counterpoint, and removing
+    the field would make that refusal unsatisfiable rather than unnecessary.
     """
-    id_array = {"type": "array", "items": {"type": "string"}}
+    handles = {"type": "array", "items": {"type": "string"}}
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": [
-            "thesis", "why_it_matters", "key_points", "counterpoints", "requested_derivations",
-            "required_warnings", "causal_language", "uncertainty", "structure",
-            "prohibited_claims", "unusable_evidence",
-        ],
+        "required": ["thesis", "why_it_matters", "uncertainty",
+                     "key_points", "counterpoint", "counterpoint_facts"],
         "properties": {
             "thesis": {"type": "string"},
             "why_it_matters": {"type": "string"},
+            "uncertainty": {"type": "string"},
             "key_points": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["claim", "required_fact_ids",
-                                 "required_citation_passage_ids", "statement_class"],
+                    "required": ["claim", "facts"],
                     "properties": {
                         "claim": {"type": "string"},
-                        "required_fact_ids": dict(id_array),
-                        "required_citation_passage_ids": dict(id_array),
-                        "statement_class": {
-                            "type": "string",
-                            "enum": [member.value for member in StatementClass],
-                        },
+                        "facts": dict(handles),
                     },
                 },
             },
-            "counterpoints": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["claim", "required_fact_ids",
-                                 "required_citation_passage_ids"],
-                    "properties": {
-                        "claim": {"type": "string"},
-                        "required_fact_ids": dict(id_array),
-                        "required_citation_passage_ids": dict(id_array),
-                    },
-                },
-            },
-            "requested_derivations": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["operation", "from_fact_id", "to_fact_id"],
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "enum": [member.value for member in DerivationOperation],
-                        },
-                        "from_fact_id": {"type": "string"},
-                        "to_fact_id": {"type": "string"},
-                    },
-                },
-            },
-            "required_warnings": {"type": "array", "items": {"type": "string"}},
-            "causal_language": {"type": "string", "enum": [causal_language.value]},
-            "uncertainty": {"type": "string"},
-            "structure": {"type": "array", "items": {"type": "string"}},
-            "prohibited_claims": {"type": "array", "items": {"type": "string"}},
-            "unusable_evidence": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["id", "reason"],
-                    "properties": {
-                        "id": {"type": "string"},
-                        "reason": {
-                            "type": "string",
-                            "enum": [member.value for member in UnusableReason],
-                        },
-                    },
-                },
-            },
+            "counterpoint": {"type": "string"},
+            "counterpoint_facts": dict(handles),
         },
     }
 
@@ -363,6 +307,10 @@ def planner_prompt(
     package: StoryEvidencePackage,
     *,
     offered: Sequence[DerivationRequest] = (),
+    slots: Sequence[SlotRowView] = (),
+    spine: StorySpine | None = None,
+    derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
+    feedback: str = "",
 ) -> str:
     """The package as the planner sees it. Deterministic, and it says what it cut.
 
@@ -390,9 +338,38 @@ def planner_prompt(
     ]
     lines.extend(_identity_lines(package))
     lines += ["", "FACTS"]
-    lines.extend(_fact_lines(package.facts))
-    lines += ["", _offer_heading(offered)]
-    lines.extend(_offer_lines(offered, package))
+    by_fact_id = _by_fact_id(slots)
+    lines.extend(_fact_lines(package.facts, by_fact_id))
+    # **The derived rows are printed to the planner in the planner's own vocabulary.** The
+    # writer's DERIVED FACTS section prints each row's *slots*; a planner names a handle and
+    # writes no slot at all, so showing it that grammar would show it something it may not use.
+    #
+    # Printed only where VERIFIED CHANGE does not already carry them, and the gap that closes is
+    # measured: `spine_for` returns `None` for every story type but `metric_move`, so a
+    # `cross_metric_divergence` planner saw no `[D1]` anywhere — while `slot_table` held the row
+    # and `plan_violations` accepted a key point grounded in it. The committed fixture plan does
+    # exactly that, which means it is a plan no model could have written from the prompt it was
+    # given.
+    derived = [row for row in derived_facts if isinstance(row, DerivedFact)]
+    if derived and spine is None:
+        lines += ["", PLANNER_DERIVED_HEADING]
+        lines.extend(_planner_derived_lines(derived, by_fact_id))
+    if spine is not None:
+        # Printed **after** the rows so that the handles it names are already on the page, and
+        # printed at all because the planner used to have to infer this from two raw floats six
+        # lines apart. `story-v1-76da8465cd95` inferred it backwards and wrote *"rose"* over
+        # 556 -> 110; nothing between there and the writer read the claim, and the run reached
+        # a model with a factually inverted plan. The direction here is the detector's own word
+        # from `quantity_direction`, which reads the metric's sign convention — so it is not
+        # recoverable from the sign of a delta and was never the planner's to work out.
+        lines += ["", VERIFIED_CHANGE_HEADING]
+        lines.extend(_spine_lines(spine, by_fact_id))
+    if offered:
+        # Only where something is still the planner's to ask for. A story type whose derivations
+        # code already executed prints no offer list, because an offer it may not take is an
+        # invitation to a refusal.
+        lines += ["", _offer_heading(offered)]
+        lines.extend(_offer_lines(offered, package))
     lines += ["", "METRICS"]
     lines.extend(_metric_lines(package))
     lines += ["", SEMANTICS_HEADING]
@@ -416,10 +393,152 @@ def planner_prompt(
     # vacuity §11's correction predicted.
     counter = _passage_lines(package.counter_evidence, "counter")
     count = len(package.counter_evidence)
-    lines += ["", f"COUNTER-EVIDENCE ({count} item{'' if count == 1 else 's'}; every one must "
-                  "be used by a counterpoint or listed in unusable_evidence)"]
-    lines.extend(counter or ["  (none)"])
+    if count:
+        lines += ["", f"COUNTER-EVIDENCE ({count} item{'' if count == 1 else 's'}; the "
+                      "counterpoint must rest on a handle drawn from one of these)"]
+        lines.extend(counter)
+    else:
+        # **Stated as an instruction rather than as an empty list**, because a model reading
+        # "(none)" wrote one anyway. Measured live 2026-08-26 against gpt-5.4 on two candidates:
+        # both returned a well-formed counterpoint with no handles, `Counterpoint`'s validator
+        # refused a claim grounded in nothing, and the whole plan was lost to
+        # `plan_not_constructible` — for the one field the package could not support.
+        lines += ["", "COUNTER-EVIDENCE (none)",
+                  "  This package carries no counter-evidence, so there is nothing a "
+                  "counterpoint could rest on.",
+                  '  Return `counterpoint: ""` and `counterpoint_facts: []`. A counterpoint '
+                  "grounded in nothing is not a counterpoint, and writing one loses the plan."]
+    lines.extend(_feedback_lines(feedback))
     return "\n".join(lines)
+
+
+PLANNER_DERIVED_HEADING = (
+    "COMPUTED FIGURES (code computed each one from two FACTS rows; name one by its handle)")
+
+
+def _planner_derived_lines(
+    derived: Sequence[DerivedFact], by_fact_id: Mapping[str, SlotRowView] | None = None
+) -> list[str]:
+    """Each derived row as a handle, a figure and the words for which way it runs.
+
+    **No slot syntax**, which is the difference from `_derived_fact_lines`: `{{D1.direction}}` is
+    a thing a *writer* writes, and a plan that copied one would be writing in a grammar its own
+    schema has no field for.
+
+    The strings come off the slot row rather than being formatted again, for the reason
+    `_spine_lines` gives: a figure spelled one way here and another way in the writer's prompt is
+    two figures as far as a 9B model is concerned.
+    """
+    rows = by_fact_id or {}
+    lines: list[str] = []
+    for fact in derived:
+        row = rows.get(fact.fact_id)
+        if row is None:
+            continue
+        figure = row.offers.get("", "")
+        phrase = row.offers.get("direction", "")
+        subject = row.offers.get("metric") or row.offers.get("to_metric", "")
+        against = row.offers.get("from_metric", "")
+        # subject, figure, direction, other side — the order the sentence reads in, so a
+        # planner naming this row has already seen the claim spelled out once.
+        gloss = " ".join(part for part in (subject, figure, phrase, against) if part)
+        lines.append(f"  [{row.handle}]  {fact.operation.value}  {gloss}".rstrip())
+    return lines or ["  (none)"]
+
+
+VERIFIED_CHANGE_HEADING = (
+    "VERIFIED CHANGE (code measured this from the filings; it is not yours to restate or "
+    "contradict)")
+
+
+def _spine_lines(
+    spine: StorySpine, by_fact_id: Mapping[str, SlotRowView] | None = None
+) -> list[str]:
+    """The story's factual core, in the words the rows above already print it in.
+
+    **Every string here is one another section already published**, which is deliberate: a
+    figure spelled one way under FACTS and another way here is two figures as far as a 9B model
+    is concerned, and that exact reconciliation failure is recorded against
+    `renderings.observed_figure`. So the surfaces are read off the slot rows rather than
+    formatted again.
+
+    **`direction_verified` is printed when it is false, and the line says the measurement is
+    unavailable rather than omitting it.** `quantity_direction` answers `None` where a metric's
+    sign convention is unverified — `cost_of_revenue` and `inventory_valuation_adjustment` have
+    no observation to measure it from — and a section that silently dropped the direction would
+    read as *"no direction"* rather than *"the corpus cannot say"*.
+    """
+    rows = by_fact_id or {}
+
+    def side(fact_id: str, period: str) -> str:
+        row = rows.get(fact_id)
+        handle = f"[{row.handle}]" if row is not None else ""
+        figure = row.offers.get("", "") if row is not None else ""
+        return f"{period:>8}  {figure or '(no writable figure)'}  {handle}"
+
+    lines = [
+        f"  metric     {spine.metric_id}",
+        f"  from     {side(spine.from_fact_id, spine.from_period)}",
+        f"  to       {side(spine.to_fact_id, spine.to_period)}",
+    ]
+    if spine.direction_verified:
+        lines.append(f"  direction  {spine.direction}")
+    else:
+        lines.append("  direction  NOT AVAILABLE - this metric's sign convention is unverified "
+                     "in this corpus, so no direction may be stated")
+    for fact_id in spine.derived_fact_ids:
+        row = rows.get(fact_id)
+        if row is None:
+            continue
+        figure = row.offers.get("", "")
+        phrase = row.offers.get("direction", "")
+        lines.append(f"  computed   [{row.handle}] {phrase} {figure}".rstrip())
+    lines.append("  You decide what this means and what matters about it. You do not decide "
+                 "which way it went.")
+    return lines
+
+
+TITLE_PERIODS_HEADING = (
+    "TITLE PERIODS (the only numeral a title may carry, spelled exactly like this)")
+
+
+def _title_period_lines(package: StoryEvidencePackage) -> list[str]:
+    """The period keys this package's own facts carry, which is what §13.15 licenses in a title.
+
+    **Printed rather than described, and finding out why is what this section is for.** Rule 12
+    used to say *"the compact form the candidate id uses (2022Q3)"* and left the model to derive
+    it. `claims.check_title` licenses a numeral only inside an exact occurrence of a period key
+    **the package carries** — and half the corpus's `metric_move` candidates are instant-dated,
+    so their keys are `2025-06-30`, not `2025Q2`. Measured live 2026-08-26 against three of
+    them: Qwen followed the rule, wrote *"Opendoor 2025Q2"*, and earned `unbound_numeral` twice
+    over — on `2025` and on `2` — for a title the rule had asked for. The instruction was
+    unsatisfiable and the model was refused for obeying it.
+
+    So the admissible strings are printed, the way every other legal string in this prompt is.
+    A package whose facts carry no period key at all prints the line that says so, and rule 12's
+    *"may"* then means no numeral at all.
+    """
+    keys = sorted({fact.period_key for fact in package.facts if fact.period_key})
+    if not keys:
+        return ["  (none — this title may carry no numeral at all)"]
+    return [f"  {key}" for key in keys]
+
+
+def _feedback_lines(feedback: str) -> list[str]:
+    """A previous attempt's refusal, appended as its own section, or nothing at all.
+
+    **Appended rather than interpolated, and last.** The evidence above it is identical to the
+    first attempt's, so a reader diffing two stored prompts sees exactly one added block and can
+    tell a repair from a fresh call without parsing either.
+
+    **The empty string renders nothing, which is what makes a first attempt byte-identical to
+    the run that had no repair at all.** `prompt` is a `request_identity` digest input, so a
+    first call that carried an empty heading would key differently from every generation already
+    recorded — and the whole replay store would miss for a feature that had not fired.
+    """
+    if not feedback.strip():
+        return []
+    return ["", "PREVIOUS ATTEMPT WAS REFUSED", *(f"  {line}" for line in feedback.split("\n"))]
 
 
 def _subject(package: StoryEvidencePackage) -> str:
@@ -428,12 +547,24 @@ def _subject(package: StoryEvidencePackage) -> str:
     return f"{subject.entity_id}  {subject.entity_text!r}  ({state})"
 
 
-def _fact_lines(facts: Sequence[PackagedFact]) -> list[str]:
+def _fact_lines(
+    facts: Sequence[PackagedFact], by_fact_id: Mapping[str, SlotRowView] | None = None
+) -> list[str]:
+    """One row per filed reading, headed by the handle a plan names it with.
+
+    **The id is still printed and is no longer what the model has to reproduce.** §11's rule 1
+    now asks for `F1`, and `editorial_plan_from` resolves it back to this id — but a reader of a
+    stored prompt has to be able to join the two, and an evidence panel shows the id. Printing
+    the handle alone would make the prompt unreadable against every artifact beside it.
+    """
     if not facts:
         return ["  (none)"]
+    rows = by_fact_id or {}
     lines: list[str] = []
     for fact in facts:
-        lines.append(f"  [{fact.observation_id}]")
+        row = rows.get(fact.observation_id)
+        handle = f"[{row.handle}]  " if row is not None else ""
+        lines.append(f"  {handle}[{fact.observation_id}]")
         printed = f'  printed "{fact.printed_form}"' if fact.printed_form else ""
         lines.append(
             f"      {fact.metric_id} ({fact.metric_label})  {fact.period_key}  "
@@ -785,7 +916,7 @@ def _passage_lines(passages: Sequence[PackagedPassage], role: str) -> list[str]:
 #: `story.stages.composition.slot_table` says that row offers, so *"what may be written for this
 #: row"* is answered in exactly one place and the prompt cannot offer a string the compiler will
 #: refuse. That is why the rows are an **argument** to `writer_prompt` — see its docstring.
-WRITER_PROMPT_VERSION = "3.0.0"
+WRITER_PROMPT_VERSION = "4.0.0"
 
 #: Reaches the wire and the store, and is not the planner's name — two personas against one
 #: package must be distinguishable in a capture.
@@ -903,81 +1034,78 @@ tools, no search and no access to any database: what you are shown is your entir
 Follow the plan; you did not choose it.
 
 Write the post as a list of sentences. You write the words. Code writes every figure, every \
-period and every citation, into the slots you leave for it.
+period and every citation.
 
 Rules:
-1. Write a slot, never a figure. `{{F3}}` is that row's figure, `{{F3.metric}}` is the name of \
-what it measures and `{{F3.period}}` is the period it covers, and code replaces each one with \
-the exact words before anyone reads the post. Work nothing out yourself, restate nothing in \
-another unit, and type no number, no date and no period of your own: a numeral you type is \
-bound to nothing and is refused.
-2. Only the slots printed under a row exist. Every row of FACTS, DERIVED FACTS and PASSAGES \
-prints its handle and the exact slots it offers. A slot naming a row that is not printed, or \
-naming a field that row does not print, is refused and no post is written at all; a row printed \
-with no slot is a row you cannot write about.
-3. A sentence that names `{{F3.metric}}` or `{{F3.period}}` must name `{{F3}}` in the same \
-sentence. The period and the metric are read off the figure they belong to, so a sentence that \
-names a row without writing its figure states a period nothing accounts for.
-4. The metric slot is optional; the figure and the period slots are not. Naming a metric in \
-your own words is allowed and often reads better, provided the words name that metric and no \
-other - write "GAAP gross margin" or "adjusted gross margin", never "gross margin", which names \
-two.
+1. Every figure and every period in your post comes from a row below, spelled the way that row \
+spells it. You may write the row's slot - `{{F3}}` is that row's figure, `{{F3.metric}}` the \
+name of what it measures, `{{F3.period}}` the period it covers - or you may write the row's \
+own printed string and code will bind it for you. Both are accepted. What is refused is a \
+figure, a date or a period of your own: work nothing out, restate nothing in another unit, and \
+copy nothing from a table. A numeral that matches no row is bound to nothing and is refused.
+2. Only the rows printed below exist, and only the slots printed under a row exist. A slot \
+naming a row that is not printed, or a field that row does not print, is refused and no post \
+is written at all; a row printed with no slot is a row you cannot write about.
+3. A sentence that names a row's metric or period must also carry that row's figure. The \
+period and the metric are read off the figure they belong to, so a sentence that names a row \
+without writing its figure states a period nothing accounts for.
+4. Naming a metric in your own words is allowed and often reads better, provided the words name \
+that metric and no other - write "GAAP gross margin" or "adjusted gross margin", never "gross \
+margin", which names two.
 5. A DERIVED FACTS row is a figure code computed from two filed readings. `{{D1}}` is that \
 figure and `{{D1.direction}}` is the words for which way it runs. Do not name the operation, do \
 not reverse the direction the row prints, and do not write the two readings it was computed \
-from unless a sentence writes their slots too.
-6. You write no citations at all. Code cites the facts your slots name, and your answer has no \
-field for an evidence id, a passage id or a quote. An `explanatory` sentence resting on what a \
-passage says rather than on a figure names that passage's handle in `rests_on` - `["P2"]` - and \
-every other sentence leaves `rests_on` empty. A passage handle goes in `rests_on` and \
-never in the text: `{{P2}}` is not a slot.
-7. `kind` is `reported` for a figure quoted from a filing, `calculated` for a figure from the \
-DERIVED FACTS section, `explanatory` for a claim resting on a passage rather than a number, and \
-`connective` for a sentence that carries no claim at all - no figure, no comparison, no \
-characterisation.
-8. A difference between two percentages is measured in **percentage points**, never in \
-percent. A percentage-point row's own slot writes "percentage points" for you; what is refused \
-is a `%` figure of your own beside a word like rose, fell, up or down, which is unresolvable.
-9. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
+from unless the sentence writes their figures too.
+6. You write no citations at all. Code cites the facts your sentences name, and your answer has \
+no field for an evidence id, a passage id or a quote.
+7. A difference between two percentages is measured in **percentage points**, never in \
+percent. A percentage-point row's own figure writes "percentage points" for you; what is \
+refused is a `%` figure of your own beside a word like rose, fell, up or down.
+8. Never write a superlative or a uniqueness claim (only, sole, first, last, never, always, \
 worst, best, largest, smallest, record), an absence claim (has not, did not, no longer), or an \
 ordering of two items (before, after, until, since). Nothing you have been shown can support \
 one.
-10. One comparison between two figures (higher, lower, better, worse, more, less) is allowed, \
+9. One comparison between two figures (higher, lower, better, worse, more, less) is allowed, \
 and only where a DERIVED FACTS row supports it. Name each figure's metric on its own side of \
-the comparing word and use one comparing word in the sentence. Which slot you put on which side \
-of that word is your claim about the world, and no slot checks it for you.
-11. Never write about the future - no expectation, guidance, outlook, forecast, target or plan \
-- and write about the subject and no one else: no competitor, no index, no "the market", no \
-"the industry", no "peers".
-12. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists, and \
+the comparing word and use one comparing word in the sentence. Which figure you put on which \
+side of that word is your claim about the world, and no row checks it for you.
+10. Never write about the future - no expectation, guidance, outlook, forecast, target or plan, \
+and nothing a company "will" do - and write about the subject and no one else: no competitor, \
+no index, no "the market", no "the industry", no "peers".
+11. State every warning listed under REQUIRED WARNINGS, using one of the phrases it lists, and \
 write every counterpoint the plan lists, resting on the same rows the plan names.
-13. The title carries no slot at all and states no claim of its own: no figure, no superlative, \
-no comparison, no cause. It may name the period the post is about, written in the compact form \
-the candidate id uses (2022Q3), and that is the only numeral a title may hold. Inside a \
-sentence a period is written with that row's period slot and never in the compact form.
-14. COMPANY IDENTITY, METRIC SEMANTICS, COMPARISON RULES and EVIDENCE SCOPE carry no slot and \
-are not evidence. The first three are definitions - what the subject is, what each figure means, \
-which figures may be set against which - and where a line says NOT AVAILABLE the corpus does \
-not hold that answer and neither do you; in particular, write nothing about what the company \
-does, sells or competes in. EVIDENCE SCOPE states what this package's evidence does not \
+12. The title carries no figure and states no claim of its own: no superlative, no comparison, \
+no cause. It may name the period the post is about, and the only spelling it may use is one of \
+the tokens printed under TITLE PERIODS below - that is the only numeral a title may hold. \
+Inside a sentence a period is written the way its row prints it and never as one of those \
+tokens.
+13. COMPANY IDENTITY, METRIC SEMANTICS, COMPARISON RULES and EVIDENCE SCOPE carry no figure and \
+are not evidence. The first three are definitions - what the subject is, what each figure \
+means, which figures may be set against which - and where a line says NOT AVAILABLE the corpus \
+does not hold that answer and neither do you; in particular, write nothing about what the \
+company does, sells or competes in. EVIDENCE SCOPE states what this package's evidence does not \
 contain: obey it, and never report it.
 
-What an answer looks like. Suppose the sections below printed a row `[F4]` offering \
-`{{F4}}`, `{{F4.metric}}` and `{{F4.period}}`, and a row `[D2]` offering `{{D2}}` and \
-`{{D2.direction}}`:
+What an answer looks like. Suppose the sections below printed a row `[F4]` offering `{{F4}}` \
+-> "4.2 percent", `{{F4.metric}}` -> "Gross Margin" and `{{F4.period}}` -> "the fourth quarter \
+of 2021", and a row `[D2]` offering `{{D2}}` -> "1.1 percentage points" and `{{D2.direction}}` \
+-> "lower than". Either of these is a correct answer:
 
   {"title": "Acme 2021Q4",
    "sentences": [
-     {"text": "Acme reported {{F4.metric}} of {{F4}} in {{F4.period}}.",
-      "kind": "reported", "rests_on": []},
-     {"text": "That is {{D2}} {{D2.direction}} the quarter before.",
-      "kind": "calculated", "rests_on": []}]}
+     {"text": "Acme reported {{F4.metric}} of {{F4}} in {{F4.period}}."},
+     {"text": "That is {{D2}} {{D2.direction}} the quarter before."}]}
 
-Note what is **not** in it: no figure, no percentage, no date, no metric name typed out where a \
-slot was offered, no citation and no evidence id. Every one of those is written for you. A \
-sentence you write as "Acme reported gross margin of 4.2 percent in the fourth quarter of \
-2021" contains four things you were not asked for and is refused, even though every word of it \
-is true - because a figure you typed is a figure nothing checked.
+  {"title": "Acme 2021Q4",
+   "sentences": [
+     {"text": "Acme reported Gross Margin of 4.2 percent in the fourth quarter of 2021."},
+     {"text": "That is 1.1 percentage points lower than the quarter before."}]}
+
+The second writes the rows' own strings instead of their slots, and code binds them to the same \
+facts. What neither does is invent: no figure, no date and no period that a row did not print. \
+A sentence reading "Acme reported gross margin of 4.3 percent in Q4" is refused three times \
+over - a figure no row prints, a period in a form no row prints, and a metric name that \
+matches two.
 
 Answer with the JSON object the schema describes and nothing else.\
 """
@@ -1006,26 +1134,33 @@ def writer_system(style: StyleProfile) -> str:
 
 
 def writer_schema() -> dict[str, Any]:
-    """§4.2's template shape, inside §15.3's portable subset. Three properties, no object array.
+    """The sentence, and nothing else. Two leaves, inside §15.3's portable subset.
 
-    **`fact_bindings` and `citations` are gone, and with them every field a model could get
-    provenance wrong in** (S4 of `docs/2026-08-23-deterministic-draft-compiler/`). A binding used
-    to carry a `fact_id`, a `rendered` substring, a `metric_surface` and a `period_surface`, and a
-    citation an `evidence_id` — six model-authored strings per sentence that code then had to
-    check. `story/stages/composition/compile.py` now writes all six from the row the template's
-    slot names, so what is left for the model is the sentence: its words, its `kind`, and the
-    passages an `explanatory` one rests on.
+    **`kind` and `rests_on` are gone, and the schema is now prose plus a title.** They were the
+    last two machine-facing fields the model authored, and both were measured wrong on the same
+    day: `story-v1-76da8465cd95` put fact handles in `rests_on` (six refusals, run over), and
+    `kind` is derivable from the rows a sentence's slots name — `story/stages/composition/`
+    computes it, and doing so is *stricter* than asking, because three of the four wrong labels
+    become unrepresentable rather than refused.
+
+    **`rests_on` went because the route it serves cannot currently succeed.** An `explanatory`
+    sentence rests on a passage; `EvidenceRequest.want_explanatory_search` defaults to `False`
+    and every detector leaves it there, so `package.explanatory_passages` is empty in every run
+    that exists. The `P` rows a draft could name are the *tables facts were read from*, and a
+    claim resting on a number grid is what gpt-5-nano wrote. Measured: **0 of 17 accepted runs
+    used an explanatory sentence**, and the PASSAGES section printing those tables was 5,924 of
+    this prompt's 11,179 characters — 182 numerals, none of them legal for the model to write.
+
+    None of that vocabulary is deleted. `SentenceKind.EXPLANATORY`, the `P` rows, the compiler's
+    `rests_on` handling and the four codes that guard it all stay, unreachable from this schema
+    and still tested, exactly as the eight pre-3.0.0 writer codes stay for replayed artifacts.
+    When a story type turns explanatory retrieval on, the route returns.
 
     **The template is the reference list, and there is deliberately no `facts_used` array.** Two
     fields that can disagree about which facts a sentence uses is a state worth making
-    unrepresentable; the placeholders inside `text` already say it exactly once.
-
-    **`rests_on` is required and possibly empty.** `story/providers/portable_schema.py` demands
-    `required == properties` on every object and admits no `null` type, so *"optional"* has no
-    portable spelling — an empty array is the one this schema can express, and
-    `RESTS_ON_WITHOUT_EXPLANATORY_SENTENCE` is what a non-empty one on the wrong `kind` earns.
-    There is no `minItems` and no `pattern` either, which is why *"a handle looks like `P2`"* is
-    checked by code in `writer.templates_from` and by the compiler's grammar, and not here.
+    unrepresentable; the placeholders inside `text` already say it exactly once — and where the
+    model writes no placeholder at all, `story/stages/composition/recovery.py` recovers one from
+    the literal it did write.
 
     `additionalProperties: false` is what makes each removal a refusal rather than a hope: an
     answer that carries a `fact_bindings` array anyway — which is exactly what the 50 recorded
@@ -1042,19 +1177,12 @@ def writer_schema() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["text", "kind", "rests_on"],
+                    "required": ["text"],
                     "properties": {
-                        # Carries `{{H}}` and `{{H.field}}`; everything outside a slot is the
-                        # model's own prose and is copied through untouched.
+                        # Carries `{{H}}` and `{{H.field}}` where the model chose to write one;
+                        # everything outside a slot is the model's own prose and is copied
+                        # through untouched, recovered or not.
                         "text": {"type": "string"},
-                        "kind": {
-                            "type": "string",
-                            "enum": [member.value for member in SentenceKind],
-                        },
-                        "rests_on": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
                     },
                 },
             },
@@ -1126,6 +1254,10 @@ class SlotRowView(Protocol):
 #: asserts it equals the enum member rather than trusting this line.
 PASSAGE_ROW = "passage"
 
+#: `SlotKind.DERIVED`'s value, under the same rule and for the same reason as `PASSAGE_ROW`: this
+#: stage may not import the enum, and the string is what a row carries.
+DERIVED_ROW = "derived"
+
 
 def _by_fact_id(slots: Sequence[SlotRowView]) -> Mapping[str, SlotRowView]:
     """The rows keyed on the id they were minted for, which is how each section finds its handle.
@@ -1177,6 +1309,7 @@ def writer_prompt(
     slots: Sequence[SlotRowView] = (),
     derived_facts: Sequence[DerivedFact | EvidenceScopeFact] = (),
     length_target: int = DEFAULT_LENGTH_TARGET,
+    feedback: str = "",
 ) -> str:
     """The plan, the facts, the derived facts, the writer's passage slice — and the slot table.
 
@@ -1239,12 +1372,21 @@ def writer_prompt(
     lines.extend(_semantic_lines(package))
     lines += ["", COMPARISON_HEADING]
     lines.extend(_comparability_lines(package))
-    count = len(passages)
-    lines += ["", f"PASSAGES ({count} whole passage{'' if count == 1 else 's'}; every one is a "
-                  "passage a fact above was read from. Read them; write no text out of them, "
-                  "and name one only in rests_on, by its handle)"]
-    lines.extend(_writer_passage_lines(passages, by_fact_id))
+    if passages:
+        # Omitted entirely when there is none, rather than printed as an empty heading. Every
+        # other section here renders "(none)" because an absent section would read as an
+        # omission; this one is the opposite case. A heading over no passage would invite a
+        # sentence resting on evidence the run does not carry, and the section's whole cost is
+        # the tables it prints — see `writer.write_story` for the measurement.
+        count = len(passages)
+        lines += ["", f"PASSAGES ({count} whole passage{'' if count == 1 else 's'}; every one "
+                      "is a passage a fact above was read from. Read them; write no text out "
+                      "of them, and name one only in rests_on, by its handle)"]
+        lines.extend(_writer_passage_lines(passages, by_fact_id))
+    lines += ["", TITLE_PERIODS_HEADING]
+    lines.extend(_title_period_lines(package))
     lines += ["", f"LENGTH  about {length_target} sentences."]
+    lines.extend(_feedback_lines(feedback))
     return "\n".join(lines)
 
 

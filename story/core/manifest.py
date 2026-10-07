@@ -24,7 +24,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence, Mapping, Sequence
 
 from story import STORY_LAYOUT_VERSION
 
@@ -114,6 +114,12 @@ class StoryRunManifest:
     #: configuration would record a request that was never made.
     planner_provider_model: dict[str, Any]
     writer_provider_model: dict[str, Any]
+    #: One row per model call, in call order — stage, attempt number, outcome, codes. **Beside
+    #: the two named blocks and not replacing them**: those carry the provider's model id, and
+    #: `demo_ui.api.PROVIDER_MODEL_BLOCKS` reduces it to a basename by name, so a list carrying
+    #: one would need that redaction rewritten or it would put an operator's absolute weights
+    #: path in the browser — a defect that already shipped once. Nothing here holds a path.
+    call_sites: list[dict[str, Any]]
 
     #: What the request was actually parameterised with — `{temperature, temperature_sent,
     #: reasoning_effort, max_output_tokens_ceiling, max_output_tokens_sent, store_responses}`.
@@ -182,6 +188,7 @@ def build_manifest(
     # to `{}` would read as "the planner never ran" on a run where it did.
     planner_provider_model: dict[str, Any],
     writer_provider_model: dict[str, Any],
+    call_sites: Sequence[Mapping[str, Any]] = (),
     provider_settings: dict[str, Any],
     detector_versions: dict[str, str],
     policy_version: str,
@@ -226,6 +233,7 @@ def build_manifest(
         schema_digests=dict(schema_digests),
         planner_provider_model=dict(planner_provider_model),
         writer_provider_model=dict(writer_provider_model),
+        call_sites=[dict(row) for row in call_sites],
         provider_settings=dict(provider_settings),
         detector_versions=dict(detector_versions),
         policy_version=policy_version,

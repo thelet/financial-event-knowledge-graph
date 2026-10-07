@@ -65,7 +65,8 @@ anchor was chosen. Doc 04 §7 records the required revision to `real_estate_mark
 Documents → acquisition → canonical normalized passages → extraction
     → entity resolution → graph mutations → graph repository
         → visual exploration → detectors → bounded evidence package
-            → planner → deterministic derivation → writer → verifier → post
+            → deterministic derivation → planner → writer
+                → deterministic composition → verifier → post
 ```
 
 ## Architectural rule
@@ -216,7 +217,11 @@ words.** Concretely —
 
 - the model sees one bounded evidence package and has no retriever, no tools and no database;
 - every derived quantity is computed by `story/stages/derivation/` from two package facts and
-  bound by id; the writer declares no arithmetic of its own;
+  bound by id, **before the planner is asked anything** — so the direction of a metric move is a
+  measurement the plan is shown, not an inference it makes;
+- the writer emits two fields, `title` and `text`. Every figure, period, metric surface, binding
+  and citation in a post is written by `story/stages/composition/`, which also recovers a slot
+  from a literal the model wrote in prose, matching only strings a row already offers;
 - a 12-check deterministic verifier with a closed 102-code gate table is the final authority,
   and a draft that fails it produces a recorded rejection rather than a post;
 - two providers are selectable per run — a local llama.cpp server and the OpenAI Responses API

@@ -83,6 +83,20 @@ Status = Literal["queued", "running", "passed", "warning", "failed", "skipped", 
 #: one measurement is the `ranking`-twice defect with the names swapped. What validation did is
 #: reported where it happened: `executing_derivations · failed · refused N` is a refusal at
 #: §4.2, and the refusal codes are in `derived_facts.json` and on the rejection payload.
+#: **`compiling_draft` was added 2026-08-26 (03-WRITER-AND-COMPOSITION-STABILIZATION §10) and
+#: its absence was invisible in exactly the way that matters.** The draft compiler is a stage of
+#: its own — it can refuse, with its own nine-code vocabulary and its own `composition_refused`
+#: disposition — and with no name here a compile-time refusal appeared on the timeline as nothing
+#: at all: the stream showed `drafting · passed` and then jumped to a refused run. It sits
+#: between `drafting` and the `checking_*` stages because that is where it runs: the model's
+#: templates arrive, code fills their slots, and only then is there a draft for §13 to examine.
+#:
+#: **`repairing` is the vocabulary landing before the behaviour**, deliberately, and it is the
+#: one stage in this table that nothing instruments yet. 04-REPAIR-ROUTING adds a bounded repair
+#: pass that emits it; the table's own rule — *a stage exists here because code instruments it* —
+#: is bent by one entry rather than broken, because the alternative is two agents editing this
+#: mapping in the same phase. It sits after the `checking_*` stages and before `rendering`: a
+#: repair is a response to findings, so it cannot precede the checks that produced them.
 STAGES_BY_PHASE: Mapping[str, tuple[str, ...]] = {
     "discovery": (
         "loading_graph_snapshot",
@@ -107,10 +121,12 @@ STAGES_BY_PHASE: Mapping[str, tuple[str, ...]] = {
         "derived_facts_added",
         "binding_facts_and_citations",
         "drafting",
+        "compiling_draft",
         "checking_numbers_and_units",
         "checking_metrics_and_periods",
         "checking_citation_support",
         "checking_causal_language",
+        "repairing",
         "rendering",
     ),
 }
@@ -121,6 +137,13 @@ STAGES: tuple[str, ...] = tuple(
 #: What a stage is called in the interface. Held here rather than in the browser because the
 #: same string goes into `trace_events.jsonl`, and a label that existed only in JavaScript
 #: would make the artifact and the panel two different accounts of the run.
+#:
+#: **This mapping must cover `STAGES` exactly, and a gap in it fails late and in the worst
+#: place.** `TraceEvent.stage` is validated against `STAGES_BY_PHASE`, so a stage missing a label
+#: here *constructs fine* and raises `KeyError` from `label` — inside `message`, a
+#: `computed_field` — at `model_dump` time, which is on the generation worker thread as the event
+#: is serialised for the stream. `test_demo_ui_trace.py` round-trips every stage through
+#: `model_dump` for that reason, rather than only constructing one.
 STAGE_LABELS: Mapping[str, str] = {
     "loading_graph_snapshot": "loading graph snapshot",
     "canonical_series": "canonical series",
@@ -142,10 +165,12 @@ STAGE_LABELS: Mapping[str, str] = {
     "derived_facts_added": "derived facts added",
     "binding_facts_and_citations": "binding facts and citations",
     "drafting": "drafting",
+    "compiling_draft": "compiling draft",
     "checking_numbers_and_units": "checking numbers and units",
     "checking_metrics_and_periods": "checking metrics and periods",
     "checking_citation_support": "checking citation support",
     "checking_causal_language": "checking causal language",
+    "repairing": "repairing",
     "rendering": "rendering",
 }
 
@@ -211,6 +236,12 @@ COUNT_UNITS: frozenset[str] = frozenset({
     "canonical slots",
     "metric-and-shape distributions",
     "stories",
+    # The two populations a bounded repair pass counts (04-REPAIR-ROUTING). They are two
+    # populations and not one for the reason the derivation units are four: a repair is handed
+    # *findings* and it acts on *sentences*, and `processed 6 blocking findings · accepted 2
+    # sentences` is unreadable if both numbers claim the same noun.
+    "blocking findings",
+    "sentences",
 })
 
 
