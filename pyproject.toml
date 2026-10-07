@@ -1,7 +1,13 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "financial-event-knowledge-graph"
 version = "0.1.0"
-description = "Financial event knowledge graph prototype - raw SEC filing acquisition"
+description = "Evidence-first pipeline from SEC filings to a knowledge graph and verified investor posts"
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 # `neo4j` is capped below 7 while the other three are not: the driver's own README states
 # that upgrades never break the API *within* a major version, and a 7.0 is already
@@ -9,10 +15,31 @@ requires-python = ">=3.10"
 # 5.26 LTS server this project pins (verified 2026-08-02). It brings one transitive
 # dependency, `pytz` — the first this repository has taken on, and worth naming given the
 # standard-library-first default.
-dependencies = ["httpx>=0.27", "pydantic>=2.6", "PyYAML>=6.0", "neo4j>=6.2,<7"]
+#
+# `lxml` and `sec-parser` are the normalization parsers. Both were imported by the code but
+# missing here, so a fresh install failed at the normalize stage. `sec-parser` is pinned exactly,
+# as plans/normalization/V1_DOCUMENT_NORMALIZATION.md specifies.
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "PyYAML>=6.0",
+    "neo4j>=6.2,<7",
+    "lxml>=5",
+    "sec-parser==0.58.1",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+
+# Several top-level packages live side by side, so automatic discovery refuses to guess. The
+# packages still find `config/` by walking up from their own files, which makes an editable
+# install (`pip install -e .`) the supported way to install this repository.
+[tool.setuptools.packages.find]
+include = ["acquisition*", "normalization*", "ontology*", "extraction*", "graph*", "story*"]
+
+[tool.setuptools.package-data]
+ontology = ["versions/**/*.yaml"]
+story = ["demo_ui/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
